@@ -422,7 +422,18 @@ async function startManualRecording() {
             stream.getTracks().forEach(t => t.stop()); // Stop stream tracks here
             updateStatus("Sending audio...");
             const audioBlob = new Blob(manualAudioChunks, { type: 'audio/wav' });
-            const formData = new FormData(); formData.append('audio', audioBlob, 'manual.wav');
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'manual.wav');
+
+            const voiceFileInput = document.getElementById('voice-file-input');
+            const voicePresetSelect = document.getElementById('voice-preset-select');
+
+            if (voiceFileInput.files.length > 0) {
+                formData.append('voice_file', voiceFileInput.files[0]);
+            } else if (voicePresetSelect.value) {
+                formData.append('voice_preset', voicePresetSelect.value);
+            }
+
             try {
                 const response = await fetch('/record', { method: 'POST', body: formData });
                 const data = await response.json();
@@ -608,10 +619,19 @@ async function startCall() {
             updateStatus("Sending audio..."); 
             
             const audioBlob = new Blob(callAudioChunks, { type: callMediaRecorder.mimeType });
-            callAudioChunks = []; 
-            const formData = new FormData(); 
+            callAudioChunks = [];
+            const formData = new FormData();
             formData.append('audio', audioBlob, 'call_audio_chunk' + (callMediaRecorder.mimeType.includes('webm') ? '.webm' : '.wav'));
-            
+
+            const voiceFileInput = document.getElementById('voice-file-input');
+            const voicePresetSelect = document.getElementById('voice-preset-select');
+
+            if (voiceFileInput.files.length > 0) {
+                formData.append('voice_file', voiceFileInput.files[0]);
+            } else if (voicePresetSelect.value) {
+                formData.append('voice_preset', voicePresetSelect.value);
+            }
+
             let botWillSpeak = false;
             try {
                 const resp = await fetch('/record', { method: 'POST', body: formData });
@@ -1299,6 +1319,52 @@ async function triggerQuickWakeWordRecording() {
     } catch (error) { console.error(error); updateStatus("Mic error for " + WAKE_WORD + "."); isQuickWakeWordRecording = false; isQuickCommandActive = false; if (!isCallModeActive && !manualIsRecording) startKeywordSpotter(); }
 }
 
+async function testVoiceClone() {
+    const text = messageInput.value.trim();
+    if (!text) {
+        alert("Please enter some text to test the voice clone.");
+        return;
+    }
+
+    const voiceFileInput = document.getElementById('voice-file-input');
+    const voicePresetSelect = document.getElementById('voice-preset-select');
+
+    if (voiceFileInput.files.length === 0 && !voicePresetSelect.value) {
+        alert("Please select a voice file or a preset to test.");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('text', text);
+
+    if (voiceFileInput.files.length > 0) {
+        formData.append('voice_file', voiceFileInput.files[0]);
+    } else if (voicePresetSelect.value) {
+        formData.append('voice_preset', voicePresetSelect.value);
+    }
+
+    try {
+        updateStatus("Cloning voice...");
+        const response = await fetch('/voice_clone', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        if (data.audio_data_url) {
+            const audio = new Audio(data.audio_data_url);
+            audio.play();
+            updateStatus("Voice test complete.");
+        } else {
+            alert("Failed to clone voice: " + (data.error || "Unknown error"));
+            updateStatus("Voice test failed.");
+        }
+    } catch (error) {
+        console.error("Error testing voice clone:", error);
+        alert("An error occurred while testing the voice clone.");
+        updateStatus("Voice test failed.");
+    }
+}
+
 // Initial Load
 window.addEventListener('load', () => {
     // DOM Elements are assigned in DOMContentLoaded, so this is fine.
@@ -1307,6 +1373,28 @@ window.addEventListener('load', () => {
 });
 
 // === DOMContentLoaded to initialize elements and status updater ===
+async function populateVoiceList() {
+    try {
+        const response = await fetch('/list_voices');
+        if (!response.ok) {
+            console.error('Failed to fetch voice list');
+            return;
+        }
+        const voices = await response.json();
+        const selectElement = document.getElementById('voice-preset-select');
+        if (selectElement) {
+            voices.forEach(voice => {
+                const option = document.createElement('option');
+                option.value = voice;
+                option.textContent = voice;
+                selectElement.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error populating voice list:', error);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // Assign DOM elements
     chatArea = document.getElementById("chat-area");
@@ -1327,7 +1415,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial UI setup
     applyDarkModePreference(); 
-    applyChatVisibilityPreference(); 
+    applyChatVisibilityPreference();
+    populateVoiceList();
 
     if (orb && orbCore) { 
         if (!isChatVisible) initializeParticles(); 
@@ -1344,6 +1433,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if(recordButton) recordButton.addEventListener('click', toggleRecord);
     if(darkModeButton) darkModeButton.addEventListener('click', toggleDarkMode); // Added listener if not using onclick
     if(keywordListenToggleButton) keywordListenToggleButton.addEventListener('click', handleToggleKeywordListening);
+    const testVoiceButton = document.getElementById('test-voice-button');
+    if(testVoiceButton) testVoiceButton.addEventListener('click', testVoiceClone);
 
     // Remove the old general unlock logic that starts keyword spotting automatically.
     // The new button will handle unlocking and starting.

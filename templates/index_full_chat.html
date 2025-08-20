@@ -44,7 +44,16 @@
             <button id="recordButton" title="Manual Record">🎤</button>
             <button id="playResponseButton" title="Play Last Response">🔊</button>
             <button id="callModeButton" title="Start/End Voice Call">📞</button>
-            <button id="keywordListenToggleButton" title="Toggle Keyword Listening">👂</button> 
+            <button id="keywordListenToggleButton" title="Toggle Keyword Listening">👂</button>
+        </div>
+        <div class="voice-cloning-container">
+            <label for="voice-file-input">Clone New Voice:</label>
+            <input type="file" id="voice-file-input" accept="audio/*">
+            <label for="voice-preset-select">Or Use Preset:</label>
+            <select id="voice-preset-select">
+                <option value="">None</option>
+            </select>
+            <button id="test-voice-button" title="Test Voice">🧪</button>
         </div>
     </div>
 

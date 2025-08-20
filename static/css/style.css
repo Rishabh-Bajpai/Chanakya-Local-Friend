@@ -439,3 +439,49 @@ body {
     margin-right: 5px;
     margin-bottom: 5px;
 }
+
+.voice-cloning-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 15px;
+    background-color: rgba(0,0,0,0.2);
+    border-top: 1px solid var(--border-color);
+    gap: 10px;
+}
+
+.voice-cloning-container label {
+    font-size: 0.9em;
+    color: var(--status-color);
+}
+
+.voice-cloning-container input[type="file"],
+.voice-cloning-container select {
+    background-color: var(--input-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    padding: 5px;
+    font-size: 0.9em;
+}
+
+.voice-cloning-container button {
+    background: var(--button-bg);
+    border: none;
+    color: var(--button-text-color);
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    font-size: 1.2em;
+    cursor: pointer;
+    transition: background 0.3s, transform 0.2s;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0;
+}
+
+.voice-cloning-container button:hover {
+    background: var(--button-hover-bg);
+    transform: translateY(-2px);
+}

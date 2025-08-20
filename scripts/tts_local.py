@@ -8,7 +8,7 @@ import os
 import torchaudio as ta
 from chatterbox.tts import ChatterboxTTS
 
-def text_to_speech(text, tts_engine, server_url, output_filename="output.wav"):
+def text_to_speech(text, tts_engine, server_url, output_filename="output.wav", voice_file_path=None):
     """
     Sends a text-to-speech request to the specified server and saves the audio to a file.
 
@@ -17,6 +17,7 @@ def text_to_speech(text, tts_engine, server_url, output_filename="output.wav"):
         tts_engine (str): The name of tts engine options chatterbox or coqui or piper
         server_url (str): The URL of the text-to-speech server.
         output_filename (str): The name of the file to save the audio to.
+        voice_file_path (str, optional): The path to the voice file for cloning. Defaults to None.
 
 
     Returns:
@@ -29,7 +30,10 @@ def text_to_speech(text, tts_engine, server_url, output_filename="output.wav"):
     try:
         if (tts_engine=="chatterbox"):
             model = ChatterboxTTS.from_pretrained(device="cuda")
-            AUDIO_PROMPT_PATH="tts/Michael_Scott_voice.mp3" # Voice for cloning
+            if voice_file_path and os.path.exists(voice_file_path):
+                AUDIO_PROMPT_PATH = voice_file_path
+            else:
+                AUDIO_PROMPT_PATH="tts/Michael_Scott_voice.mp3" # Voice for cloning
             wav = model.generate(text, audio_prompt_path=AUDIO_PROMPT_PATH)
             # Ensure the directory for output_filename exists if it's not just a filename
             output_dir = os.path.dirname(output_filename)
@@ -37,15 +41,24 @@ def text_to_speech(text, tts_engine, server_url, output_filename="output.wav"):
                 os.makedirs(output_dir) # Create directory if it doesn't exist
             ta.save(output_filename, wav, model.sr)
         elif(tts_engine=="coqui"):
-            # Encode the text for URL parameters
-            encoded_text = urllib.parse.quote(text)
-            speaker_id="p278"
-            # Construct the full URL
-            url = f"{server_url}?text={encoded_text}&speaker_id={speaker_id}"
+            if voice_file_path and os.path.exists(voice_file_path):
+                # Use POST for voice cloning
+                url = f"{server_url}"
+                files = {'speaker_wav': (os.path.basename(voice_file_path), open(voice_file_path, 'rb'), 'audio/wav')}
+                data = {'text': text}
+                print(f"TTS: Requesting audio from: {url} with voice file") # Optional: for debugging
+                response = requests.post(url, files=files, data=data, stream=True, timeout=30)
+            else:
+                # Encode the text for URL parameters
+                encoded_text = urllib.parse.quote(text)
+                speaker_id="p278"
+                # Construct the full URL
+                url = f"{server_url}?text={encoded_text}&speaker_id={speaker_id}"
 
-            # Send the GET request
-            print(f"TTS: Requesting audio from: {url}") # Optional: for debugging
-            response = requests.get(url, stream=True, timeout=30)  # Use stream=True and add a timeout
+                # Send the GET request
+                print(f"TTS: Requesting audio from: {url}") # Optional: for debugging
+                response = requests.get(url, stream=True, timeout=30)  # Use stream=True and add a timeout
+
             response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
 
             # Save the audio to a file

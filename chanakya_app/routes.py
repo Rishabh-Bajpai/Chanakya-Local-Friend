@@ -136,7 +136,22 @@ async def record():
 
     if audio_file_storage:
         temp_audio_file_path_stt = None
+        voice_file_path = None
+        temp_voice_file_path = None
         try:
+            # Handle voice cloning file
+            if 'voice_file' in request.files:
+                voice_file = request.files['voice_file']
+                if voice_file.filename != '':
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_f:
+                        voice_file.save(temp_f.name)
+                        voice_file_path = temp_f.name
+                        temp_voice_file_path = temp_f.name
+            elif 'voice_preset' in request.form:
+                voice_preset = request.form['voice_preset']
+                if voice_preset:
+                    voice_file_path = os.path.join("tts", voice_preset)
+
             audio_data = audio_file_storage.read()
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_f:
                 temp_f.write(audio_data)
@@ -196,7 +211,7 @@ Current date and time: {current_dt_str}"""
 
             bot_speech_audio_data_url = None
             if utils_module.last_ai_response:
-                tts_audio_file_path_for_bot_response = tts_local.text_to_speech(utils_module.last_ai_response, config.TTS_ENGINE, config.TTS_SERVER_URL)
+                tts_audio_file_path_for_bot_response = tts_local.text_to_speech(utils_module.last_ai_response, config.TTS_ENGINE, config.TTS_SERVER_URL, voice_file_path=voice_file_path)
                 if tts_audio_file_path_for_bot_response and os.path.exists(tts_audio_file_path_for_bot_response):
                     with open(tts_audio_file_path_for_bot_response, "rb") as f_audio: audio_bytes = f_audio.read()
                     audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
@@ -217,6 +232,9 @@ Current date and time: {current_dt_str}"""
             if temp_audio_file_path_stt and os.path.exists(temp_audio_file_path_stt):
                 try: os.remove(temp_audio_file_path_stt)
                 except OSError: pass
+            if temp_voice_file_path and os.path.exists(temp_voice_file_path):
+                try: os.remove(temp_voice_file_path)
+                except OSError: pass
     return jsonify({"error": "Audio file not processed correctly."}), 400
 
 @app.route("/play_response", methods=["POST"])
@@ -234,6 +252,65 @@ def play_response():
             app.logger.error(f"Error in /play_response: {e}", exc_info=True)
             return jsonify({"error": f"Server error: {str(e)}"}), 500
     return jsonify({"error": "No response available to play."})
+
+@app.route('/list_voices')
+def list_voices():
+    """Lists the available voices in the tts directory."""
+    try:
+        tts_dir = "tts"
+        if not os.path.exists(tts_dir) or not os.path.isdir(tts_dir):
+            return jsonify({"error": "TTS directory not found."}), 404
+
+        supported_extensions = ['.wav', '.mp3', '.ogg']
+        voices = [f for f in os.listdir(tts_dir) if os.path.isfile(os.path.join(tts_dir, f)) and any(f.endswith(ext) for ext in supported_extensions)]
+        return jsonify(voices)
+    except Exception as e:
+        app.logger.error(f"Error listing voices: {e}", exc_info=True)
+        return jsonify({"error": "Server error listing voices."}), 500
+
+@app.route('/voice_clone', methods=['POST'])
+def voice_clone():
+    """Clones a voice and returns the audio."""
+    update_client_activity(request.remote_addr)
+    text = request.form.get('text')
+    if not text:
+        return jsonify({"error": "No text provided."}), 400
+
+    voice_file_path = None
+    temp_voice_file_path = None
+    try:
+        if 'voice_file' in request.files:
+            voice_file = request.files['voice_file']
+            if voice_file.filename != '':
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_f:
+                    voice_file.save(temp_f.name)
+                    voice_file_path = temp_f.name
+                    temp_voice_file_path = temp_f.name
+        elif 'voice_preset' in request.form:
+            voice_preset = request.form['voice_preset']
+            if voice_preset:
+                voice_file_path = os.path.join("tts", voice_preset)
+
+        if not voice_file_path:
+            return jsonify({"error": "No voice file provided."}), 400
+
+        tts_audio_file_path = tts_local.text_to_speech(text, config.TTS_ENGINE, config.TTS_SERVER_URL, voice_file_path=voice_file_path)
+        if tts_audio_file_path and os.path.exists(tts_audio_file_path):
+            with open(tts_audio_file_path, "rb") as f_audio:
+                audio_bytes = f_audio.read()
+            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+            return jsonify({"audio_data_url": f"data:audio/wav;base64,{audio_base64}"})
+        else:
+            return jsonify({"error": "TTS failed."}), 500
+    except Exception as e:
+        app.logger.error(f"Error in /voice_clone: {e}", exc_info=True)
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+    finally:
+        if temp_voice_file_path and os.path.exists(temp_voice_file_path):
+            try:
+                os.remove(temp_voice_file_path)
+            except OSError:
+                pass
 
 @app.route('/memory')
 def memory_page():
