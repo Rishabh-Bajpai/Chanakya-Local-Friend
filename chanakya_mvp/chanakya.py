@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
-from urllib import error, request
 
 from chanakya_mvp.config import get_openai_compatible_config, load_local_env
 from chanakya_mvp.logging_utils import JsonlLogger
+from chanakya_mvp.maf_runtime import MafAgentRuntime
 from chanakya_mvp.manager import AgentManager
 from chanakya_mvp.models import RequestEnvelope, Route, make_id
 from chanakya_mvp.tools import WeatherTool
@@ -28,6 +27,7 @@ class ChanakyaPA:
         self.logger = logger
         self.weather_tool = WeatherTool()
         self.openai_cfg = get_openai_compatible_config()
+        self.maf_runtime = MafAgentRuntime.from_env()
         self.waiting_map: dict[str, str] = {}
 
     def handle_message(self, text: str, context: dict[str, Any] | None = None) -> ChanakyaReply:
@@ -52,6 +52,21 @@ class ChanakyaPA:
 
         if route == Route.TOOL:
             location = self._extract_location(text)
+            if self.maf_runtime is not None:
+                maf_weather = self.maf_runtime.run_weather(text, location)
+                if maf_weather:
+                    self.logger.log(
+                        "tool_invocation",
+                        {
+                            "request_id": request_id,
+                            "tool": "maf_weather_tool",
+                            "status": "ok",
+                            "location": location,
+                            "summary": maf_weather,
+                            "runtime": "maf_agent",
+                        },
+                    )
+                    return ChanakyaReply(request_id=request_id, route=route, message=maf_weather)
             result = self.weather_tool.run(location)
             self.logger.log(
                 "tool_invocation",
@@ -126,60 +141,19 @@ class ChanakyaPA:
         return Route.DIRECT
 
     def _direct_response(self, text: str) -> str:
+        if self.maf_runtime is not None:
+            maf_reply = self.maf_runtime.run_direct(text)
+            if maf_reply:
+                return maf_reply
+
         model = self.openai_cfg.get("model")
         endpoint = self.openai_cfg.get("base_url")
-        api_key = self.openai_cfg.get("api_key")
         if model and endpoint:
-            llm_reply = self._call_openai_compatible(
-                base_url=str(endpoint),
-                model=str(model),
-                api_key=str(api_key) if api_key else None,
-                user_prompt=text,
-            )
-            if llm_reply:
-                return llm_reply
             return (
                 "Direct response path succeeded. "
                 f"OpenAI-compatible endpoint detected for model `{model}` at `{endpoint}`."
             )
         return f"Direct response path succeeded for: {text.strip()}"
-
-    @staticmethod
-    def _call_openai_compatible(
-        base_url: str,
-        model: str,
-        api_key: str | None,
-        user_prompt: str,
-    ) -> str | None:
-        api_url = base_url.rstrip("/") + "/chat/completions"
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": "You are Chanakya, a concise personal assistant."},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.2,
-        }
-        data = json.dumps(payload).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-
-        req = request.Request(api_url, data=data, headers=headers, method="POST")
-        try:
-            with request.urlopen(req, timeout=15) as resp:
-                raw = resp.read().decode("utf-8")
-            parsed = json.loads(raw)
-            choices = parsed.get("choices")
-            if not isinstance(choices, list) or not choices:
-                return None
-            message = choices[0].get("message", {})
-            content = message.get("content")
-            if isinstance(content, str) and content.strip():
-                return content.strip()
-            return None
-        except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError):
-            return None
 
     @staticmethod
     def _extract_location(text: str) -> str | None:

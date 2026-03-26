@@ -7,12 +7,16 @@ This document captures the implementation evidence for the MVP defined in `PRD.m
 ## Tested Capabilities vs MAF-Oriented Design
 
 - Single assistant entry point (`ChanakyaPA`) with route classification (`direct`, `tool`, `manager`).
+- MAF `Agent` + `OpenAIChatClient` used for direct response and weather-tool paths.
+- MAF workflow (`WorkflowBuilder` + `@executor`) used for delegated manager execution.
 - Delegation layer (`AgentManager`) that creates parent/child task structure.
-- Specialized execution agents (`DeveloperAgent`, `TesterAgent`).
+- Specialized execution steps (`developer_step`, `tester_step`, `aggregate_step`) as MAF executors.
 - Dependency-aware execution (tester depends on developer completion).
 - Persistent task and transition storage (SQLite task store).
 - Input-loop pause/resume (`waiting_input` and follow-up linkage to original task).
 - Final aggregation and user-facing completion/failure messages through Chanakya.
+
+Reference mapping: `docs/maf_class_mapping.md`.
 
 ## What Worked Well
 
@@ -26,6 +30,7 @@ This document captures the implementation evidence for the MVP defined in `PRD.m
 - Request classification and orchestration policy are implemented as explicit application logic.
 - Dependency checks and blocked-state semantics are implemented in manager/agent logic.
 - Transition persistence and workflow observability are implemented in a custom task store/logger.
+- Parent/child task domain model and state machine remain app-owned rather than framework-owned.
 
 ## What Feels Awkward or Risky
 

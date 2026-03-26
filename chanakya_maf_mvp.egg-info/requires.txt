@@ -1,3 +1,4 @@
+agent-framework>=1.0.0rc5
 
 [dev]
 ruff>=0.6.0

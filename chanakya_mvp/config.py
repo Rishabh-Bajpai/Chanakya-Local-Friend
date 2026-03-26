@@ -31,5 +31,10 @@ def get_openai_compatible_config() -> dict[str, str | None]:
     return {
         "base_url": os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE"),
         "api_key": os.getenv("OPENAI_API_KEY"),
-        "model": os.getenv("OPENAI_MODEL") or os.getenv("MODEL"),
+        "model": (
+            os.getenv("OPENAI_CHAT_MODEL_ID")
+            or os.getenv("OPENAI_RESPONSES_MODEL_ID")
+            or os.getenv("OPENAI_MODEL")
+            or os.getenv("MODEL")
+        ),
     }

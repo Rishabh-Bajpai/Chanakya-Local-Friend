@@ -22,6 +22,7 @@ It validates:
 - `chanakya_mvp/scenarios.py`: TS-001 to TS-007 scenario implementations
 - `run_scenarios.py`: scenario runner and transition report generation
 - `docs/task_model.md`: task model definition
+- `docs/maf_class_mapping.md`: MAF class-to-requirement mapping
 - `docs/transition_records.md`: generated state transition records
 - `RPD.md`: feasibility conclusion
 
@@ -40,6 +41,8 @@ Optional `.env` (OpenAI-compatible endpoint metadata, if configured):
 - `OPENAI_MODEL` or `MODEL`
 
 The current MVP detects this config and reports it in direct-response evidence.
+
+Model env key support includes `OPENAI_CHAT_MODEL_ID`.
 
 ## Run Scenarios
 

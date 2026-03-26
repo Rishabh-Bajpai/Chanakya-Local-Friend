@@ -1,0 +1,30 @@
+.env
+.env.*
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.py,cover
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Tooling and coverage outputs
+.coverage
+.coverage.*
+htmlcov/
+
+# Project-generated artifacts
+artifacts/

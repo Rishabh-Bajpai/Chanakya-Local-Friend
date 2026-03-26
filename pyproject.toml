@@ -1,10 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "chanakya-maf-mvp"
 version = "0.1.0"
 description = "Feasibility MVP for Chanakya on Microsoft Agent Framework patterns"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+  "agent-framework>=1.0.0rc5",
+]
 
 [project.optional-dependencies]
 dev = [

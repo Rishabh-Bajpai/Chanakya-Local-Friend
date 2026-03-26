@@ -44,12 +44,16 @@ class ScenarioRunner:
 
     def ts_001_direct(self) -> ScenarioResult:
         reply = self.chanakya.handle_message("Hello Chanakya, how are you?")
-        passed = reply.route.value == "direct" and "Direct response path succeeded" in reply.message
+        passed = reply.route.value == "direct" and bool(reply.message.strip())
         return ScenarioResult("TS-001", passed, reply.message)
 
     def ts_002_weather(self) -> ScenarioResult:
         reply = self.chanakya.handle_message("What is the weather in Bengaluru?")
-        passed = reply.route.value == "tool" and "Weather for Bengaluru" in reply.message
+        passed = (
+            reply.route.value == "tool"
+            and "bengaluru" in reply.message.lower()
+            and bool(reply.message.strip())
+        )
         return ScenarioResult("TS-002", passed, reply.message)
 
     def ts_003_delegation(self) -> ScenarioResult:
