@@ -1,0 +1,20 @@
+{"timestamp": "2026-03-26T21:08:05.201044+00:00", "event_type": "route_decision", "payload": {"request_id": "req_97105e9695", "route": "direct", "text": "Hello Chanakya, how are you?"}}
+{"timestamp": "2026-03-26T21:08:05.201096+00:00", "event_type": "request_handled_direct", "payload": {"request_id": "req_97105e9695", "status": "ok"}}
+{"timestamp": "2026-03-26T21:08:05.201122+00:00", "event_type": "route_decision", "payload": {"request_id": "req_13b1ef456d", "route": "tool", "text": "What is the weather in Bengaluru?"}}
+{"timestamp": "2026-03-26T21:08:05.201137+00:00", "event_type": "tool_invocation", "payload": {"request_id": "req_13b1ef456d", "tool": "weather", "status": "ok", "location": "Bengaluru", "summary": "Weather for Bengaluru: 27C, partly cloudy, light wind."}}
+{"timestamp": "2026-03-26T21:08:05.201158+00:00", "event_type": "route_decision", "payload": {"request_id": "req_bba8c68809", "route": "manager", "text": "Please implement and test login form validation."}}
+{"timestamp": "2026-03-26T21:08:05.235454+00:00", "event_type": "task_decomposed", "payload": {"parent_task_id": "task_fe89845466", "subtasks": ["task_cac5a90892", "task_51245586d1"], "owners": ["developer_agent", "tester_agent"]}}
+{"timestamp": "2026-03-26T21:08:05.269567+00:00", "event_type": "delegation_ack", "payload": {"request_id": "req_bba8c68809", "task_id": "task_fe89845466", "status": "done"}}
+{"timestamp": "2026-03-26T21:08:05.269670+00:00", "event_type": "route_decision", "payload": {"request_id": "req_b06bb248f9", "route": "manager", "text": "Implement and test dashboard filters."}}
+{"timestamp": "2026-03-26T21:08:05.302763+00:00", "event_type": "task_decomposed", "payload": {"parent_task_id": "task_2d71050272", "subtasks": ["task_718cd81d7e", "task_df08df23e3"], "owners": ["developer_agent", "tester_agent"]}}
+{"timestamp": "2026-03-26T21:08:05.323751+00:00", "event_type": "delegation_ack", "payload": {"request_id": "req_b06bb248f9", "task_id": "task_2d71050272", "status": "failed"}}
+{"timestamp": "2026-03-26T21:08:05.324034+00:00", "event_type": "route_decision", "payload": {"request_id": "req_e7ba47315d", "route": "manager", "text": "Implement and test metrics exporter."}}
+{"timestamp": "2026-03-26T21:08:05.359677+00:00", "event_type": "task_decomposed", "payload": {"parent_task_id": "task_36f32b2f5f", "subtasks": ["task_a1fa7352ce", "task_ea40010933"], "owners": ["developer_agent", "tester_agent"]}}
+{"timestamp": "2026-03-26T21:08:05.379797+00:00", "event_type": "delegation_ack", "payload": {"request_id": "req_e7ba47315d", "task_id": "task_36f32b2f5f", "status": "failed"}}
+{"timestamp": "2026-03-26T21:08:05.379934+00:00", "event_type": "route_decision", "payload": {"request_id": "req_02bb84606d", "route": "manager", "text": "Please implement and test profile settings page."}}
+{"timestamp": "2026-03-26T21:08:05.418898+00:00", "event_type": "task_decomposed", "payload": {"parent_task_id": "task_b22150b9ef", "subtasks": ["task_4d9af42558", "task_368dee0d88"], "owners": ["developer_agent", "tester_agent"]}}
+{"timestamp": "2026-03-26T21:08:05.429128+00:00", "event_type": "delegation_ack", "payload": {"request_id": "req_02bb84606d", "task_id": "task_b22150b9ef", "status": "waiting_input"}}
+{"timestamp": "2026-03-26T21:08:05.478072+00:00", "event_type": "followup_linked", "payload": {"originating_request_id": "req_02bb84606d", "task_id": "task_b22150b9ef", "status": "done"}}
+{"timestamp": "2026-03-26T21:08:05.478252+00:00", "event_type": "route_decision", "payload": {"request_id": "req_fd436b1542", "route": "manager", "text": "Implement and test checkout discount logic."}}
+{"timestamp": "2026-03-26T21:08:05.511460+00:00", "event_type": "task_decomposed", "payload": {"parent_task_id": "task_cbfdc955de", "subtasks": ["task_6298abc03b", "task_b9a294e847"], "owners": ["developer_agent", "tester_agent"]}}
+{"timestamp": "2026-03-26T21:08:05.540898+00:00", "event_type": "delegation_ack", "payload": {"request_id": "req_fd436b1542", "task_id": "task_cbfdc955de", "status": "done"}}

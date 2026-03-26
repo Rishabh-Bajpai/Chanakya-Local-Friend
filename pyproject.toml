@@ -1,0 +1,27 @@
+[project]
+name = "chanakya-maf-mvp"
+version = "0.1.0"
+description = "Feasibility MVP for Chanakya on Microsoft Agent Framework patterns"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.6.0",
+  "mypy>=1.10.0",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_configs = true
+
+[tool.setuptools.packages.find]
+include = ["chanakya_mvp*"]

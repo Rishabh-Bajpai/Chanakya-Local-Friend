@@ -2,7 +2,7 @@
 
 **Document Type:** Reality Proving Document (RPD)
 **Purpose:** Validate whether Microsoft Agent Framework (MAF) is a suitable foundation for the Chanakya app before building the larger multi-agent system.
-**Output Location:** `RPD.mI'll ised`
+**Output Location:** `RPD.md`
 
 ---
 
@@ -426,7 +426,7 @@ The builder agent should keep the MVP intentionally small.
 - Heartbeat agents
 - Temporary subagents
 - Independent agent chat switching
-- Long-term memory systems
+- Long-term memory systemssure
 
 ---
 
