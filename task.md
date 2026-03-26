@@ -25,13 +25,14 @@
 
 ## Milestones
 
-### Milestone 1 - Simple Chanakya Chat
+Milestone 1 - Simple Chanakya Chat
 
-- [x] Create new `chanakya/` package
-- [x] Add Flask app and GUI for direct chat validation
-- [x] Use MAF `Agent` + `OpenAIChatClient` for direct responses
-- [x] Persist chat sessions, messages, request events, and seed agents
-- [x] Show route/runtime metadata in GUI
+- [X] Create new `chanakya/` package
+- [X] Add Flask app and GUI for direct chat validation
+- [X] Use MAF `Agent` + `OpenAIChatClient` for direct responses
+- [X] Persist chat sessions, messages, request events, and seed agents
+- [X] Show route/runtime metadata in GUI
+
 - Validation:
   - Open the GUI
   - Send a normal message
@@ -43,6 +44,7 @@
 - [ ] Expand the task schema for parent/child tasks and history
 - [ ] Add first-class request, task, and event repositories
 - [ ] Add task list and event timeline views in GUI
+
 - Validation:
   - Create a request that becomes a persisted task record
   - Confirm lifecycle transitions are visible in GUI
@@ -53,6 +55,7 @@
 - [ ] Integrate MCP calculator tool
 - [ ] Integrate MCP fetch tool
 - [ ] Show tool selection, input, output, and errors in GUI
+
 - Validation:
   - Ask Chanakya to calculate an expression
   - Ask Chanakya to fetch a page summary
@@ -64,6 +67,7 @@
 - [ ] Create parent task, subtasks, and dependency edges
 - [ ] Use MAF worker agents for delegated execution
 - [ ] Show task graph and execution progress in GUI
+
 - Validation:
   - Submit an implement-and-test request
   - Confirm decomposition and dependency ordering in GUI
@@ -73,6 +77,7 @@
 - [ ] Add GUI for creating and editing persistent agents
 - [ ] Persist role, personality, tools, workspace, heartbeat settings
 - [ ] Use stored agents during manager selection
+
 - Validation:
   - Create a developer and tester in GUI
   - Run a delegated task using those saved agents
@@ -81,6 +86,7 @@
 
 - [ ] Add ephemeral subagent creation and cleanup
 - [ ] Record parent agent, purpose, and lifetime
+
 - Validation:
   - Trigger a task that spawns a helper subagent
   - Confirm cleanup is visible in GUI
@@ -89,6 +95,7 @@
 
 - [ ] Add waiting-for-input state and resume flow
 - [ ] Add retry, cancel, and manual unblock controls
+
 - Validation:
   - Trigger clarification request
   - Reply in GUI and confirm task resumes
@@ -97,6 +104,7 @@
 
 - [ ] Add direct interaction with persistent social agents
 - [ ] Add social circles and isolation policies
+
 - Validation:
   - Start a direct conversation with a social agent
   - Confirm isolation rules are enforced
@@ -106,6 +114,7 @@
 - [ ] Add recurring schedules and background execution logs
 - [ ] Add heartbeat service that reads each agent heartbeat file on interval
 - [ ] Surface heartbeat decisions in GUI
+
 - Validation:
   - Configure a heartbeat-enabled agent
   - Confirm periodic reads and resulting actions are visible
