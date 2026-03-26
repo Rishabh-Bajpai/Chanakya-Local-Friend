@@ -1,4 +1,4 @@
-# RPD: Chanakya MVP Feasibility Validation for Microsoft Agent Framework
+# PRD: Chanakya MVP Feasibility Validation for Microsoft Agent Framework
 
 **Document Type:** Reality Proving Document (RPD)
 **Purpose:** Validate whether Microsoft Agent Framework (MAF) is a suitable foundation for the Chanakya app before building the larger multi-agent system.
