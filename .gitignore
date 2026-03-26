@@ -27,4 +27,5 @@ dist/
 htmlcov/
 
 # Project-generated artifacts
-artifacts/
+chanakya_mvp/testing/artifacts/
+chanakya_data/

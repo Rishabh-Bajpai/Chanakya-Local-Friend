@@ -12,7 +12,7 @@ from chanakya_mvp.manager import AgentManager
 from chanakya_mvp.store import TaskStore
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-ARTIFACTS_DIR = BASE_DIR / "artifacts"
+ARTIFACTS_DIR = BASE_DIR / "chanakya_mvp" / "testing" / "artifacts"
 EVENTS_FILE = ARTIFACTS_DIR / "events.jsonl"
 TASK_DB_FILE = ARTIFACTS_DIR / "tasks.db"
 

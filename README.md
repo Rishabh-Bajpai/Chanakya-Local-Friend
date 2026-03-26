@@ -1,6 +1,25 @@
 # Chanakya MAF MVP
 
-This repository contains a minimal feasibility MVP for the PRD in `PRD.md`.
+The repo now contains two tracks:
+
+- `chanakya/`: the new full app under active development
+- `chanakya_mvp/`: the earlier feasibility MVP kept temporarily as reference
+
+## New Full App
+
+Run the current full-app milestone:
+
+```bash
+source /home/rishabh/miniconda3/etc/profile.d/conda.sh
+conda activate test
+python -m flask --app chanakya.app run --host 0.0.0.0 --port 5000
+```
+
+Open `http://localhost:5000` and validate the direct chat flow.
+
+Execution plan is tracked in `task.md`.
+
+This repository contains a minimal feasibility MVP for the PRD in `tasks/rpd-chanakya-maf-mvp-feasibility.md`.
 
 It validates:
 
@@ -20,14 +39,14 @@ It validates:
 - `chanakya_mvp/tools.py`: weather tool
 - `chanakya_mvp/store.py`: SQLite task persistence and transition history
 - `chanakya_mvp/scenarios.py`: TS-001 to TS-007 scenario implementations
-- `run_scenarios.py`: scenario runner and transition report generation
+- `chanakya_mvp/testing/run_scenarios.py`: scenario runner and transition report generation
 - `webapp/app.py`: Flask backend + API endpoints for chat and traces
 - `webapp/templates/index.html`: chat UI with execution trace timeline
-- `docs/task_model.md`: task model definition
-- `docs/maf_class_mapping.md`: MAF class-to-requirement mapping
-- `docs/maf_capability_matrix.md`: US/FR fit matrix (Native vs glue vs custom)
-- `docs/transition_records.md`: generated state transition records
-- `RPD.md`: feasibility conclusion
+- `chanakya_mvp/testing/docs/task_model.md`: task model definition
+- `chanakya_mvp/testing/docs/maf_class_mapping.md`: MAF class-to-requirement mapping
+- `chanakya_mvp/testing/docs/maf_capability_matrix.md`: US/FR fit matrix (Native vs glue vs custom)
+- `chanakya_mvp/testing/docs/transition_records.md`: generated state transition records
+- `tasks/prd-chanakya-full-system.md`: full-system PRD
 
 ## Environment
 
@@ -51,7 +70,7 @@ Model env key support includes `OPENAI_CHAT_MODEL_ID`.
 
 ```bash
 conda activate test
-python run_scenarios.py
+python -m chanakya_mvp.testing.run_scenarios
 ```
 
 Expected outcomes:
@@ -66,9 +85,9 @@ Expected outcomes:
 
 Artifacts written to:
 
-- `artifacts/tasks.db`
-- `artifacts/events.jsonl`
-- `docs/transition_records.md`
+- `chanakya_mvp/testing/artifacts/tasks.db`
+- `chanakya_mvp/testing/artifacts/events.jsonl`
+- `chanakya_mvp/testing/docs/transition_records.md`
 
 ## Run Flask UI
 

@@ -2,7 +2,7 @@
 
 **Document Type:** Reality Proving Document (RPD)
 **Purpose:** Validate whether Microsoft Agent Framework (MAF) is a suitable foundation for the Chanakya app before building the larger multi-agent system.
-**Output Location:** `RPD.md`
+**Output Location:** tasks/rpd-chanakya-maf-mvp-feasibility.md
 
 ---
 

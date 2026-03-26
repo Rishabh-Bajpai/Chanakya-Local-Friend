@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chanakya</title>
+    <style>
+      :root {
+        --bg: #f2efe7;
+        --panel: rgba(255, 252, 247, 0.92);
+        --line: #d9cfc0;
+        --text: #2f2419;
+        --muted: #736454;
+        --accent: #a64b2a;
+        --accent-soft: #f3d6c8;
+        --ink: #183a37;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Georgia, "Iowan Old Style", serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(255,255,255,0.65), transparent 30%),
+          linear-gradient(135deg, #efe6d5 0%, #f7f2ea 45%, #e6ddd0 100%);
+      }
+      .shell {
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: 20px;
+        display: grid;
+        grid-template-columns: 1.4fr 1fr;
+        gap: 18px;
+        min-height: 100vh;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: 0 18px 50px rgba(63, 44, 18, 0.08);
+        backdrop-filter: blur(10px);
+      }
+      .hero {
+        padding: 18px 20px 8px;
+      }
+      .eyebrow {
+        margin: 0;
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      h1 {
+        margin: 8px 0 6px;
+        font-size: 34px;
+        line-height: 1.05;
+      }
+      .hero p {
+        margin: 0;
+        max-width: 54ch;
+        color: var(--muted);
+      }
+      .chat {
+        display: flex;
+        flex-direction: column;
+        min-height: calc(100vh - 40px);
+      }
+      .chat-log {
+        flex: 1;
+        padding: 14px 20px;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .message {
+        max-width: 88%;
+        border-radius: 16px;
+        padding: 12px 14px;
+        line-height: 1.45;
+      }
+      .message.user {
+        align-self: flex-end;
+        background: #f6dccf;
+      }
+      .message.assistant {
+        align-self: flex-start;
+        background: #faf6ef;
+        border: 1px solid #eadfce;
+      }
+      .meta {
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .composer {
+        border-top: 1px solid var(--line);
+        padding: 14px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+      }
+      input[type="text"] {
+        width: 100%;
+        padding: 13px 14px;
+        font-size: 15px;
+        border-radius: 14px;
+        border: 1px solid #ccbda9;
+        background: rgba(255,255,255,0.8);
+        color: var(--text);
+      }
+      button {
+        border: 0;
+        border-radius: 14px;
+        padding: 0 18px;
+        background: var(--accent);
+        color: #fff6f1;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .side {
+        display: grid;
+        grid-template-rows: auto 1fr 1fr;
+        gap: 18px;
+      }
+      .section {
+        padding: 16px 18px;
+        overflow: auto;
+      }
+      .section h2 {
+        margin: 0 0 6px;
+        font-size: 20px;
+      }
+      .section p {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .card {
+        border: 1px solid #e2d7c9;
+        border-left: 4px solid var(--ink);
+        border-radius: 14px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        background: rgba(255,255,255,0.55);
+      }
+      .card h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+      .card pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 8px 0 0;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 12px;
+        color: #4d3e2e;
+      }
+      .pill {
+        display: inline-block;
+        margin-right: 6px;
+        margin-bottom: 6px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        font-size: 12px;
+      }
+      @media (max-width: 980px) {
+        .shell { grid-template-columns: 1fr; }
+        .chat { min-height: 70vh; }
+        .side { grid-template-rows: auto auto auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="panel chat">
+        <div class="hero">
+          <p class="eyebrow">Chanakya Operating System</p>
+          <h1>Start with direct chat, then grow into orchestration.</h1>
+          <p>
+            This first milestone keeps the loop tight: talk to Chanakya, validate the MAF runtime,
+            and inspect the seeded agent and heartbeat context that later milestones will build on.
+          </p>
+        </div>
+        <div id="chatLog" class="chat-log"></div>
+        <form id="chatForm" class="composer">
+          <input id="messageInput" type="text" placeholder="Talk to Chanakya..." required />
+          <button type="submit">Send</button>
+        </form>
+      </section>
+
+      <section class="side">
+        <div class="panel section">
+          <h2>Request Trace</h2>
+          <p>Direct route metadata for the current milestone.</p>
+          <div id="requestTrace"></div>
+        </div>
+
+        <div class="panel section">
+          <h2>Persistent Agents</h2>
+          <p>Loaded from seed now, editable in GUI in a later milestone.</p>
+          <div id="agentList"></div>
+        </div>
+
+        <div class="panel section">
+          <h2>Recent Events</h2>
+          <p>App events recorded in SQLite for debugging and review.</p>
+          <div id="eventList"></div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const chatForm = document.getElementById("chatForm");
+      const messageInput = document.getElementById("messageInput");
+      const chatLog = document.getElementById("chatLog");
+      const requestTrace = document.getElementById("requestTrace");
+      const agentList = document.getElementById("agentList");
+      const eventList = document.getElementById("eventList");
+
+      let sessionId = null;
+
+      function appendMessage(role, text, meta) {
+        const node = document.createElement("div");
+        node.className = `message ${role}`;
+        node.textContent = text;
+        if (meta) {
+          const metaNode = document.createElement("div");
+          metaNode.className = "meta";
+          metaNode.textContent = meta;
+          node.appendChild(metaNode);
+        }
+        chatLog.appendChild(node);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function replaceChildren(node, children) {
+        node.replaceChildren(...children);
+      }
+
+      function renderTrace(data) {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `<h3>${data.agent_name} · ${data.route}</h3>`;
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify({
+          request_id: data.request_id,
+          session_id: data.session_id,
+          runtime: data.runtime,
+          model: data.model,
+          endpoint: data.endpoint,
+        }, null, 2);
+        card.appendChild(pre);
+        replaceChildren(requestTrace, [card]);
+      }
+
+      function renderAgents(items) {
+        if (!items.length) {
+          agentList.textContent = "No agents loaded.";
+          return;
+        }
+        const nodes = items.map((agent) => {
+          const card = document.createElement("div");
+          card.className = "card";
+          const pills = [agent.role];
+          if (agent.heartbeat_enabled) pills.push(`heartbeat ${agent.heartbeat_interval_seconds}s`);
+          card.innerHTML = `<h3>${agent.name}</h3><div>${pills.map((pill) => `<span class="pill">${pill}</span>`).join("")}</div>`;
+          const pre = document.createElement("pre");
+          pre.textContent = JSON.stringify({
+            workspace: agent.workspace,
+            tools: agent.tool_ids,
+            heartbeat_file_path: agent.heartbeat_file_path,
+            heartbeat_preview: agent.heartbeat_preview,
+          }, null, 2);
+          card.appendChild(pre);
+          return card;
+        });
+        replaceChildren(agentList, nodes);
+      }
+
+      function renderEvents(items) {
+        if (!items.length) {
+          eventList.textContent = "No events recorded yet.";
+          return;
+        }
+        const nodes = items.map((event) => {
+          const card = document.createElement("div");
+          card.className = "card";
+          card.innerHTML = `<h3>${event.event_type}</h3>`;
+          const pre = document.createElement("pre");
+          pre.textContent = JSON.stringify(event.payload, null, 2);
+          card.appendChild(pre);
+          return card;
+        });
+        replaceChildren(eventList, nodes);
+      }
+
+      async function refreshSidePanels() {
+        const [agentsRes, eventsRes] = await Promise.all([
+          fetch("/api/agents"),
+          fetch("/api/events"),
+        ]);
+        const agentsData = await agentsRes.json();
+        const eventsData = await eventsRes.json();
+        renderAgents(agentsData.agents || []);
+        renderEvents(eventsData.events || []);
+      }
+
+      chatForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const message = messageInput.value.trim();
+        if (!message) return;
+        appendMessage("user", message);
+        messageInput.value = "";
+
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, message }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          appendMessage("assistant", data.error || "Request failed");
+          return;
+        }
+        sessionId = data.session_id;
+        appendMessage(
+          "assistant",
+          data.message,
+          `route=${data.route} runtime=${data.runtime} model=${data.model || "unknown"}`,
+        );
+        renderTrace(data);
+        refreshSidePanels();
+      });
+
+      appendMessage(
+        "assistant",
+        "I am Chanakya. For this milestone, I answer directly through a MAF agent while we keep the architecture visible.",
+      );
+      refreshSidePanels();
+    </script>
+  </body>
+</html>

@@ -31,4 +31,4 @@ strict = true
 warn_unused_configs = true
 
 [tool.setuptools.packages.find]
-include = ["chanakya_mvp*"]
+include = ["chanakya*", "chanakya_mvp*"]
