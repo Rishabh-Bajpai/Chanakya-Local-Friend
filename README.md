@@ -23,6 +23,7 @@ It validates:
 - `run_scenarios.py`: scenario runner and transition report generation
 - `docs/task_model.md`: task model definition
 - `docs/maf_class_mapping.md`: MAF class-to-requirement mapping
+- `docs/maf_capability_matrix.md`: US/FR fit matrix (Native vs glue vs custom)
 - `docs/transition_records.md`: generated state transition records
 - `RPD.md`: feasibility conclusion
 
