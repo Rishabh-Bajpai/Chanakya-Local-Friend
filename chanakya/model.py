@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Integer, String, create_engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from chanakya.domain import now_iso
 
 
 class Base(DeclarativeBase):
@@ -18,19 +19,28 @@ class ChatSessionModel(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
     updated_at: Mapped[str] = mapped_column(String, nullable=False)
+    messages: Mapped[list["ChatMessageModel"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
 
 
 class ChatMessageModel(Base):
     __tablename__ = "chat_messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("chat_sessions.id"),
+        nullable=False,
+        index=True,
+    )
     role: Mapped[str] = mapped_column(String, nullable=False)
-    content: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
     request_id: Mapped[str | None] = mapped_column(String, nullable=True)
     route: Mapped[str | None] = mapped_column(String, nullable=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
+    session: Mapped[ChatSessionModel] = relationship(back_populates="messages")
 
 
 class AppEventModel(Base):
@@ -59,9 +69,48 @@ class AgentProfileModel(Base):
     created_at: Mapped[str] = mapped_column(String, nullable=False)
     updated_at: Mapped[str] = mapped_column(String, nullable=False)
 
+    @classmethod
+    def from_seed(cls, item: dict[str, Any]) -> "AgentProfileModel":
+        timestamp = now_iso()
+        return cls(
+            id=str(item["id"]),
+            name=str(item["name"]),
+            role=str(item["role"]),
+            system_prompt=str(item["system_prompt"]),
+            personality=str(item.get("personality", "")),
+            tool_ids_json=list(item.get("tool_ids", [])),
+            workspace=item.get("workspace"),
+            heartbeat_enabled=bool(item.get("heartbeat_enabled", False)),
+            heartbeat_interval_seconds=int(item.get("heartbeat_interval_seconds", 300)),
+            heartbeat_file_path=item.get("heartbeat_file_path"),
+            is_active=bool(item.get("is_active", True)),
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
 
-def create_session_factory(db_path: Path) -> sessionmaker[Any]:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(f"sqlite:///{db_path}", future=True)
-    Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, expire_on_commit=False)
+    def update_from_seed(self, item: dict[str, Any]) -> None:
+        self.name = str(item["name"])
+        self.role = str(item["role"])
+        self.system_prompt = str(item["system_prompt"])
+        self.personality = str(item.get("personality", ""))
+        self.tool_ids_json = list(item.get("tool_ids", []))
+        self.workspace = item.get("workspace")
+        self.heartbeat_enabled = bool(item.get("heartbeat_enabled", False))
+        self.heartbeat_interval_seconds = int(item.get("heartbeat_interval_seconds", 300))
+        self.heartbeat_file_path = item.get("heartbeat_file_path")
+        self.is_active = bool(item.get("is_active", True))
+        self.updated_at = now_iso()
+
+    def to_public_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "role": self.role,
+            "personality": self.personality,
+            "tool_ids": self.tool_ids_json,
+            "workspace": self.workspace,
+            "heartbeat_enabled": self.heartbeat_enabled,
+            "heartbeat_interval_seconds": self.heartbeat_interval_seconds,
+            "heartbeat_file_path": self.heartbeat_file_path,
+            "is_active": self.is_active,
+        }

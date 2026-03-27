@@ -7,11 +7,11 @@ from agent_framework.openai import OpenAIChatClient
 
 from chanakya.config import get_openai_compatible_config
 from chanakya.debug import debug_log
-from chanakya.models import AgentProfile
+from chanakya.model import AgentProfileModel
 
 
 class MAFRuntime:
-    def __init__(self, profile: AgentProfile, env_file_path: str = ".env") -> None:
+    def __init__(self, profile: AgentProfileModel, env_file_path: str = ".env") -> None:
         self.profile = profile
         self.client = OpenAIChatClient(env_file_path=env_file_path)
         self.agent = Agent(

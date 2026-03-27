@@ -64,10 +64,13 @@ Optional `.env` (OpenAI-compatible endpoint metadata, if configured):
 - `OPENAI_BASE_URL` or `OPENAI_API_BASE`
 - `OPENAI_API_KEY`
 - `OPENAI_CHAT_MODEL_ID` (preferred) or `OPENAI_MODEL` / `MODEL`
+- `DATABASE_URL` (optional; defaults to local SQLite via SQLAlchemy)
 
 The current MVP detects this config and reports it in direct-response evidence.
 
 Model env key support includes `OPENAI_CHAT_MODEL_ID`.
+
+The new full app reads `DATABASE_URL` through SQLAlchemy, so switching to another SQL provider should not require store-layer code changes.
 
 ## Run Scenarios
 

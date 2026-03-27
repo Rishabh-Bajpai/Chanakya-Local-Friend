@@ -1,28 +1,27 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 
+from chanakya.db import session_scope
+from chanakya.domain import now_iso
 from chanakya.model import (
     AgentProfileModel,
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
-    create_session_factory,
 )
-from chanakya.models import AgentProfile, now_iso
 
 
 class ChanakyaStore:
-    def __init__(self, db_path: Path) -> None:
-        self.db_path = db_path
-        self.Session = create_session_factory(db_path)
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
 
     def create_session(self, session_id: str, title: str) -> None:
         timestamp = now_iso()
-        with self.Session() as session:
+        with session_scope(self.Session) as session:
             session.add(
                 ChatSessionModel(
                     id=session_id,
@@ -34,7 +33,7 @@ class ChanakyaStore:
             session.commit()
 
     def ensure_session(self, session_id: str, title: str = "New chat") -> None:
-        with self.Session() as session:
+        with session_scope(self.Session) as session:
             existing = session.get(ChatSessionModel, session_id)
             if existing is None:
                 timestamp = now_iso()
@@ -58,7 +57,7 @@ class ChanakyaStore:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         self.ensure_session(session_id)
-        with self.Session() as session:
+        with session_scope(self.Session) as session:
             session.add(
                 ChatMessageModel(
                     session_id=session_id,
@@ -76,7 +75,7 @@ class ChanakyaStore:
             session.commit()
 
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
-        with self.Session() as session:
+        with session_scope(self.Session) as session:
             rows = session.scalars(
                 select(ChatMessageModel)
                 .where(ChatMessageModel.session_id == session_id)
@@ -96,7 +95,7 @@ class ChanakyaStore:
         ]
 
     def log_event(self, event_type: str, payload: dict[str, Any]) -> None:
-        with self.Session() as session:
+        with session_scope(self.Session) as session:
             session.add(
                 AppEventModel(
                     event_type=event_type,
@@ -107,7 +106,7 @@ class ChanakyaStore:
             session.commit()
 
     def list_events(self, limit: int = 50) -> list[dict[str, Any]]:
-        with self.Session() as session:
+        with session_scope(self.Session) as session:
             rows = session.scalars(
                 select(AppEventModel).order_by(AppEventModel.id.desc()).limit(limit)
             ).all()
@@ -123,32 +122,17 @@ class ChanakyaStore:
         events.reverse()
         return events
 
-    def upsert_agent_profile(self, profile: AgentProfile) -> None:
-        with self.Session() as session:
+    def upsert_agent_profile(self, profile: AgentProfileModel) -> None:
+        with session_scope(self.Session) as session:
             row = session.get(AgentProfileModel, profile.id)
             if row is None:
-                row = AgentProfileModel(
-                    id=profile.id,
-                    name=profile.name,
-                    role=profile.role,
-                    system_prompt=profile.system_prompt,
-                    personality=profile.personality,
-                    tool_ids_json=profile.tool_ids,
-                    workspace=profile.workspace,
-                    heartbeat_enabled=profile.heartbeat_enabled,
-                    heartbeat_interval_seconds=profile.heartbeat_interval_seconds,
-                    heartbeat_file_path=profile.heartbeat_file_path,
-                    is_active=profile.is_active,
-                    created_at=profile.created_at,
-                    updated_at=profile.updated_at,
-                )
-                session.add(row)
+                session.add(profile)
             else:
                 row.name = profile.name
                 row.role = profile.role
                 row.system_prompt = profile.system_prompt
                 row.personality = profile.personality
-                row.tool_ids_json = profile.tool_ids
+                row.tool_ids_json = profile.tool_ids_json
                 row.workspace = profile.workspace
                 row.heartbeat_enabled = profile.heartbeat_enabled
                 row.heartbeat_interval_seconds = profile.heartbeat_interval_seconds
@@ -157,34 +141,16 @@ class ChanakyaStore:
                 row.updated_at = profile.updated_at
             session.commit()
 
-    def list_agent_profiles(self) -> list[AgentProfile]:
-        with self.Session() as session:
+    def list_agent_profiles(self) -> list[AgentProfileModel]:
+        with session_scope(self.Session) as session:
             rows = session.scalars(
                 select(AgentProfileModel).order_by(AgentProfileModel.name.asc())
             ).all()
-        return [self._to_agent_profile(row) for row in rows]
+        return cast(list[AgentProfileModel], rows)
 
-    def get_agent_profile(self, agent_id: str) -> AgentProfile:
-        with self.Session() as session:
+    def get_agent_profile(self, agent_id: str) -> AgentProfileModel:
+        with session_scope(self.Session) as session:
             row = session.get(AgentProfileModel, agent_id)
         if row is None:
             raise KeyError(f"Agent profile not found: {agent_id}")
-        return self._to_agent_profile(row)
-
-    @staticmethod
-    def _to_agent_profile(row: AgentProfileModel) -> AgentProfile:
-        return AgentProfile(
-            id=row.id,
-            name=row.name,
-            role=row.role,
-            system_prompt=row.system_prompt,
-            personality=row.personality,
-            tool_ids=row.tool_ids_json,
-            workspace=row.workspace,
-            heartbeat_enabled=row.heartbeat_enabled,
-            heartbeat_interval_seconds=row.heartbeat_interval_seconds,
-            heartbeat_file_path=row.heartbeat_file_path,
-            is_active=row.is_active,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-        )
+        return row

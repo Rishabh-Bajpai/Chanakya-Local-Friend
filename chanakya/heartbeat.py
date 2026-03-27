@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from chanakya.models import AgentProfile, now_iso
+from chanakya.domain import now_iso
+from chanakya.model import AgentProfileModel
 
 
 @dataclass(slots=True)
@@ -16,7 +17,7 @@ class HeartbeatSnapshot:
     checked_at: str
 
 
-def read_heartbeat(profile: AgentProfile, repo_root: Path) -> HeartbeatSnapshot:
+def read_heartbeat(profile: AgentProfileModel, repo_root: Path) -> HeartbeatSnapshot:
     preview: str | None = None
     file_path = profile.heartbeat_file_path
     if profile.heartbeat_enabled and file_path:

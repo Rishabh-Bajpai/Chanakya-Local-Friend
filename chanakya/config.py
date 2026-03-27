@@ -38,3 +38,11 @@ def get_data_dir() -> Path:
     data_dir = root / "chanakya_data"
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
+
+
+def get_database_url() -> str:
+    load_local_env()
+    configured = os.getenv("DATABASE_URL")
+    if configured:
+        return configured
+    return f"sqlite:///{get_data_dir() / 'chanakya.db'}"

@@ -7,11 +7,12 @@ from typing import Any
 from flask import Flask, jsonify, render_template, request
 
 from chanakya.chat_service import ChatService
-from chanakya.config import get_data_dir, load_local_env
+from chanakya.config import get_data_dir, get_database_url, load_local_env
+from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.debug import debug_log
+from chanakya.domain import make_id
 from chanakya.heartbeat import read_heartbeat
 from chanakya.maf_runtime import MAFRuntime
-from chanakya.models import make_id
 from chanakya.seed import load_agent_seeds
 from chanakya.store import ChanakyaStore
 
@@ -23,11 +24,13 @@ def create_app() -> Flask:
     app = Flask(__name__, template_folder=str(BASE_DIR / "chanakya" / "templates"))
 
     data_dir = get_data_dir()
-    db_path = data_dir / "chanakya.db"
+    database_url = get_database_url()
     heartbeat_dir = data_dir / "heartbeats"
     heartbeat_dir.mkdir(parents=True, exist_ok=True)
 
-    store = ChanakyaStore(db_path)
+    engine = build_engine(database_url)
+    init_database(engine)
+    store = ChanakyaStore(build_session_factory(engine))
     load_agent_seeds(store, BASE_DIR / "chanakya" / "seeds" / "agents.json")
     ensure_heartbeat_files(store, BASE_DIR)
     debug_log(
@@ -35,7 +38,7 @@ def create_app() -> Flask:
         {
             "base_dir": str(BASE_DIR),
             "data_dir": str(data_dir),
-            "db_path": str(db_path),
+            "database_url": database_url,
             "seed_file": str(BASE_DIR / "chanakya" / "seeds" / "agents.json"),
             "agent_count": len(store.list_agent_profiles()),
         },
@@ -103,21 +106,9 @@ def create_app() -> Flask:
         agents = []
         for profile in store.list_agent_profiles():
             heartbeat = read_heartbeat(profile, BASE_DIR)
-            agents.append(
-                {
-                    "id": profile.id,
-                    "name": profile.name,
-                    "role": profile.role,
-                    "personality": profile.personality,
-                    "tool_ids": profile.tool_ids,
-                    "workspace": profile.workspace,
-                    "heartbeat_enabled": profile.heartbeat_enabled,
-                    "heartbeat_interval_seconds": profile.heartbeat_interval_seconds,
-                    "heartbeat_file_path": profile.heartbeat_file_path,
-                    "heartbeat_preview": heartbeat.content_preview,
-                    "is_active": profile.is_active,
-                }
-            )
+            agent_payload = profile.to_public_dict()
+            agent_payload["heartbeat_preview"] = heartbeat.content_preview
+            agents.append(agent_payload)
         debug_log("api_agents_request", {"agent_count": len(agents)})
         return jsonify({"agents": agents})
 

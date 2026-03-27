@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from chanakya.debug import debug_log
+from chanakya.domain import ChatReply, make_id
 from chanakya.maf_runtime import MAFRuntime
-from chanakya.models import ChatReply, make_id
 from chanakya.store import ChanakyaStore
 
 

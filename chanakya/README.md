@@ -87,7 +87,7 @@ Chanakya is **not a chatbot**. It is a task-driven operating system where:
 | Flask GUI/API | User interaction, request intake, response rendering |
 | ChatService | Request classification, routing, event logging |
 | MAFRuntime | Agent execution via Microsoft Agent Framework |
-| ChanakyaStore | SQLite persistence for sessions, messages, events, agent profiles |
+| ChanakyaStore | SQLAlchemy persistence for sessions, messages, events, agent profiles |
 
 ---
 
@@ -101,9 +101,10 @@ chanakya/
 ├── config.py             # Environment and configuration utilities
 ├── heartbeat.py          # Heartbeat file reading
 ├── maf_runtime.py       # MAF agent execution wrapper
-├── models.py             # Data classes (AgentProfile, ChatReply)
+├── domain.py             # Non-ORM app domain types and helpers
+├── model.py              # SQLAlchemy ORM models
 ├── seed.py               # Agent seed loading from JSON
-├── store.py              # SQLite persistence layer
+├── store.py              # SQLAlchemy persistence layer
 ├── templates/
 │   └── index.html        # GUI template
 ├── seeds/
