@@ -36,6 +36,7 @@ Milestone 1 - Simple Chanakya Chat
 - [X] Show route/runtime metadata in GUI
 - [X] Add scrollable panels for chat, agents, and events
 - [X] Add `CHANAKYA_DEBUG` terminal tracing for important runtime state and values
+- [X] Move the new app DB layer to SQLAlchemy models in `chanakya/model.py`
 
 - Validation:
   - Open the GUI
@@ -158,3 +159,4 @@ Milestone 1 - Simple Chanakya Chat
 - 2026-03-26: Fixed panel layout sizing so chat, trace, agent, and event areas scroll independently within the viewport.
 - 2026-03-26: Fixed multi-turn chat continuity by feeding recent stored session history back into the MAF runtime for follow-up requests.
 - 2026-03-26: Added `CHANAKYA_DEBUG=true` support to print request flow, history, prompts, session state, and model responses to the terminal.
+- 2026-03-26: Replaced direct sqlite3 access in the new app with SQLAlchemy ORM models and a session factory in `chanakya/model.py`.

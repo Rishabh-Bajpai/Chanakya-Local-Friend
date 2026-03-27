@@ -1,96 +1,52 @@
 from __future__ import annotations
 
-import json
-import sqlite3
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
+
+from chanakya.model import (
+    AgentProfileModel,
+    AppEventModel,
+    ChatMessageModel,
+    ChatSessionModel,
+    create_session_factory,
+)
 from chanakya.models import AgentProfile, now_iso
 
 
 class ChanakyaStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_schema()
-
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    def _init_schema(self) -> None:
-        with self._connect() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS chat_sessions (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS chat_messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    request_id TEXT,
-                    route TEXT,
-                    metadata TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS app_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    event_type TEXT NOT NULL,
-                    payload TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS agent_profiles (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    system_prompt TEXT NOT NULL,
-                    personality TEXT NOT NULL,
-                    tool_ids TEXT NOT NULL,
-                    workspace TEXT,
-                    heartbeat_enabled INTEGER NOT NULL,
-                    heartbeat_interval_seconds INTEGER NOT NULL,
-                    heartbeat_file_path TEXT,
-                    is_active INTEGER NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-                """
-            )
+        self.Session = create_session_factory(db_path)
 
     def create_session(self, session_id: str, title: str) -> None:
         timestamp = now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO chat_sessions (id, title, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (session_id, title, timestamp, timestamp),
+        with self.Session() as session:
+            session.add(
+                ChatSessionModel(
+                    id=session_id,
+                    title=title,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
             )
+            session.commit()
 
     def ensure_session(self, session_id: str, title: str = "New chat") -> None:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT id FROM chat_sessions WHERE id = ?",
-                (session_id,),
-            ).fetchone()
-            if row is None:
-                conn.execute(
-                    """
-                    INSERT INTO chat_sessions (id, title, created_at, updated_at)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (session_id, title, now_iso(), now_iso()),
+        with self.Session() as session:
+            existing = session.get(ChatSessionModel, session_id)
+            if existing is None:
+                timestamp = now_iso()
+                session.add(
+                    ChatSessionModel(
+                        id=session_id,
+                        title=title,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
                 )
+                session.commit()
 
     def add_message(
         self,
@@ -102,76 +58,65 @@ class ChanakyaStore:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         self.ensure_session(session_id)
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO chat_messages (
-                    session_id, role, content, request_id, route, metadata, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    session_id,
-                    role,
-                    content,
-                    request_id,
-                    route,
-                    json.dumps(metadata or {}),
-                    now_iso(),
-                ),
+        with self.Session() as session:
+            session.add(
+                ChatMessageModel(
+                    session_id=session_id,
+                    role=role,
+                    content=content,
+                    request_id=request_id,
+                    route=route,
+                    metadata_json=metadata or {},
+                    created_at=now_iso(),
+                )
             )
-            conn.execute(
-                "UPDATE chat_sessions SET updated_at = ? WHERE id = ?",
-                (now_iso(), session_id),
-            )
+            chat_session = session.get(ChatSessionModel, session_id)
+            if chat_session is not None:
+                chat_session.updated_at = now_iso()
+            session.commit()
 
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, role, content, request_id, route, metadata, created_at
-                FROM chat_messages
-                WHERE session_id = ?
-                ORDER BY id ASC
-                """,
-                (session_id,),
-            ).fetchall()
+        with self.Session() as session:
+            rows = session.scalars(
+                select(ChatMessageModel)
+                .where(ChatMessageModel.session_id == session_id)
+                .order_by(ChatMessageModel.id.asc())
+            ).all()
         return [
             {
-                "id": int(row["id"]),
-                "role": str(row["role"]),
-                "content": str(row["content"]),
-                "request_id": row["request_id"],
-                "route": row["route"],
-                "metadata": dict(json.loads(str(row["metadata"]))),
-                "created_at": str(row["created_at"]),
+                "id": row.id,
+                "role": row.role,
+                "content": row.content,
+                "request_id": row.request_id,
+                "route": row.route,
+                "metadata": row.metadata_json,
+                "created_at": row.created_at,
             }
             for row in rows
         ]
 
     def log_event(self, event_type: str, payload: dict[str, Any]) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO app_events (event_type, payload, created_at) VALUES (?, ?, ?)",
-                (event_type, json.dumps(payload), now_iso()),
+        with self.Session() as session:
+            session.add(
+                AppEventModel(
+                    event_type=event_type,
+                    payload_json=payload,
+                    created_at=now_iso(),
+                )
             )
+            session.commit()
 
     def list_events(self, limit: int = 50) -> list[dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, event_type, payload, created_at
-                FROM app_events
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+        with self.Session() as session:
+            rows = session.scalars(
+                select(AppEventModel).order_by(AppEventModel.id.desc()).limit(limit)
+            ).all()
         events = [
             {
-                "id": int(row["id"]),
-                "event_type": str(row["event_type"]),
-                "payload": dict(json.loads(str(row["payload"]))),
-                "created_at": str(row["created_at"]),
+                "id": row.id,
+                "event_type": row.event_type,
+                "payload": row.payload_json,
+                "created_at": row.created_at,
             }
             for row in rows
         ]
@@ -179,73 +124,67 @@ class ChanakyaStore:
         return events
 
     def upsert_agent_profile(self, profile: AgentProfile) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO agent_profiles (
-                    id, name, role, system_prompt, personality, tool_ids, workspace,
-                    heartbeat_enabled, heartbeat_interval_seconds, heartbeat_file_path,
-                    is_active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    name = excluded.name,
-                    role = excluded.role,
-                    system_prompt = excluded.system_prompt,
-                    personality = excluded.personality,
-                    tool_ids = excluded.tool_ids,
-                    workspace = excluded.workspace,
-                    heartbeat_enabled = excluded.heartbeat_enabled,
-                    heartbeat_interval_seconds = excluded.heartbeat_interval_seconds,
-                    heartbeat_file_path = excluded.heartbeat_file_path,
-                    is_active = excluded.is_active,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    profile.id,
-                    profile.name,
-                    profile.role,
-                    profile.system_prompt,
-                    profile.personality,
-                    json.dumps(profile.tool_ids),
-                    profile.workspace,
-                    int(profile.heartbeat_enabled),
-                    profile.heartbeat_interval_seconds,
-                    profile.heartbeat_file_path,
-                    int(profile.is_active),
-                    profile.created_at,
-                    profile.updated_at,
-                ),
-            )
+        with self.Session() as session:
+            row = session.get(AgentProfileModel, profile.id)
+            if row is None:
+                row = AgentProfileModel(
+                    id=profile.id,
+                    name=profile.name,
+                    role=profile.role,
+                    system_prompt=profile.system_prompt,
+                    personality=profile.personality,
+                    tool_ids_json=profile.tool_ids,
+                    workspace=profile.workspace,
+                    heartbeat_enabled=profile.heartbeat_enabled,
+                    heartbeat_interval_seconds=profile.heartbeat_interval_seconds,
+                    heartbeat_file_path=profile.heartbeat_file_path,
+                    is_active=profile.is_active,
+                    created_at=profile.created_at,
+                    updated_at=profile.updated_at,
+                )
+                session.add(row)
+            else:
+                row.name = profile.name
+                row.role = profile.role
+                row.system_prompt = profile.system_prompt
+                row.personality = profile.personality
+                row.tool_ids_json = profile.tool_ids
+                row.workspace = profile.workspace
+                row.heartbeat_enabled = profile.heartbeat_enabled
+                row.heartbeat_interval_seconds = profile.heartbeat_interval_seconds
+                row.heartbeat_file_path = profile.heartbeat_file_path
+                row.is_active = profile.is_active
+                row.updated_at = profile.updated_at
+            session.commit()
 
     def list_agent_profiles(self) -> list[AgentProfile]:
-        with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM agent_profiles ORDER BY name ASC").fetchall()
-        return [self._row_to_agent_profile(row) for row in rows]
+        with self.Session() as session:
+            rows = session.scalars(
+                select(AgentProfileModel).order_by(AgentProfileModel.name.asc())
+            ).all()
+        return [self._to_agent_profile(row) for row in rows]
 
     def get_agent_profile(self, agent_id: str) -> AgentProfile:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM agent_profiles WHERE id = ?",
-                (agent_id,),
-            ).fetchone()
+        with self.Session() as session:
+            row = session.get(AgentProfileModel, agent_id)
         if row is None:
             raise KeyError(f"Agent profile not found: {agent_id}")
-        return self._row_to_agent_profile(row)
+        return self._to_agent_profile(row)
 
     @staticmethod
-    def _row_to_agent_profile(row: sqlite3.Row) -> AgentProfile:
+    def _to_agent_profile(row: AgentProfileModel) -> AgentProfile:
         return AgentProfile(
-            id=str(row["id"]),
-            name=str(row["name"]),
-            role=str(row["role"]),
-            system_prompt=str(row["system_prompt"]),
-            personality=str(row["personality"]),
-            tool_ids=list(json.loads(str(row["tool_ids"]))),
-            workspace=row["workspace"],
-            heartbeat_enabled=bool(row["heartbeat_enabled"]),
-            heartbeat_interval_seconds=int(row["heartbeat_interval_seconds"]),
-            heartbeat_file_path=row["heartbeat_file_path"],
-            is_active=bool(row["is_active"]),
-            created_at=str(row["created_at"]),
-            updated_at=str(row["updated_at"]),
+            id=row.id,
+            name=row.name,
+            role=row.role,
+            system_prompt=row.system_prompt,
+            personality=row.personality,
+            tool_ids=row.tool_ids_json,
+            workspace=row.workspace,
+            heartbeat_enabled=row.heartbeat_enabled,
+            heartbeat_interval_seconds=row.heartbeat_interval_seconds,
+            heartbeat_file_path=row.heartbeat_file_path,
+            is_active=row.is_active,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
         )
