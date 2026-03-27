@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from chanakya.debug import debug_log
 from chanakya.maf_runtime import MAFRuntime
 from chanakya.models import ChatReply, make_id
 from chanakya.store import ChanakyaStore
@@ -15,6 +16,21 @@ class ChatService:
         route = "direct"
         runtime_meta = self.runtime.runtime_metadata()
         prior_messages = self.store.list_messages(session_id)[-8:]
+        prompt = self._build_prompt(message, prior_messages)
+
+        debug_log(
+            "chat_service_input",
+            {
+                "session_id": session_id,
+                "request_id": request_id,
+                "route": route,
+                "message": message,
+                "prior_message_count": len(prior_messages),
+                "history": prior_messages,
+                "prompt": prompt,
+                "runtime_meta": runtime_meta,
+            },
+        )
 
         self.store.add_message(
             session_id=session_id,
@@ -34,9 +50,14 @@ class ChatService:
             },
         )
 
-        response_text = self.runtime.run_chat(
-            session_id,
-            self._build_prompt(message, prior_messages),
+        response_text = self.runtime.run_chat(session_id, prompt)
+        debug_log(
+            "chat_service_model_response",
+            {
+                "session_id": session_id,
+                "request_id": request_id,
+                "response": response_text,
+            },
         )
         reply = ChatReply(
             request_id=request_id,
@@ -77,6 +98,14 @@ class ChatService:
                 "agent_name": reply.agent_name,
                 "model": reply.model,
                 "endpoint": reply.endpoint,
+            },
+        )
+        debug_log(
+            "chat_service_persisted",
+            {
+                "session_id": session_id,
+                "request_id": request_id,
+                "stored_user_and_assistant_messages": True,
             },
         )
         return reply

@@ -35,6 +35,7 @@ Milestone 1 - Simple Chanakya Chat
 - [X] Reuse stored session history for multi-turn follow-up responses
 - [X] Show route/runtime metadata in GUI
 - [X] Add scrollable panels for chat, agents, and events
+- [X] Add `CHANAKYA_DEBUG` terminal tracing for important runtime state and values
 
 - Validation:
   - Open the GUI
@@ -156,3 +157,4 @@ Milestone 1 - Simple Chanakya Chat
 - 2026-03-26: Fixed GUI session persistence by restoring the last chat from SQLite on reload and added explicit per-panel scrollbars.
 - 2026-03-26: Fixed panel layout sizing so chat, trace, agent, and event areas scroll independently within the viewport.
 - 2026-03-26: Fixed multi-turn chat continuity by feeding recent stored session history back into the MAF runtime for follow-up requests.
+- 2026-03-26: Added `CHANAKYA_DEBUG=true` support to print request flow, history, prompts, session state, and model responses to the terminal.

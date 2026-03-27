@@ -12,10 +12,13 @@ Run the current full-app milestone:
 ```bash
 source /home/rishabh/miniconda3/etc/profile.d/conda.sh
 conda activate test
+export CHANAKYA_DEBUG=true
 python -m flask --app chanakya.app run --host 0.0.0.0 --port 5000
 ```
 
 Open `http://localhost:5000` and validate the direct chat flow.
+
+When `CHANAKYA_DEBUG=true`, the app prints important runtime details to the terminal, including request payloads, stored chat history, prompt construction, MAF session state, and model responses.
 
 Execution plan is tracked in `task.md`.
 
