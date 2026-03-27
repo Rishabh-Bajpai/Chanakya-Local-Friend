@@ -10,9 +10,9 @@ from chanakya.chat_service import ChatService
 from chanakya.config import get_data_dir, get_database_url, load_local_env
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.debug import debug_log
+from chanakya.domain import make_id
 from chanakya.heartbeat import read_heartbeat
 from chanakya.maf_runtime import MAFRuntime
-from chanakya.domain import make_id
 from chanakya.seed import load_agent_seeds
 from chanakya.store import ChanakyaStore
 
@@ -30,7 +30,8 @@ def create_app() -> Flask:
 
     engine = build_engine(database_url)
     init_database(engine)
-    store = ChanakyaStore(build_session_factory(engine))
+    session_factory = build_session_factory(engine)
+    store = ChanakyaStore(session_factory)
     load_agent_seeds(store, BASE_DIR / "chanakya" / "seeds" / "agents.json")
     ensure_heartbeat_files(store, BASE_DIR)
     debug_log(
@@ -45,7 +46,7 @@ def create_app() -> Flask:
     )
 
     chanakya_profile = store.get_agent_profile("agent_chanakya")
-    runtime = MAFRuntime(chanakya_profile)
+    runtime = MAFRuntime(chanakya_profile, session_factory)
     chat_service = ChatService(store, runtime)
 
     @app.get("/")

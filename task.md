@@ -40,6 +40,7 @@ Milestone 1 - Simple Chanakya Chat
 - [X] Remove duplicate `AgentProfile` domain/ORM definitions and use SQLAlchemy models directly for persisted agent records
 - [X] Add provider-agnostic `DATABASE_URL` SQLAlchemy engine/session setup and remove path-bound DB initialization
 - [X] Rename `chanakya/models.py` to `chanakya/domain.py` to separate app-domain types from ORM models
+- [X] Replace manual chat prompt stitching with a MAF `BaseHistoryProvider` backed by SQLAlchemy chat history
 
 - Validation:
   - Open the GUI
@@ -166,3 +167,4 @@ Milestone 1 - Simple Chanakya Chat
 - 2026-03-26: Removed duplicate agent profile DTO/ORM mapping and now use `AgentProfileModel` directly across the persistence layer.
 - 2026-03-26: Added SQLAlchemy engine/session management via `DATABASE_URL` so the new app is no longer initialized around a SQLite file path.
 - 2026-03-26: Renamed `chanakya/models.py` to `chanakya/domain.py` to reduce confusion between domain types and ORM models.
+- 2026-03-27: Added a SQLAlchemy-backed MAF history provider and removed manual chat prompt reconstruction for multi-turn memory.
