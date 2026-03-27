@@ -31,7 +31,8 @@
         display: grid;
         grid-template-columns: 1.4fr 1fr;
         gap: 18px;
-        min-height: 100vh;
+        height: 100vh;
+        min-height: 0;
       }
       .panel {
         background: var(--panel);
@@ -39,6 +40,7 @@
         border-radius: 18px;
         box-shadow: 0 18px 50px rgba(63, 44, 18, 0.08);
         backdrop-filter: blur(10px);
+        min-height: 0;
       }
       .hero {
         padding: 18px 20px 8px;
@@ -63,15 +65,19 @@
       .chat {
         display: flex;
         flex-direction: column;
-        min-height: calc(100vh - 40px);
+        min-height: 0;
+        height: 100%;
       }
       .chat-log {
         flex: 1;
         padding: 14px 20px;
-        overflow: auto;
+        overflow-x: hidden;
+        overflow-y: auto;
         display: flex;
         flex-direction: column;
         gap: 12px;
+        scrollbar-width: thin;
+        scrollbar-color: #b89d83 rgba(255,255,255,0.4);
       }
       .message {
         max-width: 88%;
@@ -120,12 +126,39 @@
       }
       .side {
         display: grid;
-        grid-template-rows: auto 1fr 1fr;
+        grid-template-rows: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1fr);
         gap: 18px;
+        min-height: 0;
+        height: 100%;
       }
       .section {
+        display: flex;
+        flex-direction: column;
         padding: 16px 18px;
-        overflow: auto;
+        min-height: 0;
+      }
+      .section-body {
+        overflow-x: hidden;
+        overflow-y: auto;
+        min-height: 0;
+        flex: 1;
+        scrollbar-width: thin;
+        scrollbar-color: #b89d83 rgba(255,255,255,0.4);
+      }
+      .chat-log::-webkit-scrollbar,
+      .section-body::-webkit-scrollbar {
+        width: 10px;
+      }
+      .chat-log::-webkit-scrollbar-track,
+      .section-body::-webkit-scrollbar-track {
+        background: rgba(255,255,255,0.45);
+        border-radius: 999px;
+      }
+      .chat-log::-webkit-scrollbar-thumb,
+      .section-body::-webkit-scrollbar-thumb {
+        background: #b89d83;
+        border-radius: 999px;
+        border: 2px solid rgba(255,255,255,0.45);
       }
       .section h2 {
         margin: 0 0 6px;
@@ -167,7 +200,8 @@
       }
       @media (max-width: 980px) {
         .shell { grid-template-columns: 1fr; }
-        .chat { min-height: 70vh; }
+        .shell { height: auto; }
+        .chat { min-height: 70vh; height: auto; }
         .side { grid-template-rows: auto auto auto; }
       }
     </style>
@@ -194,19 +228,25 @@
         <div class="panel section">
           <h2>Request Trace</h2>
           <p>Direct route metadata for the current milestone.</p>
-          <div id="requestTrace"></div>
+          <div class="section-body">
+            <div id="requestTrace"></div>
+          </div>
         </div>
 
         <div class="panel section">
           <h2>Persistent Agents</h2>
           <p>Loaded from seed now, editable in GUI in a later milestone.</p>
-          <div id="agentList"></div>
+          <div class="section-body">
+            <div id="agentList"></div>
+          </div>
         </div>
 
         <div class="panel section">
           <h2>Recent Events</h2>
           <p>App events recorded in SQLite for debugging and review.</p>
-          <div id="eventList"></div>
+          <div class="section-body">
+            <div id="eventList"></div>
+          </div>
         </div>
       </section>
     </div>
@@ -220,6 +260,7 @@
       const eventList = document.getElementById("eventList");
 
       let sessionId = null;
+      const STORAGE_KEY = "chanakya-active-session";
 
       function appendMessage(role, text, meta) {
         const node = document.createElement("div");
@@ -235,8 +276,44 @@
         chatLog.scrollTop = chatLog.scrollHeight;
       }
 
+      function loadStoredSessionId() {
+        try {
+          return window.localStorage.getItem(STORAGE_KEY);
+        } catch {
+          return null;
+        }
+      }
+
+      function storeSessionId(value) {
+        try {
+          if (value) {
+            window.localStorage.setItem(STORAGE_KEY, value);
+          }
+        } catch {
+          return;
+        }
+      }
+
       function replaceChildren(node, children) {
         node.replaceChildren(...children);
+      }
+
+      function renderChatHistory(messages) {
+        chatLog.replaceChildren();
+        if (!messages.length) {
+          appendMessage(
+            "assistant",
+            "I am Chanakya. For this milestone, I answer directly through a MAF agent while we keep the architecture visible.",
+          );
+          return;
+        }
+        messages.forEach((item) => {
+          const meta = [];
+          if (item.route) meta.push(`route=${item.route}`);
+          if (item.request_id) meta.push(`request=${item.request_id}`);
+          if (item.metadata && item.metadata.runtime) meta.push(`runtime=${item.metadata.runtime}`);
+          appendMessage(item.role === "user" ? "user" : "assistant", item.content, meta.join(" "));
+        });
       }
 
       function renderTrace(data) {
@@ -307,6 +384,23 @@
         renderEvents(eventsData.events || []);
       }
 
+      async function loadSessionHistory() {
+        const storedSessionId = loadStoredSessionId();
+        if (!storedSessionId) {
+          renderChatHistory([]);
+          return;
+        }
+        sessionId = storedSessionId;
+        const response = await fetch(`/api/sessions/${sessionId}`);
+        if (!response.ok) {
+          sessionId = null;
+          renderChatHistory([]);
+          return;
+        }
+        const data = await response.json();
+        renderChatHistory(data.messages || []);
+      }
+
       chatForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const message = messageInput.value.trim();
@@ -325,6 +419,7 @@
           return;
         }
         sessionId = data.session_id;
+        storeSessionId(sessionId);
         appendMessage(
           "assistant",
           data.message,
@@ -334,10 +429,7 @@
         refreshSidePanels();
       });
 
-      appendMessage(
-        "assistant",
-        "I am Chanakya. For this milestone, I answer directly through a MAF agent while we keep the architecture visible.",
-      );
+      loadSessionHistory();
       refreshSidePanels();
     </script>
   </body>
