@@ -10,9 +10,9 @@ from chanakya.chat_service import ChatService
 from chanakya.config import get_data_dir, get_database_url, load_local_env
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.debug import debug_log
-from chanakya.domain import make_id
 from chanakya.heartbeat import read_heartbeat
 from chanakya.maf_runtime import MAFRuntime
+from chanakya.domain import make_id
 from chanakya.seed import load_agent_seeds
 from chanakya.store import ChanakyaStore
 

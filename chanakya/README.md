@@ -229,6 +229,29 @@ conda activate test
 python -m flask --app chanakya.app run --host 0.0.0.0 --port 5000
 ```
 
+### Database Utilities
+
+Chanakya includes a few helper scripts under `scripts/` for working with the app database:
+
+```bash
+conda activate test
+
+# View Chanakya tables in a local Flask UI
+python scripts/db_viewer.py
+
+# Create missing Chanakya tables and columns
+python scripts/update_database.py
+
+# Drop and recreate the full Chanakya schema
+python scripts/clear_database.py
+```
+
+Notes:
+
+- These scripts use `DATABASE_URL` if set, otherwise they default to `chanakya_data/chanakya.db`.
+- `scripts/db_viewer.py` exposes `ChatSessionModel`, `ChatMessageModel`, `AppEventModel`, and `AgentProfileModel` at `http://localhost:5013`.
+- `scripts/clear_database.py` is destructive and prompts twice before deleting data.
+
 ### Run Lint and Typecheck
 
 ```bash
