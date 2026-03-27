@@ -118,7 +118,7 @@ class ChatService:
         transcript_lines = [
             (
                 "Use the recent conversation to resolve references like "
-                "'it', 'that', or follow-up math."
+                "'it', 'that', or follow-up conversation, otherwise answer based on the message."
             ),
             "Recent conversation:",
         ]
