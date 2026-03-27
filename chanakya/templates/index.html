@@ -6,14 +6,14 @@
     <title>Chanakya</title>
     <style>
       :root {
-        --bg: #f2efe7;
-        --panel: rgba(255, 252, 247, 0.92);
-        --line: #d9cfc0;
-        --text: #2f2419;
-        --muted: #736454;
-        --accent: #a64b2a;
-        --accent-soft: #f3d6c8;
-        --ink: #183a37;
+        --bg: #121212;
+        --panel: rgba(25, 25, 25, 0.95);
+        --line: #333333;
+        --text: #e8e6e3;
+        --muted: #9a9590;
+        --accent: #d86b4a;
+        --accent-soft: #2d2520;
+        --ink: #3a8a87;
       }
       * { box-sizing: border-box; }
       body {
@@ -21,8 +21,8 @@
         font-family: Georgia, "Iowan Old Style", serif;
         color: var(--text);
         background:
-          radial-gradient(circle at top left, rgba(255,255,255,0.65), transparent 30%),
-          linear-gradient(135deg, #efe6d5 0%, #f7f2ea 45%, #e6ddd0 100%);
+          radial-gradient(circle at top left, rgba(50,50,50,0.4), transparent 30%),
+          linear-gradient(135deg, #1a1a1a 0%, #121212 45%, #0d0d0d 100%);
       }
       .shell {
         max-width: 1320px;
@@ -38,7 +38,7 @@
         background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 18px;
-        box-shadow: 0 18px 50px rgba(63, 44, 18, 0.08);
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
         backdrop-filter: blur(10px);
         min-height: 0;
       }
@@ -77,7 +77,7 @@
         flex-direction: column;
         gap: 12px;
         scrollbar-width: thin;
-        scrollbar-color: #b89d83 rgba(255,255,255,0.4);
+        scrollbar-color: #4a4a4a rgba(0,0,0,0.3);
       }
       .message {
         max-width: 88%;
@@ -87,12 +87,12 @@
       }
       .message.user {
         align-self: flex-end;
-        background: #f6dccf;
+        background: #3d2a20;
       }
       .message.assistant {
         align-self: flex-start;
-        background: #faf6ef;
-        border: 1px solid #eadfce;
+        background: #252525;
+        border: 1px solid #383838;
       }
       .meta {
         margin-top: 8px;
@@ -111,8 +111,8 @@
         padding: 13px 14px;
         font-size: 15px;
         border-radius: 14px;
-        border: 1px solid #ccbda9;
-        background: rgba(255,255,255,0.8);
+        border: 1px solid #444444;
+        background: #1a1a1a;
         color: var(--text);
       }
       button {
@@ -120,7 +120,7 @@
         border-radius: 14px;
         padding: 0 18px;
         background: var(--accent);
-        color: #fff6f1;
+        color: #fff;
         font-size: 14px;
         cursor: pointer;
       }
@@ -143,7 +143,7 @@
         min-height: 0;
         flex: 1;
         scrollbar-width: thin;
-        scrollbar-color: #b89d83 rgba(255,255,255,0.4);
+        scrollbar-color: #4a4a4a rgba(0,0,0,0.3);
       }
       .chat-log::-webkit-scrollbar,
       .section-body::-webkit-scrollbar {
@@ -151,14 +151,14 @@
       }
       .chat-log::-webkit-scrollbar-track,
       .section-body::-webkit-scrollbar-track {
-        background: rgba(255,255,255,0.45);
+        background: rgba(0,0,0,0.25);
         border-radius: 999px;
       }
       .chat-log::-webkit-scrollbar-thumb,
       .section-body::-webkit-scrollbar-thumb {
-        background: #b89d83;
+        background: #4a4a4a;
         border-radius: 999px;
-        border: 2px solid rgba(255,255,255,0.45);
+        border: 2px solid rgba(0,0,0,0.25);
       }
       .section h2 {
         margin: 0 0 6px;
@@ -170,12 +170,12 @@
         font-size: 14px;
       }
       .card {
-        border: 1px solid #e2d7c9;
+        border: 1px solid #383838;
         border-left: 4px solid var(--ink);
         border-radius: 14px;
         padding: 10px 12px;
         margin-bottom: 10px;
-        background: rgba(255,255,255,0.55);
+        background: rgba(255,255,255,0.03);
       }
       .card h3 {
         margin: 0 0 6px;
@@ -187,7 +187,7 @@
         margin: 8px 0 0;
         font-family: "SFMono-Regular", Consolas, monospace;
         font-size: 12px;
-        color: #4d3e2e;
+        color: #b0aea8;
       }
       .pill {
         display: inline-block;
