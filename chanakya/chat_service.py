@@ -14,6 +14,7 @@ class ChatService:
         request_id = make_id("req")
         route = "direct"
         runtime_meta = self.runtime.runtime_metadata()
+        prior_messages = self.store.list_messages(session_id)[-8:]
 
         self.store.add_message(
             session_id=session_id,
@@ -33,7 +34,10 @@ class ChatService:
             },
         )
 
-        response_text = self.runtime.run_direct(message)
+        response_text = self.runtime.run_chat(
+            session_id,
+            self._build_prompt(message, prior_messages),
+        )
         reply = ChatReply(
             request_id=request_id,
             session_id=session_id,
@@ -76,3 +80,29 @@ class ChatService:
             },
         )
         return reply
+
+    @staticmethod
+    def _build_prompt(message: str, prior_messages: list[dict[str, object]]) -> str:
+        if not prior_messages:
+            return message
+
+        transcript_lines = [
+            (
+                "Use the recent conversation to resolve references like "
+                "'it', 'that', or follow-up math."
+            ),
+            "Recent conversation:",
+        ]
+        for item in prior_messages:
+            role = str(item.get("role", "user")).capitalize()
+            content = str(item.get("content", "")).strip()
+            if content:
+                transcript_lines.append(f"{role}: {content}")
+        transcript_lines.extend(
+            [
+                "",
+                f"User: {message}",
+                "Assistant:",
+            ]
+        )
+        return "\n".join(transcript_lines)
