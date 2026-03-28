@@ -52,7 +52,6 @@ class MAFRuntime:
             store_inputs=True,
             store_outputs=True,
         )
-        self.request_timeout = get_mcp_request_timeout_seconds()
         
         # Pull cached tool availability map from loader
         self.availability = get_tools_availability()
@@ -126,7 +125,7 @@ class MAFRuntime:
                 session=session,
                 options={"store": True},
             ),
-            timeout=60,
+            timeout=get_mcp_request_timeout_seconds(),
         )
 
         # Mock up specs format to satisfy legacy extractor 
