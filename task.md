@@ -50,15 +50,25 @@ Milestone 1 - Simple Chanakya Chat
 
 ### Milestone 2 - Tool Routing
 
-- [ ] Add internal tool registry
-- [ ] Integrate MCP calculator tool
-- [ ] Integrate MCP fetch tool
-- [ ] Show tool selection, input, output, and errors in GUI
+- [X] Create separate MCP handling module (`chanakya/mcp_runtime.py`)
+- [X] Add MCP tool loader and availability cache (`chanakya/services/tool_loader.py`)
+- [X] Add MCP config loading + env merge helpers (`chanakya/services/config_loader.py`)
+- [X] Add MCP stdout wrapper for noisy tool servers (`chanakya/services/mcp_wrapper.py`)
+- [X] Add ToolInvocationModel for persistent tool traces (`chanakya/model.py`)
+- [X] Add tool invocation repository methods to `chanakya/store.py`
+- [X] Refactor runtime to unified agent-driven tool path in `chanakya/agent/runtime.py` (remove run_direct/run_chat split)
+- [X] Update `chanakya/chat_service.py` to remove hardcoded route decisions and wire tool traces
+- [X] Integrate MCP calculator tool (`githejie/mcp-server-calculator`)
+- [X] Integrate MCP fetch tool (`zcaceres/fetch-mcp`)
+- [X] Assign tool_ids to Chanakya agent profile in seeds
+- [X] Add `/api/tool-traces` endpoint to `app.py`
+- [X] Add Tool Traces panel to GUI showing selection, input, output, errors
+- [ ] End-to-end validation with running MCP servers
 
 - Validation:
   - Ask Chanakya to calculate an expression
   - Ask Chanakya to fetch a page summary
-  - Confirm tool traces are visible
+  - Confirm tool traces are visible in the GUI Tool Traces panel
 
 ### Milestone 3 - Domain Foundation
 
@@ -137,7 +147,8 @@ Milestone 1 - Simple Chanakya Chat
 ## Current Focus
 
 - Completed: Milestone 1 foundation and simple chatbot
-- Next: Milestone 2 domain foundation for full task orchestration
+- In Progress: Milestone 2 tool routing verification (implementation complete, pending end-to-end validation)
+- Next: Milestone 3 domain foundation for full task orchestration
 
 ## GUI Review Loop
 
@@ -154,6 +165,38 @@ Milestone 1 - Simple Chanakya Chat
 - The heartbeat service will read the file contents periodically and decide if work is required.
 - Heartbeat files will be the lightweight control surface for pending work, reminders, or operating instructions.
 
+## Adding New MCP Servers
+
+Use this flow to add a new MCP server (for example, search, filesystem, or custom internal tools):
+
+1. Add a server entry in `mcp_config_file.json` under `mcpServers`.
+2. Set `command`, `args`, `transport: "stdio"`, and optional `env` values.
+3. Add the server id to an agent in `chanakya/seeds/agents.json` using `tool_ids`.
+4. Restart the Flask app so `initialize_all_tools()` reconnects and caches the new MCP tools.
+5. Verify from GUI:
+   - Ask a prompt that should trigger the new tool.
+   - Open Tool Traces panel (or `/api/tool-traces`) and confirm invocation records.
+
+Example config entry:
+
+```json
+{
+  "mcpServers": {
+    "mcp_fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "transport": "stdio",
+      "env": {}
+    }
+  }
+}
+```
+
+Notes:
+- Loader path: `chanakya/services/tool_loader.py`
+- Config loader: `chanakya/services/config_loader.py`
+- Noisy stdout is sanitized via `chanakya/services/mcp_wrapper.py` before MAF reads MCP JSON-RPC.
+
 ## Done Log
 
 - 2026-03-26: Created phased task tracker from `tasks/prd-chanakya-full-system.md`.
@@ -168,3 +211,4 @@ Milestone 1 - Simple Chanakya Chat
 - 2026-03-26: Added SQLAlchemy engine/session management via `DATABASE_URL` so the new app is no longer initialized around a SQLite file path.
 - 2026-03-26: Renamed `chanakya/models.py` to `chanakya/domain.py` to reduce confusion between domain types and ORM models.
 - 2026-03-27: Added a SQLAlchemy-backed MAF history provider and removed manual chat prompt reconstruction for multi-turn memory.
+- 2026-03-28: Implemented Milestone 2 tool routing: separate MCP trace extraction module, MCP tool loader/config wrapper services, unified runtime (removed run_direct/run_chat split), agent-driven tool selection, tool trace persistence, GUI tool traces panel, and /api/tool-traces endpoint.

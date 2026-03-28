@@ -2,7 +2,7 @@
 
 Chanakya is a **task orchestration system powered by Microsoft Agent Framework**. It provides a single user-facing assistant while a network of intelligent agents collaborates in the background to complete tasks, provide insights, and maintain ongoing workflows.
 
-This is the full implementation tracked in `task_new.md`.
+This is the full implementation tracked in `task.md`.
 
 ---
 
@@ -64,7 +64,7 @@ Chanakya is **not a chatbot**. It is a task-driven operating system where:
         ▼
 ┌─────────────────────────────────────┐
 │         MAFRuntime                  │
-│  (maf_runtime.py — agent exec)      │
+│  (agent/runtime.py — agent exec)    │
 └──────────────┬──────────────────────┘
                │
                ▼
@@ -96,14 +96,22 @@ Chanakya is **not a chatbot**. It is a task-driven operating system where:
 ```
 chanakya/
 ├── __init__.py           # Package marker
+├── agent/
+│   ├── prompt.py         # Tool-aware system prompt augmentation
+│   └── runtime.py        # Unified MAF runtime
 ├── app.py                # Flask app factory, routes, startup logic
 ├── chat_service.py       # Request handling and routing logic
 ├── config.py             # Environment and configuration utilities
 ├── heartbeat.py          # Heartbeat file reading
-├── maf_runtime.py       # MAF agent execution wrapper
+├── mcp_runtime.py        # MCP tool trace extraction helpers
 ├── domain.py             # Non-ORM app domain types and helpers
 ├── model.py              # SQLAlchemy ORM models
 ├── seed.py               # Agent seed loading from JSON
+├── services/
+│   ├── async_loop.py     # Shared async loop for background tool/runtime work
+│   ├── config_loader.py  # MCP config loading and env merge helpers
+│   ├── mcp_wrapper.py    # Stdout sanitizer for MCP JSON-RPC streams
+│   └── tool_loader.py    # MCP tool initialization and connection caching
 ├── store.py              # SQLAlchemy persistence layer
 ├── templates/
 │   └── index.html        # GUI template
@@ -126,6 +134,7 @@ chanakya/
 | `/api/sessions/<session_id>` | GET    | Get all messages in a session                  |
 | `/api/events`                | GET    | Get recent app events                          |
 | `/api/agents`                | GET    | Get all agent profiles with heartbeat previews |
+| `/api/tool-traces`           | GET    | Get persisted MCP tool invocation traces       |
 
 ---
 
@@ -175,6 +184,24 @@ chanakya/
 | heartbeat_interval_seconds | INTEGER | Interval                                                 |
 | heartbeat_file_path        | TEXT    | Path to control file                                     |
 | is_active                  | INTEGER | Boolean                                                  |
+
+### `tool_invocations`
+
+| Column        | Type | Description                                   |
+| ------------- | ---- | --------------------------------------------- |
+| invocation_id | TEXT | Unique invocation id                          |
+| request_id    | TEXT | Request id for the tool call                  |
+| session_id    | TEXT | Chat session id                               |
+| agent_name    | TEXT | Agent that triggered the call                 |
+| tool_id       | TEXT | MCP server id (for example `mcp_fetch`)       |
+| tool_name     | TEXT | Tool/function name                            |
+| server_name   | TEXT | Server command descriptor                     |
+| status        | TEXT | `succeeded` or `failed`                       |
+| input         | JSON | Captured input payload                        |
+| output        | TEXT | Captured output text                          |
+| error         | TEXT | Captured error text                           |
+| started_at    | TEXT | ISO timestamp                                 |
+| finished_at   | TEXT | ISO timestamp                                 |
 
 ---
 
@@ -253,7 +280,7 @@ python scripts/clear_database.py
 Notes:
 
 - These scripts use `DATABASE_URL` if set, otherwise they default to `chanakya_data/chanakya.db`.
-- `scripts/db_viewer.py` exposes `ChatSessionModel`, `ChatMessageModel`, `AppEventModel`, and `AgentProfileModel` at `http://localhost:5013`.
+- `scripts/db_viewer.py` exposes `ChatSessionModel`, `ChatMessageModel`, `AppEventModel`, `ToolInvocationModel`, and `AgentProfileModel` at `http://localhost:5013`.
 - `scripts/clear_database.py` is destructive and prompts twice before deleting data.
 
 ### Run Lint and Typecheck
@@ -271,22 +298,22 @@ python -m mypy chanakya/
 | Milestone | Description                                  | Status   |
 | --------- | -------------------------------------------- | -------- |
 | 1         | Simple Chanakya chat                         | Complete |
-| 2         | Domain foundation (tasks, events, lifecycle) | Next     |
-| 3         | Tool routing (calculator, fetch)             | Pending  |
+| 2         | Tool routing (calculator, fetch)             | In progress (validation pending) |
+| 3         | Domain foundation (tasks, events, lifecycle) | Next     |
 | 4         | Agent Manager v1 (delegation, decomposition) | Pending  |
 | 5         | Persistent agent configuration               | Pending  |
 | 6         | Temporary subagents                          | Pending  |
 | 7         | User input loop (pause/resume)               | Pending  |
-| 8         | Scheduling and heartbeat                     | Pending  |
-| 9         | Direct agent interaction                     | Pending  |
+| 8         | Social and isolated agents                   | Pending  |
+| 9         | Scheduling and heartbeat                     | Pending  |
 | 10        | Hardening and demo flow                      | Pending  |
 
-Full milestone details in `task_new.md`.
+Full milestone details in `task.md`.
 
 ---
 
 ## Related Files
 
-- `task_new.md` — Execution tracker with milestones, risks, and delivery rules
+- `task.md` — Execution tracker with milestones, risks, and delivery rules
 - `tasks/prd-chanakya-full-system.md` — Product Requirements Document
 - `chanakya_mvp/` — Reference MVP (to be removed after full app is complete)

@@ -18,6 +18,7 @@ from chanakya.model import (
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
+    ToolInvocationModel,
 )
 
 
@@ -41,6 +42,7 @@ MODELS = {
     "ChatSessionModel": ChatSessionModel,
     "ChatMessageModel": ChatMessageModel,
     "AppEventModel": AppEventModel,
+    "ToolInvocationModel": ToolInvocationModel,
     "AgentProfileModel": AgentProfileModel,
 }
 

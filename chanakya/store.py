@@ -12,6 +12,7 @@ from chanakya.model import (
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
+    ToolInvocationModel,
 )
 
 
@@ -121,6 +122,101 @@ class ChanakyaStore:
         ]
         events.reverse()
         return events
+
+    def create_tool_invocation(
+        self,
+        *,
+        invocation_id: str,
+        request_id: str,
+        session_id: str,
+        agent_id: str | None,
+        agent_name: str,
+        tool_id: str,
+        tool_name: str,
+        server_name: str,
+        status: str,
+        input_json: dict[str, Any] | None = None,
+    ) -> None:
+        with session_scope(self.Session) as session:
+            session.add(
+                ToolInvocationModel(
+                    invocation_id=invocation_id,
+                    request_id=request_id,
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    tool_id=tool_id,
+                    tool_name=tool_name,
+                    server_name=server_name,
+                    status=status,
+                    input_json=input_json or {},
+                    output_text=None,
+                    error_text=None,
+                    started_at=now_iso(),
+                    finished_at=None,
+                )
+            )
+            session.commit()
+
+    def finish_tool_invocation(
+        self,
+        invocation_id: str,
+        *,
+        status: str,
+        output_text: str | None = None,
+        error_text: str | None = None,
+    ) -> None:
+        with session_scope(self.Session) as session:
+            row = session.scalars(
+                select(ToolInvocationModel).where(
+                    ToolInvocationModel.invocation_id == invocation_id
+                )
+            ).first()
+            if row is None:
+                return
+            row.status = status
+            row.output_text = output_text
+            row.error_text = error_text
+            row.finished_at = now_iso()
+            session.commit()
+
+    def list_tool_invocations(
+        self,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = select(ToolInvocationModel).order_by(ToolInvocationModel.id.desc()).limit(limit)
+            if session_id is not None:
+                stmt = stmt.where(ToolInvocationModel.session_id == session_id)
+            if request_id is not None:
+                stmt = stmt.where(ToolInvocationModel.request_id == request_id)
+            rows = session.scalars(stmt).all()
+
+        records = [
+            {
+                "id": row.id,
+                "invocation_id": row.invocation_id,
+                "request_id": row.request_id,
+                "session_id": row.session_id,
+                "agent_id": row.agent_id,
+                "agent_name": row.agent_name,
+                "tool_id": row.tool_id,
+                "tool_name": row.tool_name,
+                "server_name": row.server_name,
+                "status": row.status,
+                "input": row.input_json,
+                "output": row.output_text,
+                "error": row.error_text,
+                "started_at": row.started_at,
+                "finished_at": row.finished_at,
+            }
+            for row in rows
+        ]
+        records.reverse()
+        return records
 
     def upsert_agent_profile(self, profile: AgentProfileModel) -> None:
         with session_scope(self.Session) as session:
