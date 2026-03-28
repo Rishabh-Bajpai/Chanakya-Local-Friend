@@ -237,6 +237,37 @@ chanakya_data/
     └── tester.md
 ```
 
+### Adding New MCP Servers
+
+Use this flow to add a new MCP server:
+
+1. Add a server entry in `mcp_config_file.json` under `mcpServers`.
+2. Set `command`, `args`, `transport: "stdio"`, and optional `env`.
+3. Add the server id to the relevant agent in `chanakya/seeds/agents.json` using `tool_ids`.
+4. Restart the Flask app so `initialize_all_tools()` reconnects and caches the new tools.
+5. Validate by triggering the tool from chat and checking Tool Traces (`/api/tool-traces`).
+
+Example:
+
+```json
+{
+  "mcpServers": {
+    "mcp_fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "transport": "stdio",
+      "env": {}
+    }
+  }
+}
+```
+
+Implementation references:
+
+- Tool loader: `chanakya/services/tool_loader.py`
+- Config loader: `chanakya/services/config_loader.py`
+- MCP stdout wrapper: `chanakya/services/mcp_wrapper.py`
+
 ---
 
 ## Seed Agents
