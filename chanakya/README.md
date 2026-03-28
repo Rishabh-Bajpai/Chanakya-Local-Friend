@@ -82,11 +82,11 @@ Chanakya is **not a chatbot**. It is a task-driven operating system where:
 
 ### Layer Responsibilities
 
-| Layer | Responsibility |
-|-------|----------------|
-| Flask GUI/API | User interaction, request intake, response rendering |
-| ChatService | Request classification, routing, event logging |
-| MAFRuntime | Agent execution via Microsoft Agent Framework |
+| Layer         | Responsibility                                                        |
+| ------------- | --------------------------------------------------------------------- |
+| Flask GUI/API | User interaction, request intake, response rendering                  |
+| ChatService   | Request classification, routing, event logging                        |
+| MAFRuntime    | Agent execution via Microsoft Agent Framework                         |
 | ChanakyaStore | SQLAlchemy persistence for sessions, messages, events, agent profiles |
 
 ---
@@ -119,58 +119,62 @@ chanakya/
 
 ## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Render the GUI |
-| `/api/chat` | POST | Send a chat message `{session_id?, message}` |
-| `/api/sessions/<session_id>` | GET | Get all messages in a session |
-| `/api/events` | GET | Get recent app events |
-| `/api/agents` | GET | Get all agent profiles with heartbeat previews |
+| Endpoint                       | Method | Description                                    |
+| ------------------------------ | ------ | ---------------------------------------------- |
+| `/`                          | GET    | Render the GUI                                 |
+| `/api/chat`                  | POST   | Send a chat message `{session_id?, message}` |
+| `/api/sessions/<session_id>` | GET    | Get all messages in a session                  |
+| `/api/events`                | GET    | Get recent app events                          |
+| `/api/agents`                | GET    | Get all agent profiles with heartbeat previews |
 
 ---
 
 ## Database Schema
 
 ### `chat_sessions`
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT | Session ID |
-| title | TEXT | Session title |
+
+| Column     | Type | Description   |
+| ---------- | ---- | ------------- |
+| id         | TEXT | Session ID    |
+| title      | TEXT | Session title |
 | created_at | TEXT | ISO timestamp |
 | updated_at | TEXT | ISO timestamp |
 
 ### `chat_messages`
-| Column | Type | Description |
-|--------|------|-------------|
-| session_id | TEXT | FK to session |
-| role | TEXT | `user` or `assistant` |
-| content | TEXT | Message text |
-| request_id | TEXT | Request ID |
-| route | TEXT | Routing decision |
-| metadata | TEXT | JSON blob |
-| created_at | TEXT | ISO timestamp |
+
+| Column     | Type | Description               |
+| ---------- | ---- | ------------------------- |
+| session_id | TEXT | FK to session             |
+| role       | TEXT | `user` or `assistant` |
+| content    | TEXT | Message text              |
+| request_id | TEXT | Request ID                |
+| route      | TEXT | Routing decision          |
+| metadata   | TEXT | JSON blob                 |
+| created_at | TEXT | ISO timestamp             |
 
 ### `app_events`
-| Column | Type | Description |
-|--------|------|-------------|
-| event_type | TEXT | Event type (e.g., `route_decision`, `chat_response`) |
-| payload | TEXT | JSON blob |
-| created_at | TEXT | ISO timestamp |
+
+| Column     | Type | Description                                             |
+| ---------- | ---- | ------------------------------------------------------- |
+| event_type | TEXT | Event type (e.g.,`route_decision`, `chat_response`) |
+| payload    | TEXT | JSON blob                                               |
+| created_at | TEXT | ISO timestamp                                           |
 
 ### `agent_profiles`
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT | Agent ID |
-| name | TEXT | Display name |
-| role | TEXT | Role (`personal_assistant`, `developer`, `tester`) |
-| system_prompt | TEXT | Agent instructions |
-| personality | TEXT | Personality description |
-| tool_ids | TEXT | JSON array |
-| workspace | TEXT | Workspace identifier |
-| heartbeat_enabled | INTEGER | Boolean |
-| heartbeat_interval_seconds | INTEGER | Interval |
-| heartbeat_file_path | TEXT | Path to control file |
-| is_active | INTEGER | Boolean |
+
+| Column                     | Type    | Description                                              |
+| -------------------------- | ------- | -------------------------------------------------------- |
+| id                         | TEXT    | Agent ID                                                 |
+| name                       | TEXT    | Display name                                             |
+| role                       | TEXT    | Role (`personal_assistant`, `developer`, `tester`) |
+| system_prompt              | TEXT    | Agent instructions                                       |
+| personality                | TEXT    | Personality description                                  |
+| tool_ids                   | TEXT    | JSON array                                               |
+| workspace                  | TEXT    | Workspace identifier                                     |
+| heartbeat_enabled          | INTEGER | Boolean                                                  |
+| heartbeat_interval_seconds | INTEGER | Interval                                                 |
+| heartbeat_file_path        | TEXT    | Path to control file                                     |
+| is_active                  | INTEGER | Boolean                                                  |
 
 ---
 
@@ -212,11 +216,11 @@ chanakya_data/
 
 The app loads three seed agents on startup from `chanakya/seeds/agents.json`:
 
-| Agent ID | Name | Role |
-|----------|------|------|
-| `agent_chanakya` | Chanakya | Personal assistant (main user interface) |
-| `agent_developer` | Developer | Worker for implementation tasks |
-| `agent_tester` | Tester | Worker for validation tasks |
+| Agent ID            | Name      | Role                                     |
+| ------------------- | --------- | ---------------------------------------- |
+| `agent_chanakya`  | Chanakya  | Personal assistant (main user interface) |
+| `agent_developer` | Developer | Worker for implementation tasks          |
+| `agent_tester`    | Tester    | Worker for validation tasks              |
 
 ---
 
@@ -264,18 +268,18 @@ python -m mypy chanakya/
 
 ## Milestones
 
-| Milestone | Description | Status |
-|-----------|-------------|--------|
-| 1 | Simple Chanakya chat | Complete |
-| 2 | Domain foundation (tasks, events, lifecycle) | Next |
-| 3 | Tool routing (calculator, fetch) | Pending |
-| 4 | Agent Manager v1 (delegation, decomposition) | Pending |
-| 5 | Persistent agent configuration | Pending |
-| 6 | Temporary subagents | Pending |
-| 7 | User input loop (pause/resume) | Pending |
-| 8 | Scheduling and heartbeat | Pending |
-| 9 | Direct agent interaction | Pending |
-| 10 | Hardening and demo flow | Pending |
+| Milestone | Description                                  | Status   |
+| --------- | -------------------------------------------- | -------- |
+| 1         | Simple Chanakya chat                         | Complete |
+| 2         | Domain foundation (tasks, events, lifecycle) | Next     |
+| 3         | Tool routing (calculator, fetch)             | Pending  |
+| 4         | Agent Manager v1 (delegation, decomposition) | Pending  |
+| 5         | Persistent agent configuration               | Pending  |
+| 6         | Temporary subagents                          | Pending  |
+| 7         | User input loop (pause/resume)               | Pending  |
+| 8         | Scheduling and heartbeat                     | Pending  |
+| 9         | Direct agent interaction                     | Pending  |
+| 10        | Hardening and demo flow                      | Pending  |
 
 Full milestone details in `task_new.md`.
 

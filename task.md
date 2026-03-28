@@ -48,17 +48,7 @@ Milestone 1 - Simple Chanakya Chat
   - Confirm a direct response is returned
   - Confirm request metadata and stored messages appear
 
-### Milestone 2 - Domain Foundation
-
-- [ ] Expand the task schema for parent/child tasks and history
-- [ ] Add first-class request, task, and event repositories
-- [ ] Add task list and event timeline views in GUI
-
-- Validation:
-  - Create a request that becomes a persisted task record
-  - Confirm lifecycle transitions are visible in GUI
-
-### Milestone 3 - Tool Routing
+### Milestone 2 - Tool Routing
 
 - [ ] Add internal tool registry
 - [ ] Integrate MCP calculator tool
@@ -69,6 +59,16 @@ Milestone 1 - Simple Chanakya Chat
   - Ask Chanakya to calculate an expression
   - Ask Chanakya to fetch a page summary
   - Confirm tool traces are visible
+
+### Milestone 3 - Domain Foundation
+
+- [ ] Expand the task schema for parent/child tasks and history
+- [ ] Add first-class request, task, and event repositories
+- [ ] Add task list and event timeline views in GUI
+
+- Validation:
+  - Create a request that becomes a persisted task record
+  - Confirm lifecycle transitions are visible in GUI
 
 ### Milestone 4 - Agent Manager v1
 
