@@ -314,6 +314,21 @@ Notes:
 - `scripts/db_viewer.py` exposes `ChatSessionModel`, `ChatMessageModel`, `AppEventModel`, `ToolInvocationModel`, and `AgentProfileModel` at `http://localhost:5013`.
 - `scripts/clear_database.py` is destructive and prompts twice before deleting data.
 
+### Smoke Tests
+
+Chanakya includes manual connectivity smoke tests under `scripts/`. These are **not** run automatically in CI — they require external MCP tooling and may be flaky.
+
+```bash
+conda activate test
+
+# Test full agent runtime with MCP tools (requires calculator server)
+python scripts/run_maf_tools.py
+
+# Test MCP fetch connectivity (with or without JSON wrapper)
+python scripts/test_mcp_fetch_connectivity.py --mode with-wrapper
+python scripts/test_mcp_fetch_connectivity.py --mode without-wrapper
+```
+
 ### Run Lint and Typecheck
 
 ```bash

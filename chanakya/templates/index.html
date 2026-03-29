@@ -385,9 +385,24 @@
           const card = document.createElement("div");
           const isFailed = trace.status === "failed";
           card.className = `card tool-trace-card${isFailed ? " failed" : ""}`;
-          const statusPill = `<span class="pill ${trace.status}">${trace.status}</span>`;
-          card.innerHTML = `<h3>${trace.tool_name} ${statusPill}</h3>
-            <div><span class="pill tool">${trace.server_name}</span></div>`;
+
+          const header = document.createElement("h3");
+          const toolName = document.createElement("span");
+          toolName.textContent = trace.tool_name;
+          header.appendChild(toolName);
+          const statusPill = document.createElement("span");
+          statusPill.className = `pill ${trace.status}`;
+          statusPill.textContent = trace.status;
+          header.appendChild(statusPill);
+          card.appendChild(header);
+
+          const serverContainer = document.createElement("div");
+          const serverPill = document.createElement("span");
+          serverPill.className = "pill tool";
+          serverPill.textContent = trace.server_name;
+          serverContainer.appendChild(serverPill);
+          card.appendChild(serverContainer);
+
           const pre = document.createElement("pre");
           const details = {};
           if (trace.input) details.input = trace.input;

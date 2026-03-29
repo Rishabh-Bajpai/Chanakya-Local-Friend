@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import json
-from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
-from agent_framework import MCPStdioTool
 
-from chanakya.debug import debug_log
 @dataclass(slots=True)
 class ToolExecutionTrace:
     tool_id: str
@@ -17,11 +14,6 @@ class ToolExecutionTrace:
     input_payload: str | None
     output_text: str | None
     error_text: str | None
-
-class _MockSpecLike:
-    id: str
-    name: str
-    server_name: str
 
 
 def _tool_id_from_function_name(function_name: str, known_specs: dict[str, Any]) -> str | None:

@@ -6,13 +6,13 @@ from typing import Any
 
 from flask import Flask, jsonify, render_template, request
 
+from chanakya.agent.runtime import MAFRuntime
 from chanakya.chat_service import ChatService
 from chanakya.config import get_data_dir, get_database_url, load_local_env
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.debug import debug_log
 from chanakya.domain import make_id
 from chanakya.heartbeat import read_heartbeat
-from chanakya.agent.runtime import MAFRuntime
 from chanakya.seed import load_agent_seeds
 from chanakya.store import ChanakyaStore
 
@@ -46,6 +46,7 @@ def create_app() -> Flask:
     )
 
     from chanakya.services.tool_loader import initialize_all_tools
+
     initialize_all_tools()
 
     chanakya_profile = store.get_agent_profile("agent_chanakya")
@@ -123,7 +124,12 @@ def create_app() -> Flask:
         """Return tool invocation traces, optionally filtered by session or request."""
         session_id = request.args.get("session_id")
         request_id = request.args.get("request_id")
-        limit = min(int(request.args.get("limit", "100")), 500)
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
         traces = store.list_tool_invocations(
             session_id=session_id,
             request_id=request_id,

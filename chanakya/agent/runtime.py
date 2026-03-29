@@ -7,18 +7,19 @@ from agent_framework import Agent, AgentResponse, Message
 from agent_framework.openai import OpenAIChatClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from chanakya.agent.prompt import inject_tools_into_prompt
 from chanakya.config import get_mcp_request_timeout_seconds, get_openai_compatible_config
 from chanakya.debug import debug_log
 from chanakya.history_provider import SQLAlchemyHistoryProvider
 from chanakya.mcp_runtime import ToolExecutionTrace, extract_tool_execution_traces
 from chanakya.model import AgentProfileModel
-
 from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.services.tool_loader import get_cached_tools, get_tools_availability
-from chanakya.agent.prompt import inject_tools_into_prompt
+
 
 class RunResult:
     """Container for the output of a single agent run."""
+
     __slots__ = ("text", "tool_traces", "availability", "response_mode")
 
     def __init__(
@@ -33,6 +34,7 @@ class RunResult:
         self.tool_traces = tool_traces
         self.availability = availability
         self.response_mode = response_mode
+
 
 class MAFRuntime:
     """Unified MAF runtime executing on persistent shared background MCP connections."""
@@ -52,10 +54,10 @@ class MAFRuntime:
             store_inputs=True,
             store_outputs=True,
         )
-        
+
         # Pull cached tool availability map from loader
         self.availability = get_tools_availability()
-        
+
         # Filter available MCP tools to only those this agent profile is allowed to use
         all_cached = get_cached_tools()
         allowed_ids = list(profile.tool_ids_json or [])
@@ -128,14 +130,17 @@ class MAFRuntime:
             timeout=get_mcp_request_timeout_seconds(),
         )
 
-        # Mock up specs format to satisfy legacy extractor 
+        # Mock up specs format to satisfy legacy extractor
         class _MockSpec:
             def __init__(self, t):
                 self.id = getattr(t, "name")
                 self.name = getattr(t, "name")
-                self.server_name = "cached_mcp_server"
+                self.server_name = getattr(
+                    t, "server_name", getattr(t, "name", "cached_mcp_server")
+                )
+
         mock_specs = [_MockSpec(t) for t in self.cached_tools]
-        
+
         tool_traces = extract_tool_execution_traces(response, mock_specs)
 
         reply_text = str(response).strip()
