@@ -52,6 +52,56 @@ class AppEventModel(Base):
     created_at: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class RequestModel(Base):
+    __tablename__ = "requests"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    user_message: Mapped[str] = mapped_column(Text, nullable=False)
+    route: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    root_task_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class TaskModel(Base):
+    __tablename__ = "tasks"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    request_id: Mapped[str] = mapped_column(ForeignKey("requests.id"), nullable=False, index=True)
+    parent_task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tasks.id"),
+        nullable=True,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    owner_agent_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    task_type: Mapped[str] = mapped_column(String, nullable=False, default="chat_request")
+    dependencies_json: Mapped[list[str]] = mapped_column("dependencies", JSON, default=list)
+    input_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+    started_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    finished_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class TaskEventModel(Base):
+    __tablename__ = "task_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    request_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    task_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column("payload", JSON, default=dict)
+    created_at: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+
 class ToolInvocationModel(Base):
     __tablename__ = "tool_invocations"
 

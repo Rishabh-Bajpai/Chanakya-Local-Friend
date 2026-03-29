@@ -5,6 +5,20 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 
+REQUEST_STATUS_CREATED = "created"
+REQUEST_STATUS_IN_PROGRESS = "in_progress"
+REQUEST_STATUS_COMPLETED = "completed"
+REQUEST_STATUS_FAILED = "failed"
+
+TASK_STATUS_CREATED = "created"
+TASK_STATUS_READY = "ready"
+TASK_STATUS_IN_PROGRESS = "in_progress"
+TASK_STATUS_WAITING_INPUT = "waiting_input"
+TASK_STATUS_BLOCKED = "blocked"
+TASK_STATUS_DONE = "done"
+TASK_STATUS_FAILED = "failed"
+
+
 def now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
@@ -23,6 +37,9 @@ class ChatReply:
     endpoint: str | None
     runtime: str
     agent_name: str
+    request_status: str | None = None
+    root_task_id: str | None = None
+    root_task_status: str | None = None
     response_mode: str = "direct_answer"
     tool_calls_used: int = 0
     tool_trace_ids: list[str] = field(default_factory=list)
