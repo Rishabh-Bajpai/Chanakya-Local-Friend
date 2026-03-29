@@ -1,5 +1,4 @@
 import asyncio
-import os
 import sys
 from pathlib import Path
 from agent_framework import MCPStdioTool
@@ -20,6 +19,8 @@ async def _init_tools_async() -> None:
     if _loaded_tools:
         return
 
+    # Ensure availability reflects only the latest initialization attempt
+    _tools_availability.clear()
     config = load_mcp_config()
     for server_id, details in config.items():
         command = details.get("command")
@@ -43,9 +44,12 @@ async def _init_tools_async() -> None:
         try:
             # We explicitly connect without `async with` inside the background loop 
             # to make it persistent.
-            print(f"DEBUG: Connecting to {server_id} using command {wrapped_cmd} {wrapped_args}", flush=True)
+            debug_log(
+                "mcp_tool_connecting",
+                {"server": server_id, "command": wrapped_cmd, "args": wrapped_args},
+            )
             await tool.connect()
-            print(f"DEBUG: Successfully connected to {server_id}", flush=True)
+            debug_log("mcp_tool_connected", {"server": server_id})
             _loaded_tools.append(tool)
             _tools_availability.append({
                 "tool_id": server_id,
