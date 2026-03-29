@@ -59,7 +59,13 @@ Use your conda environment:
 conda activate test
 ```
 
-Optional `.env` (OpenAI-compatible endpoint metadata, if configured):
+Copy the example environment file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your configuration (OpenAI-compatible endpoint metadata):
 
 - `OPENAI_BASE_URL` or `OPENAI_API_BASE`
 - `OPENAI_API_KEY`
@@ -71,6 +77,16 @@ The current MVP detects this config and reports it in direct-response evidence.
 Model env key support includes `OPENAI_CHAT_MODEL_ID`.
 
 The new full app reads `DATABASE_URL` through SQLAlchemy, so switching to another SQL provider should not require store-layer code changes.
+
+## MCP Configuration
+
+Copy the example MCP config file:
+
+```bash
+cp mcp_config_file.example.json mcp_config_file.json
+```
+
+Edit `mcp_config_file.json` to configure MCP servers for your environment.
 
 ## Run Scenarios
 

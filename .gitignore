@@ -1,5 +1,5 @@
 .env
-.env.*
+mcp_config_file.json
 
 # Python bytecode and caches
 __pycache__/

@@ -23,4 +23,7 @@ class ChatReply:
     endpoint: str | None
     runtime: str
     agent_name: str
+    response_mode: str = "direct_answer"
+    tool_calls_used: int = 0
+    tool_trace_ids: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=now_iso)

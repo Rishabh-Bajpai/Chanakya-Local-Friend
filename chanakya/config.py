@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 from pathlib import Path
 
 
@@ -46,3 +47,22 @@ def get_database_url() -> str:
     if configured:
         return configured
     return f"sqlite:///{get_data_dir() / 'chanakya.db'}"
+
+
+def _parse_cli_args(value: str | None, default: list[str]) -> list[str]:
+    if value is None:
+        return default
+    parsed = shlex.split(value.strip())
+    return parsed or default
+
+def get_mcp_request_timeout_seconds() -> int:
+    load_local_env()
+    raw = os.getenv("MCP_REQUEST_TIMEOUT_SECONDS", "20")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 20
+    return value if value > 0 else 20
+
+
+

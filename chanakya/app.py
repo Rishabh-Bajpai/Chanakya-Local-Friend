@@ -6,13 +6,13 @@ from typing import Any
 
 from flask import Flask, jsonify, render_template, request
 
+from chanakya.agent.runtime import MAFRuntime
 from chanakya.chat_service import ChatService
 from chanakya.config import get_data_dir, get_database_url, load_local_env
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.debug import debug_log
 from chanakya.domain import make_id
 from chanakya.heartbeat import read_heartbeat
-from chanakya.maf_runtime import MAFRuntime
 from chanakya.seed import load_agent_seeds
 from chanakya.store import ChanakyaStore
 
@@ -44,6 +44,10 @@ def create_app() -> Flask:
             "agent_count": len(store.list_agent_profiles()),
         },
     )
+
+    from chanakya.services.tool_loader import initialize_all_tools
+
+    initialize_all_tools()
 
     chanakya_profile = store.get_agent_profile("agent_chanakya")
     runtime = MAFRuntime(chanakya_profile, session_factory)
@@ -80,6 +84,8 @@ def create_app() -> Flask:
                 "runtime": reply.runtime,
                 "model": reply.model,
                 "response": reply.message,
+                "response_mode": reply.response_mode,
+                "tool_calls_used": reply.tool_calls_used,
             },
         )
         return jsonify(asdict(reply))
@@ -112,6 +118,25 @@ def create_app() -> Flask:
             agents.append(agent_payload)
         debug_log("api_agents_request", {"agent_count": len(agents)})
         return jsonify({"agents": agents})
+
+    @app.get("/api/tool-traces")
+    def api_tool_traces() -> Any:
+        """Return tool invocation traces, optionally filtered by session or request."""
+        session_id = request.args.get("session_id")
+        request_id = request.args.get("request_id")
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
+        traces = store.list_tool_invocations(
+            session_id=session_id,
+            request_id=request_id,
+            limit=limit,
+        )
+        debug_log("api_tool_traces_request", {"trace_count": len(traces)})
+        return jsonify({"traces": traces})
 
     return app
 

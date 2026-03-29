@@ -52,6 +52,26 @@ class AppEventModel(Base):
     created_at: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class ToolInvocationModel(Base):
+    __tablename__ = "tool_invocations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    invocation_id: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    request_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    agent_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    agent_name: Mapped[str] = mapped_column(String, nullable=False)
+    tool_id: Mapped[str] = mapped_column(String, nullable=False)
+    tool_name: Mapped[str] = mapped_column(String, nullable=False)
+    server_name: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    input_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    output_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[str] = mapped_column(String, nullable=False)
+    finished_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 class AgentProfileModel(Base):
     __tablename__ = "agent_profiles"
 

@@ -14,6 +14,9 @@
         --accent: #d86b4a;
         --accent-soft: #2d2520;
         --ink: #3a8a87;
+        --green: #4caf50;
+        --red: #e74c3c;
+        --yellow: #f39c12;
       }
       * { box-sizing: border-box; }
       body {
@@ -123,18 +126,22 @@
         color: #fff;
         font-size: 14px;
         cursor: pointer;
+        transition: background 0.2s;
+      }
+      button:hover {
+        background: #c95b3a;
       }
       .side {
         display: grid;
-        grid-template-rows: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1fr);
-        gap: 18px;
+        grid-template-rows: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 0.8fr);
+        gap: 14px;
         min-height: 0;
         height: 100%;
       }
       .section {
         display: flex;
         flex-direction: column;
-        padding: 16px 18px;
+        padding: 14px 16px;
         min-height: 0;
       }
       .section-body {
@@ -161,13 +168,13 @@
         border: 2px solid rgba(0,0,0,0.25);
       }
       .section h2 {
-        margin: 0 0 6px;
-        font-size: 20px;
+        margin: 0 0 4px;
+        font-size: 18px;
       }
       .section p {
-        margin: 0 0 14px;
+        margin: 0 0 10px;
         color: var(--muted);
-        font-size: 14px;
+        font-size: 13px;
       }
       .card {
         border: 1px solid #383838;
@@ -198,11 +205,35 @@
         background: var(--accent-soft);
         font-size: 12px;
       }
+      .pill.succeeded {
+        background: rgba(76, 175, 80, 0.2);
+        color: var(--green);
+      }
+      .pill.failed {
+        background: rgba(231, 76, 60, 0.2);
+        color: var(--red);
+      }
+      .pill.tool {
+        background: rgba(58, 138, 135, 0.2);
+        color: var(--ink);
+      }
+      .tool-trace-card {
+        border-left-color: var(--ink);
+      }
+      .tool-trace-card.failed {
+        border-left-color: var(--red);
+      }
+      .empty-state {
+        color: var(--muted);
+        font-style: italic;
+        font-size: 13px;
+        padding: 4px 0;
+      }
       @media (max-width: 980px) {
         .shell { grid-template-columns: 1fr; }
         .shell { height: auto; }
         .chat { min-height: 70vh; height: auto; }
-        .side { grid-template-rows: auto auto auto; }
+        .side { grid-template-rows: auto auto auto auto; }
       }
     </style>
   </head>
@@ -211,10 +242,10 @@
       <section class="panel chat">
         <div class="hero">
           <p class="eyebrow">Chanakya Operating System</p>
-          <h1>Start with direct chat, then grow into orchestration.</h1>
+          <h1>Chat with tools, visible in real-time.</h1>
           <p>
-            This first milestone keeps the loop tight: talk to Chanakya, validate the MAF runtime,
-            and inspect the seeded agent and heartbeat context that later milestones will build on.
+            Chanakya uses external MCP tools (calculator, fetch) when needed.
+            Tool selections, inputs, outputs, and errors are traced in the panel on the right.
           </p>
         </div>
         <div id="chatLog" class="chat-log"></div>
@@ -227,15 +258,23 @@
       <section class="side">
         <div class="panel section">
           <h2>Request Trace</h2>
-          <p>Direct route metadata for the current milestone.</p>
+          <p>Route metadata for the latest request.</p>
           <div class="section-body">
             <div id="requestTrace"></div>
           </div>
         </div>
 
         <div class="panel section">
+          <h2>Tool Traces</h2>
+          <p>MCP tool selections, inputs, outputs, and errors.</p>
+          <div class="section-body">
+            <div id="toolTraceList"></div>
+          </div>
+        </div>
+
+        <div class="panel section">
           <h2>Persistent Agents</h2>
-          <p>Loaded from seed now, editable in GUI in a later milestone.</p>
+          <p>Loaded from seed; editable via GUI later.</p>
           <div class="section-body">
             <div id="agentList"></div>
           </div>
@@ -243,7 +282,7 @@
 
         <div class="panel section">
           <h2>Recent Events</h2>
-          <p>App events recorded in SQLite for debugging and review.</p>
+          <p>App events in SQLite for debugging.</p>
           <div class="section-body">
             <div id="eventList"></div>
           </div>
@@ -256,6 +295,7 @@
       const messageInput = document.getElementById("messageInput");
       const chatLog = document.getElementById("chatLog");
       const requestTrace = document.getElementById("requestTrace");
+      const toolTraceList = document.getElementById("toolTraceList");
       const agentList = document.getElementById("agentList");
       const eventList = document.getElementById("eventList");
 
@@ -303,7 +343,7 @@
         if (!messages.length) {
           appendMessage(
             "assistant",
-            "I am Chanakya. For this milestone, I answer directly through a MAF agent while we keep the architecture visible.",
+            "I am Chanakya. I can answer questions directly, calculate expressions, and fetch web pages. Try asking me something!",
           );
           return;
         }
@@ -319,7 +359,10 @@
       function renderTrace(data) {
         const card = document.createElement("div");
         card.className = "card";
-        card.innerHTML = `<h3>${data.agent_name} · ${data.route}</h3>`;
+        const modePill = data.response_mode === "tool_assisted"
+          ? `<span class="pill tool">tool_assisted</span>`
+          : `<span class="pill">direct_answer</span>`;
+        card.innerHTML = `<h3>${data.agent_name} ${modePill}</h3>`;
         const pre = document.createElement("pre");
         pre.textContent = JSON.stringify({
           request_id: data.request_id,
@@ -327,9 +370,51 @@
           runtime: data.runtime,
           model: data.model,
           endpoint: data.endpoint,
+          tool_calls_used: data.tool_calls_used,
         }, null, 2);
         card.appendChild(pre);
         replaceChildren(requestTrace, [card]);
+      }
+
+      function renderToolTraces(traces) {
+        if (!traces || !traces.length) {
+          toolTraceList.innerHTML = `<div class="empty-state">No tool calls for this session yet.</div>`;
+          return;
+        }
+        const nodes = traces.map((trace) => {
+          const card = document.createElement("div");
+          const isFailed = trace.status === "failed";
+          card.className = `card tool-trace-card${isFailed ? " failed" : ""}`;
+
+          const header = document.createElement("h3");
+          const toolName = document.createElement("span");
+          toolName.textContent = trace.tool_name;
+          header.appendChild(toolName);
+          const statusPill = document.createElement("span");
+          statusPill.className = `pill ${trace.status}`;
+          statusPill.textContent = trace.status;
+          header.appendChild(statusPill);
+          card.appendChild(header);
+
+          const serverContainer = document.createElement("div");
+          const serverPill = document.createElement("span");
+          serverPill.className = "pill tool";
+          serverPill.textContent = trace.server_name;
+          serverContainer.appendChild(serverPill);
+          card.appendChild(serverContainer);
+
+          const pre = document.createElement("pre");
+          const details = {};
+          if (trace.input) details.input = trace.input;
+          if (trace.output) details.output = trace.output.substring(0, 500);
+          if (trace.error) details.error = trace.error;
+          details.started_at = trace.started_at;
+          details.finished_at = trace.finished_at;
+          pre.textContent = JSON.stringify(details, null, 2);
+          card.appendChild(pre);
+          return card;
+        });
+        replaceChildren(toolTraceList, nodes);
       }
 
       function renderAgents(items) {
@@ -341,6 +426,7 @@
           const card = document.createElement("div");
           card.className = "card";
           const pills = [agent.role];
+          if (agent.tool_ids && agent.tool_ids.length) pills.push(`${agent.tool_ids.length} tools`);
           if (agent.heartbeat_enabled) pills.push(`heartbeat ${agent.heartbeat_interval_seconds}s`);
           card.innerHTML = `<h3>${agent.name}</h3><div>${pills.map((pill) => `<span class="pill">${pill}</span>`).join("")}</div>`;
           const pre = document.createElement("pre");
@@ -373,6 +459,20 @@
         replaceChildren(eventList, nodes);
       }
 
+      async function refreshToolTraces() {
+        if (!sessionId) {
+          renderToolTraces([]);
+          return;
+        }
+        try {
+          const res = await fetch(`/api/tool-traces?session_id=${sessionId}&limit=20`);
+          const data = await res.json();
+          renderToolTraces(data.traces || []);
+        } catch {
+          renderToolTraces([]);
+        }
+      }
+
       async function refreshSidePanels() {
         const [agentsRes, eventsRes] = await Promise.all([
           fetch("/api/agents"),
@@ -382,6 +482,7 @@
         const eventsData = await eventsRes.json();
         renderAgents(agentsData.agents || []);
         renderEvents(eventsData.events || []);
+        await refreshToolTraces();
       }
 
       async function loadSessionHistory() {
@@ -420,11 +521,13 @@
         }
         sessionId = data.session_id;
         storeSessionId(sessionId);
-        appendMessage(
-          "assistant",
-          data.message,
-          `route=${data.route} runtime=${data.runtime} model=${data.model || "unknown"}`,
-        );
+        const metaParts = [
+          `mode=${data.response_mode || "direct_answer"}`,
+          `runtime=${data.runtime}`,
+          `model=${data.model || "unknown"}`,
+        ];
+        if (data.tool_calls_used > 0) metaParts.push(`tools=${data.tool_calls_used}`);
+        appendMessage("assistant", data.message, metaParts.join(" "));
         renderTrace(data);
         refreshSidePanels();
       });

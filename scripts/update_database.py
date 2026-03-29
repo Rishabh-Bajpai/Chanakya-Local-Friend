@@ -18,6 +18,7 @@ from chanakya.model import (
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
+    ToolInvocationModel,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -27,6 +28,7 @@ TARGET_MODELS = [
     ChatSessionModel,
     ChatMessageModel,
     AppEventModel,
+    ToolInvocationModel,
     AgentProfileModel,
 ]
 
