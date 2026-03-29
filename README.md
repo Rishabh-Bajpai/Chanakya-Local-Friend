@@ -59,7 +59,13 @@ Use your conda environment:
 conda activate test
 ```
 
-Optional `.env` (OpenAI-compatible endpoint metadata, if configured):
+Copy the example environment file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your configuration (OpenAI-compatible endpoint metadata):
 
 - `OPENAI_BASE_URL` or `OPENAI_API_BASE`
 - `OPENAI_API_KEY`
