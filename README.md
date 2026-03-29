@@ -78,6 +78,16 @@ Model env key support includes `OPENAI_CHAT_MODEL_ID`.
 
 The new full app reads `DATABASE_URL` through SQLAlchemy, so switching to another SQL provider should not require store-layer code changes.
 
+## MCP Configuration
+
+Copy the example MCP config file:
+
+```bash
+cp mcp_config_file.example.json mcp_config_file.json
+```
+
+Edit `mcp_config_file.json` to configure MCP servers for your environment.
+
 ## Run Scenarios
 
 ```bash
