@@ -133,7 +133,7 @@
       }
       .side {
         display: grid;
-        grid-template-rows: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 0.8fr);
+        grid-template-rows: repeat(5, minmax(0, 1fr));
         gap: 14px;
         min-height: 0;
         height: 100%;
@@ -546,7 +546,7 @@
           renderTasks(tasksData.tasks || []);
           renderTaskTimeline(timelineData.events || []);
           const latestRequest = (requestsData.requests || []).slice(-1)[0];
-          if (latestRequest && !requestTrace.childElementCount) {
+          if (latestRequest) {
             renderTrace({
               request_id: latestRequest.id,
               session_id: latestRequest.session_id,
@@ -573,6 +573,7 @@
         const storedSessionId = loadStoredSessionId();
         if (!storedSessionId) {
           renderChatHistory([]);
+          await refreshSidePanels();
           return;
         }
         sessionId = storedSessionId;
@@ -580,10 +581,12 @@
         if (!response.ok) {
           sessionId = null;
           renderChatHistory([]);
+          await refreshSidePanels();
           return;
         }
         const data = await response.json();
         renderChatHistory(data.messages || []);
+        await refreshSidePanels();
       }
 
       chatForm.addEventListener("submit", async (event) => {
@@ -618,7 +621,6 @@
       });
 
       loadSessionHistory();
-      refreshSidePanels();
     </script>
   </body>
 </html>
