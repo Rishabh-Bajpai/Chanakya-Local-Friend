@@ -108,6 +108,59 @@ def create_app() -> Flask:
         debug_log("api_events_request", {"event_count": len(events)})
         return jsonify({"events": events})
 
+    @app.get("/api/requests")
+    def api_requests() -> Any:
+        session_id = request.args.get("session_id")
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
+        records = store.list_requests(session_id=session_id, limit=limit)
+        debug_log("api_requests_request", {"request_count": len(records)})
+        return jsonify({"requests": records})
+
+    @app.get("/api/tasks")
+    def api_tasks() -> Any:
+        session_id = request.args.get("session_id")
+        request_id = request.args.get("request_id")
+        root_only = request.args.get("root_only", "false").lower() == "true"
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
+        tasks = store.list_tasks(
+            session_id=session_id,
+            request_id=request_id,
+            root_only=root_only,
+            limit=limit,
+        )
+        debug_log("api_tasks_request", {"task_count": len(tasks)})
+        return jsonify({"tasks": tasks})
+
+    @app.get("/api/task-events")
+    def api_task_events() -> Any:
+        session_id = request.args.get("session_id")
+        request_id = request.args.get("request_id")
+        task_id = request.args.get("task_id")
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
+        events = store.list_task_events(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=task_id,
+            limit=limit,
+        )
+        debug_log("api_task_events_request", {"event_count": len(events)})
+        return jsonify({"events": events})
+
     @app.get("/api/agents")
     def api_agents() -> Any:
         agents = []

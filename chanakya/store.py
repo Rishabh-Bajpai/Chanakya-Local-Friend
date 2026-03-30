@@ -6,17 +6,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.db import session_scope
-from chanakya.domain import now_iso
+from chanakya.domain import TASK_STATUS_FAILED, now_iso
 from chanakya.model import (
     AgentProfileModel,
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
+    RequestModel,
+    TaskEventModel,
+    TaskModel,
     ToolInvocationModel,
 )
 
 
-class ChanakyaStore:
+class ChatRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
 
@@ -95,6 +98,11 @@ class ChanakyaStore:
             for row in rows
         ]
 
+
+class EventRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
     def log_event(self, event_type: str, payload: dict[str, Any]) -> None:
         with session_scope(self.Session) as session:
             session.add(
@@ -122,6 +130,278 @@ class ChanakyaStore:
         ]
         events.reverse()
         return events
+
+    def create_task_event(
+        self,
+        *,
+        session_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        request_id: str | None = None,
+        task_id: str | None = None,
+    ) -> None:
+        with session_scope(self.Session) as session:
+            session.add(
+                TaskEventModel(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=task_id,
+                    event_type=event_type,
+                    payload_json=payload,
+                    created_at=now_iso(),
+                )
+            )
+            session.commit()
+
+    def list_task_events(
+        self,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        task_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = select(TaskEventModel).order_by(TaskEventModel.id.desc()).limit(limit)
+            if session_id is not None:
+                stmt = stmt.where(TaskEventModel.session_id == session_id)
+            if request_id is not None:
+                stmt = stmt.where(TaskEventModel.request_id == request_id)
+            if task_id is not None:
+                stmt = stmt.where(TaskEventModel.task_id == task_id)
+            rows = session.scalars(stmt).all()
+
+        records = [
+            {
+                "id": row.id,
+                "session_id": row.session_id,
+                "request_id": row.request_id,
+                "task_id": row.task_id,
+                "event_type": row.event_type,
+                "payload": row.payload_json,
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
+        records.reverse()
+        return records
+
+
+class RequestRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def create_request(
+        self,
+        *,
+        request_id: str,
+        session_id: str,
+        user_message: str,
+        status: str,
+        route: str | None = None,
+        root_task_id: str | None = None,
+    ) -> None:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            session.add(
+                RequestModel(
+                    id=request_id,
+                    session_id=session_id,
+                    user_message=user_message,
+                    route=route,
+                    status=status,
+                    root_task_id=root_task_id,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+            )
+            session.commit()
+
+    def update_request(
+        self,
+        request_id: str,
+        *,
+        status: str | None = None,
+        route: str | None = None,
+        root_task_id: str | None = None,
+    ) -> None:
+        with session_scope(self.Session) as session:
+            row = session.get(RequestModel, request_id)
+            if row is None:
+                return
+            if status is not None:
+                row.status = status
+            if route is not None:
+                row.route = route
+            if root_task_id is not None:
+                row.root_task_id = root_task_id
+            row.updated_at = now_iso()
+            session.commit()
+
+    def get_request(self, request_id: str) -> RequestModel:
+        with session_scope(self.Session) as session:
+            row = session.get(RequestModel, request_id)
+        if row is None:
+            raise KeyError(f"Request not found: {request_id}")
+        return row
+
+    def list_requests(
+        self, *, session_id: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = select(RequestModel).order_by(RequestModel.created_at.desc()).limit(limit)
+            if session_id is not None:
+                stmt = stmt.where(RequestModel.session_id == session_id)
+            rows = session.scalars(stmt).all()
+        records = [
+            {
+                "id": row.id,
+                "session_id": row.session_id,
+                "user_message": row.user_message,
+                "route": row.route,
+                "status": row.status,
+                "root_task_id": row.root_task_id,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+            for row in rows
+        ]
+        records.reverse()
+        return records
+
+
+class TaskRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def create_task(
+        self,
+        *,
+        task_id: str,
+        request_id: str,
+        parent_task_id: str | None,
+        title: str,
+        summary: str | None,
+        status: str,
+        owner_agent_id: str | None,
+        task_type: str,
+        dependencies: list[str] | None = None,
+        input_json: dict[str, Any] | None = None,
+    ) -> None:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            session.add(
+                TaskModel(
+                    id=task_id,
+                    request_id=request_id,
+                    parent_task_id=parent_task_id,
+                    title=title,
+                    summary=summary,
+                    status=status,
+                    owner_agent_id=owner_agent_id,
+                    task_type=task_type,
+                    dependencies_json=dependencies or [],
+                    input_json=input_json or {},
+                    result_json={},
+                    error_text=None,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                    started_at=None,
+                    finished_at=None,
+                )
+            )
+            session.commit()
+
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        status: str | None = None,
+        owner_agent_id: str | None = None,
+        result_json: dict[str, Any] | None = None,
+        error_text: str | None = None,
+        started_at: str | None = None,
+        finished_at: str | None = None,
+    ) -> None:
+        with session_scope(self.Session) as session:
+            row = session.get(TaskModel, task_id)
+            if row is None:
+                return
+            if status is not None:
+                row.status = status
+            if owner_agent_id is not None:
+                row.owner_agent_id = owner_agent_id
+            if result_json is not None:
+                row.result_json = result_json
+            if error_text is not None:
+                row.error_text = error_text
+            elif status is not None and status != TASK_STATUS_FAILED:
+                row.error_text = None
+            if started_at is not None:
+                row.started_at = started_at
+            if finished_at is not None:
+                row.finished_at = finished_at
+            row.updated_at = now_iso()
+            session.commit()
+
+    def get_task(self, task_id: str) -> TaskModel:
+        with session_scope(self.Session) as session:
+            row = session.get(TaskModel, task_id)
+        if row is None:
+            raise KeyError(f"Task not found: {task_id}")
+        return row
+
+    def list_tasks(
+        self,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        root_only: bool = False,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = select(TaskModel, RequestModel.session_id).join(
+                RequestModel,
+                TaskModel.request_id == RequestModel.id,
+            )
+            if session_id is not None:
+                stmt = stmt.where(RequestModel.session_id == session_id)
+            if request_id is not None:
+                stmt = stmt.where(TaskModel.request_id == request_id)
+            if root_only:
+                stmt = stmt.where(TaskModel.parent_task_id.is_(None))
+            stmt = stmt.order_by(TaskModel.created_at.desc()).limit(limit)
+            rows = session.execute(stmt).all()
+
+        records = [
+            {
+                "id": task.id,
+                "request_id": task.request_id,
+                "session_id": linked_session_id,
+                "parent_task_id": task.parent_task_id,
+                "title": task.title,
+                "summary": task.summary,
+                "status": task.status,
+                "owner_agent_id": task.owner_agent_id,
+                "task_type": task.task_type,
+                "dependencies": task.dependencies_json,
+                "input": task.input_json,
+                "result": task.result_json,
+                "error": task.error_text,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
+                "started_at": task.started_at,
+                "finished_at": task.finished_at,
+            }
+            for task, linked_session_id in rows
+        ]
+        records.reverse()
+        return records
+
+
+class ToolInvocationRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
 
     def create_tool_invocation(
         self,
@@ -218,6 +498,11 @@ class ChanakyaStore:
         records.reverse()
         return records
 
+
+class AgentProfileRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
     def upsert_agent_profile(self, profile: AgentProfileModel) -> None:
         with session_scope(self.Session) as session:
             row = session.get(AgentProfileModel, profile.id)
@@ -250,3 +535,138 @@ class ChanakyaStore:
         if row is None:
             raise KeyError(f"Agent profile not found: {agent_id}")
         return row
+
+
+class ChanakyaStore:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+        self.chat = ChatRepository(session_factory)
+        self.requests = RequestRepository(session_factory)
+        self.tasks = TaskRepository(session_factory)
+        self.events = EventRepository(session_factory)
+        self.tools = ToolInvocationRepository(session_factory)
+        self.agents = AgentProfileRepository(session_factory)
+
+    def create_session(self, session_id: str, title: str) -> None:
+        self.chat.create_session(session_id, title)
+
+    def ensure_session(self, session_id: str, title: str = "New chat") -> None:
+        self.chat.ensure_session(session_id, title)
+
+    def add_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        request_id: str | None = None,
+        route: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self.chat.add_message(session_id, role, content, request_id, route, metadata)
+
+    def list_messages(self, session_id: str) -> list[dict[str, Any]]:
+        return self.chat.list_messages(session_id)
+
+    def log_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        self.events.log_event(event_type, payload)
+
+    def list_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        return self.events.list_events(limit)
+
+    def create_task_event(
+        self,
+        *,
+        session_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        request_id: str | None = None,
+        task_id: str | None = None,
+    ) -> None:
+        self.events.create_task_event(
+            session_id=session_id,
+            event_type=event_type,
+            payload=payload,
+            request_id=request_id,
+            task_id=task_id,
+        )
+
+    def list_task_events(
+        self,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        task_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.events.list_task_events(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=task_id,
+            limit=limit,
+        )
+
+    def create_request(self, **kwargs: Any) -> None:
+        self.requests.create_request(**kwargs)
+
+    def update_request(self, request_id: str, **kwargs: Any) -> None:
+        self.requests.update_request(request_id, **kwargs)
+
+    def get_request(self, request_id: str) -> RequestModel:
+        return self.requests.get_request(request_id)
+
+    def list_requests(
+        self, *, session_id: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        return self.requests.list_requests(session_id=session_id, limit=limit)
+
+    def create_task(self, **kwargs: Any) -> None:
+        self.tasks.create_task(**kwargs)
+
+    def update_task(self, task_id: str, **kwargs: Any) -> None:
+        self.tasks.update_task(task_id, **kwargs)
+
+    def get_task(self, task_id: str) -> TaskModel:
+        return self.tasks.get_task(task_id)
+
+    def list_tasks(
+        self,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        root_only: bool = False,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.tasks.list_tasks(
+            session_id=session_id,
+            request_id=request_id,
+            root_only=root_only,
+            limit=limit,
+        )
+
+    def create_tool_invocation(self, **kwargs: Any) -> None:
+        self.tools.create_tool_invocation(**kwargs)
+
+    def finish_tool_invocation(self, invocation_id: str, **kwargs: Any) -> None:
+        self.tools.finish_tool_invocation(invocation_id, **kwargs)
+
+    def list_tool_invocations(
+        self,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.tools.list_tool_invocations(
+            session_id=session_id,
+            request_id=request_id,
+            limit=limit,
+        )
+
+    def upsert_agent_profile(self, profile: AgentProfileModel) -> None:
+        self.agents.upsert_agent_profile(profile)
+
+    def list_agent_profiles(self) -> list[AgentProfileModel]:
+        return self.agents.list_agent_profiles()
+
+    def get_agent_profile(self, agent_id: str) -> AgentProfileModel:
+        return self.agents.get_agent_profile(agent_id)

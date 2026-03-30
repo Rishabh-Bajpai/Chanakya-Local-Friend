@@ -133,7 +133,7 @@
       }
       .side {
         display: grid;
-        grid-template-rows: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 0.8fr);
+        grid-template-rows: repeat(5, minmax(0, 1fr));
         gap: 14px;
         min-height: 0;
         height: 100%;
@@ -273,18 +273,26 @@
         </div>
 
         <div class="panel section">
-          <h2>Persistent Agents</h2>
-          <p>Loaded from seed; editable via GUI later.</p>
+          <h2>Tasks</h2>
+          <p>Persisted root tasks and their current lifecycle state.</p>
           <div class="section-body">
-            <div id="agentList"></div>
+            <div id="taskList"></div>
           </div>
         </div>
 
         <div class="panel section">
-          <h2>Recent Events</h2>
-          <p>App events in SQLite for debugging.</p>
+          <h2>Task Timeline</h2>
+          <p>Ordered request and task lifecycle events for this session.</p>
           <div class="section-body">
-            <div id="eventList"></div>
+            <div id="taskTimeline"></div>
+          </div>
+        </div>
+
+        <div class="panel section">
+          <h2>Persistent Agents</h2>
+          <p>Loaded from seed; editable via GUI later.</p>
+          <div class="section-body">
+            <div id="agentList"></div>
           </div>
         </div>
       </section>
@@ -296,8 +304,9 @@
       const chatLog = document.getElementById("chatLog");
       const requestTrace = document.getElementById("requestTrace");
       const toolTraceList = document.getElementById("toolTraceList");
+      const taskList = document.getElementById("taskList");
+      const taskTimeline = document.getElementById("taskTimeline");
       const agentList = document.getElementById("agentList");
-      const eventList = document.getElementById("eventList");
 
       let sessionId = null;
       const STORAGE_KEY = "chanakya-active-session";
@@ -367,6 +376,9 @@
         pre.textContent = JSON.stringify({
           request_id: data.request_id,
           session_id: data.session_id,
+          request_status: data.request_status,
+          root_task_id: data.root_task_id,
+          root_task_status: data.root_task_status,
           runtime: data.runtime,
           model: data.model,
           endpoint: data.endpoint,
@@ -442,9 +454,43 @@
         replaceChildren(agentList, nodes);
       }
 
-      function renderEvents(items) {
+      function renderTasks(items) {
         if (!items.length) {
-          eventList.textContent = "No events recorded yet.";
+          taskList.innerHTML = `<div class="empty-state">No tasks created for this session yet.</div>`;
+          return;
+        }
+        const nodes = items.map((task) => {
+          const card = document.createElement("div");
+          card.className = "card";
+          const heading = document.createElement("h3");
+          heading.textContent = task.title;
+          card.appendChild(heading);
+          const pillRow = document.createElement("div");
+          [task.status, task.task_type].forEach((value) => {
+            const pill = document.createElement("span");
+            pill.className = "pill";
+            pill.textContent = value;
+            pillRow.appendChild(pill);
+          });
+          card.appendChild(pillRow);
+          const pre = document.createElement("pre");
+          pre.textContent = JSON.stringify({
+            id: task.id,
+            request_id: task.request_id,
+            owner_agent_id: task.owner_agent_id,
+            started_at: task.started_at,
+            finished_at: task.finished_at,
+            error: task.error,
+          }, null, 2);
+          card.appendChild(pre);
+          return card;
+        });
+        replaceChildren(taskList, nodes);
+      }
+
+      function renderTaskTimeline(items) {
+        if (!items.length) {
+          taskTimeline.innerHTML = `<div class="empty-state">No task events recorded for this session yet.</div>`;
           return;
         }
         const nodes = items.map((event) => {
@@ -452,11 +498,16 @@
           card.className = "card";
           card.innerHTML = `<h3>${event.event_type}</h3>`;
           const pre = document.createElement("pre");
-          pre.textContent = JSON.stringify(event.payload, null, 2);
+          pre.textContent = JSON.stringify({
+            request_id: event.request_id,
+            task_id: event.task_id,
+            created_at: event.created_at,
+            payload: event.payload,
+          }, null, 2);
           card.appendChild(pre);
           return card;
         });
-        replaceChildren(eventList, nodes);
+        replaceChildren(taskTimeline, nodes);
       }
 
       async function refreshToolTraces() {
@@ -474,14 +525,47 @@
       }
 
       async function refreshSidePanels() {
-        const [agentsRes, eventsRes] = await Promise.all([
-          fetch("/api/agents"),
-          fetch("/api/events"),
-        ]);
-        const agentsData = await agentsRes.json();
-        const eventsData = await eventsRes.json();
-        renderAgents(agentsData.agents || []);
-        renderEvents(eventsData.events || []);
+        try {
+          const requestsQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=20` : "?limit=20";
+          const tasksQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&root_only=true&limit=20` : "?root_only=true&limit=20";
+          const timelineQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=40` : "?limit=40";
+          const [agentsRes, requestsRes, tasksRes, timelineRes] = await Promise.all([
+            fetch("/api/agents"),
+            fetch(`/api/requests${requestsQuery}`),
+            fetch(`/api/tasks${tasksQuery}`),
+            fetch(`/api/task-events${timelineQuery}`),
+          ]);
+          if (!agentsRes.ok || !requestsRes.ok || !tasksRes.ok || !timelineRes.ok) {
+            throw new Error("side panel refresh failed");
+          }
+          const agentsData = await agentsRes.json();
+          const requestsData = await requestsRes.json();
+          const tasksData = await tasksRes.json();
+          const timelineData = await timelineRes.json();
+          renderAgents(agentsData.agents || []);
+          renderTasks(tasksData.tasks || []);
+          renderTaskTimeline(timelineData.events || []);
+          const latestRequest = (requestsData.requests || []).slice(-1)[0];
+          if (latestRequest) {
+            renderTrace({
+              request_id: latestRequest.id,
+              session_id: latestRequest.session_id,
+              request_status: latestRequest.status,
+              root_task_id: latestRequest.root_task_id,
+              root_task_status: (tasksData.tasks || []).slice(-1)[0]?.status || null,
+              runtime: "maf_agent",
+              model: null,
+              endpoint: null,
+              response_mode: latestRequest.route || "pending",
+              tool_calls_used: 0,
+              agent_name: "Chanakya",
+            });
+          }
+        } catch {
+          renderAgents([]);
+          renderTasks([]);
+          renderTaskTimeline([]);
+        }
         await refreshToolTraces();
       }
 
@@ -489,6 +573,7 @@
         const storedSessionId = loadStoredSessionId();
         if (!storedSessionId) {
           renderChatHistory([]);
+          await refreshSidePanels();
           return;
         }
         sessionId = storedSessionId;
@@ -496,10 +581,12 @@
         if (!response.ok) {
           sessionId = null;
           renderChatHistory([]);
+          await refreshSidePanels();
           return;
         }
         const data = await response.json();
         renderChatHistory(data.messages || []);
+        await refreshSidePanels();
       }
 
       chatForm.addEventListener("submit", async (event) => {
@@ -527,13 +614,13 @@
           `model=${data.model || "unknown"}`,
         ];
         if (data.tool_calls_used > 0) metaParts.push(`tools=${data.tool_calls_used}`);
+        if (data.root_task_status) metaParts.push(`task=${data.root_task_status}`);
         appendMessage("assistant", data.message, metaParts.join(" "));
         renderTrace(data);
         refreshSidePanels();
       });
 
       loadSessionHistory();
-      refreshSidePanels();
     </script>
   </body>
 </html>

@@ -1,7 +1,19 @@
 from __future__ import annotations
 
 from chanakya.debug import debug_log
-from chanakya.domain import ChatReply, make_id
+from chanakya.domain import (
+    ChatReply,
+    REQUEST_STATUS_COMPLETED,
+    REQUEST_STATUS_CREATED,
+    REQUEST_STATUS_FAILED,
+    REQUEST_STATUS_IN_PROGRESS,
+    TASK_STATUS_CREATED,
+    TASK_STATUS_DONE,
+    TASK_STATUS_FAILED,
+    TASK_STATUS_IN_PROGRESS,
+    make_id,
+    now_iso,
+)
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.store import ChanakyaStore
 
@@ -13,8 +25,28 @@ class ChatService:
 
     def chat(self, session_id: str, message: str) -> ChatReply:
         request_id = make_id("req")
+        root_task_id = make_id("task")
         runtime_meta = self.runtime.runtime_metadata()
         prior_messages = self.store.list_messages(session_id)[-8:]
+        self.store.add_message(session_id, "user", message, request_id=request_id)
+        self.store.create_request(
+            request_id=request_id,
+            session_id=session_id,
+            user_message=message,
+            status=REQUEST_STATUS_CREATED,
+            root_task_id=root_task_id,
+        )
+        self.store.create_task(
+            task_id=root_task_id,
+            request_id=request_id,
+            parent_task_id=None,
+            title=message[:80] or "User request",
+            summary=message,
+            status=TASK_STATUS_CREATED,
+            owner_agent_id=self.runtime.profile.id,
+            task_type="chat_request",
+            input_json={"message": message},
+        )
 
         debug_log(
             "chat_service_input",
@@ -33,15 +65,89 @@ class ChatService:
                 "request_id": request_id,
                 "session_id": session_id,
                 "message": message,
+                "root_task_id": root_task_id,
+            },
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            event_type="request_received",
+            task_id=root_task_id,
+            payload={
+                "message": message,
+                "request_status": REQUEST_STATUS_CREATED,
+                "task_status": TASK_STATUS_CREATED,
+            },
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=root_task_id,
+            event_type="task_created",
+            payload={
+                "title": message[:80] or "User request",
+                "owner_agent_id": self.runtime.profile.id,
+                "task_type": "chat_request",
+            },
+        )
+        self.store.update_request(request_id, status=REQUEST_STATUS_IN_PROGRESS)
+        started_at = now_iso()
+        self.store.update_task(
+            root_task_id,
+            status=TASK_STATUS_IN_PROGRESS,
+            started_at=started_at,
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=root_task_id,
+            event_type="task_status_changed",
+            payload={
+                "from_status": TASK_STATUS_CREATED,
+                "to_status": TASK_STATUS_IN_PROGRESS,
+                "request_status": REQUEST_STATUS_IN_PROGRESS,
+                "started_at": started_at,
             },
         )
 
-        # ---- unified runtime call (agent decides tool usage) ----
-        run_result = self.runtime.run(
-            session_id,
-            message,
-            request_id=request_id,
-        )
+        try:
+            run_result = self.runtime.run(
+                session_id,
+                message,
+                request_id=request_id,
+            )
+        except Exception as exc:
+            finished_at = now_iso()
+            self.store.update_request(request_id, status=REQUEST_STATUS_FAILED)
+            self.store.update_task(
+                root_task_id,
+                status=TASK_STATUS_FAILED,
+                error_text=str(exc),
+                finished_at=finished_at,
+            )
+            self.store.create_task_event(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=root_task_id,
+                event_type="task_status_changed",
+                payload={
+                    "from_status": TASK_STATUS_IN_PROGRESS,
+                    "to_status": TASK_STATUS_FAILED,
+                    "request_status": REQUEST_STATUS_FAILED,
+                    "error": str(exc),
+                    "finished_at": finished_at,
+                },
+            )
+            self.store.log_event(
+                "chat_response_failed",
+                {
+                    "request_id": request_id,
+                    "session_id": session_id,
+                    "root_task_id": root_task_id,
+                    "error": str(exc),
+                },
+            )
+            raise
 
         debug_log(
             "chat_service_model_response",
@@ -77,14 +183,84 @@ class ChatService:
                 output_text=trace.output_text,
                 error_text=trace.error_text,
             )
+            self.store.create_task_event(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=root_task_id,
+                event_type="tool_trace_recorded",
+                payload={
+                    "invocation_id": invocation_id,
+                    "tool_id": trace.tool_id,
+                    "tool_name": trace.tool_name,
+                    "server_name": trace.server_name,
+                    "status": trace.status,
+                },
+            )
 
         route = run_result.response_mode  # "direct_answer" or "tool_assisted"
+        finished_at = now_iso()
+        self.store.add_message(
+            session_id,
+            "assistant",
+            run_result.text,
+            request_id=request_id,
+            route=route,
+            metadata={
+                "runtime": "maf_agent",
+                "response_mode": run_result.response_mode,
+                "tool_calls_used": len(run_result.tool_traces),
+                "root_task_id": root_task_id,
+                "request_status": REQUEST_STATUS_COMPLETED,
+                "task_status": TASK_STATUS_DONE,
+            },
+        )
+        self.store.update_request(
+            request_id,
+            status=REQUEST_STATUS_COMPLETED,
+            route=route,
+        )
+        self.store.update_task(
+            root_task_id,
+            status=TASK_STATUS_DONE,
+            result_json={
+                "message": run_result.text,
+                "response_mode": run_result.response_mode,
+                "tool_calls_used": len(run_result.tool_traces),
+            },
+            finished_at=finished_at,
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=root_task_id,
+            event_type="response_persisted",
+            payload={
+                "route": route,
+                "response_mode": run_result.response_mode,
+                "tool_calls_used": len(run_result.tool_traces),
+            },
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=root_task_id,
+            event_type="task_status_changed",
+            payload={
+                "from_status": TASK_STATUS_IN_PROGRESS,
+                "to_status": TASK_STATUS_DONE,
+                "request_status": REQUEST_STATUS_COMPLETED,
+                "finished_at": finished_at,
+            },
+        )
 
         reply = ChatReply(
             request_id=request_id,
             session_id=session_id,
             route=route,
             message=run_result.text,
+            request_status=REQUEST_STATUS_COMPLETED,
+            root_task_id=root_task_id,
+            root_task_status=TASK_STATUS_DONE,
             model=(
                 runtime_meta.get("model") if isinstance(runtime_meta.get("model"), str) else None
             ),
@@ -111,6 +287,9 @@ class ChatService:
                 "endpoint": reply.endpoint,
                 "response_mode": run_result.response_mode,
                 "tool_calls_used": len(run_result.tool_traces),
+                "root_task_id": root_task_id,
+                "request_status": REQUEST_STATUS_COMPLETED,
+                "task_status": TASK_STATUS_DONE,
             },
         )
         debug_log(
