@@ -462,7 +462,17 @@
         const nodes = items.map((task) => {
           const card = document.createElement("div");
           card.className = "card";
-          card.innerHTML = `<h3>${task.title}</h3><div><span class="pill">${task.status}</span><span class="pill">${task.task_type}</span></div>`;
+          const heading = document.createElement("h3");
+          heading.textContent = task.title;
+          card.appendChild(heading);
+          const pillRow = document.createElement("div");
+          [task.status, task.task_type].forEach((value) => {
+            const pill = document.createElement("span");
+            pill.className = "pill";
+            pill.textContent = value;
+            pillRow.appendChild(pill);
+          });
+          card.appendChild(pillRow);
           const pre = document.createElement("pre");
           pre.textContent = JSON.stringify({
             id: task.id,
@@ -515,37 +525,46 @@
       }
 
       async function refreshSidePanels() {
-        const requestsQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=20` : "?limit=20";
-        const tasksQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&root_only=true&limit=20` : "?root_only=true&limit=20";
-        const timelineQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=40` : "?limit=40";
-        const [agentsRes, requestsRes, tasksRes, timelineRes] = await Promise.all([
-          fetch("/api/agents"),
-          fetch(`/api/requests${requestsQuery}`),
-          fetch(`/api/tasks${tasksQuery}`),
-          fetch(`/api/task-events${timelineQuery}`),
-        ]);
-        const agentsData = await agentsRes.json();
-        const requestsData = await requestsRes.json();
-        const tasksData = await tasksRes.json();
-        const timelineData = await timelineRes.json();
-        renderAgents(agentsData.agents || []);
-        renderTasks(tasksData.tasks || []);
-        renderTaskTimeline(timelineData.events || []);
-        const latestRequest = (requestsData.requests || []).slice(-1)[0];
-        if (latestRequest && !requestTrace.childElementCount) {
-          renderTrace({
-            request_id: latestRequest.id,
-            session_id: latestRequest.session_id,
-            request_status: latestRequest.status,
-            root_task_id: latestRequest.root_task_id,
-            root_task_status: (tasksData.tasks || []).slice(-1)[0]?.status || null,
-            runtime: "maf_agent",
-            model: null,
-            endpoint: null,
-            response_mode: latestRequest.route || "pending",
-            tool_calls_used: 0,
-            agent_name: "Chanakya",
-          });
+        try {
+          const requestsQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=20` : "?limit=20";
+          const tasksQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&root_only=true&limit=20` : "?root_only=true&limit=20";
+          const timelineQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=40` : "?limit=40";
+          const [agentsRes, requestsRes, tasksRes, timelineRes] = await Promise.all([
+            fetch("/api/agents"),
+            fetch(`/api/requests${requestsQuery}`),
+            fetch(`/api/tasks${tasksQuery}`),
+            fetch(`/api/task-events${timelineQuery}`),
+          ]);
+          if (!agentsRes.ok || !requestsRes.ok || !tasksRes.ok || !timelineRes.ok) {
+            throw new Error("side panel refresh failed");
+          }
+          const agentsData = await agentsRes.json();
+          const requestsData = await requestsRes.json();
+          const tasksData = await tasksRes.json();
+          const timelineData = await timelineRes.json();
+          renderAgents(agentsData.agents || []);
+          renderTasks(tasksData.tasks || []);
+          renderTaskTimeline(timelineData.events || []);
+          const latestRequest = (requestsData.requests || []).slice(-1)[0];
+          if (latestRequest && !requestTrace.childElementCount) {
+            renderTrace({
+              request_id: latestRequest.id,
+              session_id: latestRequest.session_id,
+              request_status: latestRequest.status,
+              root_task_id: latestRequest.root_task_id,
+              root_task_status: (tasksData.tasks || []).slice(-1)[0]?.status || null,
+              runtime: "maf_agent",
+              model: null,
+              endpoint: null,
+              response_mode: latestRequest.route || "pending",
+              tool_calls_used: 0,
+              agent_name: "Chanakya",
+            });
+          }
+        } catch {
+          renderAgents([]);
+          renderTasks([]);
+          renderTaskTimeline([]);
         }
         await refreshToolTraces();
       }

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
+from chanakya.agent.runtime import MAFRuntime
 from chanakya.chat_service import ChatService
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.domain import (
@@ -9,6 +11,7 @@ from chanakya.domain import (
     REQUEST_STATUS_FAILED,
     TASK_STATUS_DONE,
     TASK_STATUS_FAILED,
+    TASK_STATUS_IN_PROGRESS,
 )
 from chanakya.model import AgentProfileModel
 from chanakya.store import ChanakyaStore
@@ -73,7 +76,7 @@ def _build_store() -> ChanakyaStore:
 
 def test_chat_persists_request_root_task_and_timeline() -> None:
     store = _build_store()
-    service = ChatService(store, _RuntimeStub())
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub()))
 
     reply = service.chat("session_1", "Implement milestone 3")
 
@@ -106,7 +109,7 @@ def test_chat_persists_request_root_task_and_timeline() -> None:
 
 def test_chat_failure_marks_request_and_task_failed() -> None:
     store = _build_store()
-    service = ChatService(store, _RuntimeStub(should_fail=True))
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(should_fail=True)))
 
     try:
         service.chat("session_2", "This should fail")
@@ -127,3 +130,31 @@ def test_chat_failure_marks_request_and_task_failed() -> None:
     task_events = store.list_task_events(session_id="session_2")
     assert task_events[-1]["event_type"] == "task_status_changed"
     assert task_events[-1]["payload"]["to_status"] == TASK_STATUS_FAILED
+
+
+def test_update_task_preserves_error_until_non_failed_transition() -> None:
+    store = _build_store()
+    store.create_request(
+        request_id="req_1",
+        session_id="session_3",
+        user_message="Investigate failure",
+        status="created",
+        root_task_id="task_1",
+    )
+    store.create_task(
+        task_id="task_1",
+        request_id="req_1",
+        parent_task_id=None,
+        title="Investigate failure",
+        summary=None,
+        status="created",
+        owner_agent_id="agent_chanakya",
+        task_type="chat_request",
+    )
+
+    store.update_task("task_1", status=TASK_STATUS_FAILED, error_text="boom")
+    store.update_task("task_1", status=TASK_STATUS_FAILED)
+    assert store.list_tasks(session_id="session_3", root_only=True)[0]["error"] == "boom"
+
+    store.update_task("task_1", status=TASK_STATUS_IN_PROGRESS)
+    assert store.list_tasks(session_id="session_3", root_only=True)[0]["error"] is None

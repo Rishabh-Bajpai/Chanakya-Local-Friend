@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.db import session_scope
-from chanakya.domain import now_iso
+from chanakya.domain import TASK_STATUS_FAILED, now_iso
 from chanakya.model import (
     AgentProfileModel,
     AppEventModel,
@@ -333,8 +333,10 @@ class TaskRepository:
                 row.owner_agent_id = owner_agent_id
             if result_json is not None:
                 row.result_json = result_json
-            if error_text is not None or status == "failed":
+            if error_text is not None:
                 row.error_text = error_text
+            elif status is not None and status != TASK_STATUS_FAILED:
+                row.error_text = None
             if started_at is not None:
                 row.started_at = started_at
             if finished_at is not None:
