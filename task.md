@@ -72,17 +72,17 @@ Milestone 1 - Simple Chanakya Chat
 
 ### Milestone 3 - Domain Foundation
 
-- [ ] Add `RequestModel` and `TaskModel` SQLAlchemy schema with parent/child task support
-- [ ] Add task/request lifecycle status constants aligned to the PRD state model
-- [ ] Add append-only request/task event persistence with request/task/session linkage
-- [ ] Refactor `chanakya/store.py` into first-class repositories for chat, requests, tasks, events, tools, and agents
-- [ ] Update `ChatService` to create a persisted request and root task for each user message
-- [ ] Persist lifecycle transitions for request start, task start, completion, and failure
-- [ ] Add task-oriented read APIs for requests, tasks, and task timelines
-- [ ] Add GUI task list view showing root tasks and current lifecycle state
-- [ ] Add GUI task timeline view showing ordered domain events
-- [ ] Link request trace and tool traces to persisted request/task identifiers
-- [ ] Add focused tests for request/task creation, transitions, and read APIs
+- [X] Add `RequestModel` and `TaskModel` SQLAlchemy schema with parent/child task support
+- [X] Add task/request lifecycle status constants aligned to the PRD state model
+- [X] Add append-only request/task event persistence with request/task/session linkage
+- [X] Refactor `chanakya/store.py` into first-class repositories for chat, requests, tasks, events, tools, and agents
+- [X] Update `ChatService` to create a persisted request and root task for each user message
+- [X] Persist lifecycle transitions for request start, task start, completion, and failure
+- [X] Add task-oriented read APIs for requests, tasks, and task timelines
+- [X] Add GUI task list view showing root tasks and current lifecycle state
+- [X] Add GUI task timeline view showing ordered domain events
+- [X] Link request trace and tool traces to persisted request/task identifiers
+- [X] Add focused tests for request/task creation, transitions, and read APIs
 
 - Validation:
   - Create a request that becomes a persisted request record plus root task record
@@ -156,8 +156,9 @@ Milestone 1 - Simple Chanakya Chat
 ## Current Focus
 
 - Completed: Milestone 1 foundation and simple chatbot
-- In Progress: Milestone 3 domain foundation planning and implementation
-- Next: Milestone 4 agent manager delegation on top of persisted tasks
+- Completed: Milestone 3 domain foundation with persisted requests, tasks, lifecycle events, and GUI visibility
+- In Progress: Milestone 4 agent manager delegation on top of persisted tasks
+- Next: Milestone 5 persistent agent configuration after manager flow is visible
 
 ## GUI Review Loop
 
@@ -222,3 +223,6 @@ Notes:
 - 2026-03-27: Added a SQLAlchemy-backed MAF history provider and removed manual chat prompt reconstruction for multi-turn memory.
 - 2026-03-28: Implemented Milestone 2 tool routing: separate MCP trace extraction module, MCP tool loader/config wrapper services, unified runtime (removed run_direct/run_chat split), agent-driven tool selection, tool trace persistence, GUI tool traces panel, and /api/tool-traces endpoint.
 - 2026-03-29: Expanded Milestone 3 into request/task/task-event persistence, task-oriented repositories, GUI task visibility, and focused validation steps before Agent Manager work.
+- 2026-03-30: Completed Milestone 3 by wiring persisted requests, root tasks, lifecycle events, request/task read APIs, GUI task panels, and focused domain-foundation tests.
+- 2026-03-30: Fixed Milestone 3 panel restore/render issues by refreshing side panels after session history load and updating the right-side layout to allocate space for all five panels.
+- 2026-03-30: Updated `scripts/update_database.py` to include Milestone 3 request/task/task-event models for schema updates on existing databases.
