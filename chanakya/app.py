@@ -138,6 +138,7 @@ def create_app() -> Flask:
         limit = max(1, min(limit, 500))
         if parent_task_id:
             tasks = store.list_task_children(parent_task_id)
+            tasks = tasks[:limit]
         else:
             tasks = store.list_tasks(
                 session_id=session_id,
