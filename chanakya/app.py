@@ -7,6 +7,7 @@ from typing import Any
 from flask import Flask, jsonify, render_template, request
 
 from chanakya.agent.runtime import MAFRuntime
+from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
 from chanakya.config import get_data_dir, get_database_url, load_local_env
 from chanakya.db import build_engine, build_session_factory, init_database
@@ -50,8 +51,10 @@ def create_app() -> Flask:
     initialize_all_tools()
 
     chanakya_profile = store.get_agent_profile("agent_chanakya")
+    manager_profile = store.get_agent_profile("agent_manager")
     runtime = MAFRuntime(chanakya_profile, session_factory)
-    chat_service = ChatService(store, runtime)
+    manager = AgentManager(store, session_factory, manager_profile)
+    chat_service = ChatService(store, runtime, manager)
 
     @app.get("/")
     def index() -> str:
@@ -73,7 +76,18 @@ def create_app() -> Flask:
         if not message:
             return jsonify({"error": "message is required"}), 400
         store.ensure_session(session_id, title=message[:60] or "New chat")
-        reply = chat_service.chat(session_id, message)
+        try:
+            reply = chat_service.chat(session_id, message)
+        except Exception as exc:
+            debug_log(
+                "api_chat_error",
+                {
+                    "session_id": session_id,
+                    "message": message,
+                    "error": str(exc),
+                },
+            )
+            return jsonify({"error": str(exc), "session_id": session_id}), 502
         debug_log(
             "api_chat_response",
             {
@@ -126,18 +140,27 @@ def create_app() -> Flask:
         session_id = request.args.get("session_id")
         request_id = request.args.get("request_id")
         root_only = request.args.get("root_only", "false").lower() == "true"
+        parent_task_id = request.args.get("parent_task_id")
         raw_limit = request.args.get("limit", "100")
         try:
             limit = int(raw_limit)
         except (TypeError, ValueError):
             limit = 100
         limit = max(1, min(limit, 500))
-        tasks = store.list_tasks(
-            session_id=session_id,
-            request_id=request_id,
-            root_only=root_only,
-            limit=limit,
-        )
+        if parent_task_id:
+            tasks = store.list_task_children(
+                parent_task_id,
+                session_id=session_id,
+                request_id=request_id,
+                limit=limit,
+            )
+        else:
+            tasks = store.list_tasks(
+                session_id=session_id,
+                request_id=request_id,
+                root_only=root_only,
+                limit=limit,
+            )
         debug_log("api_tasks_request", {"task_count": len(tasks)})
         return jsonify({"tasks": tasks})
 

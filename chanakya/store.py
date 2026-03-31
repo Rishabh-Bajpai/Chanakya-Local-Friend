@@ -317,7 +317,10 @@ class TaskRepository:
         task_id: str,
         *,
         status: str | None = None,
+        summary: str | None = None,
         owner_agent_id: str | None = None,
+        dependencies: list[str] | None = None,
+        input_json: dict[str, Any] | None = None,
         result_json: dict[str, Any] | None = None,
         error_text: str | None = None,
         started_at: str | None = None,
@@ -329,8 +332,14 @@ class TaskRepository:
                 return
             if status is not None:
                 row.status = status
+            if summary is not None:
+                row.summary = summary
             if owner_agent_id is not None:
                 row.owner_agent_id = owner_agent_id
+            if dependencies is not None:
+                row.dependencies_json = dependencies
+            if input_json is not None:
+                row.input_json = input_json
             if result_json is not None:
                 row.result_json = result_json
             if error_text is not None:
@@ -392,11 +401,58 @@ class TaskRepository:
                 "updated_at": task.updated_at,
                 "started_at": task.started_at,
                 "finished_at": task.finished_at,
+                "is_root": task.parent_task_id is None,
             }
             for task, linked_session_id in rows
         ]
         records.reverse()
         return records
+
+    def list_children(
+        self,
+        parent_task_id: str,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = select(TaskModel, RequestModel.session_id).join(
+                RequestModel,
+                TaskModel.request_id == RequestModel.id,
+            )
+            stmt = stmt.where(TaskModel.parent_task_id == parent_task_id)
+            if session_id is not None:
+                stmt = stmt.where(RequestModel.session_id == session_id)
+            if request_id is not None:
+                stmt = stmt.where(TaskModel.request_id == request_id)
+            stmt = stmt.order_by(TaskModel.created_at.asc())
+            if limit is not None:
+                stmt = stmt.limit(limit)
+            rows = session.execute(stmt).all()
+        return [
+            {
+                "id": task.id,
+                "request_id": task.request_id,
+                "session_id": linked_session_id,
+                "parent_task_id": task.parent_task_id,
+                "title": task.title,
+                "summary": task.summary,
+                "status": task.status,
+                "owner_agent_id": task.owner_agent_id,
+                "task_type": task.task_type,
+                "dependencies": task.dependencies_json,
+                "input": task.input_json,
+                "result": task.result_json,
+                "error": task.error_text,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
+                "started_at": task.started_at,
+                "finished_at": task.finished_at,
+                "is_root": False,
+            }
+            for task, linked_session_id in rows
+        ]
 
 
 class ToolInvocationRepository:
@@ -536,6 +592,16 @@ class AgentProfileRepository:
             raise KeyError(f"Agent profile not found: {agent_id}")
         return row
 
+    def find_active_agents_by_role(self, role: str) -> list[AgentProfileModel]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(AgentProfileModel)
+                .where(AgentProfileModel.role == role)
+                .where(AgentProfileModel.is_active.is_(True))
+                .order_by(AgentProfileModel.name.asc())
+            ).all()
+        return cast(list[AgentProfileModel], rows)
+
 
 class ChanakyaStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
@@ -643,6 +709,21 @@ class ChanakyaStore:
             limit=limit,
         )
 
+    def list_task_children(
+        self,
+        parent_task_id: str,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.tasks.list_children(
+            parent_task_id,
+            session_id=session_id,
+            request_id=request_id,
+            limit=limit,
+        )
+
     def create_tool_invocation(self, **kwargs: Any) -> None:
         self.tools.create_tool_invocation(**kwargs)
 
@@ -670,3 +751,6 @@ class ChanakyaStore:
 
     def get_agent_profile(self, agent_id: str) -> AgentProfileModel:
         return self.agents.get_agent_profile(agent_id)
+
+    def find_active_agents_by_role(self, role: str) -> list[AgentProfileModel]:
+        return self.agents.find_active_agents_by_role(role)
