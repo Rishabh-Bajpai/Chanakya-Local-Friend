@@ -408,15 +408,27 @@ class TaskRepository:
         records.reverse()
         return records
 
-    def list_children(self, parent_task_id: str) -> list[dict[str, Any]]:
+    def list_children(
+        self,
+        parent_task_id: str,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
         with session_scope(self.Session) as session:
             stmt = select(TaskModel, RequestModel.session_id).join(
                 RequestModel,
                 TaskModel.request_id == RequestModel.id,
             )
-            stmt = stmt.where(TaskModel.parent_task_id == parent_task_id).order_by(
-                TaskModel.created_at.asc()
-            )
+            stmt = stmt.where(TaskModel.parent_task_id == parent_task_id)
+            if session_id is not None:
+                stmt = stmt.where(RequestModel.session_id == session_id)
+            if request_id is not None:
+                stmt = stmt.where(TaskModel.request_id == request_id)
+            stmt = stmt.order_by(TaskModel.created_at.asc())
+            if limit is not None:
+                stmt = stmt.limit(limit)
             rows = session.execute(stmt).all()
         return [
             {
@@ -697,8 +709,20 @@ class ChanakyaStore:
             limit=limit,
         )
 
-    def list_task_children(self, parent_task_id: str) -> list[dict[str, Any]]:
-        return self.tasks.list_children(parent_task_id)
+    def list_task_children(
+        self,
+        parent_task_id: str,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.tasks.list_children(
+            parent_task_id,
+            session_id=session_id,
+            request_id=request_id,
+            limit=limit,
+        )
 
     def create_tool_invocation(self, **kwargs: Any) -> None:
         self.tools.create_tool_invocation(**kwargs)

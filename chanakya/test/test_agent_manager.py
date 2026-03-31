@@ -116,13 +116,14 @@ def test_chat_service_delegates_and_persists_child_tasks() -> None:
     all_tasks = store.list_tasks(session_id="session_mgr", limit=20)
     root_tasks = [task for task in all_tasks if task["parent_task_id"] is None]
     child_tasks = [task for task in all_tasks if task["parent_task_id"] == reply.root_task_id]
+    child_tasks_sorted = sorted(child_tasks, key=lambda task: task["task_type"])
 
     assert len(root_tasks) == 1
     assert len(child_tasks) == 2
-    assert child_tasks[0]["task_type"] == "developer_discussion"
-    assert child_tasks[1]["task_type"] == "tester_discussion"
-    assert child_tasks[0]["dependencies"] == []
-    assert child_tasks[1]["dependencies"] == []
+    assert child_tasks_sorted[0]["task_type"] == "developer_discussion"
+    assert child_tasks_sorted[1]["task_type"] == "tester_discussion"
+    assert child_tasks_sorted[0]["dependencies"] == []
+    assert child_tasks_sorted[1]["dependencies"] == []
     assert all(task["status"] == TASK_STATUS_DONE for task in child_tasks)
 
     events = store.list_task_events(session_id="session_mgr")

@@ -459,7 +459,6 @@
           taskList.innerHTML = `<div class="empty-state">No tasks created for this session yet.</div>`;
           return;
         }
-        const byId = new Map(items.map((task) => [task.id, task]));
         const childrenByParent = new Map();
         items.forEach((task) => {
           if (!task.parent_task_id) return;

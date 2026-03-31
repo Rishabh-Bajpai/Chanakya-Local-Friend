@@ -220,13 +220,30 @@ class ChatService:
                     },
                 )
 
-        route = "delegated_manager" if manager_result is not None else run_result.response_mode
+        if manager_result is not None:
+            route = "delegated_manager"
+            final_message = manager_result.text
+            response_mode = manager_result.workflow_type
+            task_status = manager_result.task_status
+            direct_tool_calls_used = 0
+            result_json = manager_result.result_json
+        else:
+            assert run_result is not None
+            direct_run_result = run_result
+            route = direct_run_result.response_mode
+            final_message = direct_run_result.text
+            response_mode = direct_run_result.response_mode
+            task_status = TASK_STATUS_DONE
+            direct_tool_calls_used = len(direct_run_result.tool_traces)
+            result_json = {
+                "message": direct_run_result.text,
+                "response_mode": direct_run_result.response_mode,
+                "tool_calls_used": len(direct_run_result.tool_traces),
+            }
         finished_at = now_iso()
-        final_message = manager_result.text if manager_result is not None else run_result.text
-        response_mode = (
-            manager_result.workflow_type if manager_result is not None else run_result.response_mode
+        request_status = (
+            REQUEST_STATUS_FAILED if task_status == TASK_STATUS_FAILED else REQUEST_STATUS_COMPLETED
         )
-        task_status = manager_result.task_status if manager_result is not None else TASK_STATUS_DONE
         self.store.add_message(
             session_id,
             "assistant",
@@ -236,9 +253,9 @@ class ChatService:
             metadata={
                 "runtime": "maf_agent",
                 "response_mode": response_mode,
-                "tool_calls_used": len(run_result.tool_traces) if run_result is not None else 0,
+                "tool_calls_used": direct_tool_calls_used,
                 "root_task_id": root_task_id,
-                "request_status": REQUEST_STATUS_COMPLETED,
+                "request_status": request_status,
                 "task_status": task_status,
                 "workflow_type": manager_result.workflow_type
                 if manager_result is not None
@@ -250,21 +267,13 @@ class ChatService:
         )
         self.store.update_request(
             request_id,
-            status=REQUEST_STATUS_COMPLETED,
+            status=request_status,
             route=route,
         )
         self.store.update_task(
             root_task_id,
             status=task_status,
-            result_json=(
-                manager_result.result_json
-                if manager_result is not None
-                else {
-                    "message": run_result.text,
-                    "response_mode": run_result.response_mode,
-                    "tool_calls_used": len(run_result.tool_traces),
-                }
-            ),
+            result_json=result_json,
             finished_at=finished_at,
         )
         self.store.create_task_event(
@@ -275,7 +284,7 @@ class ChatService:
             payload={
                 "route": route,
                 "response_mode": response_mode,
-                "tool_calls_used": len(run_result.tool_traces) if run_result is not None else 0,
+                "tool_calls_used": direct_tool_calls_used,
             },
         )
         self.store.create_task_event(
@@ -286,7 +295,7 @@ class ChatService:
             payload={
                 "from_status": TASK_STATUS_IN_PROGRESS,
                 "to_status": task_status,
-                "request_status": REQUEST_STATUS_COMPLETED,
+                "request_status": request_status,
                 "finished_at": finished_at,
             },
         )
@@ -296,7 +305,7 @@ class ChatService:
             session_id=session_id,
             route=route,
             message=final_message,
-            request_status=REQUEST_STATUS_COMPLETED,
+            request_status=request_status,
             root_task_id=root_task_id,
             root_task_status=task_status,
             model=(
@@ -310,7 +319,7 @@ class ChatService:
             runtime="maf_agent",
             agent_name=self.runtime.profile.name,
             response_mode=response_mode,
-            tool_calls_used=len(run_result.tool_traces) if run_result is not None else 0,
+            tool_calls_used=direct_tool_calls_used,
             tool_trace_ids=tool_trace_ids,
         )
         self.store.log_event(
@@ -324,9 +333,9 @@ class ChatService:
                 "model": reply.model,
                 "endpoint": reply.endpoint,
                 "response_mode": response_mode,
-                "tool_calls_used": len(run_result.tool_traces) if run_result is not None else 0,
+                "tool_calls_used": direct_tool_calls_used,
                 "root_task_id": root_task_id,
-                "request_status": REQUEST_STATUS_COMPLETED,
+                "request_status": request_status,
                 "task_status": task_status,
             },
         )
