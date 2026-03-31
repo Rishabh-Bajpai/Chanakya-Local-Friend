@@ -91,10 +91,10 @@ Milestone 1 - Simple Chanakya Chat
 
 ### Milestone 4 - Agent Manager v1
 
-- [ ] Add manager delegation for complex requests
-- [ ] Create parent task, subtasks, and dependency edges
-- [ ] Use MAF worker agents for delegated execution
-- [ ] Show task graph and execution progress in GUI
+- [X] Add manager delegation for complex requests
+- [X] Create root task plus delegated participant subtasks for manager-supervised chat execution
+- [X] Use MAF group chat with Agent Manager as the orchestration agent
+- [X] Show delegated task graph and execution progress in GUI
 
 - Validation:
   - Submit an implement-and-test request
@@ -157,7 +157,7 @@ Milestone 1 - Simple Chanakya Chat
 
 - Completed: Milestone 1 foundation and simple chatbot
 - Completed: Milestone 3 domain foundation with persisted requests, tasks, lifecycle events, and GUI visibility
-- In Progress: Milestone 4 agent manager delegation on top of persisted tasks
+- Completed: Milestone 4 agent manager delegation with a manager-supervised MAF chat workflow, delegated participant tasks, and GUI task graph rendering
 - Next: Milestone 5 persistent agent configuration after manager flow is visible
 
 ## GUI Review Loop
@@ -226,3 +226,4 @@ Notes:
 - 2026-03-30: Completed Milestone 3 by wiring persisted requests, root tasks, lifecycle events, request/task read APIs, GUI task panels, and focused domain-foundation tests.
 - 2026-03-30: Fixed Milestone 3 panel restore/render issues by refreshing side panels after session history load and updating the right-side layout to allocate space for all five panels.
 - 2026-03-30: Updated `scripts/update_database.py` to include Milestone 3 request/task/task-event models for schema updates on existing databases.
+- 2026-03-31: Implemented Milestone 4 Agent Manager v1 with a seeded manager agent, manager-supervised MAF chat workflow, delegated participant task persistence, GUI task graph rendering, and focused delegation tests.

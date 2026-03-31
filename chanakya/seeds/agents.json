@@ -13,6 +13,19 @@
     "is_active": true
   },
   {
+    "id": "agent_manager",
+    "name": "Agent Manager",
+    "role": "manager",
+    "system_prompt": "You are Chanakya's Agent Manager. You supervise multi-agent execution, choose the most appropriate workflow shape for the request, coordinate specialist agents, and produce structured progress updates and final summaries. You do not replace the task system. You operate inside it.",
+    "personality": "structured, supervisory, orchestration-focused",
+    "tool_ids": [],
+    "workspace": "manager-workspace",
+    "heartbeat_enabled": false,
+    "heartbeat_interval_seconds": 300,
+    "heartbeat_file_path": "chanakya_data/heartbeats/manager.md",
+    "is_active": true
+  },
+  {
     "id": "agent_developer",
     "name": "Developer",
     "role": "developer",
@@ -36,6 +49,32 @@
     "heartbeat_enabled": false,
     "heartbeat_interval_seconds": 300,
     "heartbeat_file_path": "chanakya_data/heartbeats/tester.md",
+    "is_active": true
+  },
+  {
+    "id": "agent_researcher",
+    "name": "Researcher",
+    "role": "researcher",
+    "system_prompt": "You are a research agent used by Chanakya's manager for fact gathering, comparison, and concise summaries.",
+    "personality": "curious, analytical",
+    "tool_ids": ["mcp_fetch"],
+    "workspace": "research-workspace",
+    "heartbeat_enabled": false,
+    "heartbeat_interval_seconds": 300,
+    "heartbeat_file_path": "chanakya_data/heartbeats/researcher.md",
+    "is_active": true
+  },
+  {
+    "id": "agent_writer",
+    "name": "Writer",
+    "role": "writer",
+    "system_prompt": "You are a writing agent used by Chanakya's manager to turn raw outputs into concise, readable summaries.",
+    "personality": "clear, polished",
+    "tool_ids": [],
+    "workspace": "writer-workspace",
+    "heartbeat_enabled": false,
+    "heartbeat_interval_seconds": 300,
+    "heartbeat_file_path": "chanakya_data/heartbeats/writer.md",
     "is_active": true
   }
 ]
