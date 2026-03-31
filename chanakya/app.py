@@ -76,7 +76,18 @@ def create_app() -> Flask:
         if not message:
             return jsonify({"error": "message is required"}), 400
         store.ensure_session(session_id, title=message[:60] or "New chat")
-        reply = chat_service.chat(session_id, message)
+        try:
+            reply = chat_service.chat(session_id, message)
+        except Exception as exc:
+            debug_log(
+                "api_chat_error",
+                {
+                    "session_id": session_id,
+                    "message": message,
+                    "error": str(exc),
+                },
+            )
+            return jsonify({"error": str(exc), "session_id": session_id}), 502
         debug_log(
             "api_chat_response",
             {

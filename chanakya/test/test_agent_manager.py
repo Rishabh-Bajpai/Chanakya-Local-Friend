@@ -106,12 +106,16 @@ def test_chat_service_delegates_and_persists_child_tasks() -> None:
     service.manager.group_chat_runner = lambda session_id, request_id, message, participants: (
         "\n".join(f"{profile.name}: discussion for {message}" for profile in participants)
     )
+    service.manager.summary_runner = lambda prompt: (
+        "Developer implemented the calculator and Tester validated the delegated result."
+    )
 
     reply = service.chat("session_mgr", "Implement and test milestone 4")
 
     assert reply.route == "delegated_manager"
     assert reply.response_mode == "chat"
     assert reply.root_task_status == TASK_STATUS_DONE
+    assert "Developer implemented the calculator" in reply.message
 
     all_tasks = store.list_tasks(session_id="session_mgr", limit=20)
     root_tasks = [task for task in all_tasks if task["parent_task_id"] is None]
@@ -132,6 +136,33 @@ def test_chat_service_delegates_and_persists_child_tasks() -> None:
     assert "workflow_selected" in event_types
     assert "workflow_started" in event_types
     assert "workflow_aggregation_completed" in event_types
+
+
+def test_manager_summary_falls_back_when_chat_output_not_extracted() -> None:
+    store = _build_store()
+    chanakya = _seed_agent(store, "agent_chanakya", "Chanakya", "personal_assistant")
+    manager_profile = _seed_agent(store, "agent_manager", "Agent Manager", "manager")
+    _seed_agent(store, "agent_developer", "Developer", "developer")
+    _seed_agent(store, "agent_tester", "Tester", "tester")
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.group_chat_runner = lambda session_id, request_id, message, participants: (
+        "Group chat orchestration started, but the orchestrator did not emit a parseable final output."
+    )
+    service.manager.summary_runner = lambda prompt: (
+        "A calculator implementation was discussed and testing responsibilities were assigned."
+    )
+
+    reply = service.chat("session_mgr_2", "Implement and test milestone 4")
+
+    assert reply.route == "delegated_manager"
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert "testing responsibilities were assigned" in reply.message
 
 
 def test_store_can_filter_agents_by_role() -> None:

@@ -144,6 +144,15 @@
         padding: 14px 16px;
         min-height: 0;
       }
+      .section-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .section-copy {
+        min-width: 0;
+      }
       .section-body {
         overflow-x: hidden;
         overflow-y: auto;
@@ -175,6 +184,34 @@
         margin: 0 0 10px;
         color: var(--muted);
         font-size: 13px;
+      }
+      .detach-button {
+        width: 30px;
+        height: 30px;
+        flex: 0 0 auto;
+        padding: 0;
+        border-radius: 10px;
+        background: transparent;
+        border: 1px solid #444444;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1;
+      }
+      .detach-button:hover {
+        color: var(--text);
+        background: #252525;
+      }
+      body.detached-view {
+        min-height: 100vh;
+      }
+      .detached-shell {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 20px;
+        min-height: 100vh;
+      }
+      .detached-shell .panel.section {
+        min-height: calc(100vh - 40px);
       }
       .card {
         border: 1px solid #383838;
@@ -256,41 +293,66 @@
       </section>
 
       <section class="side">
-        <div class="panel section">
-          <h2>Request Trace</h2>
-          <p>Route metadata for the latest request.</p>
+        <div class="panel section" data-panel="request-trace">
+          <div class="section-header">
+            <div class="section-copy">
+              <h2>Request Trace</h2>
+              <p>Route metadata for the latest request.</p>
+            </div>
+            <button type="button" class="detach-button" data-detach-panel="request-trace" title="Open in new tab" aria-label="Open Request Trace in new tab">&#x2197;</button>
+          </div>
           <div class="section-body">
             <div id="requestTrace"></div>
           </div>
         </div>
 
-        <div class="panel section">
-          <h2>Tool Traces</h2>
-          <p>MCP tool selections, inputs, outputs, and errors.</p>
+        <div class="panel section" data-panel="tool-traces">
+          <div class="section-header">
+            <div class="section-copy">
+              <h2>Tool Traces</h2>
+              <p>MCP tool selections, inputs, outputs, and errors.</p>
+            </div>
+            <button type="button" class="detach-button" data-detach-panel="tool-traces" title="Open in new tab" aria-label="Open Tool Traces in new tab">&#x2197;</button>
+          </div>
           <div class="section-body">
             <div id="toolTraceList"></div>
           </div>
         </div>
 
-        <div class="panel section">
-          <h2>Tasks</h2>
-          <p>Persisted task graph, workflow type, owners, and lifecycle state.</p>
+        <div class="panel section" data-panel="tasks">
+          <div class="section-header">
+            <div class="section-copy">
+              <h2>Tasks</h2>
+              <p>Persisted task graph, workflow type, owners, and lifecycle state.</p>
+            </div>
+            <button type="button" class="detach-button" data-detach-panel="tasks" title="Open in new tab" aria-label="Open Tasks in new tab">&#x2197;</button>
+          </div>
           <div class="section-body">
             <div id="taskList"></div>
           </div>
         </div>
 
-        <div class="panel section">
-          <h2>Task Timeline</h2>
-          <p>Ordered request and task lifecycle events for this session.</p>
+        <div class="panel section" data-panel="task-timeline">
+          <div class="section-header">
+            <div class="section-copy">
+              <h2>Task Timeline</h2>
+              <p>Ordered request and task lifecycle events for this session.</p>
+            </div>
+            <button type="button" class="detach-button" data-detach-panel="task-timeline" title="Open in new tab" aria-label="Open Task Timeline in new tab">&#x2197;</button>
+          </div>
           <div class="section-body">
             <div id="taskTimeline"></div>
           </div>
         </div>
 
-        <div class="panel section">
-          <h2>Persistent Agents</h2>
-          <p>Loaded from seed; editable via GUI later.</p>
+        <div class="panel section" data-panel="persistent-agents">
+          <div class="section-header">
+            <div class="section-copy">
+              <h2>Persistent Agents</h2>
+              <p>Loaded from seed; editable via GUI later.</p>
+            </div>
+            <button type="button" class="detach-button" data-detach-panel="persistent-agents" title="Open in new tab" aria-label="Open Persistent Agents in new tab">&#x2197;</button>
+          </div>
           <div class="section-body">
             <div id="agentList"></div>
           </div>
@@ -307,9 +369,41 @@
       const taskList = document.getElementById("taskList");
       const taskTimeline = document.getElementById("taskTimeline");
       const agentList = document.getElementById("agentList");
+      const detachedPanel = new URLSearchParams(window.location.search).get("panel");
+      const panelTitles = {
+        "request-trace": "Request Trace",
+        "tool-traces": "Tool Traces",
+        "tasks": "Tasks",
+        "task-timeline": "Task Timeline",
+        "persistent-agents": "Persistent Agents",
+      };
 
       let sessionId = null;
       const STORAGE_KEY = "chanakya-active-session";
+
+      function applyDetachedView() {
+        if (!detachedPanel || !panelTitles[detachedPanel]) return;
+        document.body.classList.add("detached-view");
+        document.title = `Chanakya - ${panelTitles[detachedPanel]}`;
+
+        const selectedPanel = document.querySelector(`[data-panel="${detachedPanel}"]`);
+        const shell = document.querySelector(".shell");
+        if (!selectedPanel || !shell) return;
+
+        shell.replaceChildren(selectedPanel);
+        shell.className = "detached-shell";
+      }
+
+      function setupDetachButtons() {
+        document.querySelectorAll("[data-detach-panel]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const panel = button.getAttribute("data-detach-panel");
+            const url = new URL(window.location.href);
+            url.searchParams.set("panel", panel);
+            window.open(url.toString(), "_blank", "noopener,noreferrer");
+          });
+        });
+      }
 
       function appendMessage(role, text, meta) {
         const node = document.createElement("div");
@@ -512,7 +606,8 @@
         const nodes = items.map((event) => {
           const card = document.createElement("div");
           card.className = "card";
-          card.innerHTML = `<h3>${event.event_type}</h3>`;
+          const requestSuffix = event.request_id ? ` <span class="pill">${event.request_id}</span>` : "";
+          card.innerHTML = `<h3>${event.event_type}${requestSuffix}</h3>`;
           const pre = document.createElement("pre");
           pre.textContent = JSON.stringify({
             request_id: event.request_id,
@@ -544,12 +639,11 @@
         try {
           const requestsQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=20` : "?limit=20";
           const tasksQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=50` : "?limit=50";
-          const timelineQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=40` : "?limit=40";
           const [agentsRes, requestsRes, tasksRes, timelineRes] = await Promise.all([
             fetch("/api/agents"),
             fetch(`/api/requests${requestsQuery}`),
             fetch(`/api/tasks${tasksQuery}`),
-            fetch(`/api/task-events${timelineQuery}`),
+            fetch(sessionId ? `/api/task-events?session_id=${encodeURIComponent(sessionId)}&limit=100` : "/api/task-events?limit=100"),
           ]);
           if (!agentsRes.ok || !requestsRes.ok || !tasksRes.ok || !timelineRes.ok) {
             throw new Error("side panel refresh failed");
@@ -560,8 +654,11 @@
           const timelineData = await timelineRes.json();
           renderAgents(agentsData.agents || []);
           renderTasks(tasksData.tasks || []);
-          renderTaskTimeline(timelineData.events || []);
           const latestRequest = (requestsData.requests || []).slice(-1)[0];
+          const latestTimeline = latestRequest
+            ? (timelineData.events || []).filter((event) => event.request_id === latestRequest.id)
+            : (timelineData.events || []);
+          renderTaskTimeline(latestTimeline);
           if (latestRequest) {
             renderTrace({
               request_id: latestRequest.id,
@@ -636,6 +733,8 @@
         refreshSidePanels();
       });
 
+      applyDetachedView();
+      setupDetachButtons();
       loadSessionHistory();
     </script>
   </body>
