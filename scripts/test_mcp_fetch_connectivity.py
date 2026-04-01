@@ -1,13 +1,22 @@
 import asyncio
 import argparse
+import shutil
 
 import pytest
 from agent_framework import MCPStdioTool
 from chanakya.services.tool_loader import _wrap_command
 
 
-@pytest.mark.anyio
+pytestmark = [pytest.mark.anyio, pytest.mark.integration]
+
+
+def _require_uvx() -> None:
+    if shutil.which("uvx") is None:
+        pytest.skip("uvx is required for MCP fetch connectivity integration tests")
+
+
 async def test_with_wrapper() -> None:
+    _require_uvx()
     print("Testing fetch tool with wrapper...")
     cmd, args = _wrap_command("uvx", ["mcp-server-fetch"])
     print(f"Executing: {cmd} {args}")
@@ -18,8 +27,8 @@ async def test_with_wrapper() -> None:
     await tool.close()
 
 
-@pytest.mark.anyio
 async def test_without_wrapper() -> None:
+    _require_uvx()
     print("Testing fetch tool without wrapper...")
     tool = MCPStdioTool(
         name="test_fetch", command="uvx", args=["mcp-server-fetch"], tool_name_prefix="check_"

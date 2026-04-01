@@ -634,7 +634,7 @@
         selectedAgentId = agent.id;
         agentName.value = agent.name || "";
         agentRole.value = agent.role || "";
-        agentSystemPrompt.value = agent.system_prompt || agent.personality || "";
+        agentSystemPrompt.value = agent.system_prompt || "";
         agentPersonality.value = agent.personality || "";
         agentWorkspace.value = agent.workspace || "";
         agentHeartbeatFilePath.value = agent.heartbeat_file_path || "";
@@ -757,7 +757,17 @@
           const pills = [agent.role];
           if (agent.tool_ids && agent.tool_ids.length) pills.push(`${agent.tool_ids.length} tools`);
           if (agent.heartbeat_enabled) pills.push(`heartbeat ${agent.heartbeat_interval_seconds}s`);
-          card.innerHTML = `<h3>${agent.name}</h3><div>${pills.map((pill) => `<span class="pill">${pill}</span>`).join("")}</div>`;
+          const heading = document.createElement("h3");
+          heading.textContent = agent.name;
+          card.appendChild(heading);
+          const pillRow = document.createElement("div");
+          pills.forEach((pillText) => {
+            const pill = document.createElement("span");
+            pill.className = "pill";
+            pill.textContent = pillText;
+            pillRow.appendChild(pill);
+          });
+          card.appendChild(pillRow);
           const pre = document.createElement("pre");
           pre.textContent = JSON.stringify({
             id: agent.id,

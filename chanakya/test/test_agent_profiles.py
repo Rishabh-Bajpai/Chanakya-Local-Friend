@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.model import AgentProfileModel
@@ -15,7 +16,9 @@ def _build_store() -> ChanakyaStore:
     return ChanakyaStore(session_factory)
 
 
-def test_load_agent_seeds_creates_missing_agents_without_overwriting_existing(tmp_path) -> None:
+def test_load_agent_seeds_creates_missing_agents_without_overwriting_existing(
+    tmp_path: Path,
+) -> None:
     store = _build_store()
     existing = AgentProfileModel(
         id="agent_developer",

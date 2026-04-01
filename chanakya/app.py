@@ -211,9 +211,7 @@ def create_app() -> Flask:
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-        agent_id = _make_agent_profile_id(agent_data["name"])
-        while store.has_agent_profile(agent_id):
-            agent_id = _make_agent_profile_id(agent_data["name"])
+        agent_id = _allocate_agent_profile_id(store, agent_data["name"])
 
         profile = AgentProfileModel(
             id=agent_id,
@@ -261,7 +259,8 @@ def create_app() -> Flask:
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except KeyError as exc:
-            return jsonify({"error": str(exc)}), 404
+            message = str(exc.args[0]) if exc.args else str(exc)
+            return jsonify({"error": message}), 404
 
         ensure_heartbeat_file(profile, BASE_DIR)
         store.log_event(
@@ -302,7 +301,7 @@ def ensure_heartbeat_files(store: ChanakyaStore, repo_root: Path) -> None:
 def ensure_heartbeat_file(profile: AgentProfileModel, repo_root: Path) -> None:
     if not profile.heartbeat_file_path:
         return
-    target = repo_root / profile.heartbeat_file_path
+    target = _resolve_heartbeat_file_path(profile.heartbeat_file_path, repo_root)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         return
@@ -324,21 +323,15 @@ def ensure_heartbeat_file(profile: AgentProfileModel, repo_root: Path) -> None:
 
 
 def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    name = str(payload.get("name", "")).strip()
-    role = str(payload.get("role", "")).strip()
-    system_prompt = str(payload.get("system_prompt", "")).strip()
-    personality = str(payload.get("personality", "")).strip()
-    workspace_value = str(payload.get("workspace", "")).strip()
-    heartbeat_path_value = str(payload.get("heartbeat_file_path", "")).strip()
+    name = _parse_required_string(payload, "name")
+    role = _parse_required_string(payload, "role")
+    system_prompt = _parse_required_string(payload, "system_prompt")
+    personality = _parse_optional_string(payload, "personality")
+    workspace_value = _parse_optional_string(payload, "workspace")
+    heartbeat_path_value = _parse_optional_string(payload, "heartbeat_file_path")
     raw_tool_ids = payload.get("tool_ids", [])
     raw_interval = payload.get("heartbeat_interval_seconds", 300)
 
-    if not name:
-        raise ValueError("name is required")
-    if not role:
-        raise ValueError("role is required")
-    if not system_prompt:
-        raise ValueError("system_prompt is required")
     if not isinstance(raw_tool_ids, list) or any(
         not isinstance(item, str) for item in raw_tool_ids
     ):
@@ -351,10 +344,12 @@ def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if heartbeat_interval_seconds <= 0:
         raise ValueError("heartbeat_interval_seconds must be a positive integer")
 
-    heartbeat_enabled = bool(payload.get("heartbeat_enabled", False))
+    heartbeat_enabled = _parse_required_bool(payload, "heartbeat_enabled", default=False)
     heartbeat_file_path = heartbeat_path_value or None
     if heartbeat_enabled and heartbeat_file_path is None:
         raise ValueError("heartbeat_file_path is required when heartbeat is enabled")
+    if heartbeat_file_path is not None:
+        _validate_heartbeat_file_path(heartbeat_file_path)
 
     return {
         "name": name,
@@ -366,7 +361,7 @@ def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "heartbeat_enabled": heartbeat_enabled,
         "heartbeat_interval_seconds": heartbeat_interval_seconds,
         "heartbeat_file_path": heartbeat_file_path,
-        "is_active": bool(payload.get("is_active", True)),
+        "is_active": _parse_required_bool(payload, "is_active", default=True),
         "timestamp": now_iso(),
     }
 
@@ -374,6 +369,64 @@ def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def _make_agent_profile_id(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
     return f"agent_{slug or make_id('agent')}"
+
+
+def _allocate_agent_profile_id(store: ChanakyaStore, name: str) -> str:
+    base_id = _make_agent_profile_id(name)
+    candidate = base_id
+    counter = 2
+    while store.has_agent_profile(candidate):
+        candidate = f"{base_id}_{counter}"
+        counter += 1
+    return candidate
+
+
+def _parse_required_string(payload: dict[str, Any], field_name: str) -> str:
+    value = payload.get(field_name, "")
+    if value is None or not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} is required")
+    return normalized
+
+
+def _parse_optional_string(payload: dict[str, Any], field_name: str) -> str:
+    value = payload.get(field_name)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string or null")
+    return value.strip()
+
+
+def _parse_required_bool(payload: dict[str, Any], field_name: str, *, default: bool) -> bool:
+    if field_name not in payload:
+        return default
+    value = payload[field_name]
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a boolean")
+    return value
+
+
+def _validate_heartbeat_file_path(file_path: str) -> None:
+    path = Path(file_path)
+    if path.is_absolute():
+        raise ValueError("heartbeat_file_path must be relative")
+    normalized = Path(*[part for part in path.parts if part not in ("", ".")])
+    if normalized.parts[:2] != ("chanakya_data", "heartbeats"):
+        raise ValueError("heartbeat_file_path must be under chanakya_data/heartbeats")
+    if any(part == ".." for part in normalized.parts):
+        raise ValueError("heartbeat_file_path must not contain parent traversal")
+
+
+def _resolve_heartbeat_file_path(file_path: str, repo_root: Path) -> Path:
+    _validate_heartbeat_file_path(file_path)
+    target = (repo_root / file_path).resolve()
+    heartbeat_root = (repo_root / "chanakya_data" / "heartbeats").resolve()
+    if target != heartbeat_root and heartbeat_root not in target.parents:
+        raise ValueError("heartbeat_file_path resolves outside chanakya_data/heartbeats")
+    return target
 
 
 app = create_app()
