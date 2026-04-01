@@ -14,7 +14,7 @@ from chanakya.config import get_data_dir, get_database_url, load_local_env
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.debug import debug_log
 from chanakya.domain import make_id, now_iso
-from chanakya.heartbeat import read_heartbeat
+from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
 from chanakya.services.tool_loader import get_tools_availability
@@ -301,7 +301,7 @@ def ensure_heartbeat_files(store: ChanakyaStore, repo_root: Path) -> None:
 def ensure_heartbeat_file(profile: AgentProfileModel, repo_root: Path) -> None:
     if not profile.heartbeat_file_path:
         return
-    target = _resolve_heartbeat_file_path(profile.heartbeat_file_path, repo_root)
+    target = resolve_heartbeat_path(profile.heartbeat_file_path, repo_root)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         return
@@ -349,7 +349,7 @@ def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if heartbeat_enabled and heartbeat_file_path is None:
         raise ValueError("heartbeat_file_path is required when heartbeat is enabled")
     if heartbeat_file_path is not None:
-        _validate_heartbeat_file_path(heartbeat_file_path)
+        resolve_heartbeat_path(heartbeat_file_path, BASE_DIR)
 
     return {
         "name": name,
@@ -407,26 +407,6 @@ def _parse_required_bool(payload: dict[str, Any], field_name: str, *, default: b
     if not isinstance(value, bool):
         raise ValueError(f"{field_name} must be a boolean")
     return value
-
-
-def _validate_heartbeat_file_path(file_path: str) -> None:
-    path = Path(file_path)
-    if path.is_absolute():
-        raise ValueError("heartbeat_file_path must be relative")
-    normalized = Path(*[part for part in path.parts if part not in ("", ".")])
-    if normalized.parts[:2] != ("chanakya_data", "heartbeats"):
-        raise ValueError("heartbeat_file_path must be under chanakya_data/heartbeats")
-    if any(part == ".." for part in normalized.parts):
-        raise ValueError("heartbeat_file_path must not contain parent traversal")
-
-
-def _resolve_heartbeat_file_path(file_path: str, repo_root: Path) -> Path:
-    _validate_heartbeat_file_path(file_path)
-    target = (repo_root / file_path).resolve()
-    heartbeat_root = (repo_root / "chanakya_data" / "heartbeats").resolve()
-    if target != heartbeat_root and heartbeat_root not in target.parents:
-        raise ValueError("heartbeat_file_path resolves outside chanakya_data/heartbeats")
-    return target
 
 
 app = create_app()

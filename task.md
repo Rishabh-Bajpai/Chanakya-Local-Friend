@@ -149,6 +149,11 @@ Milestone 1 - Simple Chanakya Chat
 
 ### Milestone 10 - Hardening and Demo Flow
 
+- [ ] As of now, "should_delegate" is hardcoded. It uses keywords to delegate the tasks. Use a better delegation strategy; 
+      probably a task based routing would be best. If the request (and previous requests) are not relevant, then it'll go to 
+      best possible agent.
+- [ ] Improve GUI observability and operator controls
+- [ ] Document runbooks and demo steps
 - [ ] Add focused tests for routing, state transitions, tools, and scheduling
 - [ ] Improve GUI observability and operator controls
 - [ ] Document runbooks and demo steps

@@ -247,11 +247,28 @@ def test_agent_create_api_rejects_invalid_boolean_and_heartbeat_path(
             "is_active": True,
         },
     )
+    sneaky_path = client.post(
+        "/api/agents",
+        json={
+            "name": "Sneaky Path",
+            "role": "developer",
+            "system_prompt": "Prompt",
+            "personality": None,
+            "tool_ids": [],
+            "workspace": None,
+            "heartbeat_enabled": True,
+            "heartbeat_interval_seconds": 30,
+            "heartbeat_file_path": "chanakya_data/heartbeats/./../escape.md",
+            "is_active": True,
+        },
+    )
 
     assert bad_bool.status_code == 400
     assert bad_bool.get_json()["error"] == "heartbeat_enabled must be a boolean"
     assert bad_path.status_code == 400
     assert "heartbeat_file_path" in bad_path.get_json()["error"]
+    assert sneaky_path.status_code == 400
+    assert "heartbeat_file_path" in sneaky_path.get_json()["error"]
 
 
 def test_agent_create_api_accepts_null_optional_fields(
