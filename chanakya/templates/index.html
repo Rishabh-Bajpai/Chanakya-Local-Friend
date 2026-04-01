@@ -221,6 +221,17 @@
         margin-bottom: 10px;
         background: rgba(255,255,255,0.03);
       }
+      .card.clickable {
+        cursor: pointer;
+      }
+      .card.clickable:hover {
+        border-color: #5b514b;
+        background: rgba(255,255,255,0.05);
+      }
+      .card.selected {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.35);
+      }
       .card h3 {
         margin: 0 0 6px;
         font-size: 15px;
@@ -266,11 +277,82 @@
         font-size: 13px;
         padding: 4px 0;
       }
+      .agent-editor {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 14px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--line);
+      }
+      .agent-editor-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .agent-editor label {
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .agent-editor input[type="text"],
+      .agent-editor input[type="number"],
+      .agent-editor textarea,
+      .agent-editor select {
+        width: 100%;
+        padding: 10px 12px;
+        font-size: 14px;
+        border-radius: 12px;
+        border: 1px solid #444444;
+        background: #1a1a1a;
+        color: var(--text);
+        font-family: inherit;
+      }
+      .agent-editor textarea {
+        min-height: 76px;
+        resize: vertical;
+      }
+      .agent-flags {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      .agent-flags label,
+      .tool-checkboxes label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text);
+      }
+      .tool-checkboxes {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .form-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .button-secondary {
+        background: transparent;
+        border: 1px solid #444444;
+        color: var(--text);
+      }
+      .button-secondary:hover {
+        background: #252525;
+      }
+      .status-text {
+        font-size: 12px;
+        color: var(--muted);
+      }
       @media (max-width: 980px) {
         .shell { grid-template-columns: 1fr; }
         .shell { height: auto; }
         .chat { min-height: 70vh; height: auto; }
         .side { grid-template-rows: auto auto auto auto; }
+        .agent-editor-grid { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -349,11 +431,60 @@
           <div class="section-header">
             <div class="section-copy">
               <h2>Persistent Agents</h2>
-              <p>Loaded from seed; editable via GUI later.</p>
+              <p>Create and edit saved agents used by the manager workflow.</p>
             </div>
             <button type="button" class="detach-button" data-detach-panel="persistent-agents" title="Open in new tab" aria-label="Open Persistent Agents in new tab">&#x2197;</button>
           </div>
           <div class="section-body">
+            <form id="agentForm" class="agent-editor">
+              <div class="agent-editor-grid">
+                <label>
+                  Name
+                  <input id="agentName" type="text" required />
+                </label>
+                <label>
+                  Role
+                  <input id="agentRole" type="text" required placeholder="developer, tester, researcher..." />
+                </label>
+              </div>
+              <label>
+                System Prompt
+                <textarea id="agentSystemPrompt" required></textarea>
+              </label>
+              <label>
+                Personality
+                <input id="agentPersonality" type="text" placeholder="calm, direct, task-oriented" />
+              </label>
+              <div class="agent-editor-grid">
+                <label>
+                  Workspace
+                  <input id="agentWorkspace" type="text" placeholder="dev-workspace" />
+                </label>
+                <label>
+                  Heartbeat File Path
+                  <input id="agentHeartbeatFilePath" type="text" placeholder="chanakya_data/heartbeats/developer.md" />
+                </label>
+              </div>
+              <div class="agent-editor-grid">
+                <label>
+                  Heartbeat Interval Seconds
+                  <input id="agentHeartbeatInterval" type="number" min="1" value="300" />
+                </label>
+                <div>
+                  <div class="status-text">Allowed Tools</div>
+                  <div id="agentToolOptions" class="tool-checkboxes"></div>
+                </div>
+              </div>
+              <div class="agent-flags">
+                <label><input id="agentIsActive" type="checkbox" checked /> Active</label>
+                <label><input id="agentHeartbeatEnabled" type="checkbox" /> Heartbeat Enabled</label>
+              </div>
+              <div class="form-actions">
+                <button id="agentSaveButton" type="submit">Create Agent</button>
+                <button id="agentResetButton" type="button" class="button-secondary">New Agent</button>
+                <span id="agentFormStatus" class="status-text"></span>
+              </div>
+            </form>
             <div id="agentList"></div>
           </div>
         </div>
@@ -369,6 +500,20 @@
       const taskList = document.getElementById("taskList");
       const taskTimeline = document.getElementById("taskTimeline");
       const agentList = document.getElementById("agentList");
+      const agentForm = document.getElementById("agentForm");
+      const agentName = document.getElementById("agentName");
+      const agentRole = document.getElementById("agentRole");
+      const agentSystemPrompt = document.getElementById("agentSystemPrompt");
+      const agentPersonality = document.getElementById("agentPersonality");
+      const agentWorkspace = document.getElementById("agentWorkspace");
+      const agentHeartbeatFilePath = document.getElementById("agentHeartbeatFilePath");
+      const agentHeartbeatInterval = document.getElementById("agentHeartbeatInterval");
+      const agentIsActive = document.getElementById("agentIsActive");
+      const agentHeartbeatEnabled = document.getElementById("agentHeartbeatEnabled");
+      const agentToolOptions = document.getElementById("agentToolOptions");
+      const agentSaveButton = document.getElementById("agentSaveButton");
+      const agentResetButton = document.getElementById("agentResetButton");
+      const agentFormStatus = document.getElementById("agentFormStatus");
       const detachedPanel = new URLSearchParams(window.location.search).get("panel");
       const panelTitles = {
         "request-trace": "Request Trace",
@@ -379,6 +524,8 @@
       };
 
       let sessionId = null;
+      let selectedAgentId = null;
+      let availableTools = [];
       const STORAGE_KEY = "chanakya-active-session";
 
       function applyDetachedView() {
@@ -439,6 +586,82 @@
 
       function replaceChildren(node, children) {
         node.replaceChildren(...children);
+      }
+
+      function setAgentFormStatus(text, isError = false) {
+        agentFormStatus.textContent = text || "";
+        agentFormStatus.style.color = isError ? "var(--red)" : "var(--muted)";
+      }
+
+      function getSelectedToolIds() {
+        return Array.from(agentToolOptions.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
+      }
+
+      function renderToolOptions() {
+        if (!availableTools.length) {
+          agentToolOptions.innerHTML = '<span class="status-text">No MCP tools available.</span>';
+          return;
+        }
+        const nodes = availableTools.map((tool) => {
+          const label = document.createElement("label");
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.value = tool.tool_id;
+          const text = document.createElement("span");
+          const status = tool.status === "available" ? "" : ` (${tool.status})`;
+          text.textContent = `${tool.tool_id}${status}`;
+          label.appendChild(input);
+          label.appendChild(text);
+          return label;
+        });
+        replaceChildren(agentToolOptions, nodes);
+      }
+
+      function resetAgentForm() {
+        selectedAgentId = null;
+        agentForm.reset();
+        agentHeartbeatInterval.value = 300;
+        agentIsActive.checked = true;
+        agentHeartbeatEnabled.checked = false;
+        agentSaveButton.textContent = "Create Agent";
+        setAgentFormStatus("");
+        agentToolOptions.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+          input.checked = false;
+        });
+      }
+
+      function populateAgentForm(agent) {
+        selectedAgentId = agent.id;
+        agentName.value = agent.name || "";
+        agentRole.value = agent.role || "";
+        agentSystemPrompt.value = agent.system_prompt || agent.personality || "";
+        agentPersonality.value = agent.personality || "";
+        agentWorkspace.value = agent.workspace || "";
+        agentHeartbeatFilePath.value = agent.heartbeat_file_path || "";
+        agentHeartbeatInterval.value = agent.heartbeat_interval_seconds || 300;
+        agentIsActive.checked = Boolean(agent.is_active);
+        agentHeartbeatEnabled.checked = Boolean(agent.heartbeat_enabled);
+        const selectedTools = new Set(agent.tool_ids || []);
+        agentToolOptions.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+          input.checked = selectedTools.has(input.value);
+        });
+        agentSaveButton.textContent = "Update Agent";
+        setAgentFormStatus(`Editing ${agent.name}`);
+      }
+
+      function buildAgentPayload() {
+        return {
+          name: agentName.value.trim(),
+          role: agentRole.value.trim(),
+          system_prompt: agentSystemPrompt.value.trim(),
+          personality: agentPersonality.value.trim(),
+          workspace: agentWorkspace.value.trim(),
+          heartbeat_enabled: agentHeartbeatEnabled.checked,
+          heartbeat_interval_seconds: Number(agentHeartbeatInterval.value || 300),
+          heartbeat_file_path: agentHeartbeatFilePath.value.trim(),
+          is_active: agentIsActive.checked,
+          tool_ids: getSelectedToolIds(),
+        };
       }
 
       function renderChatHistory(messages) {
@@ -530,22 +753,36 @@
         }
         const nodes = items.map((agent) => {
           const card = document.createElement("div");
-          card.className = "card";
+          card.className = `card clickable${selectedAgentId === agent.id ? " selected" : ""}`;
           const pills = [agent.role];
           if (agent.tool_ids && agent.tool_ids.length) pills.push(`${agent.tool_ids.length} tools`);
           if (agent.heartbeat_enabled) pills.push(`heartbeat ${agent.heartbeat_interval_seconds}s`);
           card.innerHTML = `<h3>${agent.name}</h3><div>${pills.map((pill) => `<span class="pill">${pill}</span>`).join("")}</div>`;
           const pre = document.createElement("pre");
           pre.textContent = JSON.stringify({
+            id: agent.id,
+            system_prompt: agent.system_prompt,
             workspace: agent.workspace,
             tools: agent.tool_ids,
             heartbeat_file_path: agent.heartbeat_file_path,
             heartbeat_preview: agent.heartbeat_preview,
           }, null, 2);
           card.appendChild(pre);
+          card.addEventListener("click", () => populateAgentForm(agent));
           return card;
         });
         replaceChildren(agentList, nodes);
+      }
+
+      async function refreshToolAvailability() {
+        try {
+          const response = await fetch("/api/tools/availability");
+          const data = await response.json();
+          availableTools = data.tools || [];
+        } catch {
+          availableTools = [];
+        }
+        renderToolOptions();
       }
 
       function renderTasks(items) {
@@ -683,6 +920,7 @@
       }
 
       async function loadSessionHistory() {
+        await refreshToolAvailability();
         const storedSessionId = loadStoredSessionId();
         if (!storedSessionId) {
           renderChatHistory([]);
@@ -733,8 +971,35 @@
         refreshSidePanels();
       });
 
+      agentForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const payload = buildAgentPayload();
+        setAgentFormStatus(selectedAgentId ? "Updating agent..." : "Creating agent...");
+        try {
+          const response = await fetch(selectedAgentId ? `/api/agents/${selectedAgentId}` : "/api/agents", {
+            method: selectedAgentId ? "PUT" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.error || "Agent save failed");
+          }
+          setAgentFormStatus(selectedAgentId ? `Updated ${data.name}` : `Created ${data.name}`);
+          resetAgentForm();
+          await refreshSidePanels();
+        } catch (error) {
+          setAgentFormStatus(error.message || "Agent save failed", true);
+        }
+      });
+
+      agentResetButton.addEventListener("click", () => {
+        resetAgentForm();
+      });
+
       applyDetachedView();
       setupDetachButtons();
+      resetAgentForm();
       loadSessionHistory();
     </script>
   </body>

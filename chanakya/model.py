@@ -176,6 +176,7 @@ class AgentProfileModel(Base):
             "id": self.id,
             "name": self.name,
             "role": self.role,
+            "system_prompt": self.system_prompt,
             "personality": self.personality,
             "tool_ids": self.tool_ids_json,
             "workspace": self.workspace,

@@ -175,3 +175,35 @@ def test_store_can_filter_agents_by_role() -> None:
 
     assert [agent.id for agent in developers] == ["agent_developer"]
     assert [agent.id for agent in testers] == ["agent_tester"]
+
+
+def test_manager_prefers_saved_active_agents_during_delegation() -> None:
+    store = _build_store()
+    chanakya = _seed_agent(store, "agent_chanakya", "Chanakya", "personal_assistant")
+    manager_profile = _seed_agent(store, "agent_manager", "Agent Manager", "manager")
+    _seed_agent(store, "agent_seed_developer", "Developer Seed", "developer")
+    _seed_agent(store, "agent_seed_tester", "Tester Seed", "tester")
+    custom_developer = _seed_agent(store, "agent_a_developer", "A Developer", "developer")
+    custom_tester = _seed_agent(store, "agent_a_tester", "A Tester", "tester")
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.group_chat_runner = lambda session_id, request_id, message, participants: (
+        "\n".join(f"{profile.name}: discussion for {message}" for profile in participants)
+    )
+    service.manager.summary_runner = lambda prompt: "Saved agents completed the delegated workflow."
+
+    reply = service.chat("session_saved_agents", "Implement and test milestone 5")
+
+    child_tasks = [
+        task
+        for task in store.list_tasks(session_id="session_saved_agents", limit=20)
+        if task["parent_task_id"] == reply.root_task_id
+    ]
+    owner_ids = sorted(task["owner_agent_id"] for task in child_tasks)
+
+    assert owner_ids == sorted([custom_developer.id, custom_tester.id])
