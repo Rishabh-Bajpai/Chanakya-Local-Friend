@@ -795,6 +795,84 @@
         renderToolOptions();
       }
 
+      function formatEventTitle(eventType) {
+        const titles = {
+          request_received: "Request received",
+          task_created: "Task created",
+          task_owner_assigned: "Task owner assigned",
+          task_status_changed: "Task status changed",
+          task_started: "Task started",
+          task_state_set: "Task state set",
+          manager_delegated: "Delegated to manager",
+          manager_route_selected: "Manager selected specialist",
+          workflow_task_discovered: "Workflow task discovered",
+          workflow_dependency_recorded: "Task dependency recorded",
+          worker_handoff_ready: "Worker handoff ready",
+          worker_unblocked: "Blocked worker released",
+          worker_validation_completed: "Validation completed",
+          worker_output_completed: "Worker output completed",
+          worker_failed: "Worker failed",
+          specialist_review_completed: "Supervisor review completed",
+          specialist_workflow_completed: "Supervisor workflow completed",
+          specialist_workflow_failed: "Supervisor workflow failed",
+          workflow_completed: "Workflow completed",
+          workflow_failed: "Workflow failed",
+          manager_summary_completed: "Manager summary completed",
+          response_persisted: "Assistant response persisted",
+          tool_trace_recorded: "Tool trace recorded",
+        };
+        return titles[eventType] || eventType.replaceAll("_", " ");
+      }
+
+      function summarizeEvent(event) {
+        const payload = event.payload || {};
+        if (event.event_type === "task_status_changed") {
+          return `${payload.from_status || "unknown"} -> ${payload.to_status || "unknown"}`;
+        }
+        if (event.event_type === "manager_route_selected") {
+          return `${payload.selected_agent_id || "unknown"} for ${payload.execution_mode || "workflow"}`;
+        }
+        if (event.event_type === "workflow_dependency_recorded") {
+          return `depends on ${payload.depends_on_task_id || payload.dependency_task_id || "unknown task"}`;
+        }
+        if (event.event_type === "task_owner_assigned") {
+          return `${payload.owner_agent_name || payload.owner_agent_id || "unassigned"}`;
+        }
+        if (event.event_type === "worker_handoff_ready") {
+          return `handoff prepared for ${payload.handoff_for_role || "next worker"}`;
+        }
+        if (event.event_type === "worker_unblocked") {
+          return `dependency satisfied by ${payload.dependency_task_id || "previous task"}`;
+        }
+        if (event.event_type === "workflow_completed" || event.event_type === "workflow_failed") {
+          return payload.workflow_type || "workflow";
+        }
+        if (event.event_type === "response_persisted") {
+          return `${payload.route || "response"} / ${payload.response_mode || "unknown mode"}`;
+        }
+        if (event.event_type === "tool_trace_recorded") {
+          return payload.tool_name || payload.tool_id || "tool call";
+        }
+        if (typeof payload.message === "string" && payload.message) {
+          return payload.message;
+        }
+        if (typeof payload.reason === "string" && payload.reason) {
+          return payload.reason;
+        }
+        return null;
+      }
+
+      function describeTask(task) {
+        const bits = [];
+        if (task.parent_task_id) bits.push(`parent=${task.parent_task_id}`);
+        if (Array.isArray(task.dependencies) && task.dependencies.length) {
+          bits.push(`depends=${task.dependencies.join(", ")}`);
+        }
+        if (task.started_at) bits.push(`started=${task.started_at}`);
+        if (task.finished_at) bits.push(`finished=${task.finished_at}`);
+        return bits.join(" | ");
+      }
+
       function renderTasks(items) {
         if (!items.length) {
           taskList.innerHTML = `<div class="empty-state">No tasks created for this session yet.</div>`;
@@ -825,15 +903,17 @@
             pillRow.appendChild(pill);
           });
           card.appendChild(pillRow);
+          const summary = document.createElement("p");
+          summary.className = "meta";
+          summary.textContent = describeTask(task) || (task.summary || "No task summary available.");
+          card.appendChild(summary);
           const pre = document.createElement("pre");
           pre.textContent = JSON.stringify({
             id: task.id,
-            parent_task_id: task.parent_task_id,
-            dependencies: task.dependencies,
-            started_at: task.started_at,
-            finished_at: task.finished_at,
             error: task.error,
             summary: task.summary,
+            input: task.input,
+            result: task.result,
           }, null, 2);
           card.appendChild(pre);
           const childNodes = (childrenByParent.get(task.id) || []).flatMap((child) => buildTaskCard(child, depth + 1));
@@ -853,12 +933,26 @@
         const nodes = items.map((event) => {
           const card = document.createElement("div");
           card.className = "card";
-          const requestSuffix = event.request_id ? ` <span class="pill">${event.request_id}</span>` : "";
-          card.innerHTML = `<h3>${event.event_type}${requestSuffix}</h3>`;
+          const heading = document.createElement("h3");
+          heading.textContent = formatEventTitle(event.event_type);
+          card.appendChild(heading);
+          const pillRow = document.createElement("div");
+          [event.request_id, event.task_id, event.event_type].filter(Boolean).forEach((value) => {
+            const pill = document.createElement("span");
+            pill.className = "pill";
+            pill.textContent = value;
+            pillRow.appendChild(pill);
+          });
+          card.appendChild(pillRow);
+          const summary = summarizeEvent(event);
+          if (summary) {
+            const meta = document.createElement("p");
+            meta.className = "meta";
+            meta.textContent = summary;
+            card.appendChild(meta);
+          }
           const pre = document.createElement("pre");
           pre.textContent = JSON.stringify({
-            request_id: event.request_id,
-            task_id: event.task_id,
             created_at: event.created_at,
             payload: event.payload,
           }, null, 2);

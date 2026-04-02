@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Any
 
 from agent_framework import Agent, AgentResponse, Message
@@ -15,6 +16,55 @@ from chanakya.mcp_runtime import ToolExecutionTrace, extract_tool_execution_trac
 from chanakya.model import AgentProfileModel
 from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.services.tool_loader import get_cached_tools, get_tools_availability
+
+
+@dataclass(slots=True)
+class ProfileAgentConfig:
+    system_prompt: str
+    cached_tools: list[Any]
+    availability: list[dict[str, str]]
+
+
+def build_profile_agent_config(profile: AgentProfileModel) -> ProfileAgentConfig:
+    availability = get_tools_availability()
+    all_cached = get_cached_tools()
+    allowed_ids = list(profile.tool_ids_json or [])
+    cached_tools = [t for t in all_cached if getattr(t, "name", None) in allowed_ids]
+    system_prompt = inject_tools_into_prompt(profile, cached_tools)
+    return ProfileAgentConfig(
+        system_prompt=system_prompt,
+        cached_tools=cached_tools,
+        availability=availability,
+    )
+
+
+def build_profile_agent(
+    profile: AgentProfileModel,
+    session_factory: sessionmaker[Session],
+    *,
+    client: OpenAIChatClient | None = None,
+    env_file_path: str = ".env",
+    include_history: bool = False,
+) -> tuple[Agent, ProfileAgentConfig]:
+    config = build_profile_agent_config(profile)
+    context_providers = None
+    if include_history:
+        context_providers = [
+            SQLAlchemyHistoryProvider(
+                session_factory=session_factory,
+                load_messages=True,
+                store_inputs=True,
+                store_outputs=True,
+            )
+        ]
+    agent = Agent(
+        client=client or OpenAIChatClient(env_file_path=env_file_path),
+        name=profile.name,
+        instructions=config.system_prompt,
+        tools=config.cached_tools or None,
+        context_providers=context_providers,
+    )
+    return agent, config
 
 
 class RunResult:
@@ -48,20 +98,15 @@ class MAFRuntime:
         self.profile = profile
         self.client = OpenAIChatClient(env_file_path=env_file_path)
         self.session_factory = session_factory
-        self.history_provider = SQLAlchemyHistoryProvider(
-            session_factory=session_factory,
-            load_messages=True,
-            store_inputs=True,
-            store_outputs=True,
+        self.agent, config = build_profile_agent(
+            profile,
+            session_factory,
+            client=self.client,
+            env_file_path=env_file_path,
+            include_history=True,
         )
-
-        # Pull cached tool availability map from loader
-        self.availability = get_tools_availability()
-
-        # Filter available MCP tools to only those this agent profile is allowed to use
-        all_cached = get_cached_tools()
-        allowed_ids = list(profile.tool_ids_json or [])
-        self.cached_tools = [t for t in all_cached if getattr(t, "name", None) in allowed_ids]
+        self.availability = config.availability
+        self.cached_tools = config.cached_tools
 
         debug_log(
             "maf_runtime_initialized",
@@ -71,7 +116,7 @@ class MAFRuntime:
                 "role": profile.role,
                 "model": self.runtime_metadata().get("model"),
                 "endpoint": self.runtime_metadata().get("endpoint"),
-                "tool_specs": allowed_ids,
+                "tool_specs": list(profile.tool_ids_json or []),
             },
         )
 
@@ -94,17 +139,7 @@ class MAFRuntime:
     ) -> RunResult:
         tool_traces: list[ToolExecutionTrace] = []
 
-        system_prompt = inject_tools_into_prompt(self.profile, self.cached_tools)
-
-        agent = Agent(
-            client=self.client,
-            name=self.profile.name,
-            instructions=system_prompt,
-            tools=self.cached_tools or None,
-            context_providers=[self.history_provider],
-        )
-
-        session = agent.create_session(session_id=session_id)
+        session = self.agent.create_session(session_id=session_id)
         session.state["request_id"] = request_id
 
         debug_log(
@@ -118,7 +153,7 @@ class MAFRuntime:
         )
 
         response: AgentResponse[Any] = await asyncio.wait_for(
-            agent.run(
+            self.agent.run(
                 Message(
                     role="user",
                     text=text,
