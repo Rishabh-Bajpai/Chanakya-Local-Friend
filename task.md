@@ -129,8 +129,8 @@ Milestone 1 - Simple Chanakya Chat
 
 ### Milestone 7 - User Input Loop
 
-- [ ] Add waiting-for-input state and resume flow
-- [ ] Add retry, cancel, and manual unblock controls
+- [X] Add waiting-for-input state and resume flow
+- [X] Add retry, cancel, and manual unblock controls
 
 - Validation:
   - Trigger clarification request
@@ -170,7 +170,7 @@ and handle JSON/structured output failures gracefully
 - Completed: Milestone 3 domain foundation with persisted requests, tasks, lifecycle events, and GUI visibility
 - Completed: Milestone 4 agent manager delegation with a manager-supervised MAF chat workflow, delegated participant tasks, and GUI task graph rendering
 - Completed: Milestone 5 persistent agent configuration with GUI create/edit flows, persisted settings, and manager selection from saved agents
-- Next: Milestone 7 user input loop after temporary subagents
+- Next: Milestone 8 social and isolated agents after Milestone 7 user input loop
 
 ## GUI Review Loop
 
@@ -241,3 +241,4 @@ Notes:
 - 2026-03-31: Implemented Milestone 4 Agent Manager v1 with a seeded manager agent, manager-supervised MAF chat workflow, delegated participant task persistence, GUI task graph rendering, and focused delegation tests.
 - 2026-04-01: Completed Milestone 5 by making seeded agents bootstrap-only, adding persistent agent create/update APIs, extending the GUI with agent editing, ensuring heartbeat files on save, and adding focused tests for agent configuration and manager selection.
 - 2026-04-03: Completed Milestone 6 by adding worker-only temporary subagents, MAF group-chat helper orchestration, temporary-agent persistence and cleanup tracking, a `/api/subagents` endpoint, GUI visibility, and focused lifecycle tests.
+- 2026-04-03: Completed Milestone 7 by adding MAF-native delegated HITL pause/resume for developer clarification, workflow checkpoint persistence, GUI reply/cancel/retry/unblock controls, task-control APIs, and focused lifecycle tests.
