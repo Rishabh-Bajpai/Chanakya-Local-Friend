@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
+
+from chanakya.config import env_flag
 
 
 def debug_enabled() -> bool:
-    value = os.getenv("CHANAKYA_DEBUG", "false").strip().lower()
-    return value in {"1", "true", "yes", "on"}
+    return env_flag("CHANAKYA_DEBUG", default=False)
 
 
 def debug_log(label: str, payload: dict[str, Any] | None = None) -> None:

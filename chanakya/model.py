@@ -185,3 +185,50 @@ class AgentProfileModel(Base):
             "heartbeat_file_path": self.heartbeat_file_path,
             "is_active": self.is_active,
         }
+
+
+class TemporaryAgentModel(Base):
+    __tablename__ = "temporary_agents"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    request_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    parent_agent_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    parent_task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"), nullable=False, index=True)
+    creator_role: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    role: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    tool_ids_json: Mapped[list[str]] = mapped_column("tool_ids", JSON, default=list)
+    workspace: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    cleanup_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+    activated_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    cleaned_up_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    def to_public_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "request_id": self.request_id,
+            "session_id": self.session_id,
+            "parent_agent_id": self.parent_agent_id,
+            "parent_task_id": self.parent_task_id,
+            "creator_role": self.creator_role,
+            "name": self.name,
+            "role": self.role,
+            "purpose": self.purpose,
+            "system_prompt": self.system_prompt,
+            "tool_ids": self.tool_ids_json,
+            "workspace": self.workspace,
+            "status": self.status,
+            "cleanup_reason": self.cleanup_reason,
+            "metadata": self.metadata_json,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "activated_at": self.activated_at,
+            "cleaned_up_at": self.cleaned_up_at,
+        }

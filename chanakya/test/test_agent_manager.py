@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import cast
 
+from agent_framework import Message
 from pytest import MonkeyPatch
 
 from chanakya.agent.runtime import MAFRuntime, build_profile_agent_config
@@ -12,6 +14,7 @@ from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.domain import TASK_STATUS_BLOCKED, TASK_STATUS_DONE
 from chanakya.model import AgentProfileModel
 from chanakya.store import ChanakyaStore
+from chanakya.subagents import WorkerSubagentOrchestrator, can_create_temporary_subagents
 
 
 @dataclass
@@ -342,6 +345,9 @@ def test_manager_runs_worker_stages_with_the_persisted_prompts() -> None:
         return "reviewed"
 
     service.manager.specialist_runner = _specialist_runner
+    service.manager.subagent_decision_runner = lambda profile, prompt: (
+        '{"should_create_subagents":false,"reason":"Direct execution is enough.","complexity":"low","helper_count":0}'
+    )
     executed_prompts: list[str] = []
 
     def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
@@ -633,3 +639,279 @@ def test_blocked_worker_dependency_is_persisted_before_completion() -> None:
     reply = service.chat("session_dependency", "Implement and test dependency handling")
 
     assert reply.root_task_status == TASK_STATUS_DONE
+
+
+def test_worker_role_policy_limits_temporary_subagent_creation() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+
+    assert can_create_temporary_subagents(store.get_agent_profile("agent_developer")) is True
+    assert can_create_temporary_subagents(store.get_agent_profile("agent_tester")) is True
+    assert can_create_temporary_subagents(store.get_agent_profile("agent_researcher")) is True
+    assert can_create_temporary_subagents(store.get_agent_profile("agent_writer")) is True
+    assert can_create_temporary_subagents(store.get_agent_profile("agent_manager")) is False
+    assert can_create_temporary_subagents(store.get_agent_profile("agent_cto")) is False
+    assert can_create_temporary_subagents(store.get_agent_profile("agent_informer")) is False
+
+
+def test_developer_temporary_subagent_lifecycle_is_persisted_and_cleaned() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "cto",
+            "brief",
+        ): '{"implementation_brief":"Investigate and implement safely","assumptions":[],"risks":[],"testing_focus":["regression"]}',
+        (
+            "cto",
+            "review",
+        ): '```python\nprint("done")\n```\n\nValidation: helper-backed implementation reviewed.\nRisks: low.',
+    }[(profile.role, step)]
+    service.manager.subagent_decision_runner = lambda profile, prompt: (
+        '{"should_create_subagents":true,"reason":"Need a helper to inspect likely touchpoints.","complexity":"high","helper_count":1}'
+        if profile.role == "developer"
+        else '{"should_create_subagents":false,"reason":"Direct execution is sufficient.","complexity":"low","helper_count":0}'
+    )
+    service.manager.subagent_plan_runner = lambda profile, prompt: (
+        json.dumps(
+            {
+                "needs_subagents": True,
+                "orchestration_mode": "group_chat",
+                "goal": "Use a helper to inspect likely change points and synthesize an implementation handoff.",
+                "helpers": [
+                    {
+                        "name_suffix": "touchpoints",
+                        "role": "research_helper",
+                        "purpose": "Inspect the request and return likely implementation touchpoints.",
+                        "instructions": "Return a concise implementation note with no extra commentary.",
+                        "expected_output": "A short list of likely change points.",
+                        "tool_ids": [],
+                    }
+                ],
+            }
+        )
+        if profile.role == "developer"
+        else '{"needs_subagents":false,"orchestration_mode":"direct","goal":"Proceed directly","helpers":[]}'
+    )
+
+    async def _fake_group_chat_async(**kwargs: object) -> list[str]:
+        return [
+            "Developer delegation brief",
+            "Touchpoints: login middleware, rate limiter config.",
+            '{"implementation_summary":"Implemented helper-guided change","assumptions":[],"risks":[],"testing_focus":["login middleware"]}',
+        ]
+
+    service.manager.subagent_orchestrator._run_group_chat_async = _fake_group_chat_async  # type: ignore[method-assign]
+
+    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
+        if profile.role == "tester":
+            return (
+                '{"validation_summary":"Validated successfully","checks_performed":["unit tests"],'
+                '"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
+            )
+        raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
+
+    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+
+    reply = service.chat("session_temp_subagents", "Implement and test login hardening")
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    subagents = store.list_temporary_agents(session_id="session_temp_subagents")
+    assert len(subagents) == 1
+    assert subagents[0]["parent_agent_id"] == "agent_developer"
+    assert subagents[0]["status"] == "cleaned"
+    assert subagents[0]["cleanup_reason"] == "completed"
+    assert subagents[0]["cleaned_up_at"] is not None
+
+    tasks = store.list_tasks(session_id="session_temp_subagents", limit=20)
+    developer_task = next(task for task in tasks if task["task_type"] == "developer_execution")
+    helper_task = next(
+        task for task in tasks if task["task_type"] == "temporary_subagent_execution"
+    )
+    assert helper_task["parent_task_id"] == developer_task["id"]
+    assert helper_task["owner_agent_id"] == subagents[0]["id"]
+    assert helper_task["result"]["helper_output"].startswith("Touchpoints")
+
+    event_types = [
+        event["event_type"] for event in store.list_task_events(session_id="session_temp_subagents")
+    ]
+    assert "worker_subagent_decision_made" in event_types
+    assert "worker_subagent_plan_accepted" in event_types
+    assert "subagent_created" in event_types
+    assert "subagent_group_started" in event_types
+    assert "subagent_output_ready" in event_types
+    assert "subagent_cleanup_started" in event_types
+    assert "subagent_cleaned" in event_types
+
+
+def test_worker_subagent_decision_false_runs_direct_worker_path() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    manager.subagent_decision_runner = lambda profile, prompt: (
+        '{"should_create_subagents":false,"reason":"Direct execution is enough.","complexity":"low","helper_count":0}'
+    )
+    calls: list[str] = []
+
+    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
+        calls.append(prompt)
+        return "direct worker output"
+
+    manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+
+    result = manager._run_worker_with_optional_subagents(
+        session_id="session_direct_worker",
+        request_id="req_direct_worker",
+        worker_profile=store.get_agent_profile("agent_developer"),
+        worker_task_id="task_worker",
+        message="Implement a tiny direct change",
+        effective_prompt="Produce the implementation handoff.",
+    )
+
+    assert result.text == "direct worker output"
+    assert result.temporary_agent_ids == []
+    assert len(calls) == 1
+    events = store.list_task_events(session_id="session_direct_worker")
+    decision_event = next(
+        event for event in events if event["event_type"] == "worker_subagent_decision_made"
+    )
+    assert decision_event["payload"]["should_create_subagents"] is False
+
+
+def test_force_subagents_flag_overrides_decision_and_plan(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("CHANAKYA_FORCE_SUBAGENTS", "true")
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    manager.subagent_decision_runner = lambda profile, prompt: (
+        '{"should_create_subagents":false,"reason":"Direct execution is enough.","complexity":"low","helper_count":0}'
+    )
+    manager.subagent_plan_runner = lambda profile, prompt: (
+        '{"needs_subagents":false,"orchestration_mode":"direct","goal":"Proceed directly","helpers":[]}'
+    )
+
+    async def _fake_group_chat_async(**kwargs: object) -> list[str]:
+        return [
+            "Parent worker delegation",
+            "Forced helper output",
+            "final worker output with helper synthesis",
+        ]
+
+    manager.subagent_orchestrator._run_group_chat_async = _fake_group_chat_async  # type: ignore[method-assign]
+
+    result = manager._run_worker_with_optional_subagents(
+        session_id="session_force_subagents",
+        request_id="req_force_subagents",
+        worker_profile=store.get_agent_profile("agent_developer"),
+        worker_task_id="task_force_worker",
+        message="Simple request that would normally stay direct",
+        effective_prompt="Produce the implementation handoff.",
+    )
+
+    assert result.text == "final worker output with helper synthesis"
+    assert len(result.temporary_agent_ids) == 1
+    subagents = store.list_temporary_agents(session_id="session_force_subagents")
+    assert len(subagents) == 1
+    assert subagents[0]["status"] == "cleaned"
+    events = store.list_task_events(session_id="session_force_subagents")
+    decision_event = next(
+        event for event in events if event["event_type"] == "worker_subagent_decision_made"
+    )
+    assert decision_event["payload"]["forced"] is True
+    assert decision_event["payload"]["should_create_subagents"] is True
+
+
+def test_force_subagents_accepts_group_chat_outputs_without_opening_turn(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CHANAKYA_FORCE_SUBAGENTS", "true")
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    manager.subagent_decision_runner = lambda profile, prompt: (
+        '{"should_create_subagents":false,"reason":"Direct execution is enough.","complexity":"low","helper_count":0}'
+    )
+    manager.subagent_plan_runner = lambda profile, prompt: (
+        '{"needs_subagents":false,"orchestration_mode":"direct","goal":"Proceed directly","helpers":[]}'
+    )
+
+    async def _fake_group_chat_async(**kwargs: object) -> list[str]:
+        return [
+            "Forced helper output",
+            "final worker output with helper synthesis",
+        ]
+
+    manager.subagent_orchestrator._run_group_chat_async = _fake_group_chat_async  # type: ignore[method-assign]
+
+    result = manager._run_worker_with_optional_subagents(
+        session_id="session_force_subagents_two_outputs",
+        request_id="req_force_subagents_two_outputs",
+        worker_profile=store.get_agent_profile("agent_researcher"),
+        worker_task_id="task_force_worker_two_outputs",
+        message="Tell me about Hamburg's climate",
+        effective_prompt="Produce the research handoff.",
+    )
+
+    assert result.text == "final worker output with helper synthesis"
+    assert len(result.child_task_ids) == 1
+    helper_task = store.get_task(result.child_task_ids[0])
+    assert helper_task.result_json["helper_output"] == "Forced helper output"
+
+
+def test_subagent_output_flattener_handles_message_lists() -> None:
+    orchestrator = WorkerSubagentOrchestrator.__new__(WorkerSubagentOrchestrator)
+
+    flattened = orchestrator._flatten_output_text(
+        [
+            Message(role="assistant", text="first fact"),
+            Message(role="assistant", text="second fact"),
+        ]
+    )
+
+    assert flattened == "first fact\n\nsecond fact"
+
+
+def test_group_chat_output_cleaner_removes_orchestration_scaffolding() -> None:
+    orchestrator = WorkerSubagentOrchestrator.__new__(WorkerSubagentOrchestrator)
+
+    cleaned = orchestrator._clean_group_chat_output(
+        "Parent request: Tell me about Hamburg's climate\n\n"
+        "Primary worker prompt: Research the topic below.\n\n"
+        "Local orchestration goal: Use a helper.\n\n"
+        "Temporary helper roster:\n- Researcher :: fact-scan\n\n"
+        "Speaker rules:\n"
+        "- First message: parent worker decomposes and delegates helper tasks.\n"
+        "- Helper messages: only perform your own scoped task and return your result.\n"
+        "- Final message: parent worker synthesizes helper outputs into the result for the parent task.\n"
+        "- No one should ask clarifying questions in this workflow.\n\n"
+        "<tool_call>\n<function=mcp_fetch_fetch>demo</function>\n</tool_call>\n\n"
+        "The group chat has reached the maximum number of rounds.\n\n"
+        "# Hamburg's Climate\n\nHamburg has a temperate maritime climate."
+    )
+
+    assert cleaned == "# Hamburg's Climate\n\nHamburg has a temperate maritime climate."
+
+
+def test_group_chat_output_mapping_accepts_final_only_output() -> None:
+    orchestrator = WorkerSubagentOrchestrator.__new__(WorkerSubagentOrchestrator)
+    created_agents = [object()]
+
+    helper_outputs, final_output = orchestrator._map_group_chat_outputs(
+        ["final worker output only"],
+        created_agents,  # type: ignore[arg-type]
+    )
+
+    assert helper_outputs == [""]
+    assert final_output == "final worker output only"

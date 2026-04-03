@@ -10,7 +10,12 @@ from flask import Flask, jsonify, render_template, request
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
-from chanakya.config import get_data_dir, get_database_url, load_local_env
+from chanakya.config import (
+    force_subagents_enabled,
+    get_data_dir,
+    get_database_url,
+    load_local_env,
+)
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.debug import debug_log
 from chanakya.domain import make_id, now_iso
@@ -61,7 +66,10 @@ def create_app() -> Flask:
 
     @app.get("/")
     def index() -> str:
-        return render_template("index.html")
+        return render_template(
+            "index.html",
+            force_subagents_enabled=force_subagents_enabled(),
+        )
 
     @app.post("/api/chat")
     def api_chat() -> Any:
@@ -202,6 +210,26 @@ def create_app() -> Flask:
     def api_tools_availability() -> Any:
         tools = get_tools_availability()
         return jsonify({"tools": tools})
+
+    @app.get("/api/subagents")
+    def api_subagents() -> Any:
+        session_id = request.args.get("session_id")
+        request_id = request.args.get("request_id")
+        parent_task_id = request.args.get("parent_task_id")
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
+        subagents = store.list_temporary_agents(
+            session_id=session_id,
+            request_id=request_id,
+            parent_task_id=parent_task_id,
+            limit=limit,
+        )
+        debug_log("api_subagents_request", {"subagent_count": len(subagents)})
+        return jsonify({"subagents": subagents})
 
     @app.post("/api/agents")
     def api_create_agent() -> Any:

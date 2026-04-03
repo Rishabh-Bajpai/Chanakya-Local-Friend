@@ -5,6 +5,14 @@ import shlex
 from pathlib import Path
 
 
+def env_flag(name: str, default: bool = False) -> bool:
+    load_local_env()
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def load_local_env(env_file: str = ".env") -> None:
     path = Path(env_file)
     if not path.exists():
@@ -55,6 +63,7 @@ def _parse_cli_args(value: str | None, default: list[str]) -> list[str]:
     parsed = shlex.split(value.strip())
     return parsed or default
 
+
 def get_mcp_request_timeout_seconds() -> int:
     load_local_env()
     raw = os.getenv("MCP_REQUEST_TIMEOUT_SECONDS", "20")
@@ -65,4 +74,5 @@ def get_mcp_request_timeout_seconds() -> int:
     return value if value > 0 else 20
 
 
-
+def force_subagents_enabled() -> bool:
+    return env_flag("CHANAKYA_FORCE_SUBAGENTS", default=False)

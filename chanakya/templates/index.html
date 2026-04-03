@@ -34,8 +34,10 @@
         display: grid;
         grid-template-columns: 1.4fr 1fr;
         gap: 18px;
-        height: 100vh;
+        min-height: 100vh;
+        height: auto;
         min-height: 0;
+        align-items: start;
       }
       .panel {
         background: var(--panel);
@@ -48,12 +50,41 @@
       .hero {
         padding: 18px 20px 8px;
       }
+      .hero-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
       .eyebrow {
         margin: 0;
         font-size: 12px;
         letter-spacing: 0.18em;
         text-transform: uppercase;
         color: var(--muted);
+      }
+      .debug-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(243, 156, 18, 0.45);
+        background: rgba(243, 156, 18, 0.14);
+        color: #ffd28a;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .debug-badge::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: #f39c12;
+        box-shadow: 0 0 12px rgba(243, 156, 18, 0.65);
       }
       h1 {
         margin: 8px 0 6px;
@@ -69,7 +100,9 @@
         display: flex;
         flex-direction: column;
         min-height: 0;
-        height: 100%;
+        height: calc(100vh - 40px);
+        position: sticky;
+        top: 20px;
       }
       .chat-log {
         flex: 1;
@@ -132,23 +165,103 @@
         background: #c95b3a;
       }
       .side {
-        display: grid;
-        grid-template-rows: repeat(5, minmax(0, 1fr));
+        display: flex;
+        flex-direction: column;
         gap: 14px;
         min-height: 0;
-        height: 100%;
+        max-height: calc(100vh - 40px);
+        overflow-y: auto;
+        padding-right: 6px;
+        scrollbar-width: thin;
+        scrollbar-color: #4a4a4a rgba(0,0,0,0.3);
+      }
+      .side::-webkit-scrollbar {
+        width: 10px;
+      }
+      .side::-webkit-scrollbar-track {
+        background: rgba(0,0,0,0.25);
+        border-radius: 999px;
+      }
+      .side::-webkit-scrollbar-thumb {
+        background: #4a4a4a;
+        border-radius: 999px;
+        border: 2px solid rgba(0,0,0,0.25);
       }
       .section {
         display: flex;
         flex-direction: column;
         padding: 14px 16px;
         min-height: 0;
+        position: relative;
+        transition: background 0.2s ease, border-color 0.2s ease;
+      }
+      .section::before {
+        content: "";
+        position: absolute;
+        inset: 0 0 auto 0;
+        height: 4px;
+        border-radius: 18px 18px 0 0;
+        background: linear-gradient(90deg, var(--accent), rgba(216, 107, 74, 0.15));
+      }
+      .section[data-panel="request-trace"]::before {
+        background: linear-gradient(90deg, #d86b4a, rgba(216, 107, 74, 0.15));
+      }
+      .section[data-panel="tool-traces"]::before {
+        background: linear-gradient(90deg, #3a8a87, rgba(58, 138, 135, 0.15));
+      }
+      .section[data-panel="tasks"]::before {
+        background: linear-gradient(90deg, #7c6cf2, rgba(124, 108, 242, 0.15));
+      }
+      .section[data-panel="task-timeline"]::before {
+        background: linear-gradient(90deg, #f39c12, rgba(243, 156, 18, 0.15));
+      }
+      .section[data-panel="temporary-subagents"]::before {
+        background: linear-gradient(90deg, #4caf50, rgba(76, 175, 80, 0.15));
+      }
+      .section[data-panel="persistent-agents"]::before {
+        background: linear-gradient(90deg, #d14fd1, rgba(209, 79, 209, 0.15));
+      }
+      .section[data-panel="request-trace"] {
+        background: linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(25, 25, 25, 0.95) 32%);
+      }
+      .section[data-panel="tool-traces"] {
+        background: linear-gradient(180deg, rgba(58, 138, 135, 0.08), rgba(25, 25, 25, 0.95) 32%);
+      }
+      .section[data-panel="tasks"] {
+        background: linear-gradient(180deg, rgba(124, 108, 242, 0.08), rgba(25, 25, 25, 0.95) 32%);
+      }
+      .section[data-panel="task-timeline"] {
+        background: linear-gradient(180deg, rgba(243, 156, 18, 0.08), rgba(25, 25, 25, 0.95) 32%);
+      }
+      .section[data-panel="temporary-subagents"] {
+        background: linear-gradient(180deg, rgba(76, 175, 80, 0.08), rgba(25, 25, 25, 0.95) 32%);
+      }
+      .section[data-panel="persistent-agents"] {
+        background: linear-gradient(180deg, rgba(209, 79, 209, 0.08), rgba(25, 25, 25, 0.95) 32%);
+      }
+      .section[data-panel="request-trace"],
+      .section[data-panel="tool-traces"],
+      .section[data-panel="tasks"],
+      .section[data-panel="task-timeline"],
+      .section[data-panel="temporary-subagents"] {
+        min-height: 220px;
+        flex: 0 0 auto;
+      }
+      .section[data-panel="persistent-agents"] {
+        min-height: 420px;
+        flex: 1 0 auto;
       }
       .section-header {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
         gap: 12px;
+      }
+      .section-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 0 0 auto;
       }
       .section-copy {
         min-width: 0;
@@ -196,6 +309,35 @@
         color: var(--muted);
         font-size: 14px;
         line-height: 1;
+      }
+      .collapse-button {
+        width: 30px;
+        height: 30px;
+        flex: 0 0 auto;
+        padding: 0;
+        border-radius: 10px;
+        background: transparent;
+        border: 1px solid #444444;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1;
+      }
+      .collapse-button:hover {
+        color: var(--text);
+        background: #252525;
+      }
+      .section.collapsed {
+        min-height: auto !important;
+        flex: 0 0 auto !important;
+      }
+      .section.collapsed .section-body {
+        display: none;
+      }
+      .section.collapsed .section-header {
+        align-items: center;
+      }
+      .section.collapsed .section-copy p {
+        margin-bottom: 0;
       }
       .detach-button:hover {
         color: var(--text);
@@ -349,9 +491,20 @@
       }
       @media (max-width: 980px) {
         .shell { grid-template-columns: 1fr; }
-        .shell { height: auto; }
-        .chat { min-height: 70vh; height: auto; }
-        .side { grid-template-rows: auto auto auto auto; }
+        .chat {
+          min-height: 70vh;
+          height: auto;
+          position: static;
+        }
+        .hero-top {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        .side {
+          max-height: none;
+          overflow: visible;
+          padding-right: 0;
+        }
         .agent-editor-grid { grid-template-columns: 1fr; }
       }
     </style>
@@ -360,7 +513,12 @@
     <div class="shell">
       <section class="panel chat">
         <div class="hero">
-          <p class="eyebrow">Chanakya Operating System</p>
+          <div class="hero-top">
+            <p class="eyebrow">Chanakya Operating System</p>
+            {% if force_subagents_enabled %}
+              <span class="debug-badge">Force Subagents: ON</span>
+            {% endif %}
+          </div>
           <h1>Chat with tools, visible in real-time.</h1>
           <p>
             Chanakya uses external MCP tools (calculator, fetch) when needed.
@@ -424,6 +582,19 @@
           </div>
           <div class="section-body">
             <div id="taskTimeline"></div>
+          </div>
+        </div>
+
+        <div class="panel section" data-panel="temporary-subagents">
+          <div class="section-header">
+            <div class="section-copy">
+              <h2>Temporary Subagents</h2>
+              <p>Worker-scoped helper agents, their purpose, and cleanup lifecycle.</p>
+            </div>
+            <button type="button" class="detach-button" data-detach-panel="temporary-subagents" title="Open in new tab" aria-label="Open Temporary Subagents in new tab">&#x2197;</button>
+          </div>
+          <div class="section-body">
+            <div id="subagentList"></div>
           </div>
         </div>
 
@@ -499,6 +670,7 @@
       const toolTraceList = document.getElementById("toolTraceList");
       const taskList = document.getElementById("taskList");
       const taskTimeline = document.getElementById("taskTimeline");
+      const subagentList = document.getElementById("subagentList");
       const agentList = document.getElementById("agentList");
       const agentForm = document.getElementById("agentForm");
       const agentName = document.getElementById("agentName");
@@ -515,11 +687,13 @@
       const agentResetButton = document.getElementById("agentResetButton");
       const agentFormStatus = document.getElementById("agentFormStatus");
       const detachedPanel = new URLSearchParams(window.location.search).get("panel");
+      const COLLAPSE_STORAGE_KEY = "chanakya-collapsed-panels";
       const panelTitles = {
         "request-trace": "Request Trace",
         "tool-traces": "Tool Traces",
         "tasks": "Tasks",
         "task-timeline": "Task Timeline",
+        "temporary-subagents": "Temporary Subagents",
         "persistent-agents": "Persistent Agents",
       };
 
@@ -527,6 +701,69 @@
       let selectedAgentId = null;
       let availableTools = [];
       const STORAGE_KEY = "chanakya-active-session";
+
+      function loadCollapsedPanels() {
+        try {
+          const raw = window.localStorage.getItem(COLLAPSE_STORAGE_KEY);
+          const value = raw ? JSON.parse(raw) : [];
+          return Array.isArray(value) ? value : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function storeCollapsedPanels(panelIds) {
+        try {
+          window.localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(panelIds));
+        } catch {
+        }
+      }
+
+      function setPanelCollapsed(section, collapsed) {
+        const panelId = section.getAttribute("data-panel");
+        const button = section.querySelector(".collapse-button");
+        if (!panelId || !button) return;
+        section.classList.toggle("collapsed", collapsed);
+        button.textContent = collapsed ? "+" : "-";
+        button.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} ${panelTitles[panelId] || panelId}`);
+        button.setAttribute("title", `${collapsed ? "Expand" : "Collapse"} panel`);
+        const collapsedPanels = new Set(loadCollapsedPanels());
+        if (collapsed) {
+          collapsedPanels.add(panelId);
+        } else {
+          collapsedPanels.delete(panelId);
+        }
+        storeCollapsedPanels(Array.from(collapsedPanels));
+      }
+
+      function setupCollapseButtons() {
+        const collapsedPanels = new Set(loadCollapsedPanels());
+        document.querySelectorAll(".panel.section[data-panel]").forEach((section) => {
+          const header = section.querySelector(".section-header");
+          const detachButton = section.querySelector(".detach-button");
+          const panelId = section.getAttribute("data-panel");
+          if (!header || !panelId || section.querySelector(".collapse-button")) return;
+          let actions = header.querySelector(".section-actions");
+          if (!actions) {
+            actions = document.createElement("div");
+            actions.className = "section-actions";
+            if (detachButton) {
+              header.insertBefore(actions, detachButton);
+              actions.appendChild(detachButton);
+            } else {
+              header.appendChild(actions);
+            }
+          }
+          const collapseButton = document.createElement("button");
+          collapseButton.type = "button";
+          collapseButton.className = "collapse-button";
+          actions.insertBefore(collapseButton, actions.firstChild || null);
+          collapseButton.addEventListener("click", () => {
+            setPanelCollapsed(section, !section.classList.contains("collapsed"));
+          });
+          setPanelCollapsed(section, collapsedPanels.has(panelId));
+        });
+      }
 
       function applyDetachedView() {
         if (!detachedPanel || !panelTitles[detachedPanel]) return;
@@ -784,6 +1021,45 @@
         replaceChildren(agentList, nodes);
       }
 
+      function renderSubagents(items) {
+        if (!items.length) {
+          subagentList.innerHTML = `<div class="empty-state">No temporary subagents created for this session yet.</div>`;
+          return;
+        }
+        const nodes = items.map((agent) => {
+          const card = document.createElement("div");
+          card.className = "card";
+          const heading = document.createElement("h3");
+          heading.textContent = agent.name;
+          card.appendChild(heading);
+          const pillRow = document.createElement("div");
+          [agent.status, agent.role, agent.parent_agent_id].filter(Boolean).forEach((value) => {
+            const pill = document.createElement("span");
+            pill.className = "pill";
+            pill.textContent = value;
+            pillRow.appendChild(pill);
+          });
+          card.appendChild(pillRow);
+          const summary = document.createElement("p");
+          summary.className = "meta";
+          summary.textContent = `${agent.purpose} | parent_task=${agent.parent_task_id}`;
+          card.appendChild(summary);
+          const pre = document.createElement("pre");
+          pre.textContent = JSON.stringify({
+            creator_role: agent.creator_role,
+            tool_ids: agent.tool_ids,
+            workspace: agent.workspace,
+            cleanup_reason: agent.cleanup_reason,
+            activated_at: agent.activated_at,
+            cleaned_up_at: agent.cleaned_up_at,
+            metadata: agent.metadata,
+          }, null, 2);
+          card.appendChild(pre);
+          return card;
+        });
+        replaceChildren(subagentList, nodes);
+      }
+
       async function refreshToolAvailability() {
         try {
           const response = await fetch("/api/tools/availability");
@@ -812,6 +1088,15 @@
           worker_validation_completed: "Validation completed",
           worker_output_completed: "Worker output completed",
           worker_failed: "Worker failed",
+          worker_subagent_plan_accepted: "Worker helper plan accepted",
+          worker_subagent_synthesis_completed: "Worker helper synthesis completed",
+          subagent_created: "Temporary subagent created",
+          subagent_group_started: "Temporary subagent group started",
+          subagent_output_ready: "Temporary subagent output ready",
+          subagent_cleanup_started: "Temporary subagent cleanup started",
+          subagent_cleaned: "Temporary subagent cleaned",
+          subagent_cleanup_failed: "Temporary subagent cleanup failed",
+          subagent_creation_rejected: "Temporary subagent creation rejected",
           specialist_review_completed: "Supervisor review completed",
           specialist_workflow_completed: "Supervisor workflow completed",
           specialist_workflow_failed: "Supervisor workflow failed",
@@ -843,6 +1128,15 @@
         }
         if (event.event_type === "worker_unblocked") {
           return `dependency satisfied by ${payload.dependency_task_id || "previous task"}`;
+        }
+        if (event.event_type === "worker_subagent_plan_accepted") {
+          return `${payload.helper_count || 0} helpers for ${payload.parent_agent_id || "worker"}`;
+        }
+        if (event.event_type === "subagent_created") {
+          return `${payload.temporary_agent_id || "subagent"} for ${payload.parent_agent_id || "worker"}`;
+        }
+        if (event.event_type === "subagent_cleanup_started" || event.event_type === "subagent_cleaned" || event.event_type === "subagent_cleanup_failed") {
+          return payload.cleanup_reason || "cleanup";
         }
         if (event.event_type === "workflow_completed" || event.event_type === "workflow_failed") {
           return payload.workflow_type || "workflow";
@@ -980,21 +1274,25 @@
         try {
           const requestsQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=20` : "?limit=20";
           const tasksQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=50` : "?limit=50";
-          const [agentsRes, requestsRes, tasksRes, timelineRes] = await Promise.all([
+          const subagentsQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=50` : "?limit=50";
+          const [agentsRes, requestsRes, tasksRes, timelineRes, subagentsRes] = await Promise.all([
             fetch("/api/agents"),
             fetch(`/api/requests${requestsQuery}`),
             fetch(`/api/tasks${tasksQuery}`),
             fetch(sessionId ? `/api/task-events?session_id=${encodeURIComponent(sessionId)}&limit=100` : "/api/task-events?limit=100"),
+            fetch(`/api/subagents${subagentsQuery}`),
           ]);
-          if (!agentsRes.ok || !requestsRes.ok || !tasksRes.ok || !timelineRes.ok) {
+          if (!agentsRes.ok || !requestsRes.ok || !tasksRes.ok || !timelineRes.ok || !subagentsRes.ok) {
             throw new Error("side panel refresh failed");
           }
           const agentsData = await agentsRes.json();
           const requestsData = await requestsRes.json();
           const tasksData = await tasksRes.json();
           const timelineData = await timelineRes.json();
+          const subagentsData = await subagentsRes.json();
           renderAgents(agentsData.agents || []);
           renderTasks(tasksData.tasks || []);
+          renderSubagents(subagentsData.subagents || []);
           const latestRequest = (requestsData.requests || []).slice(-1)[0];
           const latestTimeline = latestRequest
             ? (timelineData.events || []).filter((event) => event.request_id === latestRequest.id)
@@ -1019,6 +1317,7 @@
           renderAgents([]);
           renderTasks([]);
           renderTaskTimeline([]);
+          renderSubagents([]);
         }
         await refreshToolTraces();
       }
@@ -1103,6 +1402,7 @@
       });
 
       applyDetachedView();
+      setupCollapseButtons();
       setupDetachButtons();
       resetAgentForm();
       loadSessionHistory();
