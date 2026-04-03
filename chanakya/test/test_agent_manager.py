@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from agent_framework import Message
-from pytest import MonkeyPatch
+from pytest import MonkeyPatch, raises
 
 from chanakya.agent.runtime import MAFRuntime, build_profile_agent_config
 from chanakya.agent_manager import AgentManager, WORKFLOW_INFORMATION, WORKFLOW_SOFTWARE
@@ -1128,20 +1128,94 @@ def test_task_controls_cancel_retry_and_manual_unblock() -> None:
     assert (
         store.list_requests(session_id="session_controls")[-1]["status"] == REQUEST_STATUS_CANCELLED
     )
+    root_after_cancel = next(
+        task
+        for task in store.list_tasks(session_id="session_controls", root_only=True)
+        if task["is_root"]
+    )
+    assert root_after_cancel["status"] == TASK_STATUS_CANCELLED
 
     failed_root = next(
         task
         for task in store.list_tasks(session_id="session_controls", root_only=True)
         if task["is_root"]
     )
+    with raises(ValueError):
+        service.retry_task(failed_root["id"])
     store.update_task(failed_root["id"], status="failed")
     retry_result = service.retry_task(failed_root["id"])
     assert retry_result["retry_request_id"] is not None
     assert retry_result["retry_root_task_id"] is not None
 
+    with raises(ValueError):
+        service.manual_unblock_task(waiting_task["id"])
     store.update_task(waiting_task["id"], status=TASK_STATUS_BLOCKED)
     unblock_result = service.manual_unblock_task(waiting_task["id"])
     assert unblock_result["status"] == TASK_STATUS_IN_PROGRESS
+
+
+def test_resume_waiting_input_keeps_parent_tasks_waiting_when_more_input_needed() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "cto",
+            "brief",
+        ): '{"implementation_brief":"Need user input","assumptions":[],"risks":[],"testing_focus":["controls"]}',
+        (
+            "cto",
+            "review",
+        ): "reviewed",
+    }[(profile.role, step)]
+    service.manager.clarification_runner = lambda profile, prompt: (
+        '{"needs_input":true,"question":"Still need one more detail","reason":"Missing deployment target."}'
+    )
+
+    waiting_reply = service.chat("session_waiting_again", "Implement service")
+    assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
+    waiting_task = next(
+        task
+        for task in store.list_tasks(session_id="session_waiting_again", limit=20)
+        if task["task_type"] == "developer_execution"
+    )
+    specialist_task = store.get_task(waiting_task["parent_task_id"])
+    assert specialist_task.parent_task_id is not None
+    manager_task = store.get_task(specialist_task.parent_task_id)
+
+    resumed_reply = service.submit_task_input(waiting_task["id"], "Use AWS.")
+    assert resumed_reply.root_task_status == TASK_STATUS_WAITING_INPUT
+
+    specialist_after = store.get_task(specialist_task.id)
+    manager_after = store.get_task(manager_task.id)
+    assert specialist_after.status == TASK_STATUS_WAITING_INPUT
+    assert manager_after.status == TASK_STATUS_WAITING_INPUT
+
+    task_events = store.list_task_events(session_id="session_waiting_again")
+    specialist_waiting_events = [
+        event
+        for event in task_events
+        if event["task_id"] == specialist_task.id
+        and event["event_type"] == "task_status_changed"
+        and event["payload"].get("to_status") == TASK_STATUS_WAITING_INPUT
+    ]
+    manager_waiting_events = [
+        event
+        for event in task_events
+        if event["task_id"] == manager_task.id
+        and event["event_type"] == "task_status_changed"
+        and event["payload"].get("to_status") == TASK_STATUS_WAITING_INPUT
+    ]
+    assert specialist_waiting_events
+    assert manager_waiting_events
 
 
 def test_developer_clarification_fallback_uses_paused_brief_without_runner() -> None:
@@ -1181,6 +1255,115 @@ def test_developer_clarification_fallback_uses_paused_brief_without_runner() -> 
     assert waiting_reply.input_prompt == "Should the implementation use Flask or FastAPI?"
 
 
+def test_clarification_prompt_requires_input_on_explicit_user_intervention() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "cto",
+            "brief",
+        ): (
+            '{"implementation_brief":"Develop Hello World API endpoint. BLOCKER: Framework selection (Flask vs FastAPI) required before coding begins.",'
+            '"assumptions":[],"risks":[],"testing_focus":[]}'
+        ),
+        ("cto", "review"): "reviewed after clarification",
+    }[(profile.role, step)]
+
+    def _clarification_runner(profile: AgentProfileModel, prompt: str) -> str:
+        assert "If the user explicitly asks to be consulted/intervened before a choice" in prompt
+        return (
+            '{"needs_input":true,'
+            '"question":"Should the implementation target Flask or FastAPI?",'
+            '"reason":"User asked to be consulted before choosing framework."}'
+        )
+
+    service.manager.clarification_runner = _clarification_runner
+
+    waiting_reply = service.chat(
+        "session_waiting_prompt_enforced",
+        "Implement a simple hello world API, but I have not decided whether it should use Flask or FastAPI yet. Ask me before choosing.",
+    )
+
+    assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
+    assert waiting_reply.requires_input is True
+    assert waiting_reply.input_prompt == "Should the implementation target Flask or FastAPI?"
+
+
+def test_clarification_warning_logged_when_model_ignores_explicit_intervention() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    developer_profile = store.get_agent_profile("agent_developer")
+    manager = AgentManager(store, store.Session, manager_profile)
+    manager.clarification_runner = lambda profile, prompt: (
+        '{"needs_input":false,"question":"","reason":"Proceeding without user clarification."}'
+    )
+
+    decision = manager._decide_worker_clarification(
+        developer_profile,
+        "Implement API, but ask me before choosing Flask or FastAPI.",
+        "Developer prompt",
+        clarification_answer=None,
+        session_id="session_warn",
+        request_id="req_warn",
+        worker_task_id="task_warn",
+    )
+
+    assert decision is None
+    warning_events = [
+        event
+        for event in store.list_events(limit=50)
+        if event["event_type"] == "clarification_prompt_adherence_warning"
+    ]
+    assert warning_events
+    latest = warning_events[-1]["payload"]
+    assert latest["session_id"] == "session_warn"
+    assert latest["request_id"] == "req_warn"
+    assert latest["worker_task_id"] == "task_warn"
+    assert latest["worker_role"] == "developer"
+
+
+def test_clarification_warning_logged_when_output_is_unparsable() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    developer_profile = store.get_agent_profile("agent_developer")
+    manager = AgentManager(store, store.Session, manager_profile)
+    manager.clarification_runner = lambda profile, prompt: "not json {oops"
+
+    decision = manager._decide_worker_clarification(
+        developer_profile,
+        "Implement API, but ask me before choosing Flask or FastAPI.",
+        "Developer prompt",
+        clarification_answer=None,
+        session_id="session_warn_parse",
+        request_id="req_warn_parse",
+        worker_task_id="task_warn_parse",
+    )
+
+    assert decision is None
+    warning_events = [
+        event
+        for event in store.list_events(limit=50)
+        if event["event_type"] == "clarification_prompt_adherence_warning"
+    ]
+    assert warning_events
+    latest = warning_events[-1]["payload"]
+    assert latest["session_id"] == "session_warn_parse"
+    assert latest["request_id"] == "req_warn_parse"
+    assert latest["worker_task_id"] == "task_warn_parse"
+    assert "unparsable" in latest["reason"].lower()
+
+
 def test_clarification_prompt_uses_relaxed_json_parse() -> None:
     store = _build_store()
     _seed_full_hierarchy(store)
@@ -1194,3 +1377,18 @@ def test_clarification_prompt_uses_relaxed_json_parse() -> None:
     assert parsed is not None
     assert parsed["needs_input"] is True
     assert parsed["question"] == "Need env?"
+
+
+def test_clarification_prompt_relaxed_parse_handles_brace_noise() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    parsed = manager._parse_json_object_relaxed(
+        'Preamble with braces {not_json}\nResult: {"needs_input": true, "question": "Pick Flask or FastAPI?", "reason": "Need choice"}\nDone'
+    )
+
+    assert parsed is not None
+    assert parsed["needs_input"] is True
+    assert parsed["question"] == "Pick Flask or FastAPI?"

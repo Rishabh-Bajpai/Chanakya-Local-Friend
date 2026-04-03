@@ -1197,10 +1197,17 @@
         return data;
       }
 
-      async function submitTaskInput(taskId, input) {
+      async function submitTaskInput(taskId, input, button = null) {
+        if (button && button.dataset.submitting === "true") {
+          return;
+        }
         const message = input.value.trim();
         if (!message) return;
         input.disabled = true;
+        if (button) {
+          button.disabled = true;
+          button.dataset.submitting = "true";
+        }
         try {
           await postTaskAction(taskId, "input", { message });
           input.value = "";
@@ -1209,6 +1216,10 @@
           appendMessage("assistant", error instanceof Error ? error.message : String(error));
         } finally {
           input.disabled = false;
+          if (button) {
+            button.disabled = false;
+            button.dataset.submitting = "false";
+          }
         }
       }
 
@@ -1266,7 +1277,7 @@
             const replyButton = document.createElement("button");
             replyButton.type = "button";
             replyButton.textContent = "Reply";
-            replyButton.addEventListener("click", () => submitTaskInput(task.id, answerInput));
+            replyButton.addEventListener("click", () => submitTaskInput(task.id, answerInput, replyButton));
             actionRow.appendChild(replyButton);
             const cancelButton = document.createElement("button");
             cancelButton.type = "button";

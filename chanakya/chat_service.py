@@ -8,6 +8,7 @@ from chanakya.domain import (
     REQUEST_STATUS_CREATED,
     REQUEST_STATUS_FAILED,
     REQUEST_STATUS_IN_PROGRESS,
+    TASK_STATUS_BLOCKED,
     TASK_STATUS_CANCELLED,
     TASK_STATUS_CREATED,
     TASK_STATUS_DONE,
@@ -492,16 +493,64 @@ class ChatService:
 
     def cancel_task(self, task_id: str) -> dict[str, str]:
         task = self.store.get_task(task_id)
+        if task.status in {TASK_STATUS_DONE, TASK_STATUS_FAILED, TASK_STATUS_CANCELLED}:
+            raise ValueError(f"Cannot cancel task {task_id!r} from status {task.status!r}")
         request = self.store.get_request(task.request_id)
-        self.store.update_task(task_id, status=TASK_STATUS_CANCELLED, finished_at=now_iso())
+        cancelled_at = now_iso()
+        active_statuses = {
+            TASK_STATUS_CREATED,
+            TASK_STATUS_IN_PROGRESS,
+            TASK_STATUS_WAITING_INPUT,
+            TASK_STATUS_BLOCKED,
+        }
+        cancel_ids: list[str] = []
+        seen_ids: set[str] = set()
+
+        current_id: str | None = task_id
+        while current_id:
+            if current_id in seen_ids:
+                break
+            seen_ids.add(current_id)
+            current_task = self.store.get_task(current_id)
+            cancel_ids.append(current_id)
+            current_id = current_task.parent_task_id
+
+        root_task_id = request.root_task_id
+        if root_task_id and root_task_id not in seen_ids:
+            cancel_ids.append(root_task_id)
+
+        for cancel_id in cancel_ids:
+            cancel_task = self.store.get_task(cancel_id)
+            if cancel_task.status not in active_statuses:
+                continue
+            self.store.update_task(
+                cancel_id,
+                status=TASK_STATUS_CANCELLED,
+                finished_at=cancelled_at,
+            )
+            self.store.create_task_event(
+                session_id=request.session_id,
+                request_id=request.id,
+                task_id=cancel_id,
+                event_type="task_status_changed",
+                payload={
+                    "from_status": cancel_task.status,
+                    "to_status": TASK_STATUS_CANCELLED,
+                    "request_status": REQUEST_STATUS_CANCELLED,
+                    "finished_at": cancelled_at,
+                },
+            )
+            self.store.create_task_event(
+                session_id=request.session_id,
+                request_id=request.id,
+                task_id=cancel_id,
+                event_type="task_cancelled",
+                payload={
+                    "task_id": cancel_id,
+                    "scope": "direct" if cancel_id == task_id else "cascade",
+                },
+            )
         self.store.update_request(request.id, status=REQUEST_STATUS_CANCELLED)
-        self.store.create_task_event(
-            session_id=request.session_id,
-            request_id=request.id,
-            task_id=task_id,
-            event_type="task_cancelled",
-            payload={"task_id": task_id},
-        )
         if self.manager is not None:
             self.manager.cancel_waiting_task(task_id)
         return {"task_id": task_id, "status": TASK_STATUS_CANCELLED}
@@ -524,14 +573,39 @@ class ChatService:
 
     def manual_unblock_task(self, task_id: str) -> dict[str, str]:
         task = self.store.get_task(task_id)
+        if task.status != TASK_STATUS_BLOCKED:
+            raise ValueError(
+                f"Cannot manually unblock task {task_id!r} from status {task.status!r}"
+            )
         request = self.store.get_request(task.request_id)
-        self.store.update_task(task_id, status=TASK_STATUS_IN_PROGRESS)
+        resumed_at = task.started_at or now_iso()
+        self.store.update_task(
+            task_id,
+            status=TASK_STATUS_IN_PROGRESS,
+            started_at=resumed_at,
+        )
+        self.store.create_task_event(
+            session_id=request.session_id,
+            request_id=request.id,
+            task_id=task_id,
+            event_type="task_status_changed",
+            payload={
+                "from_status": TASK_STATUS_BLOCKED,
+                "to_status": TASK_STATUS_IN_PROGRESS,
+                "request_status": REQUEST_STATUS_IN_PROGRESS,
+                "started_at": resumed_at,
+            },
+        )
         self.store.create_task_event(
             session_id=request.session_id,
             request_id=request.id,
             task_id=task_id,
             event_type="task_manual_unblocked",
-            payload={"task_id": task_id},
+            payload={
+                "task_id": task_id,
+                "from_status": TASK_STATUS_BLOCKED,
+                "to_status": TASK_STATUS_IN_PROGRESS,
+            },
         )
         return {"task_id": task_id, "status": TASK_STATUS_IN_PROGRESS}
 

@@ -3,8 +3,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agent_framework import Executor, WorkflowBuilder, WorkflowContext, handler, response_handler
-from agent_framework._workflows._checkpoint import FileCheckpointStorage
+from agent_framework import (
+    Executor,
+    FileCheckpointStorage,
+    WorkflowBuilder,
+    WorkflowContext,
+    handler,
+    response_handler,
+)
 from typing_extensions import Never
 
 from chanakya.domain import (
@@ -16,6 +22,7 @@ from chanakya.domain import (
     now_iso,
 )
 from chanakya.model import AgentProfileModel
+from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.store import ChanakyaStore
 
 
@@ -103,6 +110,12 @@ class _DeveloperExecutor(Executor):
         ctx.set_state("developer_payload", payload)
         developer_task = self.store.get_task(self.developer_task_id)
         if developer_task.status == TASK_STATUS_WAITING_INPUT:
+            input_json = dict(developer_task.input_json or {})
+            resumed_pending_request_id = str(
+                input_json.get("maf_pending_request_id")
+                or payload.get("maf_pending_request_id")
+                or ""
+            ).strip()
             resumed_at = now_iso()
             self.manager._transition_task(
                 session_id=self.session_id,
@@ -112,7 +125,7 @@ class _DeveloperExecutor(Executor):
                 to_status=TASK_STATUS_IN_PROGRESS,
                 started_at=resumed_at,
                 event_type="task_resumed",
-                event_payload={"pending_request_id": payload.get("maf_pending_request_id")},
+                event_payload={"pending_request_id": resumed_pending_request_id},
             )
 
         clarification_decision = self.manager._decide_worker_clarification(
@@ -120,6 +133,9 @@ class _DeveloperExecutor(Executor):
             self.message,
             developer_prompt,
             clarification_answer=clarification_answer,
+            session_id=self.session_id,
+            request_id=self.request_id,
+            worker_task_id=self.developer_task_id,
         )
         if clarification_decision is not None:
             waiting_at = now_iso()
@@ -416,7 +432,10 @@ class ManagerWorkflowRuntime:
         return bool(self._run_async(self.checkpoint_storage.delete(checkpoint_id)))
 
     def _run_async(self, coro: Any) -> Any:
-        return asyncio.run(coro)
+        bind = self.store.Session.kw.get("bind")
+        if bind is not None and str(bind.url).startswith("sqlite:///:memory:"):
+            return asyncio.run(coro)
+        return run_in_maf_loop(coro)
 
     async def _run_software_workflow(
         self,

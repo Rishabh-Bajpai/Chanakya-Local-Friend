@@ -404,15 +404,48 @@ class AgentManager:
                 "input_prompt": pending.prompt,
                 "pending_request_id": pending.pending_request_id,
             }
-            self.store.update_task(specialist_task_id, result_json=waiting_result)
-            self.store.update_task(manager_task_id, result_json=waiting_result)
-            self.store.create_task_event(
-                session_id=session_id,
-                request_id=developer_task.request_id,
-                task_id=specialist_task_id,
-                event_type="user_input_requested",
-                payload=waiting_result,
-            )
+            specialist_current = self.store.get_task(specialist_task_id)
+            if specialist_current.status != TASK_STATUS_WAITING_INPUT:
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=developer_task.request_id,
+                    task_id=specialist_task_id,
+                    from_status=specialist_current.status,
+                    to_status=TASK_STATUS_WAITING_INPUT,
+                    result_json=waiting_result,
+                    event_type="user_input_requested",
+                    event_payload=waiting_result,
+                )
+            else:
+                self.store.update_task(specialist_task_id, result_json=waiting_result)
+                self.store.create_task_event(
+                    session_id=session_id,
+                    request_id=developer_task.request_id,
+                    task_id=specialist_task_id,
+                    event_type="user_input_requested",
+                    payload=waiting_result,
+                )
+            manager_current = self.store.get_task(manager_task_id)
+            if manager_current.status != TASK_STATUS_WAITING_INPUT:
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=developer_task.request_id,
+                    task_id=manager_task_id,
+                    from_status=manager_current.status,
+                    to_status=TASK_STATUS_WAITING_INPUT,
+                    result_json=waiting_result,
+                    event_type="user_input_requested",
+                    event_payload=waiting_result,
+                )
+            else:
+                self.store.update_task(manager_task_id, result_json=waiting_result)
+                self.store.create_task_event(
+                    session_id=session_id,
+                    request_id=developer_task.request_id,
+                    task_id=manager_task_id,
+                    event_type="user_input_requested",
+                    payload=waiting_result,
+                )
             return ManagerRunResult(
                 text=pending.prompt,
                 workflow_type=WORKFLOW_SOFTWARE,
@@ -523,6 +556,8 @@ class AgentManager:
         task = self.store.get_task(task_id)
         if task.parent_task_id is not None:
             raise ValueError("Retry is only supported from the root task in Milestone 7")
+        if task.status != TASK_STATUS_FAILED:
+            raise ValueError("Retry is only supported for failed root tasks")
         request = self.store.get_request(task.request_id)
         self.store.create_task_event(
             session_id=request.session_id,
@@ -1636,6 +1671,9 @@ class AgentManager:
         effective_prompt: str,
         *,
         clarification_answer: str | None = None,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        worker_task_id: str | None = None,
     ) -> dict[str, str] | None:
         prompt = self._build_worker_clarification_prompt(
             worker_profile=worker_profile,
@@ -1656,7 +1694,52 @@ class AgentManager:
             ).strip()
             if question:
                 return {"question": question, "reason": reason}
+        explicit_intervention_requested = self._user_explicitly_requests_intervention(message)
+        if (
+            isinstance(parsed, dict)
+            and not bool(parsed.get("needs_input"))
+            and explicit_intervention_requested
+        ):
+            self.store.log_event(
+                "clarification_prompt_adherence_warning",
+                {
+                    "session_id": session_id,
+                    "request_id": request_id,
+                    "worker_task_id": worker_task_id,
+                    "worker_role": worker_profile.role,
+                    "reason": "Model returned needs_input=false despite explicit user intervention request.",
+                    "model_decision": parsed,
+                    "user_message": message,
+                },
+            )
+        if parsed is None and explicit_intervention_requested:
+            self.store.log_event(
+                "clarification_prompt_adherence_warning",
+                {
+                    "session_id": session_id,
+                    "request_id": request_id,
+                    "worker_task_id": worker_task_id,
+                    "worker_role": worker_profile.role,
+                    "reason": "Model returned unparsable clarification JSON despite explicit user intervention request.",
+                    "raw_output": raw,
+                    "user_message": message,
+                },
+            )
         return None
+
+    @staticmethod
+    def _user_explicitly_requests_intervention(message: str) -> bool:
+        lowered = message.lower()
+        markers = [
+            "ask me before",
+            "ask me first",
+            "check with me",
+            "consult me",
+            "before choosing",
+            "before you choose",
+            "before deciding",
+        ]
+        return any(marker in lowered for marker in markers)
 
     def _build_worker_clarification_prompt(
         self,
@@ -1671,10 +1754,17 @@ class AgentManager:
             "You are deciding whether the worker must ask the user for clarification before continuing. "
             "Analyze the original request, current worker prompt, and any prior clarification answer. "
             "If a missing detail materially changes implementation scope, architecture, or validation approach, request clarification. "
+            "If the user explicitly asks to be consulted/intervened before a choice (for example: asks you to ask before choosing), "
+            "set needs_input=true and provide the exact clarification question needed to proceed. "
+            "This rule is mandatory and cannot be overridden by assumptions in the implementation brief. "
+            "If the user says they have not decided between options and asks you to ask first, you must ask that choice question now. "
             "If the worker can proceed safely, do not request clarification.\n\n"
             "Return strict JSON only with this schema: "
             '{"needs_input": <boolean>, "question": <string>, "reason": <string>}. '
             "When needs_input is false, set question to an empty string.\n\n"
+            "Example (must request input):\n"
+            "User says: 'I have not decided whether to use Flask or FastAPI. Ask me before choosing.'\n"
+            'Return: {"needs_input": true, "question": "Should the implementation target Flask or FastAPI?", "reason": "User requested intervention before framework choice."}\n\n'
             f"Worker role: {worker_profile.role}\n"
             f"Original user request: {message}\n\n"
             f"Current worker prompt:\n{effective_prompt}\n\n"
@@ -1691,16 +1781,17 @@ class AgentManager:
             return parsed if isinstance(parsed, dict) else None
         except Exception:
             pass
+        decoder = json.JSONDecoder()
         start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            return None
-        candidate = text[start : end + 1]
-        try:
-            parsed = json.loads(candidate)
-            return parsed if isinstance(parsed, dict) else None
-        except Exception:
-            return None
+        while start != -1:
+            try:
+                parsed, _ = decoder.raw_decode(text[start:])
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+            start = text.find("{", start + 1)
+        return None
 
     def _run_specialist_prompt(
         self,
