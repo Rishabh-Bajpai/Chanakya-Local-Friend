@@ -811,7 +811,7 @@ class AgentManager:
                 },
             )
             return SpecialistWorkflowResult(
-                text=summary,
+                text=writer_output,
                 task_status=TASK_STATUS_DONE,
                 child_task_ids=[researcher_task_id, writer_task_id],
                 worker_agent_ids=[researcher_profile.id, writer_profile.id],
@@ -819,6 +819,7 @@ class AgentManager:
                     "workflow_type": WORKFLOW_INFORMATION,
                     "researcher_task_id": researcher_task_id,
                     "writer_task_id": writer_task_id,
+                    "writer_output": writer_output,
                     "review_summary": summary,
                     "summary": summary,
                 },
