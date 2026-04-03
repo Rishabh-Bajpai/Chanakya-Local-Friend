@@ -80,11 +80,15 @@ def build_subagent_planning_prompt(
         f"You are {worker_profile.name}, acting as a {worker_profile.role}. "
         "Decide whether this task should be decomposed into temporary helper subagents. "
         "Return only valid JSON. Use helper agents only when they materially improve quality, speed, or parallel fact gathering. "
-        "Do not create more than 3 helpers. If no helpers are needed, return an empty helpers array.\n\n"
+        "Do not create more than 3 helpers. If no helpers are needed, return an empty helpers array. "
+        'Supported orchestration_mode values are "direct" and "group_chat". Use "direct" only when needs_subagents is false and helpers is empty. '
+        'Use "group_chat" whenever helpers are provided.\n\n'
         f"Original request: {message}\n\n"
         f"Your current execution prompt: {effective_prompt}\n\n"
         "Return JSON with this exact schema:\n"
-        '{"needs_subagents":false,"orchestration_mode":"direct","goal":"...","helpers":[{"name_suffix":"facts","role":"research_helper","purpose":"...","instructions":"...","expected_output":"...","tool_ids":[]}]}'
+        '{"needs_subagents":false,"orchestration_mode":"direct","goal":"...","helpers":[]}\n'
+        "If helpers are needed, return:\n"
+        '{"needs_subagents":true,"orchestration_mode":"group_chat","goal":"...","helpers":[{"name_suffix":"facts","role":"research_helper","purpose":"...","instructions":"...","expected_output":"...","tool_ids":[]}]}'
     )
 
 
@@ -137,7 +141,9 @@ def parse_worker_subagent_plan(raw: str) -> WorkerSubagentPlan | None:
     if payload is None:
         return None
     needs_subagents = bool(payload.get("needs_subagents", False))
-    orchestration_mode = str(payload.get("orchestration_mode", "direct")).strip() or "direct"
+    orchestration_mode = str(payload.get("orchestration_mode", "direct")).strip().lower()
+    if orchestration_mode not in {"direct", "group_chat"}:
+        orchestration_mode = "direct"
     goal = str(payload.get("goal", "")).strip()
     helper_payloads = payload.get("helpers", [])
     if not isinstance(helper_payloads, list):
@@ -173,6 +179,9 @@ def parse_worker_subagent_plan(raw: str) -> WorkerSubagentPlan | None:
         return None
     if not needs_subagents:
         helpers = []
+        orchestration_mode = "direct"
+    elif helpers:
+        orchestration_mode = "group_chat"
     return WorkerSubagentPlan(
         needs_subagents=needs_subagents,
         orchestration_mode=orchestration_mode,

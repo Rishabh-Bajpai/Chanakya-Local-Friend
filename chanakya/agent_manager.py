@@ -1352,6 +1352,49 @@ class AgentManager:
             )
             decision = None
         if decision is None:
+            if forced_subagents:
+                self.store.create_task_event(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=worker_task_id,
+                    event_type="worker_subagent_decision_made",
+                    payload={
+                        "parent_agent_id": worker_profile.id,
+                        "should_create_subagents": True,
+                        "reason": "Forced by CHANAKYA_FORCE_SUBAGENTS",
+                        "complexity": "unknown",
+                        "helper_count": 1,
+                        "forced": True,
+                    },
+                )
+                decision = WorkerSubagentDecision(
+                    should_create_subagents=True,
+                    reason="Forced by CHANAKYA_FORCE_SUBAGENTS",
+                    complexity="unknown",
+                    helper_count=1,
+                )
+            else:
+                self.store.create_task_event(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=worker_task_id,
+                    event_type="worker_subagent_decision_made",
+                    payload={
+                        "parent_agent_id": worker_profile.id,
+                        "should_create_subagents": False,
+                        "reason": "decision_parse_failed_or_invalid",
+                        "complexity": "unknown",
+                        "helper_count": 0,
+                        "forced": False,
+                    },
+                )
+                return WorkerExecutionResult(
+                    text=self._run_profile_prompt(worker_profile, effective_prompt).strip(),
+                    child_task_ids=[],
+                    worker_agent_ids=[],
+                    temporary_agent_ids=[],
+                )
+        else:
             self.store.create_task_event(
                 session_id=session_id,
                 request_id=request_id,
@@ -1359,45 +1402,28 @@ class AgentManager:
                 event_type="worker_subagent_decision_made",
                 payload={
                     "parent_agent_id": worker_profile.id,
-                    "should_create_subagents": False,
-                    "reason": "decision_parse_failed_or_invalid",
-                    "complexity": "unknown",
-                    "helper_count": 0,
+                    "should_create_subagents": (
+                        True if forced_subagents else decision.should_create_subagents
+                    ),
+                    "reason": (
+                        "Forced by CHANAKYA_FORCE_SUBAGENTS"
+                        if forced_subagents
+                        else decision.reason
+                    ),
+                    "complexity": decision.complexity,
+                    "helper_count": (
+                        max(1, decision.helper_count) if forced_subagents else decision.helper_count
+                    ),
+                    "forced": forced_subagents,
                 },
             )
-            return WorkerExecutionResult(
-                text=self._run_profile_prompt(worker_profile, effective_prompt).strip(),
-                child_task_ids=[],
-                worker_agent_ids=[],
-                temporary_agent_ids=[],
-            )
-        self.store.create_task_event(
-            session_id=session_id,
-            request_id=request_id,
-            task_id=worker_task_id,
-            event_type="worker_subagent_decision_made",
-            payload={
-                "parent_agent_id": worker_profile.id,
-                "should_create_subagents": (
-                    True if forced_subagents else decision.should_create_subagents
-                ),
-                "reason": (
-                    "Forced by CHANAKYA_FORCE_SUBAGENTS" if forced_subagents else decision.reason
-                ),
-                "complexity": decision.complexity,
-                "helper_count": (
-                    max(1, decision.helper_count) if forced_subagents else decision.helper_count
-                ),
-                "forced": forced_subagents,
-            },
-        )
-        if forced_subagents:
-            decision = WorkerSubagentDecision(
-                should_create_subagents=True,
-                reason="Forced by CHANAKYA_FORCE_SUBAGENTS",
-                complexity=decision.complexity,
-                helper_count=max(1, decision.helper_count),
-            )
+            if forced_subagents:
+                decision = WorkerSubagentDecision(
+                    should_create_subagents=True,
+                    reason="Forced by CHANAKYA_FORCE_SUBAGENTS",
+                    complexity=decision.complexity,
+                    helper_count=max(1, decision.helper_count),
+                )
         if not decision.should_create_subagents:
             return WorkerExecutionResult(
                 text=self._run_profile_prompt(worker_profile, effective_prompt).strip(),

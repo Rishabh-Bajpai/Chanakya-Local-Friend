@@ -9,6 +9,7 @@ from pytest import MonkeyPatch
 from chanakya.app import create_app
 from chanakya.db import build_engine, build_session_factory
 from chanakya.model import TemporaryAgentModel
+from chanakya.domain import TASK_STATUS_DONE
 from chanakya.services import tool_loader
 from chanakya.store import ChanakyaStore
 
@@ -285,6 +286,24 @@ def test_subagents_api_returns_persisted_temporary_agents(
     engine = build_engine(f"sqlite:///{database_path}")
     session_factory = build_session_factory(engine)
     store = ChanakyaStore(session_factory)
+    store.create_request(
+        request_id="req_1",
+        session_id="session_1",
+        user_message="Test subagent listing",
+        status="completed",
+        route="test",
+        root_task_id="task_parent",
+    )
+    store.create_task(
+        task_id="task_parent",
+        request_id="req_1",
+        parent_task_id=None,
+        title="Parent task",
+        summary=None,
+        status=TASK_STATUS_DONE,
+        owner_agent_id="agent_developer",
+        task_type="developer_execution",
+    )
     store.create_temporary_agent(
         TemporaryAgentModel(
             id="tagent_1",

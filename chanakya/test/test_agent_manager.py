@@ -870,6 +870,84 @@ def test_force_subagents_accepts_group_chat_outputs_without_opening_turn(
     assert helper_task.result_json["helper_output"] == "Forced helper output"
 
 
+def test_force_subagents_still_runs_when_decision_parse_fails(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CHANAKYA_FORCE_SUBAGENTS", "true")
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    manager.subagent_decision_runner = lambda profile, prompt: "not valid json"
+    manager.subagent_plan_runner = lambda profile, prompt: "not valid json"
+
+    async def _fake_group_chat_async(**kwargs: object) -> list[str]:
+        return [
+            "Forced helper output after invalid decision",
+            "final worker output with forced fallback",
+        ]
+
+    manager.subagent_orchestrator._run_group_chat_async = _fake_group_chat_async  # type: ignore[method-assign]
+
+    result = manager._run_worker_with_optional_subagents(
+        session_id="session_force_subagents_invalid_decision",
+        request_id="req_force_subagents_invalid_decision",
+        worker_profile=store.get_agent_profile("agent_developer"),
+        worker_task_id="task_force_worker_invalid_decision",
+        message="Simple request with malformed decision output",
+        effective_prompt="Produce the implementation handoff.",
+    )
+
+    assert result.text == "final worker output with forced fallback"
+    assert len(result.temporary_agent_ids) == 1
+    events = store.list_task_events(session_id="session_force_subagents_invalid_decision")
+    decision_event = next(
+        event for event in events if event["event_type"] == "worker_subagent_decision_made"
+    )
+    assert decision_event["payload"]["forced"] is True
+    assert decision_event["payload"]["should_create_subagents"] is True
+    assert decision_event["payload"]["complexity"] == "unknown"
+
+
+def test_parse_worker_subagent_plan_normalizes_orchestration_mode() -> None:
+    from chanakya.subagents import parse_worker_subagent_plan
+
+    with_helpers = parse_worker_subagent_plan(
+        json.dumps(
+            {
+                "needs_subagents": True,
+                "orchestration_mode": "direct",
+                "goal": "Gather facts",
+                "helpers": [
+                    {
+                        "name_suffix": "facts",
+                        "role": "research_helper",
+                        "purpose": "Inspect likely touchpoints.",
+                        "instructions": "Return likely touchpoints.",
+                        "expected_output": "touchpoints",
+                        "tool_ids": [],
+                    }
+                ],
+            }
+        )
+    )
+    without_helpers = parse_worker_subagent_plan(
+        json.dumps(
+            {
+                "needs_subagents": False,
+                "orchestration_mode": "group_chat",
+                "goal": "Proceed directly",
+                "helpers": [],
+            }
+        )
+    )
+
+    assert with_helpers is not None
+    assert with_helpers.orchestration_mode == "group_chat"
+    assert without_helpers is not None
+    assert without_helpers.orchestration_mode == "direct"
+
+
 def test_subagent_output_flattener_handles_message_lists() -> None:
     orchestrator = WorkerSubagentOrchestrator.__new__(WorkerSubagentOrchestrator)
 
