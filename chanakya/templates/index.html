@@ -1093,7 +1093,8 @@
           resetAgentForm();
           await refreshSidePanels();
         } catch (error) {
-          setAgentFormStatus(error.message || "Agent save failed", true);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          setAgentFormStatus(errorMessage || "Agent save failed", true);
         }
       });
 

@@ -269,8 +269,9 @@ def test_manager_preserves_specialist_response_when_user_did_not_request_summary
 
     reply = service.chat("session_passthrough", "Tell me something about Life of Pi")
 
-    assert reply.message == (
-        "Life of Pi is a 2001 novel by Yann Martel about survival, faith, and storytelling, later adapted into Ang Lee's 2012 film."
+    assert (
+        reply.message
+        == "Life of Pi is a 2001 novel by Yann Martel about survival, faith, and storytelling, later adapted into Ang Lee's 2012 film."
     )
 
 
@@ -315,10 +316,57 @@ def test_informer_writer_recovers_when_workflow_output_contains_artifacts() -> N
     )
     written_response = writer_task["result"]["written_response"]
 
-    assert reply.message == written_response
+    assert reply.message == "Virat Kohli facts were researched and presented clearly."
     assert "deterministic two-stage" not in written_response
     assert "agent_framework._types.Message object" not in written_response
     assert "Virat Kohli" in written_response
+
+
+def test_manager_runs_worker_stages_with_the_persisted_prompts() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+
+    def _specialist_runner(profile: AgentProfileModel, prompt: str, step: str) -> str:
+        if step == "brief":
+            return '{"implementation_brief":"Build hello world","assumptions":[],"risks":[],"testing_focus":["stdout"]}'
+        return "reviewed"
+
+    service.manager.specialist_runner = _specialist_runner
+    executed_prompts: list[str] = []
+
+    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
+        executed_prompts.append(prompt)
+        if profile.role == "developer":
+            return '# Implementation Handoff\n\nprint("Hello World")'
+        return (
+            '{"validation_summary":"Output matches Hello World","checks_performed":["stdout check"],'
+            '"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
+        )
+
+    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+
+    reply = service.chat(
+        "session_prompt_persistence", "Write a python program to print hello world"
+    )
+
+    tasks = store.list_tasks(session_id="session_prompt_persistence", limit=20)
+    developer_task = next(task for task in tasks if task["task_type"] == "developer_execution")
+    tester_task = next(task for task in tasks if task["task_type"] == "tester_execution")
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert executed_prompts[0] == developer_task["input"]["effective_prompt"]
+    assert executed_prompts[1] == tester_task["input"]["effective_prompt"]
+    assert tester_task["started_at"] >= developer_task["finished_at"]
 
 
 def test_informer_writer_recovers_when_output_echoes_research_handoff() -> None:

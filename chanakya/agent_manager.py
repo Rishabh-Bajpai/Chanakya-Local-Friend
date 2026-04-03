@@ -278,6 +278,9 @@ class AgentManager:
             event_type="workflow_dependency_recorded",
             payload={"depends_on_task_id": developer_task_id, "workflow_type": WORKFLOW_SOFTWARE},
         )
+        developer_completed = False
+        tester_started = False
+        tester_completed = False
         try:
             implementation_brief = self._run_specialist_prompt(
                 specialist_profile,
@@ -303,77 +306,157 @@ class AgentManager:
                     "waiting_on_task_id": developer_task_id,
                 },
             )
-            worker_outputs = self._run_sequential_workflow(
-                session_id=session_id,
-                request_id=request_id,
-                workflow_type=WORKFLOW_SOFTWARE,
-                message=self._build_software_worker_prompt(message, implementation_brief),
-                participants=[developer_profile, tester_profile],
-            )
-            developer_output = worker_outputs[0]
-            tester_output = worker_outputs[1]
-            if self._is_invalid_tester_output(tester_output, developer_output):
-                tester_output = self._run_tester_recovery(
-                    tester_profile=tester_profile,
-                    message=message,
-                    implementation_brief=implementation_brief,
-                    developer_output=developer_output,
+            if self.workflow_runner is not None:
+                worker_outputs = self._run_sequential_workflow(
+                    session_id=session_id,
+                    request_id=request_id,
+                    workflow_type=WORKFLOW_SOFTWARE,
+                    message=self._build_software_worker_prompt(message, implementation_brief),
+                    participants=[developer_profile, tester_profile],
                 )
-            tester_started_at = now_iso()
-            finished_at = now_iso()
-            self.store.update_task(
-                tester_task_id,
-                input_json={
-                    "message": message,
-                    "supervisor_brief": implementation_brief,
-                    "effective_prompt": tester_prompt,
-                    "waiting_on_task_id": developer_task_id,
-                    "developer_handoff": developer_output,
-                    "delegated_handoff_prompt": self._build_tester_handoff_prompt(
-                        message,
-                        implementation_brief,
-                        developer_output,
-                    ),
-                },
-            )
-            self._transition_task(
-                session_id=session_id,
-                request_id=request_id,
-                task_id=developer_task_id,
-                from_status=TASK_STATUS_IN_PROGRESS,
-                to_status=TASK_STATUS_DONE,
-                finished_at=finished_at,
-                result_json={
-                    "implementation_brief": implementation_brief,
-                    "handoff": developer_output,
-                },
-                event_type="worker_handoff_ready",
-                event_payload={"handoff_for_role": tester_profile.role},
-            )
-            self._transition_task(
-                session_id=session_id,
-                request_id=request_id,
-                task_id=tester_task_id,
-                from_status=TASK_STATUS_BLOCKED,
-                to_status=TASK_STATUS_IN_PROGRESS,
-                started_at=tester_started_at,
-                event_type="worker_unblocked",
-                event_payload={"dependency_task_id": developer_task_id},
-            )
-            self._transition_task(
-                session_id=session_id,
-                request_id=request_id,
-                task_id=tester_task_id,
-                from_status=TASK_STATUS_IN_PROGRESS,
-                to_status=TASK_STATUS_DONE,
-                finished_at=finished_at,
-                result_json={
-                    "developer_task_id": developer_task_id,
-                    "validation_report": tester_output,
-                },
-                event_type="worker_validation_completed",
-                event_payload={"validated_task_id": developer_task_id},
-            )
+                developer_output = worker_outputs[0]
+                tester_output = worker_outputs[1]
+                if self._is_invalid_tester_output(tester_output, developer_output):
+                    tester_output = self._run_tester_recovery(
+                        tester_profile=tester_profile,
+                        message=message,
+                        implementation_brief=implementation_brief,
+                        developer_output=developer_output,
+                    )
+                tester_started_at = now_iso()
+                finished_at = now_iso()
+                tester_handoff_prompt = self._build_tester_handoff_prompt(
+                    message,
+                    implementation_brief,
+                    developer_output,
+                )
+                self.store.update_task(
+                    tester_task_id,
+                    input_json={
+                        "message": message,
+                        "supervisor_brief": implementation_brief,
+                        "effective_prompt": tester_prompt,
+                        "waiting_on_task_id": developer_task_id,
+                        "developer_handoff": developer_output,
+                        "delegated_handoff_prompt": tester_handoff_prompt,
+                    },
+                )
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=developer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={
+                        "implementation_brief": implementation_brief,
+                        "handoff": developer_output,
+                    },
+                    event_type="worker_handoff_ready",
+                    event_payload={"handoff_for_role": tester_profile.role},
+                )
+                developer_completed = True
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=tester_task_id,
+                    from_status=TASK_STATUS_BLOCKED,
+                    to_status=TASK_STATUS_IN_PROGRESS,
+                    started_at=tester_started_at,
+                    event_type="worker_unblocked",
+                    event_payload={"dependency_task_id": developer_task_id},
+                )
+                tester_started = True
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=tester_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={
+                        "developer_task_id": developer_task_id,
+                        "validation_report": tester_output,
+                    },
+                    event_type="worker_validation_completed",
+                    event_payload={"validated_task_id": developer_task_id},
+                )
+                tester_completed = True
+            else:
+                developer_output = self._run_profile_prompt(
+                    developer_profile, developer_prompt
+                ).strip()
+                developer_finished_at = now_iso()
+                tester_handoff_prompt = self._build_tester_handoff_prompt(
+                    message,
+                    implementation_brief,
+                    developer_output,
+                )
+                self.store.update_task(
+                    tester_task_id,
+                    input_json={
+                        "message": message,
+                        "supervisor_brief": implementation_brief,
+                        "effective_prompt": tester_handoff_prompt,
+                        "waiting_on_task_id": developer_task_id,
+                        "developer_handoff": developer_output,
+                        "delegated_handoff_prompt": tester_handoff_prompt,
+                    },
+                )
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=developer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=developer_finished_at,
+                    result_json={
+                        "implementation_brief": implementation_brief,
+                        "handoff": developer_output,
+                    },
+                    event_type="worker_handoff_ready",
+                    event_payload={"handoff_for_role": tester_profile.role},
+                )
+                developer_completed = True
+                tester_started_at = now_iso()
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=tester_task_id,
+                    from_status=TASK_STATUS_BLOCKED,
+                    to_status=TASK_STATUS_IN_PROGRESS,
+                    started_at=tester_started_at,
+                    event_type="worker_unblocked",
+                    event_payload={"dependency_task_id": developer_task_id},
+                )
+                tester_started = True
+                tester_output = self._run_profile_prompt(
+                    tester_profile,
+                    tester_handoff_prompt,
+                ).strip()
+                if self._is_invalid_tester_output(tester_output, developer_output):
+                    tester_output = self._run_tester_recovery(
+                        tester_profile=tester_profile,
+                        message=message,
+                        implementation_brief=implementation_brief,
+                        developer_output=developer_output,
+                    )
+                finished_at = now_iso()
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=tester_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={
+                        "developer_task_id": developer_task_id,
+                        "validation_report": tester_output,
+                    },
+                    event_type="worker_validation_completed",
+                    event_payload={"validated_task_id": developer_task_id},
+                )
+                tester_completed = True
             summary = self._run_specialist_prompt(
                 specialist_profile,
                 self._build_cto_review_prompt(
@@ -429,21 +512,39 @@ class AgentManager:
             )
         except Exception as exc:
             finished_at = now_iso()
-            self._transition_task(
-                session_id=session_id,
-                request_id=request_id,
-                task_id=developer_task_id,
-                from_status=TASK_STATUS_IN_PROGRESS,
-                to_status=TASK_STATUS_FAILED,
-                error_text=str(exc),
-                finished_at=finished_at,
-                event_type="worker_failed",
-            )
-            self.store.update_task(
-                tester_task_id,
-                error_text=str(exc),
-                finished_at=finished_at,
-            )
+            if not developer_completed:
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=developer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_FAILED,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                    event_type="worker_failed",
+                )
+                self.store.update_task(
+                    tester_task_id,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                )
+            elif tester_started and not tester_completed:
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=tester_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_FAILED,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                    event_type="worker_failed",
+                )
+            else:
+                self.store.update_task(
+                    tester_task_id,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                )
             self._transition_task(
                 session_id=session_id,
                 request_id=request_id,
@@ -516,6 +617,9 @@ class AgentManager:
                 "workflow_type": WORKFLOW_INFORMATION,
             },
         )
+        researcher_completed = False
+        writer_started = False
+        writer_completed = False
         try:
             research_brief = self._run_specialist_prompt(
                 specialist_profile,
@@ -538,68 +642,136 @@ class AgentManager:
                     "waiting_on_task_id": researcher_task_id,
                 },
             )
-            worker_outputs = self._run_sequential_workflow(
-                session_id=session_id,
-                request_id=request_id,
-                workflow_type=WORKFLOW_INFORMATION,
-                message=self._build_information_worker_prompt(message, research_brief),
-                participants=[researcher_profile, writer_profile],
-            )
-            researcher_output = worker_outputs[0]
-            writer_output = worker_outputs[1]
-            if self._is_invalid_writer_output(writer_output, researcher_output):
-                writer_output = self._run_writer_recovery(
-                    writer_profile=writer_profile,
-                    researcher_output=researcher_output,
+            if self.workflow_runner is not None:
+                worker_outputs = self._run_sequential_workflow(
+                    session_id=session_id,
+                    request_id=request_id,
+                    workflow_type=WORKFLOW_INFORMATION,
+                    message=self._build_information_worker_prompt(message, research_brief),
+                    participants=[researcher_profile, writer_profile],
                 )
-            writer_started_at = now_iso()
-            finished_at = now_iso()
-            self.store.update_task(
-                writer_task_id,
-                input_json={
-                    "message": message,
-                    "waiting_on_task_id": researcher_task_id,
-                    "research_handoff": researcher_output,
-                    "delegated_handoff_prompt": self._build_writer_handoff_prompt(
-                        researcher_output
-                    ),
-                },
-            )
-            self._transition_task(
-                session_id=session_id,
-                request_id=request_id,
-                task_id=researcher_task_id,
-                from_status=TASK_STATUS_IN_PROGRESS,
-                to_status=TASK_STATUS_DONE,
-                finished_at=finished_at,
-                result_json={"research_brief": research_brief, "handoff": researcher_output},
-                event_type="worker_handoff_ready",
-                event_payload={"handoff_for_role": writer_profile.role},
-            )
-            self._transition_task(
-                session_id=session_id,
-                request_id=request_id,
-                task_id=writer_task_id,
-                from_status=TASK_STATUS_BLOCKED,
-                to_status=TASK_STATUS_IN_PROGRESS,
-                started_at=writer_started_at,
-                event_type="worker_unblocked",
-                event_payload={"dependency_task_id": researcher_task_id},
-            )
-            self._transition_task(
-                session_id=session_id,
-                request_id=request_id,
-                task_id=writer_task_id,
-                from_status=TASK_STATUS_IN_PROGRESS,
-                to_status=TASK_STATUS_DONE,
-                finished_at=finished_at,
-                result_json={
-                    "researcher_task_id": researcher_task_id,
-                    "written_response": writer_output,
-                },
-                event_type="worker_output_completed",
-                event_payload={"source_task_id": researcher_task_id},
-            )
+                researcher_output = worker_outputs[0]
+                writer_output = worker_outputs[1]
+                if self._is_invalid_writer_output(writer_output, researcher_output):
+                    writer_output = self._run_writer_recovery(
+                        writer_profile=writer_profile,
+                        researcher_output=researcher_output,
+                    )
+                writer_started_at = now_iso()
+                finished_at = now_iso()
+                writer_handoff_prompt = self._build_writer_handoff_prompt(researcher_output)
+                self.store.update_task(
+                    writer_task_id,
+                    input_json={
+                        "message": message,
+                        "waiting_on_task_id": researcher_task_id,
+                        "research_handoff": researcher_output,
+                        "delegated_handoff_prompt": writer_handoff_prompt,
+                    },
+                )
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=researcher_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={"research_brief": research_brief, "handoff": researcher_output},
+                    event_type="worker_handoff_ready",
+                    event_payload={"handoff_for_role": writer_profile.role},
+                )
+                researcher_completed = True
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=writer_task_id,
+                    from_status=TASK_STATUS_BLOCKED,
+                    to_status=TASK_STATUS_IN_PROGRESS,
+                    started_at=writer_started_at,
+                    event_type="worker_unblocked",
+                    event_payload={"dependency_task_id": researcher_task_id},
+                )
+                writer_started = True
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=writer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={
+                        "researcher_task_id": researcher_task_id,
+                        "written_response": writer_output,
+                    },
+                    event_type="worker_output_completed",
+                    event_payload={"source_task_id": researcher_task_id},
+                )
+                writer_completed = True
+            else:
+                researcher_output = self._run_profile_prompt(
+                    researcher_profile,
+                    researcher_prompt,
+                ).strip()
+                researcher_finished_at = now_iso()
+                writer_handoff_prompt = self._build_writer_handoff_prompt(researcher_output)
+                self.store.update_task(
+                    writer_task_id,
+                    input_json={
+                        "message": message,
+                        "waiting_on_task_id": researcher_task_id,
+                        "research_handoff": researcher_output,
+                        "effective_prompt": writer_handoff_prompt,
+                        "delegated_handoff_prompt": writer_handoff_prompt,
+                    },
+                )
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=researcher_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=researcher_finished_at,
+                    result_json={"research_brief": research_brief, "handoff": researcher_output},
+                    event_type="worker_handoff_ready",
+                    event_payload={"handoff_for_role": writer_profile.role},
+                )
+                researcher_completed = True
+                writer_started_at = now_iso()
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=writer_task_id,
+                    from_status=TASK_STATUS_BLOCKED,
+                    to_status=TASK_STATUS_IN_PROGRESS,
+                    started_at=writer_started_at,
+                    event_type="worker_unblocked",
+                    event_payload={"dependency_task_id": researcher_task_id},
+                )
+                writer_started = True
+                writer_output = self._run_profile_prompt(
+                    writer_profile, writer_handoff_prompt
+                ).strip()
+                if self._is_invalid_writer_output(writer_output, researcher_output):
+                    writer_output = self._run_writer_recovery(
+                        writer_profile=writer_profile,
+                        researcher_output=researcher_output,
+                    )
+                finished_at = now_iso()
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=writer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={
+                        "researcher_task_id": researcher_task_id,
+                        "written_response": writer_output,
+                    },
+                    event_type="worker_output_completed",
+                    event_payload={"source_task_id": researcher_task_id},
+                )
+                writer_completed = True
             summary = self._run_specialist_prompt(
                 specialist_profile,
                 self._build_informer_review_prompt(
@@ -639,7 +811,7 @@ class AgentManager:
                 },
             )
             return SpecialistWorkflowResult(
-                text=writer_output,
+                text=summary,
                 task_status=TASK_STATUS_DONE,
                 child_task_ids=[researcher_task_id, writer_task_id],
                 worker_agent_ids=[researcher_profile.id, writer_profile.id],
@@ -653,21 +825,39 @@ class AgentManager:
             )
         except Exception as exc:
             finished_at = now_iso()
-            self._transition_task(
-                session_id=session_id,
-                request_id=request_id,
-                task_id=researcher_task_id,
-                from_status=TASK_STATUS_IN_PROGRESS,
-                to_status=TASK_STATUS_FAILED,
-                error_text=str(exc),
-                finished_at=finished_at,
-                event_type="worker_failed",
-            )
-            self.store.update_task(
-                writer_task_id,
-                error_text=str(exc),
-                finished_at=finished_at,
-            )
+            if not researcher_completed:
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=researcher_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_FAILED,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                    event_type="worker_failed",
+                )
+                self.store.update_task(
+                    writer_task_id,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                )
+            elif writer_started and not writer_completed:
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=writer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_FAILED,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                    event_type="worker_failed",
+                )
+            else:
+                self.store.update_task(
+                    writer_task_id,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                )
             self._transition_task(
                 session_id=session_id,
                 request_id=request_id,

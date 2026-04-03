@@ -149,11 +149,11 @@ Milestone 1 - Simple Chanakya Chat
 
 ### Milestone 10 - Hardening and Demo Flow
 
-- [ ] As of now, "should_delegate" is hardcoded. It uses keywords to delegate the tasks. Use a better delegation strategy; 
-      probably a task based routing would be best. If the request (and previous requests) are not relevant, then it'll go to 
-      best possible agent.
-- [ ] Currently, task delegation works most of the time (when necessary keywords are present), but it is often the case that the LLM doesn't  
-      return a valid JSON-like structured output. That case should be handled and the agent manager must hand t over to a different agent or retry on its own.
+- [ ] As of now, "should_delegate" is hardcoded. It uses keywords to delegate tasks. Use a better delegation strategy;
+      probably task-based routing would be best. If the request (and previous requests) are not relevant, then it should go to
+      the best possible agent.
+- [ ] Currently, task delegation works most of the time (when necessary keywords are present), but it is often the case that the LLM doesn't
+      return a valid JSON-like structured output. That case should be handled and the agent manager must hand it over to a different agent or retry on its own.
 - [ ] Add focused tests for routing, state transitions, tools, and scheduling
 - [ ] Improve GUI observability and operator controls
 - [ ] Document runbooks and demo steps

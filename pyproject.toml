@@ -32,6 +32,7 @@ strict = true
 warn_unused_configs = true
 
 [tool.pytest.ini_options]
+testpaths = ["chanakya/test"]
 markers = [
   "integration: tests that rely on external tools or services",
 ]
