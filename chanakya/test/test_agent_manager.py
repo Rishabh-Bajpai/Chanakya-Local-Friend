@@ -136,7 +136,7 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
     assert reply.route == "delegated_manager"
     assert reply.response_mode == WORKFLOW_SOFTWARE
     assert reply.root_task_status == TASK_STATUS_DONE
-    assert "implemented and validated successfully" in reply.message
+    assert reply.message == "Implementation completed and validation passed with one residual risk."
 
     all_tasks = store.list_tasks(session_id="session_mgr", limit=20)
     root_task = next(task for task in all_tasks if task["parent_task_id"] is None)
@@ -208,6 +208,10 @@ def test_chat_service_routes_non_software_requests_through_informer_chain() -> N
 
     assert reply.route == "delegated_manager"
     assert reply.response_mode == WORKFLOW_INFORMATION
+    assert (
+        reply.message
+        == "Berlin weather was researched first and then turned into a concise answer."
+    )
     writer_task = next(
         task
         for task in store.list_tasks(session_id="session_informer", limit=20)
@@ -226,6 +230,44 @@ def test_chat_service_routes_non_software_requests_through_informer_chain() -> N
     assert "worker_handoff_ready" in event_types
     assert "worker_unblocked" in event_types
     assert "worker_output_completed" in event_types
+
+
+def test_manager_preserves_specialist_response_when_user_did_not_request_summary() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_informer","selected_role":"informer","reason":"research and writing","execution_mode":"information_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "informer",
+            "brief",
+        ): '{"research_brief":"Gather Life of Pi facts","audience":"user","required_facts":["author"],"caveats":["avoid spoilers"]}',
+        (
+            "informer",
+            "review",
+        ): "Life of Pi is a 2001 novel by Yann Martel about survival, faith, and storytelling, later adapted into Ang Lee's 2012 film.",
+    }[(profile.role, step)]
+    service.manager.workflow_runner = (
+        lambda session_id, request_id, workflow_type, message, participants: [
+            "Research handoff for Life of Pi",
+            "Life of Pi is a 2001 novel by Yann Martel about survival, faith, and storytelling, later adapted into Ang Lee's 2012 film.",
+        ]
+    )
+    service.manager.summary_runner = lambda prompt: "This should not be used."
+
+    reply = service.chat("session_passthrough", "Tell me something about Life of Pi")
+
+    assert reply.message == (
+        "Life of Pi is a 2001 novel by Yann Martel about survival, faith, and storytelling, later adapted into Ang Lee's 2012 film."
+    )
 
 
 def test_informer_writer_recovers_when_workflow_output_contains_artifacts() -> None:
@@ -269,7 +311,7 @@ def test_informer_writer_recovers_when_workflow_output_contains_artifacts() -> N
     )
     written_response = writer_task["result"]["written_response"]
 
-    assert reply.message == "Virat Kohli facts were delivered."
+    assert reply.message == written_response
     assert "deterministic two-stage" not in written_response
     assert "agent_framework._types.Message object" not in written_response
     assert "Virat Kohli" in written_response

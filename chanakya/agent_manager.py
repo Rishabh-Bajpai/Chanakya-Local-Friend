@@ -166,7 +166,7 @@ class AgentManager:
             )
 
         child_task_ids.extend(specialist_result.child_task_ids)
-        final_summary = self._generate_manager_summary(
+        final_summary = self._finalize_manager_response(
             root_message=message,
             route=route,
             specialist_profile=specialist_profile,
@@ -632,7 +632,7 @@ class AgentManager:
                 },
             )
             return SpecialistWorkflowResult(
-                text=summary,
+                text=writer_output,
                 task_status=TASK_STATUS_DONE,
                 child_task_ids=[researcher_task_id, writer_task_id],
                 worker_agent_ids=[researcher_profile.id, writer_profile.id],
@@ -640,6 +640,7 @@ class AgentManager:
                     "workflow_type": WORKFLOW_INFORMATION,
                     "researcher_task_id": researcher_task_id,
                     "writer_task_id": writer_task_id,
+                    "review_summary": summary,
                     "summary": summary,
                 },
             )
@@ -870,6 +871,44 @@ class AgentManager:
             return fallback_summary
         cleaned = summary.strip()
         return cleaned or fallback_summary
+
+    def _finalize_manager_response(
+        self,
+        *,
+        root_message: str,
+        route: RoutingDecision,
+        specialist_profile: AgentProfileModel,
+        specialist_result: SpecialistWorkflowResult,
+    ) -> str:
+        if specialist_result.task_status != TASK_STATUS_DONE:
+            return self._generate_manager_summary(
+                root_message=root_message,
+                route=route,
+                specialist_profile=specialist_profile,
+                specialist_result=specialist_result,
+            )
+        if self._request_explicit_summary(root_message):
+            return self._generate_manager_summary(
+                root_message=root_message,
+                route=route,
+                specialist_profile=specialist_profile,
+                specialist_result=specialist_result,
+            )
+        return specialist_result.text.strip()
+
+    def _request_explicit_summary(self, message: str) -> bool:
+        lowered = message.lower()
+        summary_markers = [
+            "short ",
+            "brief ",
+            "concise",
+            "summary",
+            "summarize",
+            "tl;dr",
+            "in short",
+            "overview",
+        ]
+        return any(marker in lowered for marker in summary_markers)
 
     def _run_route_prompt(self, prompt: str) -> str:
         if self.route_runner is not None:
