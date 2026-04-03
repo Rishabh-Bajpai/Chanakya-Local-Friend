@@ -11,6 +11,7 @@ from agent_framework.orchestrations import SequentialBuilder
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.agent.runtime import build_profile_agent
+from chanakya.config import force_subagents_enabled
 from chanakya.debug import debug_log
 from chanakya.domain import (
     TASK_STATUS_CREATED,
@@ -24,6 +25,17 @@ from chanakya.domain import (
 from chanakya.model import AgentProfileModel
 from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.store import ChanakyaStore
+from chanakya.subagents import (
+    TemporaryAgentPlan,
+    WorkerSubagentDecision,
+    WorkerSubagentOrchestrator,
+    WorkerSubagentPlan,
+    build_subagent_decision_prompt,
+    build_subagent_planning_prompt,
+    can_create_temporary_subagents,
+    parse_worker_subagent_decision,
+    parse_worker_subagent_plan,
+)
 
 WORKFLOW_SOFTWARE = "software_delivery"
 WORKFLOW_INFORMATION = "information_delivery"
@@ -58,6 +70,14 @@ class SpecialistWorkflowResult:
     result_json: dict[str, Any]
 
 
+@dataclass(slots=True)
+class WorkerExecutionResult:
+    text: str
+    child_task_ids: list[str]
+    worker_agent_ids: list[str]
+    temporary_agent_ids: list[str]
+
+
 class AgentManager:
     def __init__(
         self,
@@ -73,6 +93,13 @@ class AgentManager:
         self.summary_runner: Any | None = None
         self.specialist_runner: Any | None = None
         self.workflow_runner: Any | None = None
+        self.subagent_decision_runner: Any | None = None
+        self.subagent_plan_runner: Any | None = None
+        self.subagent_orchestrator = WorkerSubagentOrchestrator(
+            store=store,
+            session_factory=session_factory,
+            client=self.client,
+        )
 
     def should_delegate(self, message: str) -> bool:
         return bool(message.strip())
@@ -383,9 +410,15 @@ class AgentManager:
                 )
                 tester_completed = True
             else:
-                developer_output = self._run_profile_prompt(
-                    developer_profile, developer_prompt
-                ).strip()
+                developer_result = self._run_worker_with_optional_subagents(
+                    session_id=session_id,
+                    request_id=request_id,
+                    worker_profile=developer_profile,
+                    worker_task_id=developer_task_id,
+                    message=message,
+                    effective_prompt=developer_prompt,
+                )
+                developer_output = developer_result.text
                 developer_finished_at = now_iso()
                 tester_handoff_prompt = self._build_tester_handoff_prompt(
                     message,
@@ -401,6 +434,7 @@ class AgentManager:
                         "waiting_on_task_id": developer_task_id,
                         "developer_handoff": developer_output,
                         "delegated_handoff_prompt": tester_handoff_prompt,
+                        "temporary_agent_ids": developer_result.temporary_agent_ids,
                     },
                 )
                 self._transition_task(
@@ -413,6 +447,7 @@ class AgentManager:
                     result_json={
                         "implementation_brief": implementation_brief,
                         "handoff": developer_output,
+                        "temporary_agent_ids": developer_result.temporary_agent_ids,
                     },
                     event_type="worker_handoff_ready",
                     event_payload={"handoff_for_role": tester_profile.role},
@@ -430,10 +465,15 @@ class AgentManager:
                     event_payload={"dependency_task_id": developer_task_id},
                 )
                 tester_started = True
-                tester_output = self._run_profile_prompt(
-                    tester_profile,
-                    tester_handoff_prompt,
-                ).strip()
+                tester_result = self._run_worker_with_optional_subagents(
+                    session_id=session_id,
+                    request_id=request_id,
+                    worker_profile=tester_profile,
+                    worker_task_id=tester_task_id,
+                    message=message,
+                    effective_prompt=tester_handoff_prompt,
+                )
+                tester_output = tester_result.text
                 if self._is_invalid_tester_output(tester_output, developer_output):
                     tester_output = self._run_tester_recovery(
                         tester_profile=tester_profile,
@@ -452,6 +492,7 @@ class AgentManager:
                     result_json={
                         "developer_task_id": developer_task_id,
                         "validation_report": tester_output,
+                        "temporary_agent_ids": tester_result.temporary_agent_ids,
                     },
                     event_type="worker_validation_completed",
                     event_payload={"validated_task_id": developer_task_id},
@@ -620,6 +661,7 @@ class AgentManager:
         researcher_completed = False
         writer_started = False
         writer_completed = False
+        writer_recovered = False
         try:
             research_brief = self._run_specialist_prompt(
                 specialist_profile,
@@ -657,6 +699,7 @@ class AgentManager:
                         writer_profile=writer_profile,
                         researcher_output=researcher_output,
                     )
+                    writer_recovered = True
                 writer_started_at = now_iso()
                 finished_at = now_iso()
                 writer_handoff_prompt = self._build_writer_handoff_prompt(researcher_output)
@@ -708,10 +751,15 @@ class AgentManager:
                 )
                 writer_completed = True
             else:
-                researcher_output = self._run_profile_prompt(
-                    researcher_profile,
-                    researcher_prompt,
-                ).strip()
+                researcher_result = self._run_worker_with_optional_subagents(
+                    session_id=session_id,
+                    request_id=request_id,
+                    worker_profile=researcher_profile,
+                    worker_task_id=researcher_task_id,
+                    message=message,
+                    effective_prompt=researcher_prompt,
+                )
+                researcher_output = researcher_result.text
                 researcher_finished_at = now_iso()
                 writer_handoff_prompt = self._build_writer_handoff_prompt(researcher_output)
                 self.store.update_task(
@@ -722,6 +770,7 @@ class AgentManager:
                         "research_handoff": researcher_output,
                         "effective_prompt": writer_handoff_prompt,
                         "delegated_handoff_prompt": writer_handoff_prompt,
+                        "temporary_agent_ids": researcher_result.temporary_agent_ids,
                     },
                 )
                 self._transition_task(
@@ -731,7 +780,11 @@ class AgentManager:
                     from_status=TASK_STATUS_IN_PROGRESS,
                     to_status=TASK_STATUS_DONE,
                     finished_at=researcher_finished_at,
-                    result_json={"research_brief": research_brief, "handoff": researcher_output},
+                    result_json={
+                        "research_brief": research_brief,
+                        "handoff": researcher_output,
+                        "temporary_agent_ids": researcher_result.temporary_agent_ids,
+                    },
                     event_type="worker_handoff_ready",
                     event_payload={"handoff_for_role": writer_profile.role},
                 )
@@ -748,14 +801,21 @@ class AgentManager:
                     event_payload={"dependency_task_id": researcher_task_id},
                 )
                 writer_started = True
-                writer_output = self._run_profile_prompt(
-                    writer_profile, writer_handoff_prompt
-                ).strip()
+                writer_result = self._run_worker_with_optional_subagents(
+                    session_id=session_id,
+                    request_id=request_id,
+                    worker_profile=writer_profile,
+                    worker_task_id=writer_task_id,
+                    message=message,
+                    effective_prompt=writer_handoff_prompt,
+                )
+                writer_output = writer_result.text
                 if self._is_invalid_writer_output(writer_output, researcher_output):
                     writer_output = self._run_writer_recovery(
                         writer_profile=writer_profile,
                         researcher_output=researcher_output,
                     )
+                    writer_recovered = True
                 finished_at = now_iso()
                 self._transition_task(
                     session_id=session_id,
@@ -767,6 +827,7 @@ class AgentManager:
                     result_json={
                         "researcher_task_id": researcher_task_id,
                         "written_response": writer_output,
+                        "temporary_agent_ids": writer_result.temporary_agent_ids,
                     },
                     event_type="worker_output_completed",
                     event_payload={"source_task_id": researcher_task_id},
@@ -811,7 +872,7 @@ class AgentManager:
                 },
             )
             return SpecialistWorkflowResult(
-                text=writer_output,
+                text=summary if writer_recovered else writer_output,
                 task_status=TASK_STATUS_DONE,
                 child_task_ids=[researcher_task_id, writer_task_id],
                 worker_agent_ids=[researcher_profile.id, writer_profile.id],
@@ -1020,6 +1081,30 @@ class AgentManager:
             f"Developer handoff: {developer_output}"
         )
 
+    def _build_worker_subagent_plan_prompt(
+        self,
+        worker_profile: AgentProfileModel,
+        message: str,
+        effective_prompt: str,
+    ) -> str:
+        return build_subagent_planning_prompt(
+            worker_profile=worker_profile,
+            message=message,
+            effective_prompt=effective_prompt,
+        )
+
+    def _build_worker_subagent_decision_prompt(
+        self,
+        worker_profile: AgentProfileModel,
+        message: str,
+        effective_prompt: str,
+    ) -> str:
+        return build_subagent_decision_prompt(
+            worker_profile=worker_profile,
+            message=message,
+            effective_prompt=effective_prompt,
+        )
+
     def _build_information_worker_prompt(self, message: str, research_brief: str) -> str:
         return (
             "This is a deterministic two-stage information workflow executed in order.\n"
@@ -1153,7 +1238,17 @@ class AgentManager:
         handoff_prompt = self._build_writer_handoff_prompt(
             researcher_output,
         )
-        recovered = self._run_profile_prompt(writer_profile, handoff_prompt).strip()
+        recovered = ""
+        if self.specialist_runner is not None:
+            candidate = str(
+                self.specialist_runner(writer_profile, handoff_prompt, "recovery")
+            ).strip()
+            if len(candidate) >= 24 and not self._is_invalid_writer_output(
+                candidate, researcher_output
+            ):
+                recovered = candidate
+        if not recovered:
+            recovered = self._run_profile_prompt(writer_profile, handoff_prompt).strip()
         if self._is_invalid_writer_output(recovered, researcher_output):
             repair_prompt = self._build_writer_repair_prompt(
                 researcher_output,
@@ -1194,6 +1289,275 @@ class AgentManager:
 
     def _run_profile_prompt(self, profile: AgentProfileModel, prompt: str) -> str:
         return run_in_maf_loop(self._run_profile_prompt_async(profile, prompt))
+
+    def _run_subagent_plan_prompt(
+        self,
+        worker_profile: AgentProfileModel,
+        message: str,
+        effective_prompt: str,
+    ) -> str:
+        prompt = self._build_worker_subagent_plan_prompt(
+            worker_profile,
+            message,
+            effective_prompt,
+        )
+        if self.subagent_plan_runner is not None:
+            return str(self.subagent_plan_runner(worker_profile, prompt))
+        return self._run_profile_prompt(worker_profile, prompt)
+
+    def _run_subagent_decision_prompt(
+        self,
+        worker_profile: AgentProfileModel,
+        message: str,
+        effective_prompt: str,
+    ) -> str:
+        prompt = self._build_worker_subagent_decision_prompt(
+            worker_profile,
+            message,
+            effective_prompt,
+        )
+        if self.subagent_decision_runner is not None:
+            return str(self.subagent_decision_runner(worker_profile, prompt))
+        return self._run_profile_prompt(worker_profile, prompt)
+
+    def _run_worker_with_optional_subagents(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        worker_profile: AgentProfileModel,
+        worker_task_id: str,
+        message: str,
+        effective_prompt: str,
+    ) -> WorkerExecutionResult:
+        if not can_create_temporary_subagents(worker_profile):
+            return WorkerExecutionResult(
+                text=self._run_profile_prompt(worker_profile, effective_prompt).strip(),
+                child_task_ids=[],
+                worker_agent_ids=[],
+                temporary_agent_ids=[],
+            )
+        forced_subagents = force_subagents_enabled()
+        try:
+            raw_decision = self._run_subagent_decision_prompt(
+                worker_profile,
+                message,
+                effective_prompt,
+            )
+            decision = parse_worker_subagent_decision(raw_decision)
+        except Exception as exc:
+            debug_log(
+                "worker_subagent_decision_failed",
+                {"worker_agent_id": worker_profile.id, "error": str(exc)},
+            )
+            decision = None
+        if decision is None:
+            if forced_subagents:
+                self.store.create_task_event(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=worker_task_id,
+                    event_type="worker_subagent_decision_made",
+                    payload={
+                        "parent_agent_id": worker_profile.id,
+                        "should_create_subagents": True,
+                        "reason": "Forced by CHANAKYA_FORCE_SUBAGENTS",
+                        "complexity": "unknown",
+                        "helper_count": 1,
+                        "forced": True,
+                    },
+                )
+                decision = WorkerSubagentDecision(
+                    should_create_subagents=True,
+                    reason="Forced by CHANAKYA_FORCE_SUBAGENTS",
+                    complexity="unknown",
+                    helper_count=1,
+                )
+            else:
+                self.store.create_task_event(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=worker_task_id,
+                    event_type="worker_subagent_decision_made",
+                    payload={
+                        "parent_agent_id": worker_profile.id,
+                        "should_create_subagents": False,
+                        "reason": "decision_parse_failed_or_invalid",
+                        "complexity": "unknown",
+                        "helper_count": 0,
+                        "forced": False,
+                    },
+                )
+                return WorkerExecutionResult(
+                    text=self._run_profile_prompt(worker_profile, effective_prompt).strip(),
+                    child_task_ids=[],
+                    worker_agent_ids=[],
+                    temporary_agent_ids=[],
+                )
+        else:
+            self.store.create_task_event(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=worker_task_id,
+                event_type="worker_subagent_decision_made",
+                payload={
+                    "parent_agent_id": worker_profile.id,
+                    "should_create_subagents": (
+                        True if forced_subagents else decision.should_create_subagents
+                    ),
+                    "reason": (
+                        "Forced by CHANAKYA_FORCE_SUBAGENTS"
+                        if forced_subagents
+                        else decision.reason
+                    ),
+                    "complexity": decision.complexity,
+                    "helper_count": (
+                        max(1, decision.helper_count) if forced_subagents else decision.helper_count
+                    ),
+                    "forced": forced_subagents,
+                },
+            )
+            if forced_subagents:
+                decision = WorkerSubagentDecision(
+                    should_create_subagents=True,
+                    reason="Forced by CHANAKYA_FORCE_SUBAGENTS",
+                    complexity=decision.complexity,
+                    helper_count=max(1, decision.helper_count),
+                )
+        if not decision.should_create_subagents:
+            return WorkerExecutionResult(
+                text=self._run_profile_prompt(worker_profile, effective_prompt).strip(),
+                child_task_ids=[],
+                worker_agent_ids=[],
+                temporary_agent_ids=[],
+            )
+        try:
+            raw_plan = self._run_subagent_plan_prompt(worker_profile, message, effective_prompt)
+            plan = parse_worker_subagent_plan(raw_plan)
+        except Exception as exc:
+            debug_log(
+                "worker_subagent_plan_failed",
+                {"worker_agent_id": worker_profile.id, "error": str(exc)},
+            )
+            plan = None
+        if forced_subagents and (plan is None or not plan.helpers):
+            plan = self._build_forced_worker_subagent_plan(worker_profile, effective_prompt)
+        if plan is None or not plan.needs_subagents or not plan.helpers:
+            return WorkerExecutionResult(
+                text=self._run_profile_prompt(worker_profile, effective_prompt).strip(),
+                child_task_ids=[],
+                worker_agent_ids=[],
+                temporary_agent_ids=[],
+            )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=worker_task_id,
+            event_type="worker_subagent_plan_accepted",
+            payload={
+                "parent_agent_id": worker_profile.id,
+                "helper_count": len(plan.helpers),
+                "goal": plan.goal,
+                "orchestration_mode": plan.orchestration_mode,
+            },
+        )
+        result = self.subagent_orchestrator.execute(
+            session_id=session_id,
+            request_id=request_id,
+            worker_profile=worker_profile,
+            worker_task_id=worker_task_id,
+            message=message,
+            effective_prompt=effective_prompt,
+            plan=plan,
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=worker_task_id,
+            event_type="worker_subagent_synthesis_completed",
+            payload={
+                "temporary_agent_ids": result.temporary_agent_ids,
+                "child_task_ids": result.child_task_ids,
+            },
+        )
+        return WorkerExecutionResult(
+            text=result.output_text
+            or self._run_profile_prompt(worker_profile, effective_prompt).strip(),
+            child_task_ids=result.child_task_ids,
+            worker_agent_ids=result.worker_agent_ids,
+            temporary_agent_ids=result.temporary_agent_ids,
+        )
+
+    def _build_forced_worker_subagent_plan(
+        self,
+        worker_profile: AgentProfileModel,
+        effective_prompt: str,
+    ) -> WorkerSubagentPlan:
+        helper = self._build_default_forced_helper(worker_profile, effective_prompt)
+        return WorkerSubagentPlan(
+            needs_subagents=True,
+            orchestration_mode="group_chat",
+            goal="Use a temporary helper to gather scoped input and synthesize the parent worker result.",
+            helpers=[helper],
+        )
+
+    def _build_default_forced_helper(
+        self,
+        worker_profile: AgentProfileModel,
+        effective_prompt: str,
+    ) -> TemporaryAgentPlan:
+        inherited_tool_ids = list(worker_profile.tool_ids_json or [])
+        if worker_profile.role == "developer":
+            return TemporaryAgentPlan(
+                name_suffix="touchpoints",
+                role="research_helper",
+                purpose="Inspect likely implementation touchpoints before coding.",
+                instructions=(
+                    "You are a temporary implementation scout. Identify the most relevant files, functions, and risks for the parent developer. "
+                    "Return a concise implementation note only.\n\n"
+                    f"Parent worker prompt: {effective_prompt}"
+                ),
+                expected_output="A short implementation note with likely touchpoints and risks.",
+                tool_ids=inherited_tool_ids,
+            )
+        if worker_profile.role == "tester":
+            return TemporaryAgentPlan(
+                name_suffix="checks",
+                role="validation_helper",
+                purpose="Identify the most important validation checks for the parent tester.",
+                instructions=(
+                    "You are a temporary validation scout. Identify the highest-value checks, edge cases, and likely failure points. "
+                    "Return a concise validation note only.\n\n"
+                    f"Parent worker prompt: {effective_prompt}"
+                ),
+                expected_output="A short validation note with checks and likely defects.",
+                tool_ids=inherited_tool_ids,
+            )
+        if worker_profile.role == "researcher":
+            return TemporaryAgentPlan(
+                name_suffix="fact-scan",
+                role="fact_helper",
+                purpose="Gather likely fact clusters and caveats for the parent researcher.",
+                instructions=(
+                    "You are a temporary research scout. Gather concise fact clusters, uncertainties, and source cues for the parent researcher. "
+                    "Return a concise research note only.\n\n"
+                    f"Parent worker prompt: {effective_prompt}"
+                ),
+                expected_output="A short research note with fact clusters and caveats.",
+                tool_ids=inherited_tool_ids,
+            )
+        return TemporaryAgentPlan(
+            name_suffix="outline",
+            role="writing_helper",
+            purpose="Prepare a compact writing outline for the parent writer.",
+            instructions=(
+                "You are a temporary writing scout. Produce a concise outline, key points, and clarity risks for the parent writer. "
+                "Return a concise note only.\n\n"
+                f"Parent worker prompt: {effective_prompt}"
+            ),
+            expected_output="A short writing outline with key points and clarity notes.",
+            tool_ids=inherited_tool_ids,
+        )
 
     async def _run_profile_prompt_async(self, profile: AgentProfileModel, prompt: str) -> str:
         agent, _ = build_profile_agent(

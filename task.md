@@ -112,12 +112,20 @@ Milestone 1 - Simple Chanakya Chat
 
 ### Milestone 6 - Temporary Subagents
 
-- [ ] Add ephemeral subagent creation and cleanup
-- [ ] Record parent agent, purpose, and lifetime
+- [X] Add `TemporaryAgentModel` plus repository/store support for ephemeral subagent records
+- [X] Enforce worker-only subagent creation (`developer`, `tester`, `researcher`, `writer`) and reject high-level creators
+- [X] Add worker planning prompts/schema for optional helper decomposition
+- [X] Add worker-local temporary subagent orchestrator using MAF `GroupChatBuilder` with bounded selection logic
+- [X] Persist temporary subagent child tasks, lifecycle events, purpose, and cleanup timestamps
+- [X] Ensure cleanup runs on both success and failure paths
+- [X] Add `/api/subagents` read API and GUI visibility for temporary subagent lifecycle and cleanup
+- [X] Add focused tests for allowed creation, rejected creation, cleanup, and worker integration paths
 
 - Validation:
-  - Trigger a task that spawns a helper subagent
-  - Confirm cleanup is visible in GUI
+  - Trigger a task where a worker spawns at least one helper subagent
+  - Confirm the helper subagent appears under the parent worker task
+  - Confirm parent agent, purpose, and lifetime are visible
+  - Confirm cleanup is visible in the GUI timeline and subagent view
 
 ### Milestone 7 - User Input Loop
 
@@ -148,12 +156,10 @@ Milestone 1 - Simple Chanakya Chat
   - Confirm periodic reads and resulting actions are visible
 
 ### Milestone 10 - Hardening and Demo Flow
-
-- [ ] As of now, "should_delegate" is hardcoded. It uses keywords to delegate tasks. Use a better delegation strategy;
-      probably task-based routing would be best. If the request (and previous requests) are not relevant, then it should go to
-      the best possible agent.
-- [ ] Currently, task delegation works most of the time (when necessary keywords are present), but it is often the case that the LLM doesn't
-      return a valid JSON-like structured output. That case should be handled and the agent manager must hand it over to a different agent or retry on its own.
+- [ ] Improve top-level agent delegation (manager -> informer/cto -> researcher/writer/developer/tester) to make routing more reliable
+and handle JSON/structured output failures gracefully
+- [ ] Replace the current temporary-subagent creation heuristics/forced fallback behavior with a more reliable production strategy so workers create helpers only when truly beneficial and the resulting handoffs stay clean and well-scoped
+- [ ] Remove the temporary `CHANAKYA_FORCE_SUBAGENTS` debug flag and related forced-helper fallback path before the hardening/demo milestone is complete
 - [ ] Add focused tests for routing, state transitions, tools, and scheduling
 - [ ] Improve GUI observability and operator controls
 - [ ] Document runbooks and demo steps
@@ -164,7 +170,7 @@ Milestone 1 - Simple Chanakya Chat
 - Completed: Milestone 3 domain foundation with persisted requests, tasks, lifecycle events, and GUI visibility
 - Completed: Milestone 4 agent manager delegation with a manager-supervised MAF chat workflow, delegated participant tasks, and GUI task graph rendering
 - Completed: Milestone 5 persistent agent configuration with GUI create/edit flows, persisted settings, and manager selection from saved agents
-- Next: Milestone 6 temporary subagents after persistent agent editing is in place
+- Next: Milestone 7 user input loop after temporary subagents
 
 ## GUI Review Loop
 
@@ -234,3 +240,4 @@ Notes:
 - 2026-03-30: Updated `scripts/update_database.py` to include Milestone 3 request/task/task-event models for schema updates on existing databases.
 - 2026-03-31: Implemented Milestone 4 Agent Manager v1 with a seeded manager agent, manager-supervised MAF chat workflow, delegated participant task persistence, GUI task graph rendering, and focused delegation tests.
 - 2026-04-01: Completed Milestone 5 by making seeded agents bootstrap-only, adding persistent agent create/update APIs, extending the GUI with agent editing, ensuring heartbeat files on save, and adding focused tests for agent configuration and manager selection.
+- 2026-04-03: Completed Milestone 6 by adding worker-only temporary subagents, MAF group-chat helper orchestration, temporary-agent persistence and cleanup tracking, a `/api/subagents` endpoint, GUI visibility, and focused lifecycle tests.

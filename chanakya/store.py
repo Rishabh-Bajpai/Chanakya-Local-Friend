@@ -15,6 +15,7 @@ from chanakya.model import (
     RequestModel,
     TaskEventModel,
     TaskModel,
+    TemporaryAgentModel,
     ToolInvocationModel,
 )
 
@@ -647,6 +648,75 @@ class AgentProfileRepository:
         return cast(list[AgentProfileModel], rows)
 
 
+class TemporaryAgentRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def create_temporary_agent(self, record: TemporaryAgentModel) -> None:
+        with session_scope(self.Session) as session:
+            session.add(record)
+            session.commit()
+
+    def update_temporary_agent(
+        self,
+        temporary_agent_id: str,
+        *,
+        status: str | None = None,
+        cleanup_reason: str | None = None,
+        metadata_json: dict[str, Any] | None = None,
+        activated_at: str | None = None,
+        cleaned_up_at: str | None = None,
+    ) -> None:
+        with session_scope(self.Session) as session:
+            row = session.get(TemporaryAgentModel, temporary_agent_id)
+            if row is None:
+                return
+            if status is not None:
+                row.status = status
+            if cleanup_reason is not None:
+                row.cleanup_reason = cleanup_reason
+            if metadata_json is not None:
+                row.metadata_json = metadata_json
+            if activated_at is not None:
+                row.activated_at = activated_at
+            if cleaned_up_at is not None:
+                row.cleaned_up_at = cleaned_up_at
+            row.updated_at = now_iso()
+            session.commit()
+
+    def list_temporary_agents(
+        self,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        parent_task_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = (
+                select(TemporaryAgentModel)
+                .order_by(TemporaryAgentModel.created_at.desc())
+                .limit(limit)
+            )
+            if session_id is not None:
+                stmt = stmt.where(TemporaryAgentModel.session_id == session_id)
+            if request_id is not None:
+                stmt = stmt.where(TemporaryAgentModel.request_id == request_id)
+            if parent_task_id is not None:
+                stmt = stmt.where(TemporaryAgentModel.parent_task_id == parent_task_id)
+            rows = session.scalars(stmt).all()
+        records = [row.to_public_dict() for row in rows]
+        records.reverse()
+        return records
+
+    def get_temporary_agent(self, temporary_agent_id: str) -> TemporaryAgentModel:
+        with session_scope(self.Session) as session:
+            row = session.get(TemporaryAgentModel, temporary_agent_id)
+        if row is None:
+            raise KeyError(f"Temporary agent not found: {temporary_agent_id}")
+        return row
+
+
 class ChanakyaStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
@@ -656,6 +726,7 @@ class ChanakyaStore:
         self.events = EventRepository(session_factory)
         self.tools = ToolInvocationRepository(session_factory)
         self.agents = AgentProfileRepository(session_factory)
+        self.temporary_agents = TemporaryAgentRepository(session_factory)
 
     def create_session(self, session_id: str, title: str) -> None:
         self.chat.create_session(session_id, title)
@@ -807,3 +878,27 @@ class ChanakyaStore:
 
     def find_active_agents_by_role(self, role: str) -> list[AgentProfileModel]:
         return self.agents.find_active_agents_by_role(role)
+
+    def create_temporary_agent(self, record: TemporaryAgentModel) -> None:
+        self.temporary_agents.create_temporary_agent(record)
+
+    def update_temporary_agent(self, temporary_agent_id: str, **kwargs: Any) -> None:
+        self.temporary_agents.update_temporary_agent(temporary_agent_id, **kwargs)
+
+    def list_temporary_agents(
+        self,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        parent_task_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.temporary_agents.list_temporary_agents(
+            session_id=session_id,
+            request_id=request_id,
+            parent_task_id=parent_task_id,
+            limit=limit,
+        )
+
+    def get_temporary_agent(self, temporary_agent_id: str) -> TemporaryAgentModel:
+        return self.temporary_agents.get_temporary_agent(temporary_agent_id)

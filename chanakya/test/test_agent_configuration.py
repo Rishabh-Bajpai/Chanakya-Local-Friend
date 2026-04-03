@@ -7,7 +7,11 @@ import chanakya.app as app_module
 from flask import Flask
 from pytest import MonkeyPatch
 from chanakya.app import create_app
+from chanakya.db import build_engine, build_session_factory
+from chanakya.model import TemporaryAgentModel
+from chanakya.domain import TASK_STATUS_DONE
 from chanakya.services import tool_loader
+from chanakya.store import ChanakyaStore
 
 
 class _ManagerStub:
@@ -269,6 +273,68 @@ def test_agent_create_api_rejects_invalid_boolean_and_heartbeat_path(
     assert "heartbeat_file_path" in bad_path.get_json()["error"]
     assert sneaky_path.status_code == 400
     assert "heartbeat_file_path" in sneaky_path.get_json()["error"]
+
+
+def test_subagents_api_returns_persisted_temporary_agents(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    database_path = tmp_path / "chanakya-test.db"
+    engine = build_engine(f"sqlite:///{database_path}")
+    session_factory = build_session_factory(engine)
+    store = ChanakyaStore(session_factory)
+    store.create_request(
+        request_id="req_1",
+        session_id="session_1",
+        user_message="Test subagent listing",
+        status="completed",
+        route="test",
+        root_task_id="task_parent",
+    )
+    store.create_task(
+        task_id="task_parent",
+        request_id="req_1",
+        parent_task_id=None,
+        title="Parent task",
+        summary=None,
+        status=TASK_STATUS_DONE,
+        owner_agent_id="agent_developer",
+        task_type="developer_execution",
+    )
+    store.create_temporary_agent(
+        TemporaryAgentModel(
+            id="tagent_1",
+            request_id="req_1",
+            session_id="session_1",
+            parent_agent_id="agent_developer",
+            parent_task_id="task_parent",
+            creator_role="developer",
+            name="Developer :: facts",
+            role="research_helper",
+            purpose="Inspect likely touchpoints.",
+            system_prompt="Return likely touchpoints.",
+            tool_ids_json=[],
+            workspace="alpha-workspace",
+            status="cleaned",
+            cleanup_reason="completed",
+            metadata_json={"expected_output": "touchpoints"},
+            created_at="2026-04-03T00:00:00+00:00",
+            updated_at="2026-04-03T00:00:00+00:00",
+            activated_at="2026-04-03T00:00:01+00:00",
+            cleaned_up_at="2026-04-03T00:00:02+00:00",
+        )
+    )
+
+    response = client.get("/api/subagents?session_id=session_1")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert len(payload["subagents"]) == 1
+    assert payload["subagents"][0]["parent_agent_id"] == "agent_developer"
+    assert payload["subagents"][0]["status"] == "cleaned"
 
 
 def test_agent_create_api_accepts_null_optional_fields(

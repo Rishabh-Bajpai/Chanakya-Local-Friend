@@ -21,6 +21,7 @@ from chanakya.model import (
     RequestModel,
     TaskEventModel,
     TaskModel,
+    TemporaryAgentModel,
     ToolInvocationModel,
 )
 
@@ -36,6 +37,7 @@ TARGET_MODELS = [
     TaskEventModel,
     ToolInvocationModel,
     AgentProfileModel,
+    TemporaryAgentModel,
 ]
 
 
