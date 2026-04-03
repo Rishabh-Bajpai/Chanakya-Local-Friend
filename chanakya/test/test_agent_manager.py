@@ -119,7 +119,10 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
             "cto",
             "brief",
         ): '{"implementation_brief":"Build it","assumptions":[],"risks":[],"testing_focus":["login"]}',
-        ("cto", "review"): "Implementation completed and validation passed with one residual risk.",
+        (
+            "cto",
+            "review",
+        ): '```python\nprint("Hello World")\n```\n\nValidation: output matches expected text.\nRisks: minimal; requires Python 3 runtime.',
     }[(profile.role, step)]
     service.manager.workflow_runner = (
         lambda session_id, request_id, workflow_type, message, participants: [
@@ -136,7 +139,8 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
     assert reply.route == "delegated_manager"
     assert reply.response_mode == WORKFLOW_SOFTWARE
     assert reply.root_task_status == TASK_STATUS_DONE
-    assert reply.message == "Implementation completed and validation passed with one residual risk."
+    assert "```python" in reply.message
+    assert 'print("Hello World")' in reply.message
 
     all_tasks = store.list_tasks(session_id="session_mgr", limit=20)
     root_task = next(task for task in all_tasks if task["parent_task_id"] is None)
@@ -376,6 +380,63 @@ def test_informer_writer_recovers_when_output_echoes_research_handoff() -> None:
     assert len(recovery_calls) == 2
     assert "Researcher Handoff" not in written_response
     assert written_response.startswith("Virat Kohli is an Indian cricketer")
+
+
+def test_cto_tester_recovers_when_output_echoes_developer_handoff() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    developer_handoff = '# Implementation Handoff\n\nprint("Hello World")'
+    service.manager.workflow_runner = (
+        lambda session_id, request_id, workflow_type, message, participants: [
+            developer_handoff,
+            developer_handoff,
+        ]
+    )
+
+    def _specialist_runner(profile: AgentProfileModel, prompt: str, step: str) -> str:
+        if profile.role == "cto":
+            if step == "brief":
+                return '{"implementation_brief":"Build hello world","assumptions":[],"risks":[],"testing_focus":["stdout"]}'
+            return '```python\nprint("Hello World")\n```\n\nValidation: output matches expected text.\nRisks: minimal.'
+        return "unused"
+
+    service.manager.specialist_runner = _specialist_runner
+    tester_calls: list[str] = []
+
+    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
+        tester_calls.append(prompt)
+        if len(tester_calls) == 1:
+            return developer_handoff
+        return (
+            '{"validation_summary":"Output matches Hello World","checks_performed":["stdout check"],'
+            '"defects_or_risks":["requires Python 3"],"pass_fail_recommendation":"pass"}'
+        )
+
+    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+
+    reply = service.chat("session_tester_recovery", "Write a python program to print hello world")
+
+    tester_task = next(
+        task
+        for task in store.list_tasks(session_id="session_tester_recovery", limit=20)
+        if task["task_type"] == "tester_execution"
+    )
+    validation_report = tester_task["result"]["validation_report"]
+
+    assert len(tester_calls) == 2
+    assert "Implementation Handoff" not in validation_report
+    assert "validation_summary" in validation_report
+    assert "```python" in reply.message
 
 
 def test_agent_manager_retries_invalid_route_then_falls_back() -> None:

@@ -312,6 +312,13 @@ class AgentManager:
             )
             developer_output = worker_outputs[0]
             tester_output = worker_outputs[1]
+            if self._is_invalid_tester_output(tester_output, developer_output):
+                tester_output = self._run_tester_recovery(
+                    tester_profile=tester_profile,
+                    message=message,
+                    implementation_brief=implementation_brief,
+                    developer_output=developer_output,
+                )
             tester_started_at = now_iso()
             finished_at = now_iso()
             self.store.update_task(
@@ -739,8 +746,9 @@ class AgentManager:
         tester_output: str,
     ) -> str:
         return (
-            "You are the CTO supervisor. Review the developer and tester outputs and return a concise engineering summary. "
-            "Do not add unsupported claims. Respond with only the final summary.\n\n"
+            "You are the CTO supervisor. Review the developer and tester outputs and return the final user-facing software delivery response. "
+            "If the request asks for code, include the final code in a fenced code block, then add short validation notes and any residual risks. "
+            "Do not add unsupported claims. Respond with only the final response.\n\n"
             f"User request: {message}\n\n"
             f"Implementation brief:\n{implementation_brief}\n\n"
             f"Developer output:\n{developer_output}\n\n"
@@ -802,6 +810,20 @@ class AgentManager:
     ) -> str:
         return (
             "The developer completed the implementation handoff below. Validate it and produce a structured tester report.\n\n"
+            f"Original request: {message}\n\n"
+            f"Implementation brief: {implementation_brief}\n\n"
+            f"Developer handoff: {developer_output}"
+        )
+
+    def _build_tester_repair_prompt(
+        self,
+        message: str,
+        implementation_brief: str,
+        developer_output: str,
+    ) -> str:
+        return (
+            "Validate the developer handoff below and produce only a structured tester report. "
+            "Do not repeat the developer handoff verbatim. Return only these sections: validation_summary, checks_performed, defects_or_risks, pass_fail_recommendation.\n\n"
             f"Original request: {message}\n\n"
             f"Implementation brief: {implementation_brief}\n\n"
             f"Developer handoff: {developer_output}"
@@ -949,6 +971,33 @@ class AgentManager:
         if self._is_invalid_writer_output(recovered, researcher_output):
             raise ValueError(
                 "Writer produced invalid or echoed output instead of a polished response"
+            )
+        return recovered
+
+    def _run_tester_recovery(
+        self,
+        *,
+        tester_profile: AgentProfileModel,
+        message: str,
+        implementation_brief: str,
+        developer_output: str,
+    ) -> str:
+        handoff_prompt = self._build_tester_handoff_prompt(
+            message,
+            implementation_brief,
+            developer_output,
+        )
+        recovered = self._run_profile_prompt(tester_profile, handoff_prompt).strip()
+        if self._is_invalid_tester_output(recovered, developer_output):
+            repair_prompt = self._build_tester_repair_prompt(
+                message,
+                implementation_brief,
+                developer_output,
+            )
+            recovered = self._run_profile_prompt(tester_profile, repair_prompt).strip()
+        if self._is_invalid_tester_output(recovered, developer_output):
+            raise ValueError(
+                "Tester produced invalid or echoed output instead of a validation report"
             )
         return recovered
 
@@ -1107,6 +1156,22 @@ class AgentManager:
         if any(marker in lowered for marker in invalid_writer_markers):
             return True
         if self._normalized_similarity(stripped, research_handoff) >= 0.82:
+            return True
+        return False
+
+    def _is_invalid_tester_output(self, text: str, developer_handoff: str) -> bool:
+        stripped = text.strip()
+        if self._is_invalid_worker_output(stripped):
+            return True
+        lowered = stripped.lower()
+        invalid_tester_markers = [
+            "implementation handoff",
+            "source code snippet",
+            "artifact name",
+        ]
+        if any(marker in lowered for marker in invalid_tester_markers):
+            return True
+        if self._normalized_similarity(stripped, developer_handoff) >= 0.8:
             return True
         return False
 
