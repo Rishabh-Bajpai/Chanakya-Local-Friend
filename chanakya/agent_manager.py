@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
+import json
 from dataclasses import dataclass
 from typing import Any
 
-from agent_framework import Agent, Message
+from agent_framework import Message
 from agent_framework.openai import OpenAIChatClient
-from agent_framework.orchestrations import GroupChatBuilder
+from agent_framework.orchestrations import SequentialBuilder
 from sqlalchemy.orm import Session, sessionmaker
 
+from chanakya.agent.runtime import build_profile_agent
 from chanakya.debug import debug_log
 from chanakya.domain import (
+    TASK_STATUS_CREATED,
+    TASK_STATUS_BLOCKED,
     TASK_STATUS_DONE,
     TASK_STATUS_FAILED,
     TASK_STATUS_IN_PROGRESS,
@@ -20,8 +25,8 @@ from chanakya.model import AgentProfileModel
 from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.store import ChanakyaStore
 
-
-WORKFLOW_CHAT = "chat"
+WORKFLOW_SOFTWARE = "software_delivery"
+WORKFLOW_INFORMATION = "information_delivery"
 
 
 @dataclass(slots=True)
@@ -36,10 +41,21 @@ class ManagerRunResult:
 
 
 @dataclass(slots=True)
-class GroupChatExtractionResult:
-    text: str
-    extracted: bool
+class RoutingDecision:
+    selected_agent_id: str
+    selected_role: str
+    reason: str
+    execution_mode: str
     source: str
+
+
+@dataclass(slots=True)
+class SpecialistWorkflowResult:
+    text: str
+    task_status: str
+    child_task_ids: list[str]
+    worker_agent_ids: list[str]
+    result_json: dict[str, Any]
 
 
 class AgentManager:
@@ -53,31 +69,16 @@ class AgentManager:
         self.session_factory = session_factory
         self.manager_profile = manager_profile
         self.client = OpenAIChatClient(env_file_path=".env")
-        self.group_chat_runner: Any | None = None
+        self.route_runner: Any | None = None
         self.summary_runner: Any | None = None
+        self.specialist_runner: Any | None = None
+        self.workflow_runner: Any | None = None
 
     def should_delegate(self, message: str) -> bool:
-        lowered = message.lower()
-        markers = [
-            "implement and test",
-            "build and verify",
-            "write code and test",
-            "research and summarize",
-            "compare approaches",
-            "compare",
-            "debate",
-            "brainstorm",
-            "plan then implement",
-            "research then implement",
-            "break into tasks",
-            "break this into tasks",
-            "decompose",
-            "split this into",
-        ]
-        return any(marker in lowered for marker in markers)
+        return bool(message.strip())
 
     def select_workflow(self, message: str) -> str:
-        return WORKFLOW_CHAT
+        return self._fallback_route(message).execution_mode
 
     def execute(
         self,
@@ -87,9 +88,18 @@ class AgentManager:
         root_task_id: str,
         message: str,
     ) -> ManagerRunResult:
-        workflow_type = WORKFLOW_CHAT
-        participants = self._select_participants(message)
-        child_task_ids: list[str] = []
+        manager_task_id = self._create_child_task(
+            request_id=request_id,
+            parent_task_id=root_task_id,
+            owner_profile=self.manager_profile,
+            title="Agent Manager Orchestration",
+            summary="Route the request to the correct top-level specialist and aggregate the result.",
+            task_type="manager_orchestration",
+            session_id=session_id,
+            started=True,
+            input_json={"message": message},
+        )
+        child_task_ids = [manager_task_id]
 
         self.store.create_task_event(
             session_id=session_id,
@@ -98,429 +108,1475 @@ class AgentManager:
             event_type="manager_delegated",
             payload={
                 "manager_agent_id": self.manager_profile.id,
-                "workflow_type": workflow_type,
+                "manager_task_id": manager_task_id,
                 "message": message,
             },
         )
-        self.store.create_task_event(
-            session_id=session_id,
+
+        route = self._select_route(message)
+        specialist_profile = self.store.get_agent_profile(route.selected_agent_id)
+        specialist_task_id = self._create_child_task(
             request_id=request_id,
-            task_id=root_task_id,
-            event_type="workflow_selected",
-            payload={
-                "workflow_type": workflow_type,
-                "manager_agent_id": self.manager_profile.id,
-                "participant_roles": [profile.role for profile in participants],
-            },
-        )
-        self.store.update_task(
-            root_task_id,
-            summary="Delegated via manager-supervised chat workflow",
-            owner_agent_id=self.manager_profile.id,
+            parent_task_id=manager_task_id,
+            owner_profile=specialist_profile,
+            title=f"{specialist_profile.name} Supervision",
+            summary=route.reason,
+            task_type=f"{specialist_profile.role}_supervision",
+            session_id=session_id,
+            started=True,
             input_json={
                 "message": message,
-                "workflow_type": workflow_type,
-                "participant_roles": [profile.role for profile in participants],
+                "route_reason": route.reason,
+                "execution_mode": route.execution_mode,
+                "route_source": route.source,
             },
         )
-
-        for profile in participants:
-            task_id = make_id("task")
-            child_task_ids.append(task_id)
-            self.store.create_task(
-                task_id=task_id,
-                request_id=request_id,
-                parent_task_id=root_task_id,
-                title=f"{profile.name} Contribution",
-                summary="Participate in the manager-supervised discussion and contribute your perspective.",
-                status=TASK_STATUS_IN_PROGRESS,
-                owner_agent_id=profile.id,
-                task_type=f"{profile.role}_discussion",
-                input_json={
-                    "workflow_type": workflow_type,
-                    "root_message": message,
-                    "participant_role": profile.role,
-                },
-            )
-            self.store.create_task_event(
-                session_id=session_id,
-                request_id=request_id,
-                task_id=task_id,
-                event_type="workflow_task_discovered",
-                payload={
-                    "workflow_type": workflow_type,
-                    "parent_task_id": root_task_id,
-                    "owner_agent_id": profile.id,
-                    "task_type": f"{profile.role}_discussion",
-                },
-            )
-            self.store.create_task_event(
-                session_id=session_id,
-                request_id=request_id,
-                task_id=task_id,
-                event_type="workflow_agent_assigned",
-                payload={
-                    "owner_agent_id": profile.id,
-                    "owner_agent_name": profile.name,
-                    "role": profile.role,
-                },
-            )
+        child_task_ids.append(specialist_task_id)
 
         self.store.create_task_event(
             session_id=session_id,
             request_id=request_id,
-            task_id=root_task_id,
-            event_type="workflow_started",
+            task_id=manager_task_id,
+            event_type="manager_route_selected",
             payload={
-                "workflow_type": workflow_type,
-                "child_task_ids": child_task_ids,
-                "participant_roles": [profile.role for profile in participants],
+                "selected_agent_id": route.selected_agent_id,
+                "selected_role": route.selected_role,
+                "reason": route.reason,
+                "execution_mode": route.execution_mode,
+                "source": route.source,
+                "specialist_task_id": specialist_task_id,
             },
         )
 
-        try:
-            extraction = self._run_group_chat(
+        if route.selected_agent_id == "agent_cto":
+            specialist_result = self._execute_software_workflow(
                 session_id=session_id,
                 request_id=request_id,
                 message=message,
-                participants=participants,
+                specialist_profile=specialist_profile,
+                specialist_task_id=specialist_task_id,
             )
-        except Exception as exc:
-            finished_at = now_iso()
-            for task_id in child_task_ids:
-                self.store.update_task(
-                    task_id,
-                    status=TASK_STATUS_FAILED,
-                    error_text=str(exc),
-                    finished_at=finished_at,
-                )
-            self.store.create_task_event(
+        else:
+            specialist_result = self._execute_information_workflow(
                 session_id=session_id,
                 request_id=request_id,
-                task_id=root_task_id,
-                event_type="workflow_failed",
-                payload={
-                    "workflow_type": workflow_type,
-                    "error": str(exc),
-                    "finished_at": finished_at,
-                },
-            )
-            return ManagerRunResult(
-                text=f"Delegated chat workflow failed: {exc}",
-                workflow_type=workflow_type,
-                child_task_ids=child_task_ids,
-                manager_agent_id=self.manager_profile.id,
-                worker_agent_ids=[profile.id for profile in participants],
-                task_status=TASK_STATUS_FAILED,
-                result_json={
-                    "workflow_type": workflow_type,
-                    "child_task_ids": child_task_ids,
-                    "error": str(exc),
-                },
+                message=message,
+                specialist_profile=specialist_profile,
+                specialist_task_id=specialist_task_id,
             )
 
-        finished_at = now_iso()
-        for task_id, profile in zip(child_task_ids, participants, strict=True):
-            self.store.update_task(
-                task_id,
-                status=TASK_STATUS_DONE,
-                finished_at=finished_at,
-                result_json={
-                    "workflow_type": workflow_type,
-                    "worker_agent_id": profile.id,
-                    "worker_agent_name": profile.name,
-                    "conversation_excerpt": extraction.text,
-                    "conversation_extracted": extraction.extracted,
-                    "conversation_source": extraction.source,
-                },
-            )
-            self.store.create_task_event(
-                session_id=session_id,
-                request_id=request_id,
-                task_id=task_id,
-                event_type="workflow_phase_completed",
-                payload={
-                    "workflow_type": workflow_type,
-                    "owner_agent_id": profile.id,
-                    "finished_at": finished_at,
-                },
-            )
-        final_summary = self._generate_manager_summary(
+        child_task_ids.extend(specialist_result.child_task_ids)
+        final_summary = self._finalize_manager_response(
             root_message=message,
-            participants=participants,
-            extraction=extraction,
+            route=route,
+            specialist_profile=specialist_profile,
+            specialist_result=specialist_result,
+        )
+        finished_at = now_iso()
+        self._transition_task(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=manager_task_id,
+            from_status=TASK_STATUS_IN_PROGRESS,
+            to_status=specialist_result.task_status,
+            finished_at=finished_at,
+            result_json={
+                "route": {
+                    "selected_agent_id": route.selected_agent_id,
+                    "selected_role": route.selected_role,
+                    "reason": route.reason,
+                    "execution_mode": route.execution_mode,
+                    "source": route.source,
+                },
+                "specialist_task_id": specialist_task_id,
+                "specialist_summary": specialist_result.text,
+                "final_summary": final_summary,
+            },
+            event_type=(
+                "workflow_completed"
+                if specialist_result.task_status == TASK_STATUS_DONE
+                else "workflow_failed"
+            ),
+            event_payload={
+                "workflow_type": route.execution_mode,
+                "specialist_task_id": specialist_task_id,
+            },
         )
         self.store.create_task_event(
             session_id=session_id,
             request_id=request_id,
-            task_id=root_task_id,
-            event_type="workflow_aggregation_completed",
+            task_id=manager_task_id,
+            event_type="manager_summary_completed",
             payload={
-                "workflow_type": workflow_type,
-                "child_task_ids": child_task_ids,
-                "conversation_extracted": extraction.extracted,
-                "conversation_source": extraction.source,
+                "task_status": specialist_result.task_status,
+                "workflow_type": route.execution_mode,
+                "finished_at": finished_at,
             },
         )
         return ManagerRunResult(
             text=final_summary,
-            workflow_type=workflow_type,
+            workflow_type=route.execution_mode,
             child_task_ids=child_task_ids,
             manager_agent_id=self.manager_profile.id,
-            worker_agent_ids=[profile.id for profile in participants],
-            task_status=TASK_STATUS_DONE,
+            worker_agent_ids=[specialist_profile.id, *specialist_result.worker_agent_ids],
+            task_status=specialist_result.task_status,
             result_json={
-                "workflow_type": workflow_type,
+                "workflow_type": route.execution_mode,
+                "route": {
+                    "selected_agent_id": route.selected_agent_id,
+                    "selected_role": route.selected_role,
+                    "reason": route.reason,
+                    "execution_mode": route.execution_mode,
+                    "source": route.source,
+                },
                 "child_task_ids": child_task_ids,
-                "worker_agent_ids": [profile.id for profile in participants],
-                "conversation": extraction.text,
-                "conversation_extracted": extraction.extracted,
-                "conversation_source": extraction.source,
+                "worker_agent_ids": [specialist_profile.id, *specialist_result.worker_agent_ids],
+                "specialist_task_id": specialist_task_id,
+                "specialist_summary": specialist_result.text,
                 "summary": final_summary,
             },
         )
 
-    def _select_participants(self, message: str) -> list[AgentProfileModel]:
-        lowered = message.lower()
-        if any(token in lowered for token in ["implement", "build", "code", "test", "verify"]):
-            return [self._pick_worker("developer"), self._pick_worker("tester")]
-        if any(
-            token in lowered
-            for token in ["research", "summarize", "compare", "brainstorm", "write"]
-        ):
-            return [self._pick_worker("researcher"), self._pick_worker("writer")]
-        return [self._pick_worker("developer"), self._pick_worker("researcher")]
-
-    def _pick_worker(self, role: str) -> AgentProfileModel:
-        matches = self.store.find_active_agents_by_role(role)
-        if matches:
-            return matches[0]
-        return self.store.get_agent_profile("agent_chanakya")
-
-    def _summarize_manager_result(
+    def _execute_software_workflow(
         self,
-        root_message: str,
-        participants: list[AgentProfileModel],
-        extraction: GroupChatExtractionResult,
-    ) -> str:
-        participant_names = ", ".join(profile.name for profile in participants)
-        if extraction.extracted:
-            summary_text = extraction.text
-        else:
-            summary_text = (
-                "The delegated workflow completed, but the orchestrator did not return a usable final summary. "
-                "Participant tasks ran successfully, but the final multi-agent discussion output could not be extracted."
+        *,
+        session_id: str,
+        request_id: str,
+        message: str,
+        specialist_profile: AgentProfileModel,
+        specialist_task_id: str,
+    ) -> SpecialistWorkflowResult:
+        developer_profile = self._pick_worker("developer")
+        tester_profile = self._pick_worker("tester")
+        developer_task_id = self._create_child_task(
+            request_id=request_id,
+            parent_task_id=specialist_task_id,
+            owner_profile=developer_profile,
+            title=f"{developer_profile.name} Implementation",
+            summary="Implement the requested software change and prepare a testing handoff.",
+            task_type="developer_execution",
+            session_id=session_id,
+            started=True,
+            input_json={"message": message},
+        )
+        tester_task_id = self._create_child_task(
+            request_id=request_id,
+            parent_task_id=specialist_task_id,
+            owner_profile=tester_profile,
+            title=f"{tester_profile.name} Validation",
+            summary="Validate the developer handoff after implementation completes.",
+            task_type="tester_execution",
+            session_id=session_id,
+            status=TASK_STATUS_BLOCKED,
+            dependencies=[developer_task_id],
+            input_json={"message": message},
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=tester_task_id,
+            event_type="workflow_dependency_recorded",
+            payload={"depends_on_task_id": developer_task_id, "workflow_type": WORKFLOW_SOFTWARE},
+        )
+        developer_completed = False
+        tester_started = False
+        tester_completed = False
+        try:
+            implementation_brief = self._run_specialist_prompt(
+                specialist_profile,
+                self._build_cto_brief_prompt(message),
+                step="brief",
             )
+            developer_prompt = self._build_developer_stage_prompt(message, implementation_brief)
+            tester_prompt = self._build_tester_stage_prompt(message, implementation_brief)
+            self.store.update_task(
+                developer_task_id,
+                input_json={
+                    "message": message,
+                    "supervisor_brief": implementation_brief,
+                    "effective_prompt": developer_prompt,
+                },
+            )
+            self.store.update_task(
+                tester_task_id,
+                input_json={
+                    "message": message,
+                    "supervisor_brief": implementation_brief,
+                    "effective_prompt": tester_prompt,
+                    "waiting_on_task_id": developer_task_id,
+                },
+            )
+            if self.workflow_runner is not None:
+                worker_outputs = self._run_sequential_workflow(
+                    session_id=session_id,
+                    request_id=request_id,
+                    workflow_type=WORKFLOW_SOFTWARE,
+                    message=self._build_software_worker_prompt(message, implementation_brief),
+                    participants=[developer_profile, tester_profile],
+                )
+                developer_output = worker_outputs[0]
+                tester_output = worker_outputs[1]
+                if self._is_invalid_tester_output(tester_output, developer_output):
+                    tester_output = self._run_tester_recovery(
+                        tester_profile=tester_profile,
+                        message=message,
+                        implementation_brief=implementation_brief,
+                        developer_output=developer_output,
+                    )
+                tester_started_at = now_iso()
+                finished_at = now_iso()
+                tester_handoff_prompt = self._build_tester_handoff_prompt(
+                    message,
+                    implementation_brief,
+                    developer_output,
+                )
+                self.store.update_task(
+                    tester_task_id,
+                    input_json={
+                        "message": message,
+                        "supervisor_brief": implementation_brief,
+                        "effective_prompt": tester_prompt,
+                        "waiting_on_task_id": developer_task_id,
+                        "developer_handoff": developer_output,
+                        "delegated_handoff_prompt": tester_handoff_prompt,
+                    },
+                )
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=developer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={
+                        "implementation_brief": implementation_brief,
+                        "handoff": developer_output,
+                    },
+                    event_type="worker_handoff_ready",
+                    event_payload={"handoff_for_role": tester_profile.role},
+                )
+                developer_completed = True
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=tester_task_id,
+                    from_status=TASK_STATUS_BLOCKED,
+                    to_status=TASK_STATUS_IN_PROGRESS,
+                    started_at=tester_started_at,
+                    event_type="worker_unblocked",
+                    event_payload={"dependency_task_id": developer_task_id},
+                )
+                tester_started = True
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=tester_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={
+                        "developer_task_id": developer_task_id,
+                        "validation_report": tester_output,
+                    },
+                    event_type="worker_validation_completed",
+                    event_payload={"validated_task_id": developer_task_id},
+                )
+                tester_completed = True
+            else:
+                developer_output = self._run_profile_prompt(
+                    developer_profile, developer_prompt
+                ).strip()
+                developer_finished_at = now_iso()
+                tester_handoff_prompt = self._build_tester_handoff_prompt(
+                    message,
+                    implementation_brief,
+                    developer_output,
+                )
+                self.store.update_task(
+                    tester_task_id,
+                    input_json={
+                        "message": message,
+                        "supervisor_brief": implementation_brief,
+                        "effective_prompt": tester_handoff_prompt,
+                        "waiting_on_task_id": developer_task_id,
+                        "developer_handoff": developer_output,
+                        "delegated_handoff_prompt": tester_handoff_prompt,
+                    },
+                )
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=developer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=developer_finished_at,
+                    result_json={
+                        "implementation_brief": implementation_brief,
+                        "handoff": developer_output,
+                    },
+                    event_type="worker_handoff_ready",
+                    event_payload={"handoff_for_role": tester_profile.role},
+                )
+                developer_completed = True
+                tester_started_at = now_iso()
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=tester_task_id,
+                    from_status=TASK_STATUS_BLOCKED,
+                    to_status=TASK_STATUS_IN_PROGRESS,
+                    started_at=tester_started_at,
+                    event_type="worker_unblocked",
+                    event_payload={"dependency_task_id": developer_task_id},
+                )
+                tester_started = True
+                tester_output = self._run_profile_prompt(
+                    tester_profile,
+                    tester_handoff_prompt,
+                ).strip()
+                if self._is_invalid_tester_output(tester_output, developer_output):
+                    tester_output = self._run_tester_recovery(
+                        tester_profile=tester_profile,
+                        message=message,
+                        implementation_brief=implementation_brief,
+                        developer_output=developer_output,
+                    )
+                finished_at = now_iso()
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=tester_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={
+                        "developer_task_id": developer_task_id,
+                        "validation_report": tester_output,
+                    },
+                    event_type="worker_validation_completed",
+                    event_payload={"validated_task_id": developer_task_id},
+                )
+                tester_completed = True
+            summary = self._run_specialist_prompt(
+                specialist_profile,
+                self._build_cto_review_prompt(
+                    message, implementation_brief, developer_output, tester_output
+                ),
+                step="review",
+            )
+            self._transition_task(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=specialist_task_id,
+                from_status=TASK_STATUS_IN_PROGRESS,
+                to_status=TASK_STATUS_DONE,
+                finished_at=finished_at,
+                result_json={
+                    "implementation_brief": implementation_brief,
+                    "developer_task_id": developer_task_id,
+                    "tester_task_id": tester_task_id,
+                    "developer_output": developer_output,
+                    "tester_output": tester_output,
+                    "summary": summary,
+                },
+                event_type="specialist_workflow_completed",
+                event_payload={
+                    "workflow_type": WORKFLOW_SOFTWARE,
+                    "worker_task_ids": [developer_task_id, tester_task_id],
+                },
+            )
+            self.store.create_task_event(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=specialist_task_id,
+                event_type="specialist_review_completed",
+                payload={
+                    "workflow_type": WORKFLOW_SOFTWARE,
+                    "worker_agent_ids": [developer_profile.id, tester_profile.id],
+                },
+            )
+            return SpecialistWorkflowResult(
+                text=summary,
+                task_status=TASK_STATUS_DONE,
+                child_task_ids=[developer_task_id, tester_task_id],
+                worker_agent_ids=[developer_profile.id, tester_profile.id],
+                result_json={
+                    "workflow_type": WORKFLOW_SOFTWARE,
+                    "developer_task_id": developer_task_id,
+                    "tester_task_id": tester_task_id,
+                    "implementation_brief": implementation_brief,
+                    "developer_output": developer_output,
+                    "tester_output": tester_output,
+                    "summary": summary,
+                },
+            )
+        except Exception as exc:
+            finished_at = now_iso()
+            if not developer_completed:
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=developer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_FAILED,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                    event_type="worker_failed",
+                )
+                self.store.update_task(
+                    tester_task_id,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                )
+            elif tester_started and not tester_completed:
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=tester_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_FAILED,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                    event_type="worker_failed",
+                )
+            else:
+                self.store.update_task(
+                    tester_task_id,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                )
+            self._transition_task(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=specialist_task_id,
+                from_status=TASK_STATUS_IN_PROGRESS,
+                to_status=TASK_STATUS_FAILED,
+                error_text=str(exc),
+                finished_at=finished_at,
+                event_type="specialist_workflow_failed",
+                event_payload={"workflow_type": WORKFLOW_SOFTWARE},
+            )
+            failure_text = (
+                "Software delivery workflow failed before a complete supervisor review was available. "
+                f"Failure: {exc}"
+            )
+            return SpecialistWorkflowResult(
+                text=failure_text,
+                task_status=TASK_STATUS_FAILED,
+                child_task_ids=[developer_task_id, tester_task_id],
+                worker_agent_ids=[developer_profile.id, tester_profile.id],
+                result_json={
+                    "workflow_type": WORKFLOW_SOFTWARE,
+                    "developer_task_id": developer_task_id,
+                    "tester_task_id": tester_task_id,
+                    "error": str(exc),
+                },
+            )
+
+    def _execute_information_workflow(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        message: str,
+        specialist_profile: AgentProfileModel,
+        specialist_task_id: str,
+    ) -> SpecialistWorkflowResult:
+        researcher_profile = self._pick_worker("researcher")
+        writer_profile = self._pick_worker("writer")
+        researcher_task_id = self._create_child_task(
+            request_id=request_id,
+            parent_task_id=specialist_task_id,
+            owner_profile=researcher_profile,
+            title=f"{researcher_profile.name} Research",
+            summary="Gather grounded facts and produce a structured writer handoff.",
+            task_type="researcher_execution",
+            session_id=session_id,
+            started=True,
+            input_json={"message": message},
+        )
+        writer_task_id = self._create_child_task(
+            request_id=request_id,
+            parent_task_id=specialist_task_id,
+            owner_profile=writer_profile,
+            title=f"{writer_profile.name} Writing",
+            summary="Turn the research handoff into a polished response.",
+            task_type="writer_execution",
+            session_id=session_id,
+            status=TASK_STATUS_BLOCKED,
+            dependencies=[researcher_task_id],
+            input_json={"message": message},
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=writer_task_id,
+            event_type="workflow_dependency_recorded",
+            payload={
+                "depends_on_task_id": researcher_task_id,
+                "workflow_type": WORKFLOW_INFORMATION,
+            },
+        )
+        researcher_completed = False
+        writer_started = False
+        writer_completed = False
+        try:
+            research_brief = self._run_specialist_prompt(
+                specialist_profile,
+                self._build_informer_brief_prompt(message),
+                step="brief",
+            )
+            researcher_prompt = self._build_researcher_stage_prompt(message, research_brief)
+            self.store.update_task(
+                researcher_task_id,
+                input_json={
+                    "message": message,
+                    "supervisor_brief": research_brief,
+                    "effective_prompt": researcher_prompt,
+                },
+            )
+            self.store.update_task(
+                writer_task_id,
+                input_json={
+                    "message": message,
+                    "waiting_on_task_id": researcher_task_id,
+                },
+            )
+            if self.workflow_runner is not None:
+                worker_outputs = self._run_sequential_workflow(
+                    session_id=session_id,
+                    request_id=request_id,
+                    workflow_type=WORKFLOW_INFORMATION,
+                    message=self._build_information_worker_prompt(message, research_brief),
+                    participants=[researcher_profile, writer_profile],
+                )
+                researcher_output = worker_outputs[0]
+                writer_output = worker_outputs[1]
+                if self._is_invalid_writer_output(writer_output, researcher_output):
+                    writer_output = self._run_writer_recovery(
+                        writer_profile=writer_profile,
+                        researcher_output=researcher_output,
+                    )
+                writer_started_at = now_iso()
+                finished_at = now_iso()
+                writer_handoff_prompt = self._build_writer_handoff_prompt(researcher_output)
+                self.store.update_task(
+                    writer_task_id,
+                    input_json={
+                        "message": message,
+                        "waiting_on_task_id": researcher_task_id,
+                        "research_handoff": researcher_output,
+                        "delegated_handoff_prompt": writer_handoff_prompt,
+                    },
+                )
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=researcher_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={"research_brief": research_brief, "handoff": researcher_output},
+                    event_type="worker_handoff_ready",
+                    event_payload={"handoff_for_role": writer_profile.role},
+                )
+                researcher_completed = True
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=writer_task_id,
+                    from_status=TASK_STATUS_BLOCKED,
+                    to_status=TASK_STATUS_IN_PROGRESS,
+                    started_at=writer_started_at,
+                    event_type="worker_unblocked",
+                    event_payload={"dependency_task_id": researcher_task_id},
+                )
+                writer_started = True
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=writer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={
+                        "researcher_task_id": researcher_task_id,
+                        "written_response": writer_output,
+                    },
+                    event_type="worker_output_completed",
+                    event_payload={"source_task_id": researcher_task_id},
+                )
+                writer_completed = True
+            else:
+                researcher_output = self._run_profile_prompt(
+                    researcher_profile,
+                    researcher_prompt,
+                ).strip()
+                researcher_finished_at = now_iso()
+                writer_handoff_prompt = self._build_writer_handoff_prompt(researcher_output)
+                self.store.update_task(
+                    writer_task_id,
+                    input_json={
+                        "message": message,
+                        "waiting_on_task_id": researcher_task_id,
+                        "research_handoff": researcher_output,
+                        "effective_prompt": writer_handoff_prompt,
+                        "delegated_handoff_prompt": writer_handoff_prompt,
+                    },
+                )
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=researcher_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=researcher_finished_at,
+                    result_json={"research_brief": research_brief, "handoff": researcher_output},
+                    event_type="worker_handoff_ready",
+                    event_payload={"handoff_for_role": writer_profile.role},
+                )
+                researcher_completed = True
+                writer_started_at = now_iso()
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=writer_task_id,
+                    from_status=TASK_STATUS_BLOCKED,
+                    to_status=TASK_STATUS_IN_PROGRESS,
+                    started_at=writer_started_at,
+                    event_type="worker_unblocked",
+                    event_payload={"dependency_task_id": researcher_task_id},
+                )
+                writer_started = True
+                writer_output = self._run_profile_prompt(
+                    writer_profile, writer_handoff_prompt
+                ).strip()
+                if self._is_invalid_writer_output(writer_output, researcher_output):
+                    writer_output = self._run_writer_recovery(
+                        writer_profile=writer_profile,
+                        researcher_output=researcher_output,
+                    )
+                finished_at = now_iso()
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=writer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_DONE,
+                    finished_at=finished_at,
+                    result_json={
+                        "researcher_task_id": researcher_task_id,
+                        "written_response": writer_output,
+                    },
+                    event_type="worker_output_completed",
+                    event_payload={"source_task_id": researcher_task_id},
+                )
+                writer_completed = True
+            summary = self._run_specialist_prompt(
+                specialist_profile,
+                self._build_informer_review_prompt(
+                    message, research_brief, researcher_output, writer_output
+                ),
+                step="review",
+            )
+            self._transition_task(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=specialist_task_id,
+                from_status=TASK_STATUS_IN_PROGRESS,
+                to_status=TASK_STATUS_DONE,
+                finished_at=finished_at,
+                result_json={
+                    "research_brief": research_brief,
+                    "researcher_task_id": researcher_task_id,
+                    "writer_task_id": writer_task_id,
+                    "researcher_output": researcher_output,
+                    "writer_output": writer_output,
+                    "summary": summary,
+                },
+                event_type="specialist_workflow_completed",
+                event_payload={
+                    "workflow_type": WORKFLOW_INFORMATION,
+                    "worker_task_ids": [researcher_task_id, writer_task_id],
+                },
+            )
+            self.store.create_task_event(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=specialist_task_id,
+                event_type="specialist_review_completed",
+                payload={
+                    "workflow_type": WORKFLOW_INFORMATION,
+                    "worker_agent_ids": [researcher_profile.id, writer_profile.id],
+                },
+            )
+            return SpecialistWorkflowResult(
+                text=writer_output,
+                task_status=TASK_STATUS_DONE,
+                child_task_ids=[researcher_task_id, writer_task_id],
+                worker_agent_ids=[researcher_profile.id, writer_profile.id],
+                result_json={
+                    "workflow_type": WORKFLOW_INFORMATION,
+                    "researcher_task_id": researcher_task_id,
+                    "writer_task_id": writer_task_id,
+                    "writer_output": writer_output,
+                    "review_summary": summary,
+                    "summary": summary,
+                },
+            )
+        except Exception as exc:
+            finished_at = now_iso()
+            if not researcher_completed:
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=researcher_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_FAILED,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                    event_type="worker_failed",
+                )
+                self.store.update_task(
+                    writer_task_id,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                )
+            elif writer_started and not writer_completed:
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=writer_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_FAILED,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                    event_type="worker_failed",
+                )
+            else:
+                self.store.update_task(
+                    writer_task_id,
+                    error_text=str(exc),
+                    finished_at=finished_at,
+                )
+            self._transition_task(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=specialist_task_id,
+                from_status=TASK_STATUS_IN_PROGRESS,
+                to_status=TASK_STATUS_FAILED,
+                error_text=str(exc),
+                finished_at=finished_at,
+                event_type="specialist_workflow_failed",
+                event_payload={"workflow_type": WORKFLOW_INFORMATION},
+            )
+            failure_text = (
+                "Information workflow failed before a complete supervisor review was available. "
+                f"Failure: {exc}"
+            )
+            return SpecialistWorkflowResult(
+                text=failure_text,
+                task_status=TASK_STATUS_FAILED,
+                child_task_ids=[researcher_task_id, writer_task_id],
+                worker_agent_ids=[researcher_profile.id, writer_profile.id],
+                result_json={
+                    "workflow_type": WORKFLOW_INFORMATION,
+                    "researcher_task_id": researcher_task_id,
+                    "writer_task_id": writer_task_id,
+                    "error": str(exc),
+                },
+            )
+
+    def _select_route(self, message: str) -> RoutingDecision:
+        prompt = self._build_manager_route_prompt(message)
+        raw = self._run_route_prompt(prompt)
+        decision = self._parse_routing_decision(raw, source="prompt")
+        if decision is not None:
+            return decision
+
+        repair_prompt = (
+            "Your previous routing output was invalid. Repair it and return only valid JSON with keys "
+            "selected_agent_id, selected_role, reason, execution_mode."
+        )
+        repaired = self._run_route_prompt(f"{prompt}\n\n{repair_prompt}")
+        decision = self._parse_routing_decision(repaired, source="repair")
+        if decision is not None:
+            return decision
+
+        fallback = self._fallback_route(message)
+        debug_log(
+            "agent_manager_route_fallback",
+            {"message": message, "selected_agent_id": fallback.selected_agent_id},
+        )
+        return fallback
+
+    def _build_manager_route_prompt(self, message: str) -> str:
         return (
-            f"Delegated via chat workflow with {participant_names}.\n"
-            f"Request: {root_message}\n"
-            f"Conversation summary:\n{summary_text}"
+            "You are Chanakya's routing supervisor. Choose exactly one top-level specialist. "
+            "Do not solve the request. Do not mention any worker agents. Return only JSON.\n\n"
+            "Allowed routing targets:\n"
+            "- agent_cto / role cto / execution_mode software_delivery: for software implementation, debugging, architecture, testing, refactoring, engineering delivery.\n"
+            "- agent_informer / role informer / execution_mode information_delivery: for research, explanation, writing, factual summaries, non-software tasks.\n\n"
+            f"User request: {message}\n\n"
+            "Return JSON with this exact schema:\n"
+            '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"...","execution_mode":"software_delivery"}'
+        )
+
+    def _build_cto_brief_prompt(self, message: str) -> str:
+        return (
+            "You are the software-delivery supervisor. Convert the request into a developer-first execution brief. "
+            "Do not implement or test directly. Return JSON only with keys implementation_brief, assumptions, risks, testing_focus.\n\n"
+            f"User request: {message}"
+        )
+
+    def _build_cto_review_prompt(
+        self,
+        message: str,
+        implementation_brief: str,
+        developer_output: str,
+        tester_output: str,
+    ) -> str:
+        return (
+            "You are the CTO supervisor. Review the developer and tester outputs and return the final user-facing software delivery response. "
+            "If the request asks for code, include the final code in a fenced code block, then add short validation notes and any residual risks. "
+            "Do not add unsupported claims. Respond with only the final response.\n\n"
+            f"User request: {message}\n\n"
+            f"Implementation brief:\n{implementation_brief}\n\n"
+            f"Developer output:\n{developer_output}\n\n"
+            f"Tester output:\n{tester_output}"
+        )
+
+    def _build_informer_brief_prompt(self, message: str) -> str:
+        return (
+            "You are the information supervisor. Convert the request into a research-first brief. "
+            "Do not produce the final polished answer yourself. Return JSON only with keys research_brief, audience, required_facts, caveats.\n\n"
+            f"User request: {message}"
+        )
+
+    def _build_informer_review_prompt(
+        self,
+        message: str,
+        research_brief: str,
+        researcher_output: str,
+        writer_output: str,
+    ) -> str:
+        return (
+            "You are the Informer supervisor. Review the research handoff and written answer for grounding, clarity, and completeness. "
+            "Respond with only the final summary that should be passed back to the manager.\n\n"
+            f"User request: {message}\n\n"
+            f"Research brief:\n{research_brief}\n\n"
+            f"Researcher output:\n{researcher_output}\n\n"
+            f"Writer output:\n{writer_output}"
+        )
+
+    def _build_software_worker_prompt(self, message: str, implementation_brief: str) -> str:
+        return (
+            "This is a deterministic two-stage software workflow executed in order.\n"
+            "Stage 1 agent is the developer. Produce only a structured implementation handoff. Include implementation_summary, assumptions, risks, and testing_focus.\n"
+            "Stage 2 agent is the tester. Consume the developer handoff from prior workflow context and produce only a structured validation report. Include validation_summary, checks_performed, defects_or_risks, and pass_fail_recommendation.\n"
+            "Each stage must stay within its role boundary and output only its own result.\n\n"
+            f"User request: {message}\n\n"
+            f"Supervisor implementation brief:\n{implementation_brief}"
+        )
+
+    def _build_developer_stage_prompt(self, message: str, implementation_brief: str) -> str:
+        return (
+            "Research and implement the software change described below. Produce only the developer handoff.\n\n"
+            f"Original request: {message}\n\n"
+            f"Implementation brief: {implementation_brief}"
+        )
+
+    def _build_tester_stage_prompt(self, message: str, implementation_brief: str) -> str:
+        return (
+            "Validate the implementation after the developer handoff is available. Produce only the tester report.\n\n"
+            f"Original request: {message}\n\n"
+            f"Implementation brief: {implementation_brief}"
+        )
+
+    def _build_tester_handoff_prompt(
+        self,
+        message: str,
+        implementation_brief: str,
+        developer_output: str,
+    ) -> str:
+        return (
+            "The developer completed the implementation handoff below. Validate it and produce a structured tester report.\n\n"
+            f"Original request: {message}\n\n"
+            f"Implementation brief: {implementation_brief}\n\n"
+            f"Developer handoff: {developer_output}"
+        )
+
+    def _build_tester_repair_prompt(
+        self,
+        message: str,
+        implementation_brief: str,
+        developer_output: str,
+    ) -> str:
+        return (
+            "Validate the developer handoff below and produce only a structured tester report. "
+            "Do not repeat the developer handoff verbatim. Return only these sections: validation_summary, checks_performed, defects_or_risks, pass_fail_recommendation.\n\n"
+            f"Original request: {message}\n\n"
+            f"Implementation brief: {implementation_brief}\n\n"
+            f"Developer handoff: {developer_output}"
+        )
+
+    def _build_information_worker_prompt(self, message: str, research_brief: str) -> str:
+        return (
+            "This is a deterministic two-stage information workflow executed in order.\n"
+            "Stage 1 agent is the researcher. Produce only a structured research handoff with facts, references_or_sources, uncertainties, and notes_for_writer.\n"
+            "Stage 2 agent is the writer. Consume the researcher handoff from prior workflow context and produce only the polished user-facing answer.\n"
+            "Each stage must stay within its role boundary and output only its own result.\n\n"
+            f"User request: {message}\n\n"
+            f"Supervisor research brief:\n{research_brief}"
+        )
+
+    def _build_researcher_stage_prompt(self, message: str, research_brief: str) -> str:
+        return (
+            "Research the topic below and produce only a structured research handoff.\n\n"
+            f"Original request: {message}\n\n"
+            f"Research brief: {research_brief}"
+        )
+
+    def _build_writer_handoff_prompt(
+        self,
+        researcher_output: str,
+    ) -> str:
+        return (
+            "I have collected the following research. Turn it into a beautiful, clear, well-structured response without inventing unsupported claims.\n\n"
+            f"Research handoff: {researcher_output}"
+        )
+
+    def _build_writer_repair_prompt(
+        self,
+        researcher_output: str,
+    ) -> str:
+        return (
+            "Write a short final biography for the user using the research below. "
+            "Do not repeat the research handoff verbatim. Do not include labels such as Researcher Handoff, "
+            "Writer Notes, Verification Points, or Process Summary. Return only the final biography in polished prose.\n\n"
+            f"Research handoff: {researcher_output}"
         )
 
     def _generate_manager_summary(
         self,
         *,
         root_message: str,
-        participants: list[AgentProfileModel],
-        extraction: GroupChatExtractionResult,
+        route: RoutingDecision,
+        specialist_profile: AgentProfileModel,
+        specialist_result: SpecialistWorkflowResult,
     ) -> str:
-        fallback_summary = self._summarize_manager_result(root_message, participants, extraction)
-        participant_names = ", ".join(profile.name for profile in participants)
+        fallback_summary = specialist_result.text.strip() or (
+            "The delegated workflow completed but did not produce a usable supervisor summary."
+        )
         prompt = (
-            "You are Chanakya's Agent Manager. Produce a concise, user-facing final summary for the delegated request. "
-            "If the group chat transcript is weak or incomplete, still provide the best possible grounded summary based on the available information.\n\n"
+            "You are Chanakya's Agent Manager. Produce the final user-facing summary. "
+            "Do not mention internal routing mechanics unless they are needed to explain a failure. Respond with only the final summary.\n\n"
             f"User request: {root_message}\n"
-            f"Workflow type: {WORKFLOW_CHAT}\n"
-            f"Participants: {participant_names}\n"
-            f"Transcript extracted: {extraction.extracted}\n"
-            f"Transcript source: {extraction.source}\n"
-            f"Transcript or fallback text:\n{extraction.text}\n\n"
-            "Respond with only the final summary."
+            f"Selected specialist: {specialist_profile.id}\n"
+            f"Execution mode: {route.execution_mode}\n"
+            f"Specialist status: {specialist_result.task_status}\n"
+            f"Specialist summary:\n{specialist_result.text}"
         )
         try:
-            summary = self._run_manager_summary(prompt)
+            summary = self._run_summary_prompt(prompt)
         except Exception as exc:
-            debug_log(
-                "agent_manager_summary_failed",
-                {
-                    "error": str(exc),
-                    "transcript_source": extraction.source,
-                    "transcript_extracted": extraction.extracted,
-                },
-            )
+            debug_log("agent_manager_summary_failed", {"error": str(exc)})
             return fallback_summary
         cleaned = summary.strip()
         return cleaned or fallback_summary
 
-    def _run_manager_summary(self, prompt: str) -> str:
+    def _finalize_manager_response(
+        self,
+        *,
+        root_message: str,
+        route: RoutingDecision,
+        specialist_profile: AgentProfileModel,
+        specialist_result: SpecialistWorkflowResult,
+    ) -> str:
+        if specialist_result.task_status != TASK_STATUS_DONE:
+            return self._generate_manager_summary(
+                root_message=root_message,
+                route=route,
+                specialist_profile=specialist_profile,
+                specialist_result=specialist_result,
+            )
+        if self._request_explicit_summary(root_message):
+            return self._generate_manager_summary(
+                root_message=root_message,
+                route=route,
+                specialist_profile=specialist_profile,
+                specialist_result=specialist_result,
+            )
+        return specialist_result.text.strip()
+
+    def _request_explicit_summary(self, message: str) -> bool:
+        lowered = message.lower()
+        summary_markers = [
+            "short ",
+            "brief ",
+            "concise",
+            "summary",
+            "summarize",
+            "tl;dr",
+            "in short",
+            "overview",
+        ]
+        return any(marker in lowered for marker in summary_markers)
+
+    def _run_route_prompt(self, prompt: str) -> str:
+        if self.route_runner is not None:
+            return str(self.route_runner(prompt))
+        return self._run_profile_prompt(self.manager_profile, prompt)
+
+    def _run_summary_prompt(self, prompt: str) -> str:
         if self.summary_runner is not None:
             return str(self.summary_runner(prompt))
-        return run_in_maf_loop(self._run_manager_summary_async(prompt))
+        return self._run_profile_prompt(self.manager_profile, prompt)
 
-    async def _run_manager_summary_async(self, prompt: str) -> str:
-        manager_agent = Agent(
+    def _run_specialist_prompt(
+        self,
+        profile: AgentProfileModel,
+        prompt: str,
+        *,
+        step: str,
+    ) -> str:
+        if self.specialist_runner is not None:
+            return str(self.specialist_runner(profile, prompt, step))
+        return self._run_profile_prompt(profile, prompt)
+
+    def _run_writer_recovery(
+        self,
+        *,
+        writer_profile: AgentProfileModel,
+        researcher_output: str,
+    ) -> str:
+        handoff_prompt = self._build_writer_handoff_prompt(
+            researcher_output,
+        )
+        recovered = self._run_profile_prompt(writer_profile, handoff_prompt).strip()
+        if self._is_invalid_writer_output(recovered, researcher_output):
+            repair_prompt = self._build_writer_repair_prompt(
+                researcher_output,
+            )
+            recovered = self._run_profile_prompt(writer_profile, repair_prompt).strip()
+        if self._is_invalid_writer_output(recovered, researcher_output):
+            raise ValueError(
+                "Writer produced invalid or echoed output instead of a polished response"
+            )
+        return recovered
+
+    def _run_tester_recovery(
+        self,
+        *,
+        tester_profile: AgentProfileModel,
+        message: str,
+        implementation_brief: str,
+        developer_output: str,
+    ) -> str:
+        handoff_prompt = self._build_tester_handoff_prompt(
+            message,
+            implementation_brief,
+            developer_output,
+        )
+        recovered = self._run_profile_prompt(tester_profile, handoff_prompt).strip()
+        if self._is_invalid_tester_output(recovered, developer_output):
+            repair_prompt = self._build_tester_repair_prompt(
+                message,
+                implementation_brief,
+                developer_output,
+            )
+            recovered = self._run_profile_prompt(tester_profile, repair_prompt).strip()
+        if self._is_invalid_tester_output(recovered, developer_output):
+            raise ValueError(
+                "Tester produced invalid or echoed output instead of a validation report"
+            )
+        return recovered
+
+    def _run_profile_prompt(self, profile: AgentProfileModel, prompt: str) -> str:
+        return run_in_maf_loop(self._run_profile_prompt_async(profile, prompt))
+
+    async def _run_profile_prompt_async(self, profile: AgentProfileModel, prompt: str) -> str:
+        agent, _ = build_profile_agent(
+            profile,
+            self.session_factory,
             client=self.client,
-            name=self.manager_profile.name,
-            instructions=self.manager_profile.system_prompt,
+            include_history=False,
         )
-        response = await manager_agent.run(
-            Message(role="user", text=prompt),
-            options={"store": False},
-        )
+        response = await agent.run(Message(role="user", text=prompt), options={"store": False})
         return str(response).strip()
 
-    def _run_group_chat(
+    def _run_sequential_workflow(
         self,
         *,
         session_id: str,
         request_id: str,
+        workflow_type: str,
         message: str,
         participants: list[AgentProfileModel],
-    ) -> GroupChatExtractionResult:
-        if self.group_chat_runner is not None:
-            return GroupChatExtractionResult(
-                text=str(self.group_chat_runner(session_id, request_id, message, participants)),
-                extracted=True,
-                source="test_runner",
+    ) -> list[str]:
+        if self.workflow_runner is not None:
+            result = self.workflow_runner(
+                session_id, request_id, workflow_type, message, participants
             )
+            if isinstance(result, list):
+                return [str(item).strip() for item in result]
+            raise ValueError("workflow runner must return a list of stage outputs")
         return run_in_maf_loop(
-            self._run_group_chat_async(
-                session_id=session_id,
+            self._run_sequential_workflow_async(
                 request_id=request_id,
+                workflow_type=workflow_type,
                 message=message,
                 participants=participants,
             )
         )
 
-    @staticmethod
-    def _extract_text_from_workflow_result(result: Any) -> GroupChatExtractionResult:
-        outputs = result.get_outputs()
-        if outputs:
-            last_output = outputs[-1]
-            if isinstance(last_output, list):
-                parts: list[str] = []
-                for item in last_output:
-                    author = getattr(item, "author_name", None) or getattr(
-                        item, "role", "assistant"
-                    )
-                    text = getattr(item, "text", None)
-                    if isinstance(text, str) and text.strip():
-                        parts.append(f"{author}: {text}")
-                if parts:
-                    return GroupChatExtractionResult(
-                        text="\n".join(parts),
-                        extracted=True,
-                        source="outputs_list",
-                    )
-            if isinstance(last_output, str) and last_output.strip():
-                return GroupChatExtractionResult(
-                    text=last_output.strip(),
-                    extracted=True,
-                    source="outputs_string",
-                )
-            if isinstance(last_output, dict) and last_output:
-                return GroupChatExtractionResult(
-                    text=str(last_output),
-                    extracted=True,
-                    source="outputs_dict",
-                )
-
-        timeline = getattr(result, "status_timeline", None)
-        if callable(timeline):
-            timeline_events = timeline()
-            if isinstance(timeline_events, list):
-                for event in reversed(timeline_events):
-                    value = getattr(event, "value", None)
-                    if isinstance(value, str) and value.strip():
-                        return GroupChatExtractionResult(
-                            text=value.strip(),
-                            extracted=True,
-                            source="status_timeline_string",
-                        )
-                    event_text = getattr(value, "text", None)
-                    if isinstance(event_text, str) and event_text.strip():
-                        return GroupChatExtractionResult(
-                            text=event_text.strip(),
-                            extracted=True,
-                            source="status_timeline_text",
-                        )
-
-        final_state_getter = getattr(result, "get_final_state", None)
-        if callable(final_state_getter):
-            final_state = final_state_getter()
-            if final_state is not None:
-                final_text = getattr(final_state, "message", None) or getattr(
-                    final_state, "output", None
-                )
-                if isinstance(final_text, str) and final_text.strip():
-                    return GroupChatExtractionResult(
-                        text=final_text.strip(),
-                        extracted=True,
-                        source="final_state",
-                    )
-
-        return GroupChatExtractionResult(
-            text="Group chat completed, but no final conversation output was produced.",
-            extracted=False,
-            source="none",
-        )
-
-    async def _run_group_chat_async(
+    async def _run_sequential_workflow_async(
         self,
         *,
-        session_id: str,
         request_id: str,
+        workflow_type: str,
         message: str,
         participants: list[AgentProfileModel],
-    ) -> GroupChatExtractionResult:
+    ) -> list[str]:
         debug_log(
-            "agent_manager_group_chat_start",
+            "agent_manager_sequential_workflow_start",
             {
-                "session_id": session_id,
                 "request_id": request_id,
+                "workflow_type": workflow_type,
                 "participant_ids": [profile.id for profile in participants],
             },
         )
         participant_agents = [
-            Agent(
+            build_profile_agent(
+                profile,
+                self.session_factory,
                 client=self.client,
-                name=profile.name,
-                instructions=profile.system_prompt,
-            )
+                include_history=False,
+            )[0]
             for profile in participants
         ]
-        manager_agent = Agent(
-            client=self.client,
-            name=self.manager_profile.name,
-            instructions=self.manager_profile.system_prompt,
-        )
-        workflow = GroupChatBuilder(
+        workflow = SequentialBuilder(
             participants=participant_agents,
-            orchestrator_agent=manager_agent,
-            max_rounds=4,
+            intermediate_outputs=True,
         ).build()
-        try:
-            result = await workflow.run(
-                message=Message(
-                    role="user", text=message, additional_properties={"request_id": request_id}
-                ),
-                include_status_events=True,
+        result = await workflow.run(
+            message=Message(
+                role="user", text=message, additional_properties={"request_id": request_id}
+            ),
+            include_status_events=True,
+        )
+        texts = self._extract_stage_outputs(result)
+        if len(texts) < len(participants):
+            raise ValueError(
+                f"Sequential workflow returned {len(texts)} outputs for {len(participants)} participants"
             )
-        except Exception as exc:
-            error_text = str(exc)
-            if "AgentOrchestrationOutput" not in error_text:
-                raise
-            debug_log(
-                "agent_manager_group_chat_output_fallback",
-                {
-                    "session_id": session_id,
-                    "request_id": request_id,
-                    "error": error_text,
-                },
+        return texts[: len(participants)]
+
+    def _extract_stage_outputs(self, result: Any) -> list[str]:
+        outputs = result.get_outputs()
+        stage_texts: list[str] = []
+        for output in outputs:
+            flattened = self._flatten_output_text(output)
+            if flattened:
+                stage_texts.append(flattened)
+        if stage_texts:
+            return stage_texts
+        timeline = getattr(result, "status_timeline", None)
+        if callable(timeline):
+            timeline_events = timeline()
+            if isinstance(timeline_events, list):
+                for event in timeline_events:
+                    value = getattr(event, "value", None)
+                    text = self._flatten_output_text(value)
+                    if text:
+                        stage_texts.append(text)
+        return stage_texts
+
+    def _flatten_output_text(self, value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, dict):
+            try:
+                return json.dumps(value)
+            except TypeError:
+                return str(value).strip()
+        if isinstance(value, list):
+            parts = [self._flatten_output_text(item) for item in value]
+            non_empty = [part for part in parts if part]
+            return non_empty[-1] if non_empty else ""
+        text = getattr(value, "text", None)
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+        message = getattr(value, "message", None)
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+        content = getattr(value, "content", None)
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+        output = getattr(value, "output", None)
+        if isinstance(output, str) and output.strip():
+            return output.strip()
+        return ""
+
+    def _is_invalid_worker_output(self, text: str) -> bool:
+        stripped = text.strip()
+        if not stripped:
+            return True
+        invalid_markers = [
+            "This is a deterministic two-stage",
+            "Stage 1 agent is the researcher",
+            "Stage 2 agent is the writer",
+            "<agent_framework._types.Message object",
+        ]
+        return any(marker in stripped for marker in invalid_markers)
+
+    def _is_invalid_writer_output(self, text: str, research_handoff: str) -> bool:
+        stripped = text.strip()
+        if self._is_invalid_worker_output(stripped):
+            return True
+        lowered = stripped.lower()
+        invalid_writer_markers = [
+            "researcher handoff",
+            "prepared for: stage 2 writer",
+            "verification points for writer",
+            "writer's notes",
+            "end of research handoff",
+        ]
+        if any(marker in lowered for marker in invalid_writer_markers):
+            return True
+        if self._normalized_similarity(stripped, research_handoff) >= 0.82:
+            return True
+        return False
+
+    def _is_invalid_tester_output(self, text: str, developer_handoff: str) -> bool:
+        stripped = text.strip()
+        if self._is_invalid_worker_output(stripped):
+            return True
+        lowered = stripped.lower()
+        invalid_tester_markers = [
+            "implementation handoff",
+            "source code snippet",
+            "artifact name",
+        ]
+        if any(marker in lowered for marker in invalid_tester_markers):
+            return True
+        if self._normalized_similarity(stripped, developer_handoff) >= 0.8:
+            return True
+        return False
+
+    def _normalized_similarity(self, left: str, right: str) -> float:
+        left_normalized = " ".join(left.lower().split())
+        right_normalized = " ".join(right.lower().split())
+        if not left_normalized or not right_normalized:
+            return 0.0
+        return SequenceMatcher(None, left_normalized, right_normalized).ratio()
+
+    def _parse_routing_decision(self, raw: str, *, source: str) -> RoutingDecision | None:
+        payload = self._extract_json_object(raw)
+        if payload is None:
+            return None
+        selected_agent_id = str(payload.get("selected_agent_id", "")).strip()
+        selected_role = str(payload.get("selected_role", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        execution_mode = str(payload.get("execution_mode", "")).strip()
+        if selected_agent_id not in {"agent_cto", "agent_informer"}:
+            return None
+        if selected_agent_id == "agent_cto" and selected_role != "cto":
+            return None
+        if selected_agent_id == "agent_informer" and selected_role != "informer":
+            return None
+        if execution_mode not in {WORKFLOW_SOFTWARE, WORKFLOW_INFORMATION}:
+            return None
+        if not reason:
+            return None
+        return RoutingDecision(
+            selected_agent_id=selected_agent_id,
+            selected_role=selected_role,
+            reason=reason,
+            execution_mode=execution_mode,
+            source=source,
+        )
+
+    def _extract_json_object(self, raw: str) -> dict[str, Any] | None:
+        text = raw.strip()
+        if not text:
+            return None
+        candidates = [text]
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            candidates.append(text[start : end + 1])
+        for candidate in candidates:
+            try:
+                payload = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                return payload
+        return None
+
+    def _fallback_route(self, message: str) -> RoutingDecision:
+        lowered = message.lower()
+        software_markers = [
+            "implement",
+            "code",
+            "build",
+            "debug",
+            "bug",
+            "fix",
+            "test",
+            "refactor",
+            "architecture",
+            "api",
+            "database",
+            "python",
+            "flask",
+            "frontend",
+            "backend",
+        ]
+        if any(marker in lowered for marker in software_markers):
+            return RoutingDecision(
+                selected_agent_id="agent_cto",
+                selected_role="cto",
+                reason="The request is primarily about implementing, debugging, or validating software work.",
+                execution_mode=WORKFLOW_SOFTWARE,
+                source="fallback",
             )
-            return GroupChatExtractionResult(
-                text="Group chat orchestration started, but the orchestrator did not emit a parseable final output.",
-                extracted=False,
-                source="orchestrator_parse_error",
+        return RoutingDecision(
+            selected_agent_id="agent_informer",
+            selected_role="informer",
+            reason="The request is best handled as research, explanation, or non-software writing.",
+            execution_mode=WORKFLOW_INFORMATION,
+            source="fallback",
+        )
+
+    def _pick_worker(self, role: str) -> AgentProfileModel:
+        matches = self.store.find_active_agents_by_role(role)
+        if matches:
+            return matches[0]
+        raise KeyError(f"No active agent found for role: {role}")
+
+    def _create_child_task(
+        self,
+        *,
+        request_id: str,
+        parent_task_id: str,
+        owner_profile: AgentProfileModel,
+        title: str,
+        summary: str,
+        task_type: str,
+        session_id: str,
+        started: bool = False,
+        status: str = TASK_STATUS_IN_PROGRESS,
+        dependencies: list[str] | None = None,
+        input_json: dict[str, Any] | None = None,
+    ) -> str:
+        task_id = make_id("task")
+        self.store.create_task(
+            task_id=task_id,
+            request_id=request_id,
+            parent_task_id=parent_task_id,
+            title=title,
+            summary=summary,
+            status=TASK_STATUS_CREATED,
+            owner_agent_id=owner_profile.id,
+            task_type=task_type,
+            dependencies=dependencies or [],
+            input_json=input_json or {},
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=task_id,
+            event_type="task_created",
+            payload={
+                "title": title,
+                "owner_agent_id": owner_profile.id,
+                "task_type": task_type,
+            },
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=task_id,
+            event_type="workflow_task_discovered",
+            payload={
+                "parent_task_id": parent_task_id,
+                "owner_agent_id": owner_profile.id,
+                "owner_agent_name": owner_profile.name,
+                "task_type": task_type,
+            },
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=task_id,
+            event_type="task_owner_assigned",
+            payload={
+                "owner_agent_id": owner_profile.id,
+                "owner_agent_name": owner_profile.name,
+                "task_type": task_type,
+            },
+        )
+        if status != TASK_STATUS_CREATED:
+            self._transition_task(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=task_id,
+                from_status=TASK_STATUS_CREATED,
+                to_status=status,
+                started_at=now_iso() if started else None,
+                event_type="task_started" if started else "task_state_set",
             )
-        return self._extract_text_from_workflow_result(result)
+        return task_id
+
+    def _transition_task(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        task_id: str,
+        from_status: str,
+        to_status: str,
+        started_at: str | None = None,
+        finished_at: str | None = None,
+        result_json: dict[str, Any] | None = None,
+        error_text: str | None = None,
+        event_type: str | None = None,
+        event_payload: dict[str, Any] | None = None,
+    ) -> None:
+        self.store.update_task(
+            task_id,
+            status=to_status,
+            started_at=started_at,
+            finished_at=finished_at,
+            result_json=result_json,
+            error_text=error_text,
+        )
+        payload = {
+            "from_status": from_status,
+            "to_status": to_status,
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "error": error_text,
+        }
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=task_id,
+            event_type="task_status_changed",
+            payload=payload,
+        )
+        if event_type is not None:
+            merged_payload = dict(payload)
+            if event_payload is not None:
+                merged_payload.update(event_payload)
+            self.store.create_task_event(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=task_id,
+                event_type=event_type,
+                payload=merged_payload,
+            )

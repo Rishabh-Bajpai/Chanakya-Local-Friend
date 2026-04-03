@@ -1,0 +1,314 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import chanakya.app as app_module
+from flask import Flask
+from pytest import MonkeyPatch
+from chanakya.app import create_app
+from chanakya.services import tool_loader
+
+
+class _ManagerStub:
+    def should_delegate(self, message: str) -> bool:
+        return False
+
+
+def _build_test_app(tmp_path: Path, monkeypatch: MonkeyPatch) -> Flask:
+    seed_dir = tmp_path / "chanakya" / "seeds"
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    (seed_dir / "agents.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "agent_chanakya",
+                    "name": "Chanakya",
+                    "role": "personal_assistant",
+                    "system_prompt": "You are Chanakya.",
+                    "personality": "calm",
+                    "tool_ids": [],
+                    "workspace": "main",
+                    "heartbeat_enabled": False,
+                    "heartbeat_interval_seconds": 300,
+                    "heartbeat_file_path": None,
+                    "is_active": True,
+                },
+                {
+                    "id": "agent_manager",
+                    "name": "Agent Manager",
+                    "role": "manager",
+                    "system_prompt": "You are the manager.",
+                    "personality": "structured",
+                    "tool_ids": [],
+                    "workspace": "manager",
+                    "heartbeat_enabled": False,
+                    "heartbeat_interval_seconds": 300,
+                    "heartbeat_file_path": None,
+                    "is_active": True,
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    database_path = tmp_path / "chanakya-test.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    monkeypatch.setattr(app_module, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(tool_loader, "initialize_all_tools", lambda: None)
+    monkeypatch.setattr(
+        tool_loader,
+        "get_tools_availability",
+        lambda: [
+            {
+                "tool_id": "mcp_fetch",
+                "status": "available",
+                "tool_name": "mcp_fetch",
+                "server_name": "fetch",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_tools_availability",
+        lambda: [
+            {
+                "tool_id": "mcp_fetch",
+                "status": "available",
+                "tool_name": "mcp_fetch",
+                "server_name": "fetch",
+            }
+        ],
+    )
+    monkeypatch.setattr(app_module, "MAFRuntime", lambda profile, session_factory: object())
+    monkeypatch.setattr(
+        app_module, "AgentManager", lambda store, session_factory, manager_profile: _ManagerStub()
+    )
+    return create_app()
+
+
+def test_agent_create_and_update_api_persists_configuration(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    create_response = client.post(
+        "/api/agents",
+        json={
+            "name": "Developer Alpha",
+            "role": "developer",
+            "system_prompt": "You are a strong implementation agent.",
+            "personality": "methodical, exact",
+            "tool_ids": [],
+            "workspace": "alpha-workspace",
+            "heartbeat_enabled": True,
+            "heartbeat_interval_seconds": 90,
+            "heartbeat_file_path": "chanakya_data/heartbeats/developer-alpha.md",
+            "is_active": True,
+        },
+    )
+
+    assert create_response.status_code == 201
+    created = create_response.get_json()
+    assert created["role"] == "developer"
+    assert created["workspace"] == "alpha-workspace"
+    assert created["heartbeat_enabled"] is True
+
+    heartbeat_file = tmp_path / "chanakya_data/heartbeats/developer-alpha.md"
+    assert heartbeat_file.exists()
+
+    update_response = client.put(
+        f"/api/agents/{created['id']}",
+        json={
+            "name": "Developer Alpha",
+            "role": "developer",
+            "system_prompt": "You are the updated implementation agent.",
+            "personality": "fast, careful",
+            "tool_ids": [],
+            "workspace": "updated-workspace",
+            "heartbeat_enabled": False,
+            "heartbeat_interval_seconds": 120,
+            "heartbeat_file_path": "chanakya_data/heartbeats/developer-alpha.md",
+            "is_active": False,
+        },
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.get_json()
+    assert updated["system_prompt"] == "You are the updated implementation agent."
+    assert updated["workspace"] == "updated-workspace"
+    assert updated["heartbeat_enabled"] is False
+    assert updated["is_active"] is False
+
+
+def test_agent_create_api_uses_unique_ids_for_duplicate_names(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    first = client.post(
+        "/api/agents",
+        json={
+            "name": "Developer Alpha",
+            "role": "developer",
+            "system_prompt": "You are a strong implementation agent.",
+            "personality": "methodical",
+            "tool_ids": [],
+            "workspace": None,
+            "heartbeat_enabled": False,
+            "heartbeat_interval_seconds": 90,
+            "heartbeat_file_path": None,
+            "is_active": True,
+        },
+    )
+    second = client.post(
+        "/api/agents",
+        json={
+            "name": "Developer Alpha",
+            "role": "developer",
+            "system_prompt": "You are another implementation agent.",
+            "personality": "careful",
+            "tool_ids": [],
+            "workspace": None,
+            "heartbeat_enabled": False,
+            "heartbeat_interval_seconds": 90,
+            "heartbeat_file_path": None,
+            "is_active": True,
+        },
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    first_payload = first.get_json()
+    second_payload = second.get_json()
+    assert first_payload["id"] != second_payload["id"]
+
+
+def test_agent_create_api_rejects_invalid_payload(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/agents",
+        json={
+            "name": "",
+            "role": "developer",
+            "system_prompt": "",
+            "tool_ids": "bad",
+            "heartbeat_enabled": True,
+            "heartbeat_interval_seconds": 0,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "error" in response.get_json()
+
+
+def test_agent_create_api_rejects_invalid_boolean_and_heartbeat_path(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    bad_bool = client.post(
+        "/api/agents",
+        json={
+            "name": "Bad Bool",
+            "role": "developer",
+            "system_prompt": "Prompt",
+            "personality": None,
+            "tool_ids": [],
+            "workspace": None,
+            "heartbeat_enabled": "false",
+            "heartbeat_interval_seconds": 30,
+            "heartbeat_file_path": None,
+            "is_active": True,
+        },
+    )
+    bad_path = client.post(
+        "/api/agents",
+        json={
+            "name": "Bad Path",
+            "role": "developer",
+            "system_prompt": "Prompt",
+            "personality": None,
+            "tool_ids": [],
+            "workspace": None,
+            "heartbeat_enabled": True,
+            "heartbeat_interval_seconds": 30,
+            "heartbeat_file_path": "../escape.md",
+            "is_active": True,
+        },
+    )
+    sneaky_path = client.post(
+        "/api/agents",
+        json={
+            "name": "Sneaky Path",
+            "role": "developer",
+            "system_prompt": "Prompt",
+            "personality": None,
+            "tool_ids": [],
+            "workspace": None,
+            "heartbeat_enabled": True,
+            "heartbeat_interval_seconds": 30,
+            "heartbeat_file_path": "chanakya_data/heartbeats/./../escape.md",
+            "is_active": True,
+        },
+    )
+
+    assert bad_bool.status_code == 400
+    assert bad_bool.get_json()["error"] == "heartbeat_enabled must be a boolean"
+    assert bad_path.status_code == 400
+    assert "heartbeat_file_path" in bad_path.get_json()["error"]
+    assert sneaky_path.status_code == 400
+    assert "heartbeat_file_path" in sneaky_path.get_json()["error"]
+
+
+def test_agent_create_api_accepts_null_optional_fields(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/agents",
+        json={
+            "name": "Null Friendly",
+            "role": "researcher",
+            "system_prompt": "Prompt",
+            "personality": None,
+            "tool_ids": [],
+            "workspace": None,
+            "heartbeat_enabled": False,
+            "heartbeat_interval_seconds": 45,
+            "heartbeat_file_path": None,
+            "is_active": True,
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["workspace"] is None
+    assert payload["heartbeat_file_path"] is None
+    assert payload["personality"] == ""
+
+
+def test_tools_availability_api_returns_payload(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.get("/api/tools/availability")
+
+    assert response.status_code == 200
+    assert "tools" in response.get_json()

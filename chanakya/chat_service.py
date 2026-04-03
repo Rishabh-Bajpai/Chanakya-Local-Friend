@@ -117,12 +117,8 @@ class ChatService:
             },
         )
 
-        should_delegate = (
-            self.manager.should_delegate(message) if self.manager is not None else False
-        )
-
         try:
-            if should_delegate and self.manager is not None:
+            if self.manager is not None:
                 manager_result = self.manager.execute(
                     session_id=session_id,
                     request_id=request_id,

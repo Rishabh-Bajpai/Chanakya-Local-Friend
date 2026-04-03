@@ -12,4 +12,7 @@ def load_agent_seeds(store: ChanakyaStore, seed_file: Path) -> None:
         return
     raw_items = json.loads(seed_file.read_text(encoding="utf-8"))
     for item in raw_items:
+        agent_id = str(item["id"])
+        if store.has_agent_profile(agent_id):
+            continue
         store.upsert_agent_profile(AgentProfileModel.from_seed(item))

@@ -559,6 +559,10 @@ class AgentProfileRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
 
+    def has_agent_profile(self, agent_id: str) -> bool:
+        with session_scope(self.Session) as session:
+            return session.get(AgentProfileModel, agent_id) is not None
+
     def upsert_agent_profile(self, profile: AgentProfileModel) -> None:
         with session_scope(self.Session) as session:
             row = session.get(AgentProfileModel, profile.id)
@@ -577,6 +581,46 @@ class AgentProfileRepository:
                 row.is_active = profile.is_active
                 row.updated_at = profile.updated_at
             session.commit()
+
+    def create_agent_profile(self, profile: AgentProfileModel) -> None:
+        with session_scope(self.Session) as session:
+            session.add(profile)
+            session.commit()
+
+    def update_agent_profile(
+        self,
+        agent_id: str,
+        *,
+        name: str,
+        role: str,
+        system_prompt: str,
+        personality: str,
+        tool_ids: list[str],
+        workspace: str | None,
+        heartbeat_enabled: bool,
+        heartbeat_interval_seconds: int,
+        heartbeat_file_path: str | None,
+        is_active: bool,
+    ) -> AgentProfileModel:
+        with session_scope(self.Session) as session:
+            row = session.get(AgentProfileModel, agent_id)
+            if row is None:
+                raise KeyError(f"Agent profile not found: {agent_id}")
+            row.name = name
+            row.role = role
+            row.system_prompt = system_prompt
+            row.personality = personality
+            row.tool_ids_json = tool_ids
+            row.workspace = workspace
+            row.heartbeat_enabled = heartbeat_enabled
+            row.heartbeat_interval_seconds = heartbeat_interval_seconds
+            row.heartbeat_file_path = heartbeat_file_path
+            row.is_active = is_active
+            row.updated_at = now_iso()
+            session.commit()
+            session.refresh(row)
+            session.expunge(row)
+            return row
 
     def list_agent_profiles(self) -> list[AgentProfileModel]:
         with session_scope(self.Session) as session:
@@ -745,6 +789,15 @@ class ChanakyaStore:
 
     def upsert_agent_profile(self, profile: AgentProfileModel) -> None:
         self.agents.upsert_agent_profile(profile)
+
+    def create_agent_profile(self, profile: AgentProfileModel) -> None:
+        self.agents.create_agent_profile(profile)
+
+    def update_agent_profile(self, agent_id: str, **kwargs: Any) -> AgentProfileModel:
+        return self.agents.update_agent_profile(agent_id, **kwargs)
+
+    def has_agent_profile(self, agent_id: str) -> bool:
+        return self.agents.has_agent_profile(agent_id)
 
     def list_agent_profiles(self) -> list[AgentProfileModel]:
         return self.agents.list_agent_profiles()

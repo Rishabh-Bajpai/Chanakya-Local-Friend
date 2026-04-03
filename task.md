@@ -102,9 +102,9 @@ Milestone 1 - Simple Chanakya Chat
 
 ### Milestone 5 - Persistent Agent Configuration
 
-- [ ] Add GUI for creating and editing persistent agents
-- [ ] Persist role, personality, tools, workspace, heartbeat settings
-- [ ] Use stored agents during manager selection
+- [X] Add GUI for creating and editing persistent agents
+- [X] Persist role, personality, tools, workspace, heartbeat settings
+- [X] Use stored agents during manager selection
 
 - Validation:
   - Create a developer and tester in GUI
@@ -149,6 +149,11 @@ Milestone 1 - Simple Chanakya Chat
 
 ### Milestone 10 - Hardening and Demo Flow
 
+- [ ] As of now, "should_delegate" is hardcoded. It uses keywords to delegate tasks. Use a better delegation strategy;
+      probably task-based routing would be best. If the request (and previous requests) are not relevant, then it should go to
+      the best possible agent.
+- [ ] Currently, task delegation works most of the time (when necessary keywords are present), but it is often the case that the LLM doesn't
+      return a valid JSON-like structured output. That case should be handled and the agent manager must hand it over to a different agent or retry on its own.
 - [ ] Add focused tests for routing, state transitions, tools, and scheduling
 - [ ] Improve GUI observability and operator controls
 - [ ] Document runbooks and demo steps
@@ -158,7 +163,8 @@ Milestone 1 - Simple Chanakya Chat
 - Completed: Milestone 1 foundation and simple chatbot
 - Completed: Milestone 3 domain foundation with persisted requests, tasks, lifecycle events, and GUI visibility
 - Completed: Milestone 4 agent manager delegation with a manager-supervised MAF chat workflow, delegated participant tasks, and GUI task graph rendering
-- Next: Milestone 5 persistent agent configuration after manager flow is visible
+- Completed: Milestone 5 persistent agent configuration with GUI create/edit flows, persisted settings, and manager selection from saved agents
+- Next: Milestone 6 temporary subagents after persistent agent editing is in place
 
 ## GUI Review Loop
 
@@ -227,3 +233,4 @@ Notes:
 - 2026-03-30: Fixed Milestone 3 panel restore/render issues by refreshing side panels after session history load and updating the right-side layout to allocate space for all five panels.
 - 2026-03-30: Updated `scripts/update_database.py` to include Milestone 3 request/task/task-event models for schema updates on existing databases.
 - 2026-03-31: Implemented Milestone 4 Agent Manager v1 with a seeded manager agent, manager-supervised MAF chat workflow, delegated participant task persistence, GUI task graph rendering, and focused delegation tests.
+- 2026-04-01: Completed Milestone 5 by making seeded agents bootstrap-only, adding persistent agent create/update APIs, extending the GUI with agent editing, ensuring heartbeat files on save, and adding focused tests for agent configuration and manager selection.

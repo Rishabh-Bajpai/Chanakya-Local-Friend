@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
+import re
 from typing import Any
 
 from flask import Flask, jsonify, render_template, request
@@ -12,9 +13,11 @@ from chanakya.chat_service import ChatService
 from chanakya.config import get_data_dir, get_database_url, load_local_env
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.debug import debug_log
-from chanakya.domain import make_id
-from chanakya.heartbeat import read_heartbeat
+from chanakya.domain import make_id, now_iso
+from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
+from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
+from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -195,6 +198,79 @@ def create_app() -> Flask:
         debug_log("api_agents_request", {"agent_count": len(agents)})
         return jsonify({"agents": agents})
 
+    @app.get("/api/tools/availability")
+    def api_tools_availability() -> Any:
+        tools = get_tools_availability()
+        return jsonify({"tools": tools})
+
+    @app.post("/api/agents")
+    def api_create_agent() -> Any:
+        payload = request.get_json(silent=True) or {}
+        try:
+            agent_data = _parse_agent_payload(payload)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        agent_id = _allocate_agent_profile_id(store, agent_data["name"])
+
+        profile = AgentProfileModel(
+            id=agent_id,
+            name=agent_data["name"],
+            role=agent_data["role"],
+            system_prompt=agent_data["system_prompt"],
+            personality=agent_data["personality"],
+            tool_ids_json=agent_data["tool_ids"],
+            workspace=agent_data["workspace"],
+            heartbeat_enabled=agent_data["heartbeat_enabled"],
+            heartbeat_interval_seconds=agent_data["heartbeat_interval_seconds"],
+            heartbeat_file_path=agent_data["heartbeat_file_path"],
+            is_active=agent_data["is_active"],
+            created_at=agent_data["timestamp"],
+            updated_at=agent_data["timestamp"],
+        )
+        store.create_agent_profile(profile)
+        ensure_heartbeat_file(profile, BASE_DIR)
+        store.log_event(
+            "agent_profile_created",
+            {"agent_id": profile.id, "role": profile.role, "name": profile.name},
+        )
+        payload = profile.to_public_dict()
+        payload["heartbeat_preview"] = read_heartbeat(profile, BASE_DIR).content_preview
+        return jsonify(payload), 201
+
+    @app.put("/api/agents/<agent_id>")
+    def api_update_agent(agent_id: str) -> Any:
+        payload = request.get_json(silent=True) or {}
+        try:
+            agent_data = _parse_agent_payload(payload)
+            profile = store.update_agent_profile(
+                agent_id,
+                name=agent_data["name"],
+                role=agent_data["role"],
+                system_prompt=agent_data["system_prompt"],
+                personality=agent_data["personality"],
+                tool_ids=agent_data["tool_ids"],
+                workspace=agent_data["workspace"],
+                heartbeat_enabled=agent_data["heartbeat_enabled"],
+                heartbeat_interval_seconds=agent_data["heartbeat_interval_seconds"],
+                heartbeat_file_path=agent_data["heartbeat_file_path"],
+                is_active=agent_data["is_active"],
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except KeyError as exc:
+            message = str(exc.args[0]) if exc.args else str(exc)
+            return jsonify({"error": message}), 404
+
+        ensure_heartbeat_file(profile, BASE_DIR)
+        store.log_event(
+            "agent_profile_updated",
+            {"agent_id": profile.id, "role": profile.role, "name": profile.name},
+        )
+        payload = profile.to_public_dict()
+        payload["heartbeat_preview"] = read_heartbeat(profile, BASE_DIR).content_preview
+        return jsonify(payload)
+
     @app.get("/api/tool-traces")
     def api_tool_traces() -> Any:
         """Return tool invocation traces, optionally filtered by session or request."""
@@ -219,27 +295,118 @@ def create_app() -> Flask:
 
 def ensure_heartbeat_files(store: ChanakyaStore, repo_root: Path) -> None:
     for profile in store.list_agent_profiles():
-        if not profile.heartbeat_file_path:
-            continue
-        target = repo_root / profile.heartbeat_file_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            continue
-        target.write_text(
-            (
-                f"# Heartbeat for {profile.name}\n\n"
-                "- Pending task check: none yet\n"
-                "- Notes: heartbeat execution will be added in Milestone 9\n"
-            ),
-            encoding="utf-8",
-        )
-        debug_log(
-            "heartbeat_file_created",
-            {
-                "agent_id": profile.id,
-                "path": str(target),
-            },
-        )
+        ensure_heartbeat_file(profile, repo_root)
+
+
+def ensure_heartbeat_file(profile: AgentProfileModel, repo_root: Path) -> None:
+    if not profile.heartbeat_file_path:
+        return
+    target = resolve_heartbeat_path(profile.heartbeat_file_path, repo_root)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        return
+    target.write_text(
+        (
+            f"# Heartbeat for {profile.name}\n\n"
+            "- Pending task check: none yet\n"
+            "- Notes: heartbeat execution will be added in Milestone 9\n"
+        ),
+        encoding="utf-8",
+    )
+    debug_log(
+        "heartbeat_file_created",
+        {
+            "agent_id": profile.id,
+            "path": str(target),
+        },
+    )
+
+
+def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    name = _parse_required_string(payload, "name")
+    role = _parse_required_string(payload, "role")
+    system_prompt = _parse_required_string(payload, "system_prompt")
+    personality = _parse_optional_string(payload, "personality")
+    workspace_value = _parse_optional_string(payload, "workspace")
+    heartbeat_path_value = _parse_optional_string(payload, "heartbeat_file_path")
+    raw_tool_ids = payload.get("tool_ids", [])
+    raw_interval = payload.get("heartbeat_interval_seconds", 300)
+
+    if not isinstance(raw_tool_ids, list) or any(
+        not isinstance(item, str) for item in raw_tool_ids
+    ):
+        raise ValueError("tool_ids must be a list of strings")
+
+    try:
+        heartbeat_interval_seconds = int(raw_interval)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("heartbeat_interval_seconds must be a positive integer") from exc
+    if heartbeat_interval_seconds <= 0:
+        raise ValueError("heartbeat_interval_seconds must be a positive integer")
+
+    heartbeat_enabled = _parse_required_bool(payload, "heartbeat_enabled", default=False)
+    heartbeat_file_path = heartbeat_path_value or None
+    if heartbeat_enabled and heartbeat_file_path is None:
+        raise ValueError("heartbeat_file_path is required when heartbeat is enabled")
+    if heartbeat_file_path is not None:
+        resolve_heartbeat_path(heartbeat_file_path, BASE_DIR)
+
+    return {
+        "name": name,
+        "role": role,
+        "system_prompt": system_prompt,
+        "personality": personality,
+        "tool_ids": [item.strip() for item in raw_tool_ids if item.strip()],
+        "workspace": workspace_value or None,
+        "heartbeat_enabled": heartbeat_enabled,
+        "heartbeat_interval_seconds": heartbeat_interval_seconds,
+        "heartbeat_file_path": heartbeat_file_path,
+        "is_active": _parse_required_bool(payload, "is_active", default=True),
+        "timestamp": now_iso(),
+    }
+
+
+def _make_agent_profile_id(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    return f"agent_{slug or make_id('agent')}"
+
+
+def _allocate_agent_profile_id(store: ChanakyaStore, name: str) -> str:
+    base_id = _make_agent_profile_id(name)
+    candidate = base_id
+    counter = 2
+    while store.has_agent_profile(candidate):
+        candidate = f"{base_id}_{counter}"
+        counter += 1
+    return candidate
+
+
+def _parse_required_string(payload: dict[str, Any], field_name: str) -> str:
+    value = payload.get(field_name, "")
+    if value is None or not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} is required")
+    return normalized
+
+
+def _parse_optional_string(payload: dict[str, Any], field_name: str) -> str:
+    value = payload.get(field_name)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string or null")
+    return value.strip()
+
+
+def _parse_required_bool(payload: dict[str, Any], field_name: str, *, default: bool) -> bool:
+    if field_name not in payload:
+        return default
+    value = payload[field_name]
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a boolean")
+    return value
 
 
 app = create_app()
