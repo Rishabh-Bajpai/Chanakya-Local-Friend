@@ -18,7 +18,13 @@ from chanakya.model import (
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
+    RequestModel,
+    TaskEventModel,
+    TaskModel,
+    TemporaryAgentModel,
     ToolInvocationModel,
+    WorkAgentSessionModel,
+    WorkModel,
 )
 
 
@@ -39,11 +45,17 @@ Session = sessionmaker(bind=engine)
 app = create_viewer_app()
 
 MODELS = {
+    "RequestModel": RequestModel,
+    "TaskModel": TaskModel,
+    "TaskEventModel": TaskEventModel,
+    "TemporaryAgentModel": TemporaryAgentModel,
     "ChatSessionModel": ChatSessionModel,
     "ChatMessageModel": ChatMessageModel,
     "AppEventModel": AppEventModel,
     "ToolInvocationModel": ToolInvocationModel,
     "AgentProfileModel": AgentProfileModel,
+    "WorkModel": WorkModel,
+    "WorkAgentSessionModel": WorkAgentSessionModel,
 }
 
 
@@ -69,6 +81,26 @@ def get_model_columns(mapper):
             }
         )
     return columns
+
+
+def apply_common_filters(model, query):
+    session_id = request.args.get("session_id", "").strip()
+    request_id = request.args.get("request_id", "").strip()
+    agent_id = request.args.get("agent_id", "").strip()
+
+    if session_id and hasattr(model, "session_id"):
+        query = query.filter(getattr(model, "session_id") == session_id)
+    if request_id and hasattr(model, "request_id"):
+        query = query.filter(getattr(model, "request_id") == request_id)
+    if agent_id:
+        if hasattr(model, "owner_agent_id"):
+            query = query.filter(getattr(model, "owner_agent_id") == agent_id)
+        elif hasattr(model, "parent_agent_id"):
+            query = query.filter(getattr(model, "parent_agent_id") == agent_id)
+        elif hasattr(model, "agent_id"):
+            query = query.filter(getattr(model, "agent_id") == agent_id)
+
+    return query
 
 
 VIEWER_HTML = """
@@ -125,6 +157,10 @@ VIEWER_HTML = """
     
     {% if current_model %}
         <h2>{{ current_model }}</h2>
+        <p style="margin-top: 0; color: #b8b8b8;">
+          Tip: user chat history lives in <code>ChatMessageModel</code>; delegated agent activity is mostly in
+          <code>RequestModel</code>, <code>TaskModel</code>, <code>TaskEventModel</code>, <code>ToolInvocationModel</code>, and <code>TemporaryAgentModel</code>.
+        </p>
         
         <div class="action-bar">
             <div class="action-group">
@@ -146,19 +182,37 @@ VIEWER_HTML = """
                         </select>
                     </label>
                     <input type="hidden" name="page" value="1"> 
+                    <input type="hidden" name="session_id" value="{{ filters.session_id }}">
+                    <input type="hidden" name="request_id" value="{{ filters.request_id }}">
+                    <input type="hidden" name="agent_id" value="{{ filters.agent_id }}">
                 </form>
                 
                 <span>Total: {{ total_count }}</span>
                 
                 <form action="" method="get" style="display: inline-flex; align-items: center; gap: 5px;">
                     <input type="hidden" name="limit" value="{{ limit }}">
+                    <input type="hidden" name="session_id" value="{{ filters.session_id }}">
+                    <input type="hidden" name="request_id" value="{{ filters.request_id }}">
+                    <input type="hidden" name="agent_id" value="{{ filters.agent_id }}">
                     <label>Page <input type="number" name="page" value="{{ page }}" min="1" max="{{ total_pages }}" style="width: 50px; text-align: center;"> of {{ total_pages }}</label>
                     <button type="submit" class="btn" style="padding: 2px 8px;">Go</button>
                 </form>
                 
-                <a href="{{ url_for('db_viewer', model_name=current_model, page=page-1, limit=limit) }}" class="btn {% if page <= 1 %}disabled{% endif %}">Previous</a>
-                <a href="{{ url_for('db_viewer', model_name=current_model, page=page+1, limit=limit) }}" class="btn {% if page >= total_pages %}disabled{% endif %}">Next</a>
+                <a href="{{ url_for('db_viewer', model_name=current_model, page=page-1, limit=limit, session_id=filters.session_id, request_id=filters.request_id, agent_id=filters.agent_id) }}" class="btn {% if page <= 1 %}disabled{% endif %}">Previous</a>
+                <a href="{{ url_for('db_viewer', model_name=current_model, page=page+1, limit=limit, session_id=filters.session_id, request_id=filters.request_id, agent_id=filters.agent_id) }}" class="btn {% if page >= total_pages %}disabled{% endif %}">Next</a>
             </div>
+        </div>
+
+        <div class="action-bar">
+            <form action="" method="get" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: 100%;">
+                <input type="hidden" name="limit" value="{{ limit }}">
+                <input type="hidden" name="page" value="1">
+                <label>session_id <input name="session_id" value="{{ filters.session_id }}" placeholder="session_123"></label>
+                <label>request_id <input name="request_id" value="{{ filters.request_id }}" placeholder="req_abc"></label>
+                <label>agent_id <input name="agent_id" value="{{ filters.agent_id }}" placeholder="agent_developer"></label>
+                <button type="submit" class="btn btn-primary">Apply Filters</button>
+                <a class="btn" href="{{ url_for('db_viewer', model_name=current_model, limit=limit, page=1) }}">Clear</a>
+            </form>
         </div>
 
         <div style="overflow-x: auto;">
@@ -446,9 +500,20 @@ def db_viewer(model_name=None):
 
         json_cols = [column["key"] for column in column_defs if column["is_json"]]
 
+        filters = {
+            "session_id": request.args.get("session_id", "").strip(),
+            "request_id": request.args.get("request_id", "").strip(),
+            "agent_id": request.args.get("agent_id", "").strip(),
+        }
+
         session = Session()
         try:
             query = session.query(model)
+            query = apply_common_filters(model, query)
+
+            if pk_keys:
+                query = query.order_by(getattr(model, pk_name).desc())
+
             total_count = query.count()
             total_pages = math.ceil(total_count / limit)
             if total_pages < 1:
@@ -481,6 +546,7 @@ def db_viewer(model_name=None):
             limit=limit,
             total_count=total_count,
             total_pages=total_pages,
+            filters=filters,
         )
 
     return render_template_string(VIEWER_HTML, models=MODELS.keys(), current_model=None)
