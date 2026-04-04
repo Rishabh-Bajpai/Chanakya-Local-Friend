@@ -185,11 +185,41 @@
         background: #1d1d1d;
         border: 1px solid #303030;
       }
+      .agent-msg pre {
+        margin: 6px 0 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 11px;
+      }
       .agent-msg.user {
         border-left: 3px solid #d86b4a;
       }
       .agent-msg.assistant {
         border-left: 3px solid #3a8a87;
+      }
+      .flow-wrap {
+        margin-top: 16px;
+        border-top: 1px solid var(--line);
+        padding-top: 12px;
+      }
+      .flow-item {
+        border: 1px solid #343434;
+        border-radius: 10px;
+        padding: 8px;
+        margin-bottom: 8px;
+        background: #161616;
+      }
+      .flow-meta {
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .flow-content {
+        margin-top: 6px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 11px;
       }
       .empty {
         color: var(--muted);
@@ -291,6 +321,17 @@
         chatLog.scrollTop = chatLog.scrollHeight;
       }
 
+      function formatAsPrettyJSON(text) {
+        if (typeof text !== "string") return "";
+        const trimmed = text.trim();
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return text;
+        try {
+          return JSON.stringify(JSON.parse(trimmed), null, 2);
+        } catch {
+          return text;
+        }
+      }
+
       function renderWorks() {
         if (!works.length) {
           workList.innerHTML = '<div class="empty">No works yet.</div>';
@@ -319,7 +360,7 @@
         });
       }
 
-      function renderAgentHistories(agentHistories) {
+      function renderAgentHistories(agentHistories, taskFlow, tasks) {
         if (!agentHistories.length) {
           historyList.innerHTML = '<div class="empty">No agent histories for this work.</div>';
           return;
@@ -337,16 +378,70 @@
             card.appendChild(empty);
             return card;
           }
-          messages.slice(-12).forEach((message) => {
+          messages.forEach((message) => {
             const msg = document.createElement("div");
             const role = message.role === "user" ? "user" : "assistant";
             msg.className = `agent-msg ${role}`;
-            msg.textContent = `${message.role}: ${message.content || ""}`;
+            const meta = document.createElement("div");
+            meta.className = "flow-meta";
+            const createdAt = message.created_at || "unknown-time";
+            const requestId = message.request_id || "no-request";
+            const route = message.route || "no-route";
+            meta.textContent = `${message.role} | ${createdAt} | ${requestId} | ${route}`;
+            const content = document.createElement("pre");
+            content.textContent = formatAsPrettyJSON(message.content || "");
+            msg.appendChild(meta);
+            msg.appendChild(content);
+            if (message.metadata && Object.keys(message.metadata).length > 0) {
+              const metadata = document.createElement("pre");
+              metadata.textContent = `metadata:\n${JSON.stringify(message.metadata, null, 2)}`;
+              msg.appendChild(metadata);
+            }
             card.appendChild(msg);
           });
           return card;
         });
-        historyList.replaceChildren(...cards);
+
+        const flowWrap = document.createElement("div");
+        flowWrap.className = "flow-wrap";
+        const flowTitle = document.createElement("h3");
+        flowTitle.textContent = "Task Flow";
+        flowWrap.appendChild(flowTitle);
+        const taskCount = document.createElement("div");
+        taskCount.className = "flow-meta";
+        taskCount.textContent = `Tasks: ${(tasks || []).length} | Events: ${(taskFlow || []).length}`;
+        flowWrap.appendChild(taskCount);
+        const flow = taskFlow || [];
+        if (!flow.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No task events yet.";
+          flowWrap.appendChild(empty);
+        } else {
+          flow.forEach((item) => {
+            const row = document.createElement("div");
+            row.className = "flow-item";
+            const meta = document.createElement("div");
+            meta.className = "flow-meta";
+            meta.textContent = `${item.created_at || "unknown-time"} | ${item.event_type || "unknown_event"} | ${item.owner_agent_name || item.owner_agent_id || "unknown-agent"} (${item.owner_agent_role || "unknown"}) | task=${item.task_id || "none"} | req=${item.request_id || "none"}`;
+            const content = document.createElement("div");
+            content.className = "flow-content";
+            const details = {
+              task_title: item.task_title,
+              task_type: item.task_type,
+              task_status: item.task_status,
+              task_parent_id: item.task_parent_id,
+              session_id: item.session_id,
+              payload: item.payload,
+            };
+            content.textContent = JSON.stringify(details, null, 2);
+            row.appendChild(meta);
+            row.appendChild(content);
+            flowWrap.appendChild(row);
+          });
+        }
+
+        historyList.replaceChildren(...cards, flowWrap);
       }
 
       async function loadWorks() {
@@ -365,7 +460,7 @@
         chatTitle.textContent = data.work.title;
         chatSubtitle.textContent = data.work.description || "Work-scoped chat with Chanakya.";
         renderChatFromHistory(data.agent_histories || []);
-        renderAgentHistories(data.agent_histories || []);
+        renderAgentHistories(data.agent_histories || [], data.task_flow || [], data.tasks || []);
       }
 
       async function selectWork(workId) {

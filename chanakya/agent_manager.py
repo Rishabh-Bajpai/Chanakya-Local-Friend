@@ -1680,12 +1680,24 @@ class AgentManager:
     def _run_route_prompt(self, prompt: str) -> str:
         if self.route_runner is not None:
             return str(self.route_runner(prompt))
-        return self._run_profile_prompt(self.manager_profile, prompt)
+        return self._run_profile_prompt(
+            self.manager_profile,
+            prompt,
+            include_history=False,
+            store=False,
+            use_work_session=False,
+        )
 
     def _run_summary_prompt(self, prompt: str) -> str:
         if self.summary_runner is not None:
             return str(self.summary_runner(prompt))
-        return self._run_profile_prompt(self.manager_profile, prompt)
+        return self._run_profile_prompt(
+            self.manager_profile,
+            prompt,
+            include_history=False,
+            store=False,
+            use_work_session=False,
+        )
 
     def _decide_worker_clarification(
         self,
@@ -1707,7 +1719,13 @@ class AgentManager:
         raw = (
             str(self.clarification_runner(worker_profile, prompt))
             if self.clarification_runner is not None
-            else self._run_profile_prompt(worker_profile, prompt)
+            else self._run_profile_prompt(
+                worker_profile,
+                prompt,
+                include_history=False,
+                store=False,
+                use_work_session=False,
+            )
         )
         parsed = self._parse_json_object_relaxed(raw)
         if isinstance(parsed, dict) and bool(parsed.get("needs_input")):
@@ -1825,6 +1843,14 @@ class AgentManager:
     ) -> str:
         if self.specialist_runner is not None:
             return str(self.specialist_runner(profile, prompt, step))
+        if step == "brief":
+            return self._run_profile_prompt(
+                profile,
+                prompt,
+                include_history=False,
+                store=False,
+                use_work_session=False,
+            )
         return self._run_profile_prompt(profile, prompt)
 
     def _run_writer_recovery(
@@ -1885,8 +1911,24 @@ class AgentManager:
             )
         return recovered
 
-    def _run_profile_prompt(self, profile: AgentProfileModel, prompt: str) -> str:
-        return run_in_maf_loop(self._run_profile_prompt_async(profile, prompt))
+    def _run_profile_prompt(
+        self,
+        profile: AgentProfileModel,
+        prompt: str,
+        *,
+        include_history: bool | None = None,
+        store: bool | None = None,
+        use_work_session: bool = True,
+    ) -> str:
+        return run_in_maf_loop(
+            self._run_profile_prompt_async(
+                profile,
+                prompt,
+                include_history=include_history,
+                store=store,
+                use_work_session=use_work_session,
+            )
+        )
 
     def _run_subagent_plan_prompt(
         self,
@@ -1901,7 +1943,13 @@ class AgentManager:
         )
         if self.subagent_plan_runner is not None:
             return str(self.subagent_plan_runner(worker_profile, prompt))
-        return self._run_profile_prompt(worker_profile, prompt)
+        return self._run_profile_prompt(
+            worker_profile,
+            prompt,
+            include_history=False,
+            store=False,
+            use_work_session=False,
+        )
 
     def _run_subagent_decision_prompt(
         self,
@@ -1916,7 +1964,13 @@ class AgentManager:
         )
         if self.subagent_decision_runner is not None:
             return str(self.subagent_decision_runner(worker_profile, prompt))
-        return self._run_profile_prompt(worker_profile, prompt)
+        return self._run_profile_prompt(
+            worker_profile,
+            prompt,
+            include_history=False,
+            store=False,
+            use_work_session=False,
+        )
 
     def _run_worker_with_optional_subagents(
         self,
@@ -2174,14 +2228,30 @@ class AgentManager:
             session_title=fallback_title,
         )
 
-    async def _run_profile_prompt_async(self, profile: AgentProfileModel, prompt: str) -> str:
+    async def _run_profile_prompt_async(
+        self,
+        profile: AgentProfileModel,
+        prompt: str,
+        *,
+        include_history: bool | None,
+        store: bool | None,
+        use_work_session: bool,
+    ) -> str:
+        if include_history is None:
+            include_history = bool(_ACTIVE_WORK_ID.get()) and use_work_session
+        if store is None:
+            store = include_history
         agent, _ = build_profile_agent(
             profile,
             self.session_factory,
             client=self.client,
-            include_history=True,
+            include_history=include_history,
         )
-        profile_session_id = self._resolve_profile_session_id(profile)
+        profile_session_id = (
+            self._resolve_profile_session_id(profile)
+            if include_history and use_work_session
+            else None
+        )
         session = (
             None
             if profile_session_id is None
@@ -2193,7 +2263,7 @@ class AgentManager:
             agent.run(
                 Message(role="user", text=prompt),
                 session=session,
-                options={"store": True},
+                options={"store": store},
             ),
             timeout=get_agent_request_timeout_seconds(),
         )

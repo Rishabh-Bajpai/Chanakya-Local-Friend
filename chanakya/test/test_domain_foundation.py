@@ -14,6 +14,7 @@ from chanakya.domain import (
     TASK_STATUS_IN_PROGRESS,
 )
 from chanakya.model import AgentProfileModel
+from chanakya.history_provider import SQLAlchemyHistoryProvider
 from chanakya.store import ChanakyaStore
 
 
@@ -158,3 +159,27 @@ def test_update_task_preserves_error_until_non_failed_transition() -> None:
 
     store.update_task("task_1", status=TASK_STATUS_IN_PROGRESS)
     assert store.list_tasks(session_id="session_3", root_only=True)[0]["error"] is None
+
+
+def test_history_provider_filters_control_json_messages() -> None:
+    row = type(
+        "Row",
+        (),
+        {
+            "role": "assistant",
+            "content": '{"should_create_subagents": false, "reason": "not needed"}',
+            "metadata_json": {},
+        },
+    )()
+    assert SQLAlchemyHistoryProvider._is_control_history_row(row) is True
+
+    normal_row = type(
+        "Row",
+        (),
+        {
+            "role": "assistant",
+            "content": "Here is the final report.",
+            "metadata_json": {},
+        },
+    )()
+    assert SQLAlchemyHistoryProvider._is_control_history_row(normal_row) is False

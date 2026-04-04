@@ -379,16 +379,93 @@ def create_app() -> Flask:
             return jsonify({"error": message}), 404
         mappings = store.list_work_agent_sessions(work_id)
         grouped = []
+        mapped_session_ids: list[str] = []
+        agent_name_by_id: dict[str, str] = {}
+        agent_role_by_id: dict[str, str] = {}
         for mapping in mappings:
+            session_id = str(mapping.get("session_id") or "")
+            messages = store.list_messages(session_id)
+            if session_id:
+                mapped_session_ids.append(session_id)
+            agent_id = str(mapping.get("agent_id") or "")
+            if agent_id:
+                agent_name = mapping.get("agent_name")
+                agent_role = mapping.get("agent_role")
+                if isinstance(agent_name, str) and agent_name.strip():
+                    agent_name_by_id[agent_id] = agent_name
+                if isinstance(agent_role, str) and agent_role.strip():
+                    agent_role_by_id[agent_id] = agent_role
             grouped.append(
                 {
                     "agent_id": mapping.get("agent_id"),
                     "agent_name": mapping.get("agent_name"),
                     "agent_role": mapping.get("agent_role"),
-                    "session_id": mapping.get("session_id"),
-                    "messages": store.list_messages(str(mapping.get("session_id") or "")),
+                    "session_id": session_id,
+                    "message_count": len(messages),
+                    "messages": messages,
                 }
             )
+        for profile in store.list_agent_profiles():
+            if profile.id not in agent_name_by_id:
+                agent_name_by_id[profile.id] = profile.name
+            if profile.id not in agent_role_by_id:
+                agent_role_by_id[profile.id] = profile.role
+        unique_session_ids = list(dict.fromkeys(mapped_session_ids))
+
+        tasks_by_id: dict[str, dict[str, Any]] = {}
+        task_flow = []
+        for session_id in unique_session_ids:
+            tasks = store.list_tasks(session_id=session_id, limit=500)
+            for task in tasks:
+                task_id = str(task.get("id") or "")
+                if not task_id:
+                    continue
+                if task_id not in tasks_by_id:
+                    owner_agent_id = str(task.get("owner_agent_id") or "")
+                    task_copy = dict(task)
+                    task_copy["owner_agent_name"] = agent_name_by_id.get(owner_agent_id)
+                    task_copy["owner_agent_role"] = agent_role_by_id.get(owner_agent_id)
+                    tasks_by_id[task_id] = task_copy
+            events = store.list_task_events(session_id=session_id, limit=1000)
+            for event in events:
+                task_id = str(event.get("task_id") or "")
+                linked_task = tasks_by_id.get(task_id)
+                owner_agent_id = ""
+                if linked_task is not None:
+                    owner_agent_id = str(linked_task.get("owner_agent_id") or "")
+                task_flow.append(
+                    {
+                        "event_id": event.get("id"),
+                        "created_at": event.get("created_at"),
+                        "event_type": event.get("event_type"),
+                        "session_id": event.get("session_id"),
+                        "request_id": event.get("request_id"),
+                        "task_id": task_id or None,
+                        "payload": event.get("payload"),
+                        "task_title": None if linked_task is None else linked_task.get("title"),
+                        "task_type": None if linked_task is None else linked_task.get("task_type"),
+                        "task_status": None if linked_task is None else linked_task.get("status"),
+                        "task_parent_id": (
+                            None if linked_task is None else linked_task.get("parent_task_id")
+                        ),
+                        "owner_agent_id": owner_agent_id or None,
+                        "owner_agent_name": agent_name_by_id.get(owner_agent_id),
+                        "owner_agent_role": agent_role_by_id.get(owner_agent_id),
+                    }
+                )
+        task_flow.sort(
+            key=lambda item: (
+                str(item.get("created_at") or ""),
+                int(item.get("event_id") or 0),
+            )
+        )
+        task_records = sorted(
+            tasks_by_id.values(),
+            key=lambda item: (
+                str(item.get("created_at") or ""),
+                str(item.get("id") or ""),
+            ),
+        )
         return jsonify(
             {
                 "work": {
@@ -400,6 +477,8 @@ def create_app() -> Flask:
                     "updated_at": work_record.updated_at,
                 },
                 "agent_histories": grouped,
+                "task_flow": task_flow,
+                "tasks": task_records,
             }
         )
 
