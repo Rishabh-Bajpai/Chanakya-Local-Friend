@@ -23,12 +23,16 @@ from chanakya.model import (
     TaskModel,
     TemporaryAgentModel,
     ToolInvocationModel,
+    WorkAgentSessionModel,
+    WorkModel,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 TARGET_MODELS = [
+    WorkModel,
+    WorkAgentSessionModel,
     ChatSessionModel,
     ChatMessageModel,
     AppEventModel,

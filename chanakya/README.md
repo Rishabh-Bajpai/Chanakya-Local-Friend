@@ -311,7 +311,8 @@ python scripts/clear_database.py
 Notes:
 
 - These scripts use `DATABASE_URL` if set, otherwise they default to `chanakya_data/chanakya.db`.
-- `scripts/db_viewer.py` exposes `ChatSessionModel`, `ChatMessageModel`, `AppEventModel`, `ToolInvocationModel`, and `AgentProfileModel` at `http://localhost:5013`.
+- `scripts/db_viewer.py` exposes core tables (`RequestModel`, `TaskModel`, `TaskEventModel`, `ToolInvocationModel`, `TemporaryAgentModel`, `ChatMessageModel`, etc.) at `http://localhost:5014`.
+- `scripts/db_viewer.py` supports `session_id`, `request_id`, and `agent_id` filters in the UI to inspect delegation flows.
 - `scripts/clear_database.py` is destructive and prompts twice before deleting data.
 
 ### Smoke Tests

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import json
 from typing import Any
 
 from agent_framework import BaseHistoryProvider, Message
@@ -54,7 +55,31 @@ class SQLAlchemyHistoryProvider(BaseHistoryProvider):
                 additional_properties=dict(row.metadata_json or {}),
             )
             for row in rows
+            if not self._is_control_history_row(row)
         ]
+
+    @staticmethod
+    def _is_control_history_row(row: ChatMessageModel) -> bool:
+        metadata = dict(row.metadata_json or {})
+        if metadata.get("history_control") is True:
+            return True
+        if row.role != "assistant":
+            return False
+        content = (row.content or "").strip()
+        if not content.startswith("{"):
+            return False
+        try:
+            payload = json.loads(content)
+        except Exception:
+            return False
+        if not isinstance(payload, dict):
+            return False
+        control_keys = {
+            "selected_agent_id",
+            "should_create_subagents",
+            "needs_input",
+        }
+        return any(key in payload for key in control_keys)
 
     async def after_run(
         self,

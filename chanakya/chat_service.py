@@ -96,7 +96,7 @@ class ChatService:
             )
             return "delegate"
 
-    def chat(self, session_id: str, message: str) -> ChatReply:
+    def chat(self, session_id: str, message: str, *, work_id: str | None = None) -> ChatReply:
         request_id = make_id("req")
         root_task_id = make_id("task")
         runtime_meta = self.runtime.runtime_metadata()
@@ -201,11 +201,19 @@ class ChatService:
 
             if use_manager:
                 manager_result = self.manager.execute(
+                context_tokens = self.manager.bind_execution_context(
                     session_id=session_id,
-                    request_id=request_id,
-                    root_task_id=root_task_id,
-                    message=message,
+                    work_id=work_id,
                 )
+                try:
+                    manager_result = self.manager.execute(
+                        session_id=session_id,
+                        request_id=request_id,
+                        root_task_id=root_task_id,
+                        message=message,
+                    )
+                finally:
+                    self.manager.reset_execution_context(context_tokens)
                 run_result = None
             else:
                 manager_result = None
@@ -386,6 +394,7 @@ class ChatService:
         reply = ChatReply(
             request_id=request_id,
             session_id=session_id,
+            work_id=work_id,
             route=route,
             message=final_message,
             request_status=request_status,
@@ -413,6 +422,7 @@ class ChatService:
             {
                 "request_id": request_id,
                 "session_id": session_id,
+                "work_id": work_id,
                 "route": route,
                 "runtime": reply.runtime,
                 "agent_name": reply.agent_name,
@@ -446,6 +456,10 @@ class ChatService:
             raise ValueError("Only the blocked worker task can accept user input")
         request = self.store.get_request(task.request_id)
         session_id = request.session_id
+        work_id = self.store.find_work_id_by_session(
+            agent_id=self.runtime.profile.id,
+            session_id=session_id,
+        )
         runtime_meta = self.runtime.runtime_metadata()
         root_task_id = request.root_task_id
         if root_task_id is None:
@@ -484,11 +498,18 @@ class ChatService:
             request_id=request.id,
             metadata={"input_target_task_id": task_id, "input_submission": True},
         )
-        result = self.manager.resume_waiting_input(
+        context_tokens = self.manager.bind_execution_context(
             session_id=session_id,
-            task_id=task_id,
-            message=message,
+            work_id=work_id,
         )
+        try:
+            result = self.manager.resume_waiting_input(
+                session_id=session_id,
+                task_id=task_id,
+                message=message,
+            )
+        finally:
+            self.manager.reset_execution_context(context_tokens)
         request_status = self._request_status_from_task_status(result.task_status)
         finished_at = None if result.task_status == TASK_STATUS_WAITING_INPUT else now_iso()
         if result.task_status != TASK_STATUS_WAITING_INPUT:
@@ -545,6 +566,7 @@ class ChatService:
         return ChatReply(
             request_id=request.id,
             session_id=session_id,
+            work_id=work_id,
             route="delegated_manager",
             message=result.text,
             request_status=request_status,

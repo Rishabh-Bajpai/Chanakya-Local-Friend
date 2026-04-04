@@ -17,6 +17,8 @@ from chanakya.model import (
     TaskModel,
     TemporaryAgentModel,
     ToolInvocationModel,
+    WorkAgentSessionModel,
+    WorkModel,
 )
 
 
@@ -648,6 +650,154 @@ class AgentProfileRepository:
         return cast(list[AgentProfileModel], rows)
 
 
+class WorkRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def create_work(
+        self,
+        *,
+        work_id: str,
+        title: str,
+        description: str | None = None,
+        status: str = "active",
+    ) -> None:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            session.add(
+                WorkModel(
+                    id=work_id,
+                    title=title,
+                    description=description,
+                    status=status,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+            )
+            session.commit()
+
+    def list_works(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(WorkModel).order_by(WorkModel.updated_at.desc()).limit(limit)
+            ).all()
+        records = [
+            {
+                "id": row.id,
+                "title": row.title,
+                "description": row.description,
+                "status": row.status,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+            for row in rows
+        ]
+        records.reverse()
+        return records
+
+    def get_work(self, work_id: str) -> WorkModel:
+        with session_scope(self.Session) as session:
+            row = session.get(WorkModel, work_id)
+        if row is None:
+            raise KeyError(f"Work not found: {work_id}")
+        return row
+
+
+class WorkAgentSessionRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def ensure_work_agent_session(
+        self,
+        *,
+        work_id: str,
+        agent_id: str,
+        session_id: str,
+        session_title: str,
+    ) -> str:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            existing = session.scalars(
+                select(WorkAgentSessionModel)
+                .where(WorkAgentSessionModel.work_id == work_id)
+                .where(WorkAgentSessionModel.agent_id == agent_id)
+                .limit(1)
+            ).first()
+            if existing is not None:
+                existing.updated_at = timestamp
+                session.commit()
+                return existing.session_id
+
+            chat_session = session.get(ChatSessionModel, session_id)
+            if chat_session is None:
+                session.add(
+                    ChatSessionModel(
+                        id=session_id,
+                        title=session_title,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
+                )
+            session.add(
+                WorkAgentSessionModel(
+                    work_id=work_id,
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+            )
+            session.commit()
+            return session_id
+
+    def list_work_agent_sessions(self, work_id: str) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.execute(
+                select(
+                    WorkAgentSessionModel,
+                    AgentProfileModel.name,
+                    AgentProfileModel.role,
+                    ChatSessionModel.updated_at,
+                )
+                .join(
+                    AgentProfileModel,
+                    WorkAgentSessionModel.agent_id == AgentProfileModel.id,
+                    isouter=True,
+                )
+                .join(
+                    ChatSessionModel,
+                    WorkAgentSessionModel.session_id == ChatSessionModel.id,
+                    isouter=True,
+                )
+                .where(WorkAgentSessionModel.work_id == work_id)
+                .order_by(WorkAgentSessionModel.agent_id.asc())
+            ).all()
+        return [
+            {
+                "id": mapping.id,
+                "work_id": mapping.work_id,
+                "agent_id": mapping.agent_id,
+                "agent_name": agent_name,
+                "agent_role": agent_role,
+                "session_id": mapping.session_id,
+                "session_updated_at": session_updated_at,
+                "created_at": mapping.created_at,
+                "updated_at": mapping.updated_at,
+            }
+            for mapping, agent_name, agent_role, session_updated_at in rows
+        ]
+
+    def find_work_id_by_session(self, *, agent_id: str, session_id: str) -> str | None:
+        with session_scope(self.Session) as session:
+            row = session.scalars(
+                select(WorkAgentSessionModel)
+                .where(WorkAgentSessionModel.agent_id == agent_id)
+                .where(WorkAgentSessionModel.session_id == session_id)
+                .limit(1)
+            ).first()
+        return None if row is None else row.work_id
+
+
 class TemporaryAgentRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
@@ -721,12 +871,59 @@ class ChanakyaStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
         self.chat = ChatRepository(session_factory)
+        self.works = WorkRepository(session_factory)
+        self.work_agent_sessions = WorkAgentSessionRepository(session_factory)
         self.requests = RequestRepository(session_factory)
         self.tasks = TaskRepository(session_factory)
         self.events = EventRepository(session_factory)
         self.tools = ToolInvocationRepository(session_factory)
         self.agents = AgentProfileRepository(session_factory)
         self.temporary_agents = TemporaryAgentRepository(session_factory)
+
+    def create_work(
+        self,
+        *,
+        work_id: str,
+        title: str,
+        description: str | None = None,
+        status: str = "active",
+    ) -> None:
+        self.works.create_work(
+            work_id=work_id,
+            title=title,
+            description=description,
+            status=status,
+        )
+
+    def list_works(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        return self.works.list_works(limit=limit)
+
+    def get_work(self, work_id: str) -> WorkModel:
+        return self.works.get_work(work_id)
+
+    def ensure_work_agent_session(
+        self,
+        *,
+        work_id: str,
+        agent_id: str,
+        session_id: str,
+        session_title: str,
+    ) -> str:
+        return self.work_agent_sessions.ensure_work_agent_session(
+            work_id=work_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            session_title=session_title,
+        )
+
+    def list_work_agent_sessions(self, work_id: str) -> list[dict[str, Any]]:
+        return self.work_agent_sessions.list_work_agent_sessions(work_id)
+
+    def find_work_id_by_session(self, *, agent_id: str, session_id: str) -> str | None:
+        return self.work_agent_sessions.find_work_id_by_session(
+            agent_id=agent_id,
+            session_id=session_id,
+        )
 
     def create_session(self, session_id: str, title: str) -> None:
         self.chat.create_session(session_id, title)

@@ -168,15 +168,41 @@ def create_app() -> Flask:
             force_subagents_enabled=force_subagents_enabled(),
         )
 
+    @app.get("/work")
+    def work() -> str:
+        return render_template(
+            "work.html",
+            force_subagents_enabled=force_subagents_enabled(),
+        )
+
     @app.post("/api/chat")
     def api_chat() -> Any:
         payload = request.get_json(silent=True) or {}
-        session_id = str(payload.get("session_id") or make_id("session"))
+        raw_work_id = payload.get("work_id")
+        work_id = str(raw_work_id).strip() if raw_work_id is not None else None
+        if work_id == "":
+            work_id = None
+        raw_session_id = payload.get("session_id")
+        if work_id is not None:
+            try:
+                work_record = store.get_work(work_id)
+            except KeyError as exc:
+                message = str(exc.args[0]) if exc.args else str(exc)
+                return jsonify({"error": message}), 404
+            session_id = store.ensure_work_agent_session(
+                work_id=work_id,
+                agent_id="agent_chanakya",
+                session_id=make_id("session"),
+                session_title=f"{work_record.title} - Chanakya",
+            )
+        else:
+            session_id = str(raw_session_id or make_id("session"))
         message = str(payload.get("message", "")).strip()
         debug_log(
             "api_chat_request",
             {
                 "session_id": session_id,
+                "work_id": work_id,
                 "message": message,
                 "has_existing_session": bool(payload.get("session_id")),
             },
@@ -185,7 +211,7 @@ def create_app() -> Flask:
             return jsonify({"error": "message is required"}), 400
         store.ensure_session(session_id, title=message[:60] or "New chat")
         try:
-            reply = chat_service.chat(session_id, message)
+            reply = chat_service.chat(session_id, message, work_id=work_id)
         except Exception as exc:
             debug_log(
                 "api_chat_error",
@@ -365,6 +391,209 @@ def create_app() -> Flask:
         )
         debug_log("api_subagents_request", {"subagent_count": len(subagents)})
         return jsonify({"subagents": subagents})
+
+    @app.post("/api/works")
+    def api_create_work() -> Any:
+        payload = request.get_json(silent=True) or {}
+        try:
+            title = _parse_required_string(payload, "title")
+            description = _parse_optional_string(payload, "description") or None
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        work_id = make_id("work")
+        store.create_work(
+            work_id=work_id,
+            title=title,
+            description=description,
+            status="active",
+        )
+        active_profiles = [profile for profile in store.list_agent_profiles() if profile.is_active]
+        for profile in active_profiles:
+            store.ensure_work_agent_session(
+                work_id=work_id,
+                agent_id=profile.id,
+                session_id=make_id("session"),
+                session_title=f"{title} - {profile.name}",
+            )
+        store.log_event(
+            "work_created",
+            {
+                "work_id": work_id,
+                "title": title,
+                "description": description,
+                "agent_session_count": len(active_profiles),
+            },
+        )
+        return jsonify(
+            {
+                "id": work_id,
+                "title": title,
+                "description": description,
+                "status": "active",
+                "agent_session_count": len(active_profiles),
+            }
+        ), 201
+
+    @app.get("/api/works")
+    def api_list_works() -> Any:
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
+        works = store.list_works(limit=limit)
+        return jsonify({"works": works})
+
+    @app.get("/api/works/<work_id>/sessions")
+    def api_work_sessions(work_id: str) -> Any:
+        try:
+            work_record = store.get_work(work_id)
+        except KeyError as exc:
+            message = str(exc.args[0]) if exc.args else str(exc)
+            return jsonify({"error": message}), 404
+        sessions = store.list_work_agent_sessions(work_id)
+        return jsonify(
+            {
+                "work": {
+                    "id": work_record.id,
+                    "title": work_record.title,
+                    "description": work_record.description,
+                    "status": work_record.status,
+                    "created_at": work_record.created_at,
+                    "updated_at": work_record.updated_at,
+                },
+                "sessions": sessions,
+            }
+        )
+
+    @app.get("/api/works/<work_id>/history")
+    def api_work_history(work_id: str) -> Any:
+        try:
+            work_record = store.get_work(work_id)
+        except KeyError as exc:
+            message = str(exc.args[0]) if exc.args else str(exc)
+            return jsonify({"error": message}), 404
+        raw_task_limit = request.args.get("task_limit", "2000")
+        raw_event_limit = request.args.get("event_limit", "5000")
+        try:
+            task_limit = int(raw_task_limit)
+        except (TypeError, ValueError):
+            task_limit = 2000
+        try:
+            event_limit = int(raw_event_limit)
+        except (TypeError, ValueError):
+            event_limit = 5000
+        task_limit = max(100, min(task_limit, 10000))
+        event_limit = max(100, min(event_limit, 20000))
+        mappings = store.list_work_agent_sessions(work_id)
+        grouped = []
+        mapped_session_ids: list[str] = []
+        agent_name_by_id: dict[str, str] = {}
+        agent_role_by_id: dict[str, str] = {}
+        for mapping in mappings:
+            session_id = str(mapping.get("session_id") or "")
+            messages = store.list_messages(session_id)
+            if session_id:
+                mapped_session_ids.append(session_id)
+            agent_id = str(mapping.get("agent_id") or "")
+            if agent_id:
+                agent_name = mapping.get("agent_name")
+                agent_role = mapping.get("agent_role")
+                if isinstance(agent_name, str) and agent_name.strip():
+                    agent_name_by_id[agent_id] = agent_name
+                if isinstance(agent_role, str) and agent_role.strip():
+                    agent_role_by_id[agent_id] = agent_role
+            grouped.append(
+                {
+                    "agent_id": mapping.get("agent_id"),
+                    "agent_name": mapping.get("agent_name"),
+                    "agent_role": mapping.get("agent_role"),
+                    "session_id": session_id,
+                    "message_count": len(messages),
+                    "messages": messages,
+                }
+            )
+        for profile in store.list_agent_profiles():
+            if profile.id not in agent_name_by_id:
+                agent_name_by_id[profile.id] = profile.name
+            if profile.id not in agent_role_by_id:
+                agent_role_by_id[profile.id] = profile.role
+        unique_session_ids = list(dict.fromkeys(mapped_session_ids))
+
+        tasks_by_id: dict[str, dict[str, Any]] = {}
+        task_flow = []
+        for session_id in unique_session_ids:
+            tasks = store.list_tasks(session_id=session_id, limit=task_limit)
+            for task in tasks:
+                task_id = str(task.get("id") or "")
+                if not task_id:
+                    continue
+                if task_id not in tasks_by_id:
+                    owner_agent_id = str(task.get("owner_agent_id") or "")
+                    task_copy = dict(task)
+                    task_copy["owner_agent_name"] = agent_name_by_id.get(owner_agent_id)
+                    task_copy["owner_agent_role"] = agent_role_by_id.get(owner_agent_id)
+                    tasks_by_id[task_id] = task_copy
+            events = store.list_task_events(session_id=session_id, limit=event_limit)
+            for event in events:
+                task_id = str(event.get("task_id") or "")
+                linked_task = tasks_by_id.get(task_id)
+                owner_agent_id = ""
+                if linked_task is not None:
+                    owner_agent_id = str(linked_task.get("owner_agent_id") or "")
+                task_flow.append(
+                    {
+                        "event_id": event.get("id"),
+                        "created_at": event.get("created_at"),
+                        "event_type": event.get("event_type"),
+                        "session_id": event.get("session_id"),
+                        "request_id": event.get("request_id"),
+                        "task_id": task_id or None,
+                        "payload": event.get("payload"),
+                        "task_title": None if linked_task is None else linked_task.get("title"),
+                        "task_type": None if linked_task is None else linked_task.get("task_type"),
+                        "task_status": None if linked_task is None else linked_task.get("status"),
+                        "task_parent_id": (
+                            None if linked_task is None else linked_task.get("parent_task_id")
+                        ),
+                        "owner_agent_id": owner_agent_id or None,
+                        "owner_agent_name": agent_name_by_id.get(owner_agent_id),
+                        "owner_agent_role": agent_role_by_id.get(owner_agent_id),
+                    }
+                )
+        task_flow.sort(
+            key=lambda item: (
+                str(item.get("created_at") or ""),
+                int(item.get("event_id") or 0),
+            )
+        )
+        task_records = sorted(
+            tasks_by_id.values(),
+            key=lambda item: (
+                str(item.get("created_at") or ""),
+                str(item.get("id") or ""),
+            ),
+        )
+        return jsonify(
+            {
+                "work": {
+                    "id": work_record.id,
+                    "title": work_record.title,
+                    "description": work_record.description,
+                    "status": work_record.status,
+                    "created_at": work_record.created_at,
+                    "updated_at": work_record.updated_at,
+                },
+                "agent_histories": grouped,
+                "task_flow": task_flow,
+                "tasks": task_records,
+                "limits": {
+                    "task_limit": task_limit,
+                    "event_limit": event_limit,
+                },
+            }
+        )
 
     @app.post("/api/agents")
     def api_create_agent() -> Any:
