@@ -362,4 +362,4 @@ Full milestone details in `task.md`.
 
 - `task.md` — Execution tracker with milestones, risks, and delivery rules
 - `tasks/prd-chanakya-full-system.md` — Product Requirements Document
-- `chanakya_mvp/` — Reference MVP (to be removed after full app is complete)
+- `README.md` — Repo-level quick start for the full app

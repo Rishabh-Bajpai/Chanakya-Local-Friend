@@ -38,4 +38,4 @@ markers = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["chanakya*", "chanakya_mvp*"]
+include = ["chanakya*"]
