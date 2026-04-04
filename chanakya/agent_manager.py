@@ -2245,6 +2245,7 @@ class AgentManager:
             profile,
             self.session_factory,
             client=self.client,
+            usage_text=prompt,
             include_history=include_history,
         )
         profile_session_id = (
@@ -2316,6 +2317,7 @@ class AgentManager:
                 self.session_factory,
                 client=self.client,
                 include_history=False,
+                usage_text=message,
             )[0]
             for profile in participants
         ]

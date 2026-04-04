@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
+import queue
+import threading
+import time
 from dataclasses import asdict
 from pathlib import Path
 import re
 from typing import Any
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
+from chanakya.agent.profile_files import default_heartbeat_relative_path, ensure_agent_profile_files
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
@@ -28,14 +33,57 @@ from chanakya.store import ChanakyaStore
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 
+# ---------------------------------------------------------------------------
+# Lightweight in-process event bus for SSE push
+# ---------------------------------------------------------------------------
+class _EventBus:
+    """Fan-out event bus: each SSE client gets its own queue."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._subscribers: list[queue.Queue[str]] = []
+
+    def subscribe(self) -> queue.Queue[str]:
+        q: queue.Queue[str] = queue.Queue(maxsize=256)
+        with self._lock:
+            self._subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: queue.Queue[str]) -> None:
+        with self._lock:
+            try:
+                self._subscribers.remove(q)
+            except ValueError:
+                pass
+
+    def publish(self, event_type: str, data: dict[str, Any] | None = None) -> None:
+        payload = json.dumps({"type": event_type, **(data or {})})
+        msg = f"event: update\ndata: {payload}\n\n"
+        with self._lock:
+            dead: list[queue.Queue[str]] = []
+            for q in self._subscribers:
+                try:
+                    q.put_nowait(msg)
+                except queue.Full:
+                    dead.append(q)
+            for q in dead:
+                try:
+                    self._subscribers.remove(q)
+                except ValueError:
+                    pass
+
+
+event_bus = _EventBus()
+
+
 def create_app() -> Flask:
     load_local_env()
     app = Flask(__name__, template_folder=str(BASE_DIR / "chanakya" / "templates"))
 
     data_dir = get_data_dir()
     database_url = get_database_url()
-    heartbeat_dir = data_dir / "heartbeats"
-    heartbeat_dir.mkdir(parents=True, exist_ok=True)
+    agents_dir = data_dir / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
 
     engine = build_engine(database_url)
     init_database(engine)
@@ -63,6 +111,55 @@ def create_app() -> Flask:
     runtime = MAFRuntime(chanakya_profile, session_factory)
     manager = AgentManager(store, session_factory, manager_profile)
     chat_service = ChatService(store, runtime, manager)
+
+    # --- Monkey-patch the store to publish SSE events on mutations ----------
+    _original_create_task_event = store.create_task_event
+
+    def _patched_create_task_event(**kwargs: Any) -> None:
+        _original_create_task_event(**kwargs)
+        event_bus.publish("task_event", {"event_type": kwargs.get("event_type")})
+
+    store.create_task_event = _patched_create_task_event  # type: ignore[assignment]
+
+    _original_update_task = store.update_task
+
+    def _patched_update_task(task_id: str, **kwargs: Any) -> None:
+        _original_update_task(task_id, **kwargs)
+        event_bus.publish("task_updated", {"task_id": task_id})
+
+    store.update_task = _patched_update_task  # type: ignore[assignment]
+
+    _original_create_request = store.create_request
+
+    def _patched_create_request(**kwargs: Any) -> None:
+        _original_create_request(**kwargs)
+        event_bus.publish("request_created", {"request_id": kwargs.get("request_id")})
+
+    store.create_request = _patched_create_request  # type: ignore[assignment]
+
+    _original_update_request = store.update_request
+
+    def _patched_update_request(request_id: str, **kwargs: Any) -> None:
+        _original_update_request(request_id, **kwargs)
+        event_bus.publish("request_updated", {"request_id": request_id})
+
+    store.update_request = _patched_update_request  # type: ignore[assignment]
+
+    _original_add_message = store.add_message
+
+    def _patched_add_message(
+        session_id: str,
+        role: str,
+        content: str,
+        request_id: str | None = None,
+        route: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        _original_add_message(session_id, role, content, request_id, route, metadata)
+        event_bus.publish("message_added", {"session_id": session_id, "role": role})
+
+    store.add_message = _patched_add_message  # type: ignore[assignment]
+
 
     @app.get("/")
     def index() -> str:
@@ -507,6 +604,10 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc)}), 400
 
         agent_id = _allocate_agent_profile_id(store, agent_data["name"])
+        heartbeat_path = agent_data["heartbeat_file_path"] or default_heartbeat_relative_path(
+            agent_id
+        )
+        resolve_heartbeat_path(heartbeat_path, BASE_DIR, agent_id=agent_id)
 
         profile = AgentProfileModel(
             id=agent_id,
@@ -518,7 +619,7 @@ def create_app() -> Flask:
             workspace=agent_data["workspace"],
             heartbeat_enabled=agent_data["heartbeat_enabled"],
             heartbeat_interval_seconds=agent_data["heartbeat_interval_seconds"],
-            heartbeat_file_path=agent_data["heartbeat_file_path"],
+            heartbeat_file_path=heartbeat_path,
             is_active=agent_data["is_active"],
             created_at=agent_data["timestamp"],
             updated_at=agent_data["timestamp"],
@@ -538,6 +639,10 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             agent_data = _parse_agent_payload(payload)
+            heartbeat_path = agent_data["heartbeat_file_path"] or default_heartbeat_relative_path(
+                agent_id
+            )
+            resolve_heartbeat_path(heartbeat_path, BASE_DIR, agent_id=agent_id)
             profile = store.update_agent_profile(
                 agent_id,
                 name=agent_data["name"],
@@ -548,7 +653,7 @@ def create_app() -> Flask:
                 workspace=agent_data["workspace"],
                 heartbeat_enabled=agent_data["heartbeat_enabled"],
                 heartbeat_interval_seconds=agent_data["heartbeat_interval_seconds"],
-                heartbeat_file_path=agent_data["heartbeat_file_path"],
+                heartbeat_file_path=heartbeat_path,
                 is_active=agent_data["is_active"],
             )
         except ValueError as exc:
@@ -585,18 +690,49 @@ def create_app() -> Flask:
         debug_log("api_tool_traces_request", {"trace_count": len(traces)})
         return jsonify({"traces": traces})
 
+    @app.get("/api/stream")
+    def api_stream() -> Response:
+        """SSE endpoint: pushes lightweight change notifications to the browser."""
+        def generate():
+            q = event_bus.subscribe()
+            try:
+                # send an initial heartbeat so the connection is confirmed
+                yield "event: connected\ndata: {}\n\n"
+                while True:
+                    try:
+                        msg = q.get(timeout=25)
+                        yield msg
+                    except queue.Empty:
+                        # send a keep-alive comment to prevent proxy timeouts
+                        yield ": keepalive\n\n"
+            except GeneratorExit:
+                pass
+            finally:
+                event_bus.unsubscribe(q)
+
+        return Response(
+            generate(),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+
     return app
 
 
 def ensure_heartbeat_files(store: ChanakyaStore, repo_root: Path) -> None:
     for profile in store.list_agent_profiles():
+        ensure_agent_profile_files(profile, repo_root)
         ensure_heartbeat_file(profile, repo_root)
 
 
 def ensure_heartbeat_file(profile: AgentProfileModel, repo_root: Path) -> None:
-    if not profile.heartbeat_file_path:
-        return
-    target = resolve_heartbeat_path(profile.heartbeat_file_path, repo_root)
+    ensure_agent_profile_files(profile, repo_root)
+    file_path = profile.heartbeat_file_path or default_heartbeat_relative_path(profile.id)
+    target = resolve_heartbeat_path(file_path, repo_root, agent_id=profile.id)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         return
@@ -641,8 +777,6 @@ def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     heartbeat_enabled = _parse_required_bool(payload, "heartbeat_enabled", default=False)
     heartbeat_file_path = heartbeat_path_value or None
-    if heartbeat_enabled and heartbeat_file_path is None:
-        raise ValueError("heartbeat_file_path is required when heartbeat is enabled")
     if heartbeat_file_path is not None:
         resolve_heartbeat_path(heartbeat_file_path, BASE_DIR)
 

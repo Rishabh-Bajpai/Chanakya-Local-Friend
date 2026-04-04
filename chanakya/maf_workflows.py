@@ -128,7 +128,8 @@ class _DeveloperExecutor(Executor):
                 event_payload={"pending_request_id": resumed_pending_request_id},
             )
 
-        clarification_decision = self.manager._decide_worker_clarification(
+        clarification_decision = await asyncio.to_thread(
+            self.manager._decide_worker_clarification,
             self.developer_profile,
             self.message,
             developer_prompt,
@@ -192,7 +193,8 @@ class _DeveloperExecutor(Executor):
         )
         self.store.update_task(self.developer_task_id, input_json=developer_input)
 
-        developer_result = self.manager._run_worker_with_optional_subagents(
+        developer_result = await asyncio.to_thread(
+            self.manager._run_worker_with_optional_subagents,
             session_id=self.session_id,
             request_id=self.request_id,
             worker_profile=self.developer_profile,
@@ -241,7 +243,8 @@ class _DeveloperExecutor(Executor):
                 "developer_output": developer_output,
                 "developer_temporary_agent_ids": developer_result.temporary_agent_ids,
                 "tester_handoff_prompt": tester_handoff_prompt,
-            }
+            },
+            target_id=f"tester_step_{self.tester_task_id}"
         )
 
 
@@ -304,7 +307,8 @@ class _TesterExecutor(Executor):
             event_type="worker_unblocked",
             event_payload={"dependency_task_id": self.developer_task_id},
         )
-        tester_result = self.manager._run_worker_with_optional_subagents(
+        tester_result = await asyncio.to_thread(
+            self.manager._run_worker_with_optional_subagents,
             session_id=self.session_id,
             request_id=self.request_id,
             worker_profile=self.tester_profile,
@@ -315,7 +319,8 @@ class _TesterExecutor(Executor):
         tester_output = tester_result.text
         developer_output = str(payload.get("developer_output") or "")
         if self.manager._is_invalid_tester_output(tester_output, developer_output):
-            tester_output = self.manager._run_tester_recovery(
+            tester_output = await asyncio.to_thread(
+                self.manager._run_tester_recovery,
                 tester_profile=self.tester_profile,
                 message=self.message,
                 implementation_brief=self.implementation_brief,

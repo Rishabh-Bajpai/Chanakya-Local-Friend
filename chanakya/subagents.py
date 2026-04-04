@@ -426,6 +426,7 @@ class WorkerSubagentOrchestrator:
             self.session_factory,
             client=self.client,
             include_history=False,
+            usage_text=effective_prompt,
         )
         participants = [worker_agent]
         sequence = [worker_profile.name]
@@ -451,6 +452,7 @@ class WorkerSubagentOrchestrator:
                 self.session_factory,
                 client=self.client,
                 include_history=False,
+                usage_text=f"{message}\n\n{item.record.purpose}",
             )
             participants.append(helper_agent)
             sequence.append(item.record.name)

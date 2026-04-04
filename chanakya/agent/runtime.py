@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from agent_framework import Agent, AgentResponse, Message
@@ -9,6 +10,7 @@ from agent_framework.openai import OpenAIChatClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.agent.prompt import inject_tools_into_prompt
+from chanakya.agent.profile_files import load_agent_prompt
 from chanakya.config import get_agent_request_timeout_seconds, get_openai_compatible_config
 from chanakya.debug import debug_log
 from chanakya.history_provider import SQLAlchemyHistoryProvider
@@ -26,11 +28,26 @@ class ProfileAgentConfig:
 
 
 def build_profile_agent_config(profile: AgentProfileModel) -> ProfileAgentConfig:
+    return build_profile_agent_config_for_usage(
+        profile,
+        usage_text="",
+        repo_root=Path(__file__).resolve().parents[2],
+    )
+
+
+def build_profile_agent_config_for_usage(
+    profile: AgentProfileModel,
+    *,
+    usage_text: str = "",
+    repo_root: Path | None = None,
+) -> ProfileAgentConfig:
     availability = get_tools_availability()
     all_cached = get_cached_tools()
     allowed_ids = list(profile.tool_ids_json or [])
     cached_tools = [t for t in all_cached if getattr(t, "name", None) in allowed_ids]
-    system_prompt = inject_tools_into_prompt(profile, cached_tools)
+    root = repo_root or Path(__file__).resolve().parents[2]
+    profile_prompt = load_agent_prompt(profile, repo_root=root, usage_text=usage_text)
+    system_prompt = inject_tools_into_prompt(profile, cached_tools, base_prompt=profile_prompt)
     return ProfileAgentConfig(
         system_prompt=system_prompt,
         cached_tools=cached_tools,
@@ -45,8 +62,14 @@ def build_profile_agent(
     client: OpenAIChatClient | None = None,
     env_file_path: str = ".env",
     include_history: bool = False,
+    usage_text: str = "",
+    repo_root: Path | None = None,
 ) -> tuple[Agent, ProfileAgentConfig]:
-    config = build_profile_agent_config(profile)
+    config = build_profile_agent_config_for_usage(
+        profile,
+        usage_text=usage_text,
+        repo_root=repo_root,
+    )
     context_providers = None
     if include_history:
         context_providers = [
@@ -96,6 +119,7 @@ class MAFRuntime:
         env_file_path: str = ".env",
     ) -> None:
         self.profile = profile
+        self.repo_root = Path(__file__).resolve().parents[2]
         self.client = OpenAIChatClient(env_file_path=env_file_path)
         self.session_factory = session_factory
         self.agent, config = build_profile_agent(
@@ -104,6 +128,8 @@ class MAFRuntime:
             client=self.client,
             env_file_path=env_file_path,
             include_history=True,
+            usage_text="",
+            repo_root=self.repo_root,
         )
         self.availability = config.availability
         self.cached_tools = config.cached_tools
@@ -139,7 +165,15 @@ class MAFRuntime:
     ) -> RunResult:
         tool_traces: list[ToolExecutionTrace] = []
 
-        session = self.agent.create_session(session_id=session_id)
+        run_agent, _ = build_profile_agent(
+            self.profile,
+            self.session_factory,
+            client=self.client,
+            include_history=True,
+            usage_text=text,
+            repo_root=self.repo_root,
+        )
+        session = run_agent.create_session(session_id=session_id)
         session.state["request_id"] = request_id
 
         debug_log(
@@ -153,7 +187,7 @@ class MAFRuntime:
         )
 
         response: AgentResponse[Any] = await asyncio.wait_for(
-            self.agent.run(
+            run_agent.run(
                 Message(
                     role="user",
                     text=text,
