@@ -28,16 +28,131 @@
           linear-gradient(135deg, #1a1a1a 0%, #121212 45%, #0d0d0d 100%);
       }
       .shell {
-        max-width: 1320px;
+        max-width: 1600px;
         margin: 0 auto;
         padding: 20px;
         display: grid;
-        grid-template-columns: 1.4fr 1fr;
+        grid-template-columns: 280px 1.4fr 1fr;
         gap: 18px;
         min-height: 100vh;
         height: auto;
         min-height: 0;
         align-items: start;
+      }
+      /* ---- Left sidebar: Task Progress ---- */
+      .left-sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        max-height: calc(100vh - 40px);
+        position: sticky;
+        top: 20px;
+        overflow: hidden;
+      }
+      .left-sidebar .panel {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        height: 100%;
+      }
+      .left-sidebar .section-header {
+        padding: 14px 14px 0;
+      }
+      .left-sidebar .section-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px 14px 14px;
+        scrollbar-width: thin;
+        scrollbar-color: #4a4a4a rgba(0,0,0,0.3);
+      }
+      .progress-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        position: relative;
+      }
+      .progress-item:last-child { border-bottom: none; }
+      .progress-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex: 0 0 auto;
+        margin-top: 4px;
+        background: var(--muted);
+        transition: background 0.3s, box-shadow 0.3s;
+      }
+      .progress-dot.created { background: #7c6cf2; }
+      .progress-dot.in_progress {
+        background: var(--yellow);
+        box-shadow: 0 0 8px rgba(243, 156, 18, 0.6);
+        animation: pulse-dot 1.8s infinite;
+      }
+      .progress-dot.completed, .progress-dot.succeeded {
+        background: var(--green);
+        box-shadow: 0 0 6px rgba(76, 175, 80, 0.4);
+      }
+      .progress-dot.failed {
+        background: var(--red);
+        box-shadow: 0 0 6px rgba(231, 76, 60, 0.4);
+      }
+      .progress-dot.blocked, .progress-dot.waiting_input {
+        background: #e67e22;
+      }
+      @keyframes pulse-dot {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.5; transform: scale(1.4); }
+      }
+      .progress-info {
+        min-width: 0;
+        flex: 1;
+      }
+      .progress-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .progress-status {
+        font-size: 11px;
+        margin-top: 2px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .progress-owner {
+        font-size: 11px;
+        color: #7a7570;
+        margin-top: 1px;
+      }
+      .progress-empty {
+        color: var(--muted);
+        font-style: italic;
+        font-size: 12px;
+        padding: 14px 0;
+        text-align: center;
+      }
+      .progress-summary {
+        display: flex;
+        gap: 8px;
+        padding: 10px 14px;
+        border-top: 1px solid var(--line);
+        font-size: 11px;
+        color: var(--muted);
+        flex-wrap: wrap;
+      }
+      .progress-summary .stat {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .progress-summary .stat-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
       }
       .panel {
         background: var(--panel);
@@ -202,6 +317,12 @@
         height: 4px;
         border-radius: 18px 18px 0 0;
         background: linear-gradient(90deg, var(--accent), rgba(216, 107, 74, 0.15));
+      }
+      .section[data-panel="task-progress"]::before {
+        background: linear-gradient(90deg, #f39c12, rgba(243, 156, 18, 0.15));
+      }
+      .section[data-panel="task-progress"] {
+        background: linear-gradient(180deg, rgba(243, 156, 18, 0.08), rgba(25, 25, 25, 0.95) 32%);
       }
       .section[data-panel="request-trace"]::before {
         background: linear-gradient(90deg, #d86b4a, rgba(216, 107, 74, 0.15));
@@ -489,8 +610,12 @@
         font-size: 12px;
         color: var(--muted);
       }
-      @media (max-width: 980px) {
+      @media (max-width: 1200px) {
         .shell { grid-template-columns: 1fr; }
+        .left-sidebar {
+          position: static;
+          max-height: none;
+        }
         .chat {
           min-height: 70vh;
           height: auto;
@@ -511,6 +636,22 @@
   </head>
   <body>
     <div class="shell">
+      <!-- Left Sidebar: Task Progress -->
+      <aside class="left-sidebar">
+        <div class="panel section" data-panel="task-progress" style="height:calc(100vh - 40px)">
+          <div class="section-header">
+            <div class="section-copy">
+              <h2 style="font-size:16px;">Task Progress</h2>
+              <p>Live status of all tasks.</p>
+            </div>
+          </div>
+          <div class="section-body">
+            <div id="taskProgress"></div>
+          </div>
+          <div id="taskProgressSummary" class="progress-summary"></div>
+        </div>
+      </aside>
+
       <section class="panel chat">
         <div class="hero">
           <div class="hero-top">
@@ -670,6 +811,8 @@
       const toolTraceList = document.getElementById("toolTraceList");
       const taskList = document.getElementById("taskList");
       const taskTimeline = document.getElementById("taskTimeline");
+      const taskProgress = document.getElementById("taskProgress");
+      const taskProgressSummary = document.getElementById("taskProgressSummary");
       const subagentList = document.getElementById("subagentList");
       const agentList = document.getElementById("agentList");
       const agentForm = document.getElementById("agentForm");
@@ -1372,6 +1515,69 @@
         replaceChildren(taskTimeline, nodes);
       }
 
+      function renderTaskProgress(events) {
+        if (!events || !events.length) {
+          taskProgress.innerHTML = '<div class="progress-empty">No active task sequence yet. Send a message to see progress.</div>';
+          taskProgressSummary.innerHTML = '';
+          return;
+        }
+
+        const mappedTexts = [];
+        events.forEach((e) => {
+          const type = e.event_type;
+          const p = e.payload || {};
+          let text = null;
+
+          if (type === 'request_received') text = "Task received by Chanakya";
+          else if (type === 'task_status_changed' && p.from_status === 'created' && p.to_status === 'in_progress') text = "Chanakya is processing the request";
+          else if (type === 'triage_completed' && p.use_manager) text = "Task delegated to Agent Manager";
+          else if (type === 'manager_route_selected') {
+             const owner = p.specialist_agent_id || "manager";
+             text = `Agent Manager delegated the task to ${owner.replace('agent_', '').toUpperCase()}`;
+          }
+          else if (type === 'task_owner_assigned' && p.owner_agent_id !== 'agent_chanakya' && p.owner_agent_id !== 'agent_manager') {
+             text = `${p.owner_agent_id.replace('agent_', '').toUpperCase()} is working on it`;
+          }
+          else if (type === 'response_persisted') {
+             text = "Response ready";
+          } else if (type === 'manager_waiting_input' || type === 'workflow_waiting_input') {
+             text = "Waiting for your input...";
+          }
+
+          if (text) {
+             mappedTexts.push({ text: text, isError: type.includes('failed') });
+          }
+        });
+
+        if (mappedTexts.length === 0) mappedTexts.push({ text: "Processing...", isError: false });
+
+        const nodes = mappedTexts.map((item, index) => {
+          const nodeItem = document.createElement("div");
+          nodeItem.className = "progress-item";
+
+          const isLast = index === mappedTexts.length - 1;
+          let statusClass = isLast && !item.isError && item.text !== "Response ready" ? "in_progress" : "completed";
+          if (item.isError) statusClass = "failed";
+
+          const dot = document.createElement("div");
+          dot.className = `progress-dot ${statusClass}`;
+          nodeItem.appendChild(dot);
+
+          const info = document.createElement("div");
+          info.className = "progress-info";
+          const title = document.createElement("div");
+          title.className = "progress-title";
+          title.textContent = item.text;
+          title.title = item.text;
+          info.appendChild(title);
+          nodeItem.appendChild(info);
+          return nodeItem;
+        });
+
+        replaceChildren(taskProgress, nodes);
+        taskProgressSummary.innerHTML = ''; // Not needed for the chronological view
+      }
+
       async function refreshToolTraces() {
         if (!sessionId) {
           renderToolTraces([]);
@@ -1414,6 +1620,7 @@
             ? (timelineData.events || []).filter((event) => event.request_id === latestRequest.id)
             : (timelineData.events || []);
           renderTaskTimeline(latestTimeline);
+          renderTaskProgress(latestTimeline);
           if (latestRequest) {
             renderTrace({
               request_id: latestRequest.id,
@@ -1432,6 +1639,7 @@
         } catch {
           renderAgents([]);
           renderTasks([]);
+          renderTaskProgress([]);
           renderTaskTimeline([]);
           renderSubagents([]);
         }
@@ -1478,16 +1686,8 @@
         }
         sessionId = data.session_id;
         storeSessionId(sessionId);
-        const metaParts = [
-          `mode=${data.response_mode || "direct_answer"}`,
-          `runtime=${data.runtime}`,
-          `model=${data.model || "unknown"}`,
-        ];
-        if (data.tool_calls_used > 0) metaParts.push(`tools=${data.tool_calls_used}`);
-        if (data.root_task_status) metaParts.push(`task=${data.root_task_status}`);
-        appendMessage("assistant", data.message, metaParts.join(" "));
         renderTrace(data);
-        refreshSidePanels();
+        await loadSessionHistory();
       });
 
       agentForm.addEventListener("submit", async (event) => {
@@ -1522,6 +1722,37 @@
       setupDetachButtons();
       resetAgentForm();
       loadSessionHistory();
+
+      // ---------- SSE-driven auto-refresh ----------
+      let _sseRefreshTimer = null;
+      function scheduleSSERefresh() {
+        if (_sseRefreshTimer) return;
+        _sseRefreshTimer = setTimeout(async () => {
+          _sseRefreshTimer = null;
+          await refreshSidePanels();
+          // Also refresh chat messages for assistant responses
+          if (sessionId) {
+            try {
+              const res = await fetch(`/api/sessions/${sessionId}`);
+              if (res.ok) {
+                const data = await res.json();
+                renderChatHistory(data.messages || []);
+              }
+            } catch {}
+          }
+        }, 400); // debounce: coalesce rapid events
+      }
+
+      function connectSSE() {
+        const source = new EventSource("/api/stream");
+        source.addEventListener("update", () => scheduleSSERefresh());
+        source.addEventListener("connected", () => console.log("[SSE] connected"));
+        source.onerror = () => {
+          source.close();
+          setTimeout(connectSSE, 3000); // auto-reconnect
+        };
+      }
+      connectSSE();
     </script>
   </body>
 </html>

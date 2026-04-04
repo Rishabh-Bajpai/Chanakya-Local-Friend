@@ -76,8 +76,8 @@ def build_profile_agent(
             SQLAlchemyHistoryProvider(
                 session_factory=session_factory,
                 load_messages=True,
-                store_inputs=True,
-                store_outputs=True,
+                store_inputs=False,
+                store_outputs=False,
             )
         ]
     agent = Agent(

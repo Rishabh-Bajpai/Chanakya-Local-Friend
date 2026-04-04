@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
+import queue
+import threading
+import time
 from dataclasses import asdict
 from pathlib import Path
 import re
 from typing import Any
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
 from chanakya.agent.profile_files import default_heartbeat_relative_path, ensure_agent_profile_files
 from chanakya.agent.runtime import MAFRuntime
@@ -27,6 +31,49 @@ from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+
+
+# ---------------------------------------------------------------------------
+# Lightweight in-process event bus for SSE push
+# ---------------------------------------------------------------------------
+class _EventBus:
+    """Fan-out event bus: each SSE client gets its own queue."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._subscribers: list[queue.Queue[str]] = []
+
+    def subscribe(self) -> queue.Queue[str]:
+        q: queue.Queue[str] = queue.Queue(maxsize=256)
+        with self._lock:
+            self._subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: queue.Queue[str]) -> None:
+        with self._lock:
+            try:
+                self._subscribers.remove(q)
+            except ValueError:
+                pass
+
+    def publish(self, event_type: str, data: dict[str, Any] | None = None) -> None:
+        payload = json.dumps({"type": event_type, **(data or {})})
+        msg = f"event: update\ndata: {payload}\n\n"
+        with self._lock:
+            dead: list[queue.Queue[str]] = []
+            for q in self._subscribers:
+                try:
+                    q.put_nowait(msg)
+                except queue.Full:
+                    dead.append(q)
+            for q in dead:
+                try:
+                    self._subscribers.remove(q)
+                except ValueError:
+                    pass
+
+
+event_bus = _EventBus()
 
 
 def create_app() -> Flask:
@@ -64,6 +111,55 @@ def create_app() -> Flask:
     runtime = MAFRuntime(chanakya_profile, session_factory)
     manager = AgentManager(store, session_factory, manager_profile)
     chat_service = ChatService(store, runtime, manager)
+
+    # --- Monkey-patch the store to publish SSE events on mutations ----------
+    _original_create_task_event = store.create_task_event
+
+    def _patched_create_task_event(**kwargs: Any) -> None:
+        _original_create_task_event(**kwargs)
+        event_bus.publish("task_event", {"event_type": kwargs.get("event_type")})
+
+    store.create_task_event = _patched_create_task_event  # type: ignore[assignment]
+
+    _original_update_task = store.update_task
+
+    def _patched_update_task(task_id: str, **kwargs: Any) -> None:
+        _original_update_task(task_id, **kwargs)
+        event_bus.publish("task_updated", {"task_id": task_id})
+
+    store.update_task = _patched_update_task  # type: ignore[assignment]
+
+    _original_create_request = store.create_request
+
+    def _patched_create_request(**kwargs: Any) -> None:
+        _original_create_request(**kwargs)
+        event_bus.publish("request_created", {"request_id": kwargs.get("request_id")})
+
+    store.create_request = _patched_create_request  # type: ignore[assignment]
+
+    _original_update_request = store.update_request
+
+    def _patched_update_request(request_id: str, **kwargs: Any) -> None:
+        _original_update_request(request_id, **kwargs)
+        event_bus.publish("request_updated", {"request_id": request_id})
+
+    store.update_request = _patched_update_request  # type: ignore[assignment]
+
+    _original_add_message = store.add_message
+
+    def _patched_add_message(
+        session_id: str,
+        role: str,
+        content: str,
+        request_id: str | None = None,
+        route: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        _original_add_message(session_id, role, content, request_id, route, metadata)
+        event_bus.publish("message_added", {"session_id": session_id, "role": role})
+
+    store.add_message = _patched_add_message  # type: ignore[assignment]
+
 
     @app.get("/")
     def index() -> str:
@@ -364,6 +460,36 @@ def create_app() -> Flask:
         )
         debug_log("api_tool_traces_request", {"trace_count": len(traces)})
         return jsonify({"traces": traces})
+
+    @app.get("/api/stream")
+    def api_stream() -> Response:
+        """SSE endpoint: pushes lightweight change notifications to the browser."""
+        def generate():
+            q = event_bus.subscribe()
+            try:
+                # send an initial heartbeat so the connection is confirmed
+                yield "event: connected\ndata: {}\n\n"
+                while True:
+                    try:
+                        msg = q.get(timeout=25)
+                        yield msg
+                    except queue.Empty:
+                        # send a keep-alive comment to prevent proxy timeouts
+                        yield ": keepalive\n\n"
+            except GeneratorExit:
+                pass
+            finally:
+                event_bus.unsubscribe(q)
+
+        return Response(
+            generate(),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
     return app
 
