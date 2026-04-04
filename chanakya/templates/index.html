@@ -1659,7 +1659,7 @@
       replaceChildren(taskTimeline, nodes);
     }
 
-    function renderTaskProgress(events) {
+    function renderTaskProgress(events, rootTaskId) {
       if (!events || !events.length) {
         taskProgress.innerHTML = '<div class="progress-empty">No active task sequence yet. Send a message to see progress.</div>';
         taskProgressSummary.innerHTML = '';
@@ -1673,7 +1673,7 @@
         let text = null;
 
         if (type === 'request_received') text = "Task received by Chanakya";
-        else if (type === 'task_status_changed' && p.from_status === 'created' && p.to_status === 'in_progress') text = "Chanakya is processing the request";
+        else if (type === 'task_status_changed' && e.task_id === rootTaskId && p.from_status === 'created' && p.to_status === 'in_progress') text = "Chanakya is processing the request";
         else if (type === 'triage_completed' && p.use_manager) text = "Task delegated to Agent Manager";
         else if (type === 'manager_route_selected') {
           const owner = p.specialist_agent_id || "manager";
@@ -1764,7 +1764,7 @@
           ? (timelineData.events || []).filter((event) => event.request_id === latestRequest.id)
           : (timelineData.events || []);
         renderTaskTimeline(latestTimeline);
-        renderTaskProgress(latestTimeline);
+        renderTaskProgress(latestTimeline, latestRequest ? latestRequest.root_task_id : null);
         if (latestRequest) {
           renderTrace({
             request_id: latestRequest.id,
@@ -1783,7 +1783,7 @@
       } catch {
         renderAgents([]);
         renderTasks([]);
-        renderTaskProgress([]);
+        renderTaskProgress([], null);
         renderTaskTimeline([]);
         renderSubagents([]);
       }
