@@ -4,7 +4,7 @@
 
 - PRD: `tasks/prd-chanakya-full-system.md`
 - Build approach: new full app in `chanakya/`
-- MVP status: `chanakya_mvp/` removed; `chanakya/` is the only active app track
+- Active app track: `chanakya/`
 
 ## Product Direction
 
