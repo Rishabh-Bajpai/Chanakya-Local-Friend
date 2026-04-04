@@ -71,15 +71,41 @@ def create_app() -> Flask:
             force_subagents_enabled=force_subagents_enabled(),
         )
 
+    @app.get("/work")
+    def work() -> str:
+        return render_template(
+            "work.html",
+            force_subagents_enabled=force_subagents_enabled(),
+        )
+
     @app.post("/api/chat")
     def api_chat() -> Any:
         payload = request.get_json(silent=True) or {}
-        session_id = str(payload.get("session_id") or make_id("session"))
+        raw_work_id = payload.get("work_id")
+        work_id = str(raw_work_id).strip() if raw_work_id is not None else None
+        if work_id == "":
+            work_id = None
+        raw_session_id = payload.get("session_id")
+        if work_id is not None:
+            try:
+                work_record = store.get_work(work_id)
+            except KeyError as exc:
+                message = str(exc.args[0]) if exc.args else str(exc)
+                return jsonify({"error": message}), 404
+            session_id = store.ensure_work_agent_session(
+                work_id=work_id,
+                agent_id="agent_chanakya",
+                session_id=make_id("session"),
+                session_title=f"{work_record.title} - Chanakya",
+            )
+        else:
+            session_id = str(raw_session_id or make_id("session"))
         message = str(payload.get("message", "")).strip()
         debug_log(
             "api_chat_request",
             {
                 "session_id": session_id,
+                "work_id": work_id,
                 "message": message,
                 "has_existing_session": bool(payload.get("session_id")),
             },
@@ -88,7 +114,7 @@ def create_app() -> Flask:
             return jsonify({"error": "message is required"}), 400
         store.ensure_session(session_id, title=message[:60] or "New chat")
         try:
-            reply = chat_service.chat(session_id, message)
+            reply = chat_service.chat(session_id, message, work_id=work_id)
         except Exception as exc:
             debug_log(
                 "api_chat_error",
@@ -268,6 +294,114 @@ def create_app() -> Flask:
         )
         debug_log("api_subagents_request", {"subagent_count": len(subagents)})
         return jsonify({"subagents": subagents})
+
+    @app.post("/api/works")
+    def api_create_work() -> Any:
+        payload = request.get_json(silent=True) or {}
+        try:
+            title = _parse_required_string(payload, "title")
+            description = _parse_optional_string(payload, "description") or None
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        work_id = make_id("work")
+        store.create_work(
+            work_id=work_id,
+            title=title,
+            description=description,
+            status="active",
+        )
+        active_profiles = [profile for profile in store.list_agent_profiles() if profile.is_active]
+        for profile in active_profiles:
+            store.ensure_work_agent_session(
+                work_id=work_id,
+                agent_id=profile.id,
+                session_id=make_id("session"),
+                session_title=f"{title} - {profile.name}",
+            )
+        store.log_event(
+            "work_created",
+            {
+                "work_id": work_id,
+                "title": title,
+                "description": description,
+                "agent_session_count": len(active_profiles),
+            },
+        )
+        return jsonify(
+            {
+                "id": work_id,
+                "title": title,
+                "description": description,
+                "status": "active",
+                "agent_session_count": len(active_profiles),
+            }
+        ), 201
+
+    @app.get("/api/works")
+    def api_list_works() -> Any:
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
+        works = store.list_works(limit=limit)
+        return jsonify({"works": works})
+
+    @app.get("/api/works/<work_id>/sessions")
+    def api_work_sessions(work_id: str) -> Any:
+        try:
+            work_record = store.get_work(work_id)
+        except KeyError as exc:
+            message = str(exc.args[0]) if exc.args else str(exc)
+            return jsonify({"error": message}), 404
+        sessions = store.list_work_agent_sessions(work_id)
+        return jsonify(
+            {
+                "work": {
+                    "id": work_record.id,
+                    "title": work_record.title,
+                    "description": work_record.description,
+                    "status": work_record.status,
+                    "created_at": work_record.created_at,
+                    "updated_at": work_record.updated_at,
+                },
+                "sessions": sessions,
+            }
+        )
+
+    @app.get("/api/works/<work_id>/history")
+    def api_work_history(work_id: str) -> Any:
+        try:
+            work_record = store.get_work(work_id)
+        except KeyError as exc:
+            message = str(exc.args[0]) if exc.args else str(exc)
+            return jsonify({"error": message}), 404
+        mappings = store.list_work_agent_sessions(work_id)
+        grouped = []
+        for mapping in mappings:
+            grouped.append(
+                {
+                    "agent_id": mapping.get("agent_id"),
+                    "agent_name": mapping.get("agent_name"),
+                    "agent_role": mapping.get("agent_role"),
+                    "session_id": mapping.get("session_id"),
+                    "messages": store.list_messages(str(mapping.get("session_id") or "")),
+                }
+            )
+        return jsonify(
+            {
+                "work": {
+                    "id": work_record.id,
+                    "title": work_record.title,
+                    "description": work_record.description,
+                    "status": work_record.status,
+                    "created_at": work_record.created_at,
+                    "updated_at": work_record.updated_at,
+                },
+                "agent_histories": grouped,
+            }
+        )
 
     @app.post("/api/agents")
     def api_create_agent() -> Any:

@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chanakya Workspaces</title>
+    <style>
+      :root {
+        --bg: #111111;
+        --panel: rgba(24, 24, 24, 0.95);
+        --line: #343434;
+        --text: #e8e6e3;
+        --muted: #9a9590;
+        --accent: #d86b4a;
+        --ink: #3a8a87;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--text);
+        font-family: Georgia, "Iowan Old Style", serif;
+        background:
+          radial-gradient(circle at top left, rgba(50,50,50,0.35), transparent 35%),
+          linear-gradient(135deg, #1b1b1b 0%, #121212 45%, #0d0d0d 100%);
+      }
+      .shell {
+        max-width: 1500px;
+        margin: 0 auto;
+        min-height: 100vh;
+        padding: 20px;
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 320px 1fr 1.2fr;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+        min-height: 0;
+      }
+      .left,
+      .chat,
+      .history {
+        display: flex;
+        flex-direction: column;
+        min-height: calc(100vh - 40px);
+      }
+      .header {
+        padding: 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .header h1,
+      .header h2 {
+        margin: 0;
+      }
+      .header p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .link-row {
+        margin-top: 10px;
+      }
+      .link-row a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .body {
+        padding: 14px;
+        overflow: auto;
+      }
+      .work-form {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 14px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--line);
+      }
+      input,
+      textarea,
+      button {
+        font: inherit;
+      }
+      input,
+      textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #454545;
+        background: #1a1a1a;
+        color: var(--text);
+      }
+      textarea {
+        min-height: 70px;
+        resize: vertical;
+      }
+      button {
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 14px;
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .status {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .work-item {
+        border: 1px solid #3a3a3a;
+        border-left: 4px solid var(--ink);
+        border-radius: 12px;
+        padding: 10px;
+        margin-bottom: 10px;
+        cursor: pointer;
+      }
+      .work-item.active {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.3);
+      }
+      .work-item h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+      .work-item p {
+        margin: 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .chat-log {
+        flex: 1;
+        overflow: auto;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .msg {
+        max-width: 86%;
+        border-radius: 14px;
+        padding: 10px 12px;
+      }
+      .msg.user {
+        align-self: flex-end;
+        background: #3d2a20;
+      }
+      .msg.assistant {
+        align-self: flex-start;
+        background: #252525;
+        border: 1px solid #383838;
+      }
+      .composer {
+        border-top: 1px solid var(--line);
+        padding: 12px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+      }
+      .agent-card {
+        border: 1px solid #3a3a3a;
+        border-left: 4px solid var(--ink);
+        border-radius: 12px;
+        padding: 10px;
+        margin-bottom: 10px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .agent-card h3 {
+        margin: 0 0 6px;
+      }
+      .agent-meta {
+        margin-bottom: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .agent-msg {
+        font-size: 12px;
+        padding: 8px;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        background: #1d1d1d;
+        border: 1px solid #303030;
+      }
+      .agent-msg.user {
+        border-left: 3px solid #d86b4a;
+      }
+      .agent-msg.assistant {
+        border-left: 3px solid #3a8a87;
+      }
+      .empty {
+        color: var(--muted);
+        font-style: italic;
+      }
+      @media (max-width: 1200px) {
+        .shell { grid-template-columns: 1fr; }
+        .left,
+        .chat,
+        .history {
+          min-height: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="panel left">
+        <div class="header">
+          <h1>Works</h1>
+          <p>Create and reopen long-running work contexts.</p>
+          <div class="link-row"><a href="/">Open classic chat</a></div>
+        </div>
+        <div class="body">
+          <form id="workForm" class="work-form">
+            <input id="workTitle" type="text" placeholder="Work title" required />
+            <textarea id="workDescription" placeholder="Describe the objective (optional)"></textarea>
+            <button id="createWorkButton" type="submit">Create Work</button>
+            <div id="workStatus" class="status"></div>
+          </form>
+          <div id="workList"></div>
+        </div>
+      </section>
+
+      <section class="panel chat">
+        <div class="header">
+          <h2 id="chatTitle">Select a work</h2>
+          <p id="chatSubtitle">Work-scoped chat with Chanakya.</p>
+        </div>
+        <div id="chatLog" class="chat-log"><div class="empty">No work selected.</div></div>
+        <form id="chatForm" class="composer">
+          <input id="messageInput" type="text" placeholder="Send update request for this work..." required />
+          <button id="sendButton" type="submit" disabled>Send</button>
+        </form>
+      </section>
+
+      <section class="panel history">
+        <div class="header">
+          <h2>Agent Histories</h2>
+          <p>All work-scoped sessions across agents.</p>
+        </div>
+        <div id="historyList" class="body"><div class="empty">No histories yet.</div></div>
+      </section>
+    </div>
+
+    <script>
+      const workForm = document.getElementById("workForm");
+      const workTitle = document.getElementById("workTitle");
+      const workDescription = document.getElementById("workDescription");
+      const workStatus = document.getElementById("workStatus");
+      const workList = document.getElementById("workList");
+      const chatTitle = document.getElementById("chatTitle");
+      const chatSubtitle = document.getElementById("chatSubtitle");
+      const chatLog = document.getElementById("chatLog");
+      const chatForm = document.getElementById("chatForm");
+      const messageInput = document.getElementById("messageInput");
+      const sendButton = document.getElementById("sendButton");
+      const historyList = document.getElementById("historyList");
+
+      const WORK_STORAGE_KEY = "chanakya-active-work";
+      let activeWorkId = null;
+      let works = [];
+
+      function setStatus(text, isError = false) {
+        workStatus.textContent = text || "";
+        workStatus.style.color = isError ? "#e74c3c" : "var(--muted)";
+      }
+
+      function saveActiveWork(workId) {
+        try {
+          if (workId) window.localStorage.setItem(WORK_STORAGE_KEY, workId);
+        } catch {
+        }
+      }
+
+      function loadSavedWork() {
+        try {
+          return window.localStorage.getItem(WORK_STORAGE_KEY);
+        } catch {
+          return null;
+        }
+      }
+
+      function appendChatMessage(role, content) {
+        const node = document.createElement("div");
+        node.className = `msg ${role}`;
+        node.textContent = content;
+        chatLog.appendChild(node);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function renderWorks() {
+        if (!works.length) {
+          workList.innerHTML = '<div class="empty">No works yet.</div>';
+          return;
+        }
+        const nodes = works.map((work) => {
+          const card = document.createElement("div");
+          card.className = `work-item${work.id === activeWorkId ? " active" : ""}`;
+          card.innerHTML = `<h3>${work.title}</h3><p>${work.description || "No description"}</p><p>${work.id}</p>`;
+          card.addEventListener("click", () => selectWork(work.id));
+          return card;
+        });
+        workList.replaceChildren(...nodes);
+      }
+
+      function renderChatFromHistory(agentHistories) {
+        const chanakyaHistory = agentHistories.find((item) => item.agent_id === "agent_chanakya");
+        chatLog.replaceChildren();
+        const messages = chanakyaHistory ? chanakyaHistory.messages || [] : [];
+        if (!messages.length) {
+          chatLog.innerHTML = '<div class="empty">No messages in this work yet.</div>';
+          return;
+        }
+        messages.forEach((message) => {
+          appendChatMessage(message.role === "user" ? "user" : "assistant", message.content || "");
+        });
+      }
+
+      function renderAgentHistories(agentHistories) {
+        if (!agentHistories.length) {
+          historyList.innerHTML = '<div class="empty">No agent histories for this work.</div>';
+          return;
+        }
+        const cards = agentHistories.map((history) => {
+          const card = document.createElement("div");
+          card.className = "agent-card";
+          const title = history.agent_name || history.agent_id;
+          card.innerHTML = `<h3>${title}</h3><div class="agent-meta">${history.agent_role || "unknown"} | ${history.session_id}</div>`;
+          const messages = history.messages || [];
+          if (!messages.length) {
+            const empty = document.createElement("div");
+            empty.className = "empty";
+            empty.textContent = "No messages yet.";
+            card.appendChild(empty);
+            return card;
+          }
+          messages.slice(-12).forEach((message) => {
+            const msg = document.createElement("div");
+            const role = message.role === "user" ? "user" : "assistant";
+            msg.className = `agent-msg ${role}`;
+            msg.textContent = `${message.role}: ${message.content || ""}`;
+            card.appendChild(msg);
+          });
+          return card;
+        });
+        historyList.replaceChildren(...cards);
+      }
+
+      async function loadWorks() {
+        const response = await fetch("/api/works?limit=200");
+        const data = await response.json();
+        works = data.works || [];
+        renderWorks();
+      }
+
+      async function loadWorkHistory(workId) {
+        const response = await fetch(`/api/works/${encodeURIComponent(workId)}/history`);
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to load work history");
+        }
+        chatTitle.textContent = data.work.title;
+        chatSubtitle.textContent = data.work.description || "Work-scoped chat with Chanakya.";
+        renderChatFromHistory(data.agent_histories || []);
+        renderAgentHistories(data.agent_histories || []);
+      }
+
+      async function selectWork(workId) {
+        activeWorkId = workId;
+        saveActiveWork(workId);
+        renderWorks();
+        sendButton.disabled = false;
+        messageInput.disabled = false;
+        await loadWorkHistory(workId);
+      }
+
+      workForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const title = workTitle.value.trim();
+        if (!title) return;
+        const description = workDescription.value.trim();
+        setStatus("Creating work...");
+        try {
+          const response = await fetch("/api/works", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, description }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Work creation failed");
+          setStatus(`Created ${data.title}`);
+          workForm.reset();
+          await loadWorks();
+          await selectWork(data.id);
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : String(error), true);
+        }
+      });
+
+      chatForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!activeWorkId) return;
+        const message = messageInput.value.trim();
+        if (!message) return;
+        appendChatMessage("user", message);
+        messageInput.value = "";
+        sendButton.disabled = true;
+        try {
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ work_id: activeWorkId, message }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Chat failed");
+          appendChatMessage("assistant", data.message || "");
+          await loadWorkHistory(activeWorkId);
+        } catch (error) {
+          appendChatMessage("assistant", error instanceof Error ? error.message : String(error));
+        } finally {
+          sendButton.disabled = false;
+        }
+      });
+
+      async function bootstrap() {
+        sendButton.disabled = true;
+        messageInput.disabled = true;
+        await loadWorks();
+        const saved = loadSavedWork();
+        if (saved && works.some((work) => work.id === saved)) {
+          await selectWork(saved);
+        }
+      }
+
+      bootstrap();
+    </script>
+  </body>
+</html>

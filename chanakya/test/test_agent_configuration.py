@@ -8,8 +8,8 @@ from flask import Flask
 from pytest import MonkeyPatch
 from chanakya.app import create_app
 from chanakya.db import build_engine, build_session_factory
-from chanakya.model import TemporaryAgentModel
-from chanakya.domain import TASK_STATUS_DONE
+from chanakya.domain import TASK_STATUS_DONE, now_iso
+from chanakya.model import ChatMessageModel, TemporaryAgentModel, WorkAgentSessionModel
 from chanakya.services import tool_loader
 from chanakya.store import ChanakyaStore
 
@@ -378,3 +378,93 @@ def test_tools_availability_api_returns_payload(
 
     assert response.status_code == 200
     assert "tools" in response.get_json()
+
+
+def test_work_create_list_and_history_apis(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    created = client.post(
+        "/api/works",
+        json={"title": "Global Warming Report", "description": "2026 draft"},
+    )
+    assert created.status_code == 201
+    created_payload = created.get_json()
+    work_id = created_payload["id"]
+    assert created_payload["agent_session_count"] == 2
+
+    listed = client.get("/api/works")
+    assert listed.status_code == 200
+    listed_ids = [item["id"] for item in listed.get_json()["works"]]
+    assert work_id in listed_ids
+
+    sessions_response = client.get(f"/api/works/{work_id}/sessions")
+    assert sessions_response.status_code == 200
+    sessions_payload = sessions_response.get_json()
+    sessions = sessions_payload["sessions"]
+    assert len(sessions) == 2
+    chanakya_mapping = next(item for item in sessions if item["agent_id"] == "agent_chanakya")
+
+    database_path = tmp_path / "chanakya-test.db"
+    engine = build_engine(f"sqlite:///{database_path}")
+    session_factory = build_session_factory(engine)
+    with session_factory() as db_session:
+        db_session.add(
+            ChatMessageModel(
+                session_id=chanakya_mapping["session_id"],
+                role="assistant",
+                content="Initial report draft ready.",
+                request_id="req_work_1",
+                route="delegated_manager",
+                metadata_json={"work_test": True},
+                created_at=now_iso(),
+            )
+        )
+        db_session.commit()
+
+    history_response = client.get(f"/api/works/{work_id}/history")
+    assert history_response.status_code == 200
+    history_payload = history_response.get_json()
+    assert history_payload["work"]["id"] == work_id
+    histories = history_payload["agent_histories"]
+    chanakya_history = next(item for item in histories if item["agent_id"] == "agent_chanakya")
+    assert any(
+        msg["content"] == "Initial report draft ready." for msg in chanakya_history["messages"]
+    )
+
+
+def test_work_session_mapping_is_unique_per_agent(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    _build_test_app(tmp_path, monkeypatch)
+
+    database_path = tmp_path / "chanakya-test.db"
+    engine = build_engine(f"sqlite:///{database_path}")
+    session_factory = build_session_factory(engine)
+    store = ChanakyaStore(session_factory)
+
+    store.create_work(work_id="work_test_unique", title="Unique Mapping", description=None)
+    first_session = store.ensure_work_agent_session(
+        work_id="work_test_unique",
+        agent_id="agent_chanakya",
+        session_id="session_first",
+        session_title="Unique Mapping - Chanakya",
+    )
+    second_session = store.ensure_work_agent_session(
+        work_id="work_test_unique",
+        agent_id="agent_chanakya",
+        session_id="session_second",
+        session_title="Unique Mapping - Chanakya",
+    )
+
+    mappings = store.list_work_agent_sessions("work_test_unique")
+    assert len([item for item in mappings if item["agent_id"] == "agent_chanakya"]) == 1
+    assert first_session == second_session == "session_first"
+
+    with session_factory() as db_session:
+        rows = db_session.query(WorkAgentSessionModel).filter_by(work_id="work_test_unique").all()
+    assert len(rows) == 1

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar, Token
 from difflib import SequenceMatcher
 import json
 from dataclasses import dataclass
@@ -46,6 +47,9 @@ from chanakya.subagents import (
 
 WORKFLOW_SOFTWARE = "software_delivery"
 WORKFLOW_INFORMATION = "information_delivery"
+
+_ACTIVE_WORK_ID: ContextVar[str | None] = ContextVar("active_work_id", default=None)
+_ACTIVE_SESSION_ID: ContextVar[str | None] = ContextVar("active_session_id", default=None)
 
 
 @dataclass(slots=True)
@@ -117,6 +121,25 @@ class AgentManager:
 
     def should_delegate(self, message: str) -> bool:
         return bool(message.strip())
+
+    def bind_execution_context(
+        self,
+        *,
+        session_id: str,
+        work_id: str | None,
+    ) -> tuple[Token, Token]:
+        return (
+            _ACTIVE_WORK_ID.set(work_id),
+            _ACTIVE_SESSION_ID.set(session_id),
+        )
+
+    def reset_execution_context(
+        self,
+        tokens: tuple[Token, Token],
+    ) -> None:
+        work_token, session_token = tokens
+        _ACTIVE_WORK_ID.reset(work_token)
+        _ACTIVE_SESSION_ID.reset(session_token)
 
     def select_workflow(self, message: str) -> str:
         return self._fallback_route(message).execution_mode
@@ -2134,15 +2157,44 @@ class AgentManager:
             tool_ids=inherited_tool_ids,
         )
 
+    def _resolve_profile_session_id(self, profile: AgentProfileModel) -> str | None:
+        work_id = _ACTIVE_WORK_ID.get()
+        if not work_id:
+            return None
+        current_session_id = _ACTIVE_SESSION_ID.get()
+        fallback_title = (
+            f"Work {work_id} - {profile.name}"
+            if not current_session_id
+            else f"{current_session_id} - {profile.name}"
+        )
+        return self.store.ensure_work_agent_session(
+            work_id=work_id,
+            agent_id=profile.id,
+            session_id=make_id("session"),
+            session_title=fallback_title,
+        )
+
     async def _run_profile_prompt_async(self, profile: AgentProfileModel, prompt: str) -> str:
         agent, _ = build_profile_agent(
             profile,
             self.session_factory,
             client=self.client,
-            include_history=False,
+            include_history=True,
         )
+        profile_session_id = self._resolve_profile_session_id(profile)
+        session = (
+            None
+            if profile_session_id is None
+            else agent.create_session(session_id=profile_session_id)
+        )
+        if session is not None:
+            session.state["request_id"] = make_id("req")
         response = await asyncio.wait_for(
-            agent.run(Message(role="user", text=prompt), options={"store": False}),
+            agent.run(
+                Message(role="user", text=prompt),
+                session=session,
+                options={"store": True},
+            ),
             timeout=get_agent_request_timeout_seconds(),
         )
         return str(response).strip()
