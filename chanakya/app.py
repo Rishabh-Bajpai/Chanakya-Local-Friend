@@ -377,6 +377,18 @@ def create_app() -> Flask:
         except KeyError as exc:
             message = str(exc.args[0]) if exc.args else str(exc)
             return jsonify({"error": message}), 404
+        raw_task_limit = request.args.get("task_limit", "2000")
+        raw_event_limit = request.args.get("event_limit", "5000")
+        try:
+            task_limit = int(raw_task_limit)
+        except (TypeError, ValueError):
+            task_limit = 2000
+        try:
+            event_limit = int(raw_event_limit)
+        except (TypeError, ValueError):
+            event_limit = 5000
+        task_limit = max(100, min(task_limit, 10000))
+        event_limit = max(100, min(event_limit, 20000))
         mappings = store.list_work_agent_sessions(work_id)
         grouped = []
         mapped_session_ids: list[str] = []
@@ -415,7 +427,7 @@ def create_app() -> Flask:
         tasks_by_id: dict[str, dict[str, Any]] = {}
         task_flow = []
         for session_id in unique_session_ids:
-            tasks = store.list_tasks(session_id=session_id, limit=500)
+            tasks = store.list_tasks(session_id=session_id, limit=task_limit)
             for task in tasks:
                 task_id = str(task.get("id") or "")
                 if not task_id:
@@ -426,7 +438,7 @@ def create_app() -> Flask:
                     task_copy["owner_agent_name"] = agent_name_by_id.get(owner_agent_id)
                     task_copy["owner_agent_role"] = agent_role_by_id.get(owner_agent_id)
                     tasks_by_id[task_id] = task_copy
-            events = store.list_task_events(session_id=session_id, limit=1000)
+            events = store.list_task_events(session_id=session_id, limit=event_limit)
             for event in events:
                 task_id = str(event.get("task_id") or "")
                 linked_task = tasks_by_id.get(task_id)
@@ -479,6 +491,10 @@ def create_app() -> Flask:
                 "agent_histories": grouped,
                 "task_flow": task_flow,
                 "tasks": task_records,
+                "limits": {
+                    "task_limit": task_limit,
+                    "event_limit": event_limit,
+                },
             }
         )
 

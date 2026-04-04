@@ -203,6 +203,31 @@
         border-top: 1px solid var(--line);
         padding-top: 12px;
       }
+      details.section-toggle {
+        margin-top: 14px;
+        border: 1px solid #3a3a3a;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      details.section-toggle > summary {
+        cursor: pointer;
+        padding: 10px 12px;
+        font-weight: 700;
+        color: var(--text);
+      }
+      details.section-toggle > div {
+        padding: 0 12px 12px;
+      }
+      details.agent-toggle {
+        margin-bottom: 10px;
+        border: 1px solid #343434;
+        border-radius: 10px;
+      }
+      details.agent-toggle > summary {
+        cursor: pointer;
+        padding: 8px 10px;
+        color: var(--text);
+      }
       .flow-item {
         border: 1px solid #343434;
         border-radius: 10px;
@@ -366,16 +391,21 @@
           return;
         }
         const cards = agentHistories.map((history) => {
-          const card = document.createElement("div");
-          card.className = "agent-card";
+          const card = document.createElement("details");
+          card.className = "agent-card agent-toggle";
+          const summary = document.createElement("summary");
           const title = history.agent_name || history.agent_id;
-          card.innerHTML = `<h3>${title}</h3><div class="agent-meta">${history.agent_role || "unknown"} | ${history.session_id}</div>`;
+          const messageCount = (history.messages || []).length;
+          summary.textContent = `${title} (${history.agent_role || "unknown"}) | ${history.session_id} | messages=${messageCount}`;
+          card.appendChild(summary);
+          const cardBody = document.createElement("div");
           const messages = history.messages || [];
           if (!messages.length) {
             const empty = document.createElement("div");
             empty.className = "empty";
             empty.textContent = "No messages yet.";
-            card.appendChild(empty);
+            cardBody.appendChild(empty);
+            card.appendChild(cardBody);
             return card;
           }
           messages.forEach((message) => {
@@ -397,26 +427,37 @@
               metadata.textContent = `metadata:\n${JSON.stringify(message.metadata, null, 2)}`;
               msg.appendChild(metadata);
             }
-            card.appendChild(msg);
+            cardBody.appendChild(msg);
           });
+          card.appendChild(cardBody);
           return card;
         });
 
-        const flowWrap = document.createElement("div");
-        flowWrap.className = "flow-wrap";
-        const flowTitle = document.createElement("h3");
+        const messageSection = document.createElement("details");
+        messageSection.className = "section-toggle";
+        const messageSummary = document.createElement("summary");
+        messageSummary.textContent = `Message Flow (Agent Histories) - ${agentHistories.length} agents`;
+        messageSection.appendChild(messageSummary);
+        const messageBody = document.createElement("div");
+        messageBody.replaceChildren(...cards);
+        messageSection.appendChild(messageBody);
+
+        const flowWrap = document.createElement("details");
+        flowWrap.className = "flow-wrap section-toggle";
+        const flowTitle = document.createElement("summary");
         flowTitle.textContent = "Task Flow";
         flowWrap.appendChild(flowTitle);
+        const flowBody = document.createElement("div");
         const taskCount = document.createElement("div");
         taskCount.className = "flow-meta";
         taskCount.textContent = `Tasks: ${(tasks || []).length} | Events: ${(taskFlow || []).length}`;
-        flowWrap.appendChild(taskCount);
+        flowBody.appendChild(taskCount);
         const flow = taskFlow || [];
         if (!flow.length) {
           const empty = document.createElement("div");
           empty.className = "empty";
           empty.textContent = "No task events yet.";
-          flowWrap.appendChild(empty);
+          flowBody.appendChild(empty);
         } else {
           flow.forEach((item) => {
             const row = document.createElement("div");
@@ -437,11 +478,12 @@
             content.textContent = JSON.stringify(details, null, 2);
             row.appendChild(meta);
             row.appendChild(content);
-            flowWrap.appendChild(row);
+            flowBody.appendChild(row);
           });
         }
+        flowWrap.appendChild(flowBody);
 
-        historyList.replaceChildren(...cards, flowWrap);
+        historyList.replaceChildren(messageSection, flowWrap);
       }
 
       async function loadWorks() {
@@ -452,7 +494,9 @@
       }
 
       async function loadWorkHistory(workId) {
-        const response = await fetch(`/api/works/${encodeURIComponent(workId)}/history`);
+        const response = await fetch(
+          `/api/works/${encodeURIComponent(workId)}/history?task_limit=3000&event_limit=8000`
+        );
         const data = await response.json();
         if (!response.ok) {
           throw new Error(data.error || "Failed to load work history");
