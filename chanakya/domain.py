@@ -9,6 +9,7 @@ REQUEST_STATUS_CREATED = "created"
 REQUEST_STATUS_IN_PROGRESS = "in_progress"
 REQUEST_STATUS_COMPLETED = "completed"
 REQUEST_STATUS_FAILED = "failed"
+REQUEST_STATUS_CANCELLED = "cancelled"
 
 TASK_STATUS_CREATED = "created"
 TASK_STATUS_READY = "ready"
@@ -17,6 +18,7 @@ TASK_STATUS_WAITING_INPUT = "waiting_input"
 TASK_STATUS_BLOCKED = "blocked"
 TASK_STATUS_DONE = "done"
 TASK_STATUS_FAILED = "failed"
+TASK_STATUS_CANCELLED = "cancelled"
 
 
 def now_iso() -> str:
@@ -43,4 +45,7 @@ class ChatReply:
     response_mode: str = "direct_answer"
     tool_calls_used: int = 0
     tool_trace_ids: list[str] = field(default_factory=list)
+    requires_input: bool = False
+    waiting_task_id: str | None = None
+    input_prompt: str | None = None
     created_at: str = field(default_factory=now_iso)

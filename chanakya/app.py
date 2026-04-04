@@ -195,6 +195,44 @@ def create_app() -> Flask:
         debug_log("api_task_events_request", {"event_count": len(events)})
         return jsonify({"events": events})
 
+    @app.post("/api/tasks/<task_id>/input")
+    def api_task_input(task_id: str) -> Any:
+        payload = request.get_json(silent=True) or {}
+        message = str(payload.get("message", "")).strip()
+        if not message:
+            return jsonify({"error": "message is required"}), 400
+        try:
+            reply = chat_service.submit_task_input(task_id, message)
+        except (KeyError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 502
+        return jsonify(asdict(reply))
+
+    @app.post("/api/tasks/<task_id>/cancel")
+    def api_task_cancel(task_id: str) -> Any:
+        try:
+            result = chat_service.cancel_task(task_id)
+        except (KeyError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(result)
+
+    @app.post("/api/tasks/<task_id>/retry")
+    def api_task_retry(task_id: str) -> Any:
+        try:
+            result = chat_service.retry_task(task_id)
+        except (KeyError, ValueError, RuntimeError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(result)
+
+    @app.post("/api/tasks/<task_id>/unblock")
+    def api_task_unblock(task_id: str) -> Any:
+        try:
+            result = chat_service.manual_unblock_task(task_id)
+        except (KeyError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(result)
+
     @app.get("/api/agents")
     def api_agents() -> Any:
         agents = []

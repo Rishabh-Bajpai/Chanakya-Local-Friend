@@ -9,7 +9,7 @@ from agent_framework.openai import OpenAIChatClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.agent.prompt import inject_tools_into_prompt
-from chanakya.config import get_mcp_request_timeout_seconds, get_openai_compatible_config
+from chanakya.config import get_agent_request_timeout_seconds, get_openai_compatible_config
 from chanakya.debug import debug_log
 from chanakya.history_provider import SQLAlchemyHistoryProvider
 from chanakya.mcp_runtime import ToolExecutionTrace, extract_tool_execution_traces
@@ -162,7 +162,7 @@ class MAFRuntime:
                 session=session,
                 options={"store": True},
             ),
-            timeout=get_mcp_request_timeout_seconds(),
+            timeout=get_agent_request_timeout_seconds(),
         )
 
         # Mock up specs format to satisfy legacy extractor

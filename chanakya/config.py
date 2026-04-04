@@ -82,5 +82,15 @@ def get_mcp_request_timeout_seconds() -> int:
     return value if value > 0 else 20
 
 
+def get_agent_request_timeout_seconds() -> int:
+    load_local_env()
+    raw = os.getenv("AGENT_REQUEST_TIMEOUT_SECONDS", "120")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 120
+    return value if value > 0 else 120
+
+
 def force_subagents_enabled() -> bool:
     return env_flag("CHANAKYA_FORCE_SUBAGENTS", default=False)

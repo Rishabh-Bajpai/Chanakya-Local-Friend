@@ -1090,6 +1090,14 @@
           worker_failed: "Worker failed",
           worker_subagent_plan_accepted: "Worker helper plan accepted",
           worker_subagent_synthesis_completed: "Worker helper synthesis completed",
+          user_input_requested: "User input requested",
+          user_input_submitted: "User input submitted",
+          task_resumed: "Task resumed",
+          workflow_waiting_input: "Workflow waiting for input",
+          manager_waiting_input: "Manager waiting for input",
+          task_cancelled: "Task cancelled",
+          task_retry_requested: "Task retry requested",
+          task_manual_unblocked: "Task manually unblocked",
           subagent_created: "Temporary subagent created",
           subagent_group_started: "Temporary subagent group started",
           subagent_output_ready: "Temporary subagent output ready",
@@ -1132,6 +1140,15 @@
         if (event.event_type === "worker_subagent_plan_accepted") {
           return `${payload.helper_count || 0} helpers for ${payload.parent_agent_id || "worker"}`;
         }
+        if (event.event_type === "user_input_requested") {
+          return payload.input_prompt || payload.question || "clarification required";
+        }
+        if (event.event_type === "user_input_submitted") {
+          return payload.message || "user input received";
+        }
+        if (event.event_type === "task_resumed") {
+          return "workflow resumed after input";
+        }
         if (event.event_type === "subagent_created") {
           return `${payload.temporary_agent_id || "subagent"} for ${payload.parent_agent_id || "worker"}`;
         }
@@ -1165,6 +1182,45 @@
         if (task.started_at) bits.push(`started=${task.started_at}`);
         if (task.finished_at) bits.push(`finished=${task.finished_at}`);
         return bits.join(" | ");
+      }
+
+      async function postTaskAction(taskId, action, payload = {}) {
+        const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/${action}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || `Task ${action} failed`);
+        }
+        return data;
+      }
+
+      async function submitTaskInput(taskId, input, button = null) {
+        if (button && button.dataset.submitting === "true") {
+          return;
+        }
+        const message = input.value.trim();
+        if (!message) return;
+        input.disabled = true;
+        if (button) {
+          button.disabled = true;
+          button.dataset.submitting = "true";
+        }
+        try {
+          await postTaskAction(taskId, "input", { message });
+          input.value = "";
+          await loadSessionHistory();
+        } catch (error) {
+          appendMessage("assistant", error instanceof Error ? error.message : String(error));
+        } finally {
+          input.disabled = false;
+          if (button) {
+            button.disabled = false;
+            button.dataset.submitting = "false";
+          }
+        }
       }
 
       function renderTasks(items) {
@@ -1210,6 +1266,66 @@
             result: task.result,
           }, null, 2);
           card.appendChild(pre);
+          const actionRow = document.createElement("div");
+          actionRow.className = "form-actions";
+          const resumableWaitingTask = task.status === "waiting_input" && !!task.input?.maf_pending_request_id;
+          if (resumableWaitingTask) {
+            const answerInput = document.createElement("input");
+            answerInput.type = "text";
+            answerInput.placeholder = task.input?.maf_pending_prompt || "Reply to continue this task";
+            actionRow.appendChild(answerInput);
+            const replyButton = document.createElement("button");
+            replyButton.type = "button";
+            replyButton.textContent = "Reply";
+            replyButton.addEventListener("click", () => submitTaskInput(task.id, answerInput, replyButton));
+            actionRow.appendChild(replyButton);
+            const cancelButton = document.createElement("button");
+            cancelButton.type = "button";
+            cancelButton.className = "button-secondary";
+            cancelButton.textContent = "Cancel";
+            cancelButton.addEventListener("click", async () => {
+              try {
+                await postTaskAction(task.id, "cancel");
+                await refreshSidePanels();
+              } catch (error) {
+                appendMessage("assistant", error instanceof Error ? error.message : String(error));
+              }
+            });
+            actionRow.appendChild(cancelButton);
+          }
+          if (task.status === "failed" && !task.parent_task_id) {
+            const retryButton = document.createElement("button");
+            retryButton.type = "button";
+            retryButton.className = "button-secondary";
+            retryButton.textContent = "Retry";
+            retryButton.addEventListener("click", async () => {
+              try {
+                await postTaskAction(task.id, "retry");
+                await loadSessionHistory();
+              } catch (error) {
+                appendMessage("assistant", error instanceof Error ? error.message : String(error));
+              }
+            });
+            actionRow.appendChild(retryButton);
+          }
+          if (task.status === "blocked") {
+            const unblockButton = document.createElement("button");
+            unblockButton.type = "button";
+            unblockButton.className = "button-secondary";
+            unblockButton.textContent = "Manual Unblock";
+            unblockButton.addEventListener("click", async () => {
+              try {
+                await postTaskAction(task.id, "unblock");
+                await refreshSidePanels();
+              } catch (error) {
+                appendMessage("assistant", error instanceof Error ? error.message : String(error));
+              }
+            });
+            actionRow.appendChild(unblockButton);
+          }
+          if (actionRow.childNodes.length) {
+            card.appendChild(actionRow);
+          }
           const childNodes = (childrenByParent.get(task.id) || []).flatMap((child) => buildTaskCard(child, depth + 1));
           return [card, ...childNodes];
         }
