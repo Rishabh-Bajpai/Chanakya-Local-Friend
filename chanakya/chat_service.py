@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+
+from agent_framework import Agent, Message
+from agent_framework.openai import OpenAIChatClient
+
+from chanakya.agent.runtime import build_profile_agent
+from chanakya.config import get_agent_request_timeout_seconds
 from chanakya.debug import debug_log
 from chanakya.domain import (
     ChatReply,
@@ -20,7 +27,28 @@ from chanakya.domain import (
 )
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.agent_manager import AgentManager
+from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.store import ChanakyaStore
+
+
+_TRIAGE_SYSTEM_PROMPT = (
+    "You are a request classifier. Your ONLY job is to output exactly one word.\n"
+    "Reply with \"direct\" if the user's message is:\n"
+    "- A greeting, small talk, or simple conversational exchange\n"
+    "- A simple factual question answerable from general knowledge\n"
+    "- A math calculation or unit conversion\n"
+    "- A weather check or current conditions lookup\n"
+    "- A request to fetch or summarise a single URL or web page\n"
+    "- Anything a single assistant with a calculator and web-fetch tool can fully answer in one step\n"
+    "\n"
+    "Reply with \"delegate\" if the user's message requires:\n"
+    "- Multi-step research across multiple sources\n"
+    "- Software development, code generation, architecture, or debugging\n"
+    "- Complex analysis requiring structured specialist workflows\n"
+    "- Coordination between multiple specialists (researcher+writer, developer+tester)\n"
+    "\n"
+    "Output ONLY the single word \"direct\" or \"delegate\". Nothing else."
+)
 
 
 class ChatService:
@@ -33,6 +61,40 @@ class ChatService:
         self.store = store
         self.runtime = runtime
         self.manager = manager
+        self._triage_client = OpenAIChatClient(env_file_path=".env")
+
+    def _triage_message(self, message: str) -> str:
+        """Lightweight LLM call to classify a message as 'direct' or 'delegate'."""
+        try:
+            triage_agent = Agent(
+                client=self._triage_client,
+                name="triage_classifier",
+                instructions=_TRIAGE_SYSTEM_PROMPT,
+            )
+
+            async def _classify() -> str:
+                response = await asyncio.wait_for(
+                    triage_agent.run(
+                        Message(role="user", text=message),
+                        options={"store": False},
+                    ),
+                    timeout=15,
+                )
+                return str(response).strip().lower()
+
+            raw = run_in_maf_loop(_classify())
+            decision = "direct" if "direct" in raw else "delegate"
+            debug_log(
+                "triage_decision",
+                {"message": message, "raw_response": raw, "decision": decision},
+            )
+            return decision
+        except Exception as exc:
+            debug_log(
+                "triage_fallback",
+                {"message": message, "error": str(exc), "decision": "delegate"},
+            )
+            return "delegate"
 
     def chat(self, session_id: str, message: str) -> ChatReply:
         request_id = make_id("req")
@@ -122,7 +184,22 @@ class ChatService:
         )
 
         try:
+            use_manager = False
             if self.manager is not None:
+                triage = self._triage_message(message)
+                use_manager = triage == "delegate"
+                self.store.create_task_event(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=root_task_id,
+                    event_type="triage_completed",
+                    payload={
+                        "decision": triage,
+                        "use_manager": use_manager,
+                    },
+                )
+
+            if use_manager:
                 manager_result = self.manager.execute(
                     session_id=session_id,
                     request_id=request_id,

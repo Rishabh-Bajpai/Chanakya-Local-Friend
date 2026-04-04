@@ -7,6 +7,7 @@ from typing import Any
 
 from flask import Flask, jsonify, render_template, request
 
+from chanakya.agent.profile_files import default_heartbeat_relative_path, ensure_agent_profile_files
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
@@ -34,8 +35,8 @@ def create_app() -> Flask:
 
     data_dir = get_data_dir()
     database_url = get_database_url()
-    heartbeat_dir = data_dir / "heartbeats"
-    heartbeat_dir.mkdir(parents=True, exist_ok=True)
+    agents_dir = data_dir / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
 
     engine = build_engine(database_url)
     init_database(engine)
@@ -278,6 +279,10 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc)}), 400
 
         agent_id = _allocate_agent_profile_id(store, agent_data["name"])
+        heartbeat_path = agent_data["heartbeat_file_path"] or default_heartbeat_relative_path(
+            agent_id
+        )
+        resolve_heartbeat_path(heartbeat_path, BASE_DIR, agent_id=agent_id)
 
         profile = AgentProfileModel(
             id=agent_id,
@@ -289,7 +294,7 @@ def create_app() -> Flask:
             workspace=agent_data["workspace"],
             heartbeat_enabled=agent_data["heartbeat_enabled"],
             heartbeat_interval_seconds=agent_data["heartbeat_interval_seconds"],
-            heartbeat_file_path=agent_data["heartbeat_file_path"],
+            heartbeat_file_path=heartbeat_path,
             is_active=agent_data["is_active"],
             created_at=agent_data["timestamp"],
             updated_at=agent_data["timestamp"],
@@ -309,6 +314,10 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             agent_data = _parse_agent_payload(payload)
+            heartbeat_path = agent_data["heartbeat_file_path"] or default_heartbeat_relative_path(
+                agent_id
+            )
+            resolve_heartbeat_path(heartbeat_path, BASE_DIR, agent_id=agent_id)
             profile = store.update_agent_profile(
                 agent_id,
                 name=agent_data["name"],
@@ -319,7 +328,7 @@ def create_app() -> Flask:
                 workspace=agent_data["workspace"],
                 heartbeat_enabled=agent_data["heartbeat_enabled"],
                 heartbeat_interval_seconds=agent_data["heartbeat_interval_seconds"],
-                heartbeat_file_path=agent_data["heartbeat_file_path"],
+                heartbeat_file_path=heartbeat_path,
                 is_active=agent_data["is_active"],
             )
         except ValueError as exc:
@@ -361,13 +370,14 @@ def create_app() -> Flask:
 
 def ensure_heartbeat_files(store: ChanakyaStore, repo_root: Path) -> None:
     for profile in store.list_agent_profiles():
+        ensure_agent_profile_files(profile, repo_root)
         ensure_heartbeat_file(profile, repo_root)
 
 
 def ensure_heartbeat_file(profile: AgentProfileModel, repo_root: Path) -> None:
-    if not profile.heartbeat_file_path:
-        return
-    target = resolve_heartbeat_path(profile.heartbeat_file_path, repo_root)
+    ensure_agent_profile_files(profile, repo_root)
+    file_path = profile.heartbeat_file_path or default_heartbeat_relative_path(profile.id)
+    target = resolve_heartbeat_path(file_path, repo_root, agent_id=profile.id)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         return
@@ -412,8 +422,6 @@ def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     heartbeat_enabled = _parse_required_bool(payload, "heartbeat_enabled", default=False)
     heartbeat_file_path = heartbeat_path_value or None
-    if heartbeat_enabled and heartbeat_file_path is None:
-        raise ValueError("heartbeat_file_path is required when heartbeat is enabled")
     if heartbeat_file_path is not None:
         resolve_heartbeat_path(heartbeat_file_path, BASE_DIR)
 

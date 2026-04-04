@@ -2140,6 +2140,7 @@ class AgentManager:
             self.session_factory,
             client=self.client,
             include_history=False,
+            usage_text=prompt,
         )
         response = await asyncio.wait_for(
             agent.run(Message(role="user", text=prompt), options={"store": False}),
@@ -2194,6 +2195,7 @@ class AgentManager:
                 self.session_factory,
                 client=self.client,
                 include_history=False,
+                usage_text=message,
             )[0]
             for profile in participants
         ]

@@ -35,7 +35,7 @@ def _build_test_app(tmp_path: Path, monkeypatch: MonkeyPatch) -> Flask:
                     "workspace": "main",
                     "heartbeat_enabled": False,
                     "heartbeat_interval_seconds": 300,
-                    "heartbeat_file_path": None,
+                    "heartbeat_file_path": "chanakya_data/agents/agent_chanakya/heartbeat.md",
                     "is_active": True,
                 },
                 {
@@ -48,7 +48,7 @@ def _build_test_app(tmp_path: Path, monkeypatch: MonkeyPatch) -> Flask:
                     "workspace": "manager",
                     "heartbeat_enabled": False,
                     "heartbeat_interval_seconds": 300,
-                    "heartbeat_file_path": None,
+                    "heartbeat_file_path": "chanakya_data/agents/agent_manager/heartbeat.md",
                     "is_active": True,
                 },
             ]
@@ -108,7 +108,7 @@ def test_agent_create_and_update_api_persists_configuration(
             "workspace": "alpha-workspace",
             "heartbeat_enabled": True,
             "heartbeat_interval_seconds": 90,
-            "heartbeat_file_path": "chanakya_data/heartbeats/developer-alpha.md",
+            "heartbeat_file_path": "chanakya_data/agents/agent_developer_alpha/heartbeat.md",
             "is_active": True,
         },
     )
@@ -119,7 +119,7 @@ def test_agent_create_and_update_api_persists_configuration(
     assert created["workspace"] == "alpha-workspace"
     assert created["heartbeat_enabled"] is True
 
-    heartbeat_file = tmp_path / "chanakya_data/heartbeats/developer-alpha.md"
+    heartbeat_file = tmp_path / "chanakya_data/agents/agent_developer_alpha/heartbeat.md"
     assert heartbeat_file.exists()
 
     update_response = client.put(
@@ -133,7 +133,7 @@ def test_agent_create_and_update_api_persists_configuration(
             "workspace": "updated-workspace",
             "heartbeat_enabled": False,
             "heartbeat_interval_seconds": 120,
-            "heartbeat_file_path": "chanakya_data/heartbeats/developer-alpha.md",
+            "heartbeat_file_path": "chanakya_data/agents/agent_developer_alpha/heartbeat.md",
             "is_active": False,
         },
     )
@@ -262,7 +262,7 @@ def test_agent_create_api_rejects_invalid_boolean_and_heartbeat_path(
             "workspace": None,
             "heartbeat_enabled": True,
             "heartbeat_interval_seconds": 30,
-            "heartbeat_file_path": "chanakya_data/heartbeats/./../escape.md",
+            "heartbeat_file_path": "chanakya_data/agents/./../escape.md",
             "is_active": True,
         },
     )
@@ -363,7 +363,7 @@ def test_agent_create_api_accepts_null_optional_fields(
     assert response.status_code == 201
     payload = response.get_json()
     assert payload["workspace"] is None
-    assert payload["heartbeat_file_path"] is None
+    assert payload["heartbeat_file_path"] == "chanakya_data/agents/agent_null_friendly/heartbeat.md"
     assert payload["personality"] == ""
 
 

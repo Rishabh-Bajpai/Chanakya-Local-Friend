@@ -30,7 +30,7 @@ def test_load_agent_seeds_creates_missing_agents_without_overwriting_existing(
         workspace="custom-dev-workspace",
         heartbeat_enabled=True,
         heartbeat_interval_seconds=120,
-        heartbeat_file_path="chanakya_data/heartbeats/custom-developer.md",
+        heartbeat_file_path="chanakya_data/agents/agent_developer/heartbeat.md",
         is_active=True,
         created_at="2026-04-01T00:00:00+00:00",
         updated_at="2026-04-01T00:00:00+00:00",
@@ -51,7 +51,7 @@ def test_load_agent_seeds_creates_missing_agents_without_overwriting_existing(
                     "workspace": "seed-workspace",
                     "heartbeat_enabled": False,
                     "heartbeat_interval_seconds": 300,
-                    "heartbeat_file_path": "chanakya_data/heartbeats/developer.md",
+                    "heartbeat_file_path": "chanakya_data/agents/agent_developer/heartbeat.md",
                     "is_active": True,
                 },
                 {
@@ -64,7 +64,7 @@ def test_load_agent_seeds_creates_missing_agents_without_overwriting_existing(
                     "workspace": "qa-workspace",
                     "heartbeat_enabled": False,
                     "heartbeat_interval_seconds": 300,
-                    "heartbeat_file_path": "chanakya_data/heartbeats/tester.md",
+                    "heartbeat_file_path": "chanakya_data/agents/agent_tester/heartbeat.md",
                     "is_active": True,
                 },
             ]
@@ -84,7 +84,7 @@ def test_load_agent_seeds_creates_missing_agents_without_overwriting_existing(
     assert developer.workspace == "custom-dev-workspace"
     assert developer.heartbeat_enabled is True
     assert developer.heartbeat_interval_seconds == 120
-    assert developer.heartbeat_file_path == "chanakya_data/heartbeats/custom-developer.md"
+    assert developer.heartbeat_file_path == "chanakya_data/agents/agent_developer/heartbeat.md"
 
     assert tester.name == "Seed Tester"
     assert tester.role == "tester"
