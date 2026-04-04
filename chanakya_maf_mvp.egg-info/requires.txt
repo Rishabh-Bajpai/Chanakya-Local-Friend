@@ -1,6 +1,0 @@
-agent-framework>=1.0.0rc5
-flask>=3.0.0
-
-[dev]
-ruff>=0.6.0
-mypy>=1.10.0
