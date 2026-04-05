@@ -246,12 +246,39 @@ class ChatService:
                     work_id=work_id,
                 )
                 try:
-                    manager_result = self.manager.execute(
+                    followup_artifacts = self._resolve_targeted_writer_followup_artifacts(
                         session_id=session_id,
-                        request_id=request_id,
-                        root_task_id=root_task_id,
+                        work_id=work_id,
                         message=message,
                     )
+                    if followup_artifacts is not None:
+                        self.store.create_task_event(
+                            session_id=session_id,
+                            request_id=request_id,
+                            task_id=root_task_id,
+                            event_type="work_followup_detected",
+                            payload={
+                                "intent": "writer_modification",
+                                "targeted_stage": "writer",
+                                "source_request_id": followup_artifacts["source_request_id"],
+                            },
+                        )
+                        manager_result = self.manager.execute_targeted_writer_followup(
+                            session_id=session_id,
+                            request_id=request_id,
+                            root_task_id=root_task_id,
+                            message=message,
+                            previous_writer_output=followup_artifacts["writer_output"],
+                            previous_research_handoff=followup_artifacts.get("research_handoff"),
+                            source_request_id=followup_artifacts.get("source_request_id"),
+                        )
+                    else:
+                        manager_result = self.manager.execute(
+                            session_id=session_id,
+                            request_id=request_id,
+                            root_task_id=root_task_id,
+                            message=message,
+                        )
                 finally:
                     self.manager.reset_execution_context(context_tokens)
                 run_result = None
@@ -485,6 +512,95 @@ class ChatService:
             },
         )
         return reply
+
+    @staticmethod
+    def _is_writer_modification_message(message: str) -> bool:
+        lowered = message.strip().lower()
+        if not lowered:
+            return False
+        software_markers = {
+            "implement",
+            "code",
+            "api",
+            "database",
+            "bug",
+            "test",
+            "refactor",
+            "endpoint",
+            "function",
+            "class",
+        }
+        if any(marker in lowered for marker in software_markers):
+            return False
+        modification_markers = {
+            "make it",
+            "make this",
+            "update",
+            "revise",
+            "rewrite",
+            "rephrase",
+            "shorter",
+            "longer",
+            "more formal",
+            "less formal",
+            "tone",
+            "improve wording",
+            "fix grammar",
+            "add section",
+            "remove section",
+            "expand",
+            "condense",
+            "polish",
+            "refine",
+        }
+        referential_markers = {"it", "this", "that", "above", "draft", "response", "report"}
+        return any(marker in lowered for marker in modification_markers) and any(
+            token in lowered for token in referential_markers
+        )
+
+    def _resolve_targeted_writer_followup_artifacts(
+        self,
+        *,
+        session_id: str,
+        work_id: str | None,
+        message: str,
+    ) -> dict[str, str] | None:
+        if work_id is None:
+            return None
+        if self.manager is None:
+            return None
+        if not self._is_writer_modification_message(message):
+            return None
+        tasks = self.store.list_tasks(session_id=session_id, limit=400)
+        writer_task = None
+        for task in reversed(tasks):
+            if task.get("task_type") != "writer_execution":
+                continue
+            if task.get("status") != TASK_STATUS_DONE:
+                continue
+            written = str((task.get("result") or {}).get("written_response") or "").strip()
+            if not written:
+                continue
+            writer_task = task
+            break
+        if writer_task is None:
+            return None
+        source_request_id = str(writer_task.get("request_id") or "").strip() or None
+        research_handoff = None
+        if source_request_id:
+            related = self.store.list_tasks(request_id=source_request_id, limit=60)
+            for task in reversed(related):
+                if task.get("task_type") != "researcher_execution":
+                    continue
+                handoff = str((task.get("result") or {}).get("handoff") or "").strip()
+                if handoff:
+                    research_handoff = handoff
+                    break
+        return {
+            "writer_output": str((writer_task.get("result") or {}).get("written_response") or ""),
+            "research_handoff": research_handoff or "",
+            "source_request_id": source_request_id or "",
+        }
 
     def submit_task_input(self, task_id: str, message: str) -> ChatReply:
         if self.manager is None:

@@ -8,9 +8,9 @@
 
 ## Executive Summary
 
-This report analyzes the workflow architecture in Chanakya, identifying fundamental design issues that cause suboptimal behavior — particularly around **incremental updates** and **follow-up modifications**. The core issue is that every user message triggers a complete workflow execution from scratch, rather than intelligently detecting whether the message is a follow-up to existing work.
+This report analyzes the workflow architecture in Chanakya, with re-validation against current code. The primary gap remains **incremental update handling**: follow-up modification requests in `/work` still execute full workflows instead of targeted stage updates.
 
-**Key finding:** The system lacks awareness of previous work context. When a user says "change X" in `/work` mode, it treats it as a completely new request rather than a modification to existing output.
+**Validated key finding:** the system has work-scoped session memory, but no intent-aware stage reuse. It preserves conversation context; it does not yet optimize execution for "change this" style follow-ups.
 
 ---
 
@@ -18,10 +18,12 @@ This report analyzes the workflow architecture in Chanakya, identifying fundamen
 
 1. [Architecture Overview](#1-architecture-overview)
 2. [Workflow Execution Flow](#2-workflow-execution-flow)
-3. [Issues Identified](#3-issues-identified)
-4. [Root Cause Analysis](#4-root-cause-analysis)
-5. [Recommendations](#5-recommendations)
-6. [Appendix: Code Locations](#6-appendix-code-locations)
+3. [Validation Results](#3-validation-results)
+4. [Issues Identified (Validated)](#4-issues-identified-validated)
+5. [Root Cause Analysis](#5-root-cause-analysis)
+6. [Recommendations](#6-recommendations)
+7. [Implementation Plan (Tasks)](#7-implementation-plan-tasks)
+8. [Appendix: Code Locations](#8-appendix-code-locations)
 
 ---
 
@@ -137,7 +139,36 @@ reply = chat_service.chat(session_id, message, work_id=work_id)
 
 ---
 
-## 3. Issues Identified
+## 3. Validation Results
+
+This section validates the original analysis against current implementation.
+
+### 3.1 Confirmed
+
+- Every user message creates a new request and root task in `chat_service.chat()`.
+- Manager execution path still runs full specialist workflow for delegated requests.
+- No request relationship field (`previous_request_id` / `follows_request_id`) exists in persisted request model.
+- No dedicated work-level stage-output cache API exists in store.
+
+### 3.2 Partially Confirmed (original report overstated)
+
+- "No context preservation between work messages" is only partially true.
+  - Work-scoped per-agent sessions are implemented (`ensure_work_agent_session`) and reused.
+  - Agent history is loaded for work-scoped sessions by default in profile prompt runs.
+  - Therefore, context is preserved conversationally, but execution is not optimized by intent.
+
+- "Work mode does not influence workflow execution" is partially true.
+  - `work_id` does influence session routing and history continuity.
+  - `work_id` does not yet influence stage selection or selective re-execution.
+
+### 3.3 Superseded by Recent Prompt/History Hardening
+
+- Control-history contamination concerns are reduced due to control JSON filtering in history provider.
+- This does not solve incremental execution; it only improves context quality.
+
+---
+
+## 4. Issues Identified (Validated)
 
 ### 3.1 🔴 Critical: No Incremental Update Detection
 
@@ -314,7 +345,7 @@ def _build_tester_handoff_prompt(...):
 
 ---
 
-## 4. Root Cause Analysis
+## 5. Root Cause Analysis
 
 ### The Core Problem
 
@@ -377,7 +408,7 @@ def _build_tester_handoff_prompt(...):
 
 ---
 
-## 5. Recommendations
+## 6. Recommendations
 
 ### 5.1 Immediate Actions (Critical)
 
@@ -459,7 +490,80 @@ def chat_service.chat_with_work_intent(
 
 ---
 
-## 6. Appendix: Code Locations
+## 7. Implementation Plan (Tasks)
+
+This is the concrete implementation plan to fix follow-up execution quality in `/work` mode.
+
+### Phase 0 - Baseline and Safety Net
+
+- [ ] Add benchmark scenarios for follow-up requests (tone change, add section, shorten output, bug fix delta).
+- [ ] Add assertions for "full workflow vs targeted stage" behavior in new tests.
+- [ ] Record baseline metrics: full-workflow rate for follow-up messages, avg task count/request, latency.
+
+### Phase 1 - Intent Detection in Work Mode
+
+- [ ] Add work-aware intent classifier in `chat_service.py`:
+  - `new_request`
+  - `modification`
+  - `continuation`
+  - `clarification_reply`
+- [ ] Use conservative deterministic heuristics first (keywords + prior task state), no model dependency initially.
+- [ ] Emit task events for detected intent (`work_intent_detected`) for observability.
+
+### Phase 2 - Request Linking and Provenance
+
+- [ ] Extend request persistence to link related requests in same work:
+  - add `previous_request_id` (nullable)
+  - add migration + store APIs
+- [ ] Populate link on new work request creation when prior request exists.
+- [ ] Expose this relationship in `/api/works/<work_id>/history` response.
+
+### Phase 3 - Work Output Cache
+
+- [ ] Add work-stage output table/model (or equivalent store abstraction) keyed by:
+  - `work_id`
+  - `workflow_type`
+  - `stage` (`cto_brief`, `developer_output`, `tester_output`, `researcher_output`, `writer_output`, `specialist_summary`)
+  - `request_id`
+- [ ] Add store methods:
+  - `save_work_stage_output(...)`
+  - `get_latest_work_stage_output(work_id, stage, workflow_type)`
+  - `list_work_stage_outputs(work_id)`
+- [ ] Persist outputs at end of each stage transition in `agent_manager.py`.
+
+### Phase 4 - Targeted Stage Execution
+
+- [ ] Add `agent_manager.run_targeted_stage(...)` for supported follow-up edits.
+- [ ] Initial support matrix:
+  - Information workflow: writer-only edits from prior `researcher_output`/`writer_output`.
+  - Software workflow: tester-only rerun for verification-focused follow-up.
+- [ ] Add targeted prompt builders:
+  - writer revision prompt with prior output + modification request
+  - tester revalidation prompt with prior developer handoff + delta request
+- [ ] Fall back to full workflow when confidence is low or prerequisites are missing.
+
+### Phase 5 - Brief Reuse and Scoped Recompute
+
+- [ ] Reuse prior specialist brief when intent is `modification` and scope is unchanged.
+- [ ] Add scope-change detector (simple lexical diff + keyword triggers) to decide whether to recompute brief.
+- [ ] Log decision event (`brief_reused` vs `brief_regenerated`).
+
+### Phase 6 - API/UI Visibility
+
+- [ ] Include execution mode metadata in response payload (`full_workflow` vs `targeted_stage`).
+- [ ] Show targeted execution badge in `work.html` timeline/slideshow.
+- [ ] Add section showing reused artifacts (which prior stage outputs were used).
+
+### Phase 7 - Acceptance Criteria
+
+- [ ] Follow-up modification requests trigger targeted execution in >=70% of eligible cases.
+- [ ] Avg child task count/request in follow-up scenarios reduced by >=40%.
+- [ ] No regression in failed-request rate.
+- [ ] `/work` history clearly displays request linkage and execution mode.
+
+---
+
+## 8. Appendix: Code Locations
 
 ### Core Files
 
@@ -500,9 +604,9 @@ def chat_service.chat_with_work_intent(
 
 ## Conclusion
 
-The workflow architecture is well-structured for executing new tasks from scratch, but lacks the intelligence to handle **incremental modifications**. The user's specific complaint — that a small change triggers full regeneration — is a fundamental design gap.
+The workflow architecture is strong for from-scratch execution. After validation, the main unresolved gap is not memory absence but **execution strategy absence** for incremental work.
 
-**Root cause:** Every message creates a new request with no awareness of previous work outputs.
+**Validated root cause:** Every message creates a new request and defaults to full workflow execution, with no intent-driven stage targeting or output reuse policy.
 
 **Fix direction:** 
 1. Track previous outputs per work
@@ -510,8 +614,4 @@ The workflow architecture is well-structured for executing new tasks from scratc
 3. Run targeted stages instead of full workflows when appropriate
 4. Pass previous outputs to agents for modification requests
 
-This is a moderate refactoring effort, primarily involving:
-- Adding output caching to store layer
-- Adding intent detection in chat service
-- Modifying workflow execution to support targeted stages
-- Adding UI hints for modification mode
+This is a moderate refactor with clear phases and low-risk rollout via conservative defaults and fallback to full workflow.

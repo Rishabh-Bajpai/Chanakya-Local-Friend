@@ -8,7 +8,12 @@ from agent_framework import Message
 from pytest import MonkeyPatch, raises
 
 from chanakya.agent.runtime import MAFRuntime, build_profile_agent_config
-from chanakya.agent_manager import AgentManager, WORKFLOW_INFORMATION, WORKFLOW_SOFTWARE
+from chanakya.agent_manager import (
+    AgentManager,
+    ManagerRunResult,
+    WORKFLOW_INFORMATION,
+    WORKFLOW_SOFTWARE,
+)
 from chanakya.chat_service import ChatService
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.domain import (
@@ -181,6 +186,99 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
     assert "specialist_workflow_completed" in event_types
     assert "workflow_completed" in event_types
     assert "manager_summary_completed" in event_types
+
+
+def test_work_followup_writer_modification_uses_targeted_execution() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+
+    store.create_work(work_id="work_followup", title="Follow-up Work", description="")
+    store.ensure_work_agent_session(
+        work_id="work_followup",
+        agent_id=chanakya.id,
+        session_id="session_followup",
+        session_title="Follow-up session",
+    )
+    store.create_request(
+        request_id="req_old",
+        session_id="session_followup",
+        user_message="Write a report about AI trends",
+        status="completed",
+        root_task_id="task_old_root",
+    )
+    store.create_task(
+        task_id="task_old_root",
+        request_id="req_old",
+        parent_task_id=None,
+        title="old root",
+        summary="",
+        status=TASK_STATUS_DONE,
+        owner_agent_id=chanakya.id,
+        task_type="chat_request",
+    )
+    store.create_task(
+        task_id="task_old_research",
+        request_id="req_old",
+        parent_task_id="task_old_root",
+        title="old research",
+        summary="",
+        status=TASK_STATUS_DONE,
+        owner_agent_id="agent_researcher",
+        task_type="researcher_execution",
+    )
+    store.update_task("task_old_research", result_json={"handoff": "AI trends findings"})
+    store.create_task(
+        task_id="task_old_writer",
+        request_id="req_old",
+        parent_task_id="task_old_root",
+        title="old writer",
+        summary="",
+        status=TASK_STATUS_DONE,
+        owner_agent_id="agent_writer",
+        task_type="writer_execution",
+    )
+    store.update_task("task_old_writer", result_json={"written_response": "Initial draft report"})
+
+    called: dict[str, str] = {}
+
+    def _targeted(**kwargs: str) -> ManagerRunResult:
+        called["writer_output"] = kwargs["previous_writer_output"]
+        called["source_request_id"] = kwargs.get("source_request_id") or ""
+        return ManagerRunResult(
+            text="Revised report in formal tone.",
+            workflow_type=WORKFLOW_INFORMATION,
+            child_task_ids=["task_targeted"],
+            manager_agent_id="agent_manager",
+            worker_agent_ids=["agent_informer", "agent_writer"],
+            task_status=TASK_STATUS_DONE,
+            result_json={"workflow_type": WORKFLOW_INFORMATION, "targeted_execution": True},
+        )
+
+    service.manager.execute_targeted_writer_followup = _targeted  # type: ignore[method-assign]
+
+    def _should_not_run_full(**kwargs: str) -> ManagerRunResult:
+        raise AssertionError("full manager.execute should not run for targeted follow-up")
+
+    service.manager.execute = _should_not_run_full  # type: ignore[method-assign]
+
+    reply = service.chat(
+        "session_followup",
+        "Make it more formal and shorter.",
+        work_id="work_followup",
+    )
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert called["writer_output"] == "Initial draft report"
+    assert called["source_request_id"] == "req_old"
+    events = store.list_task_events(session_id="session_followup", limit=100)
+    assert any(event["event_type"] == "work_followup_detected" for event in events)
 
 
 def test_chat_service_routes_non_software_requests_through_informer_chain() -> None:
