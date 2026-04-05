@@ -34,6 +34,66 @@
       ],
       "transport": "stdio",
       "env": {}
+    },
+    "mcp_filesystem": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "filesystem"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_git": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "git"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_http": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "http"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_json": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "json"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_shell_utils": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "shell_utils"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_weather": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "weather"
+      ],
+      "transport": "stdio",
+      "env": {}
     }
   }
 }

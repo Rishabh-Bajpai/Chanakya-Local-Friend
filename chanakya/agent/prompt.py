@@ -1,5 +1,16 @@
 from agent_framework import MCPStdioTool
+
+from chanakya.domain import now_iso
 from chanakya.model import AgentProfileModel
+
+
+def _build_runtime_prompt_prelude() -> str:
+    current_time = now_iso()
+    return (
+        "# Runtime Context\n"
+        f"Current UTC time: {current_time}\n"
+        "Use this as the current system time unless the user or a tool provides more specific time context."
+    )
 
 
 def inject_tools_into_prompt(
@@ -10,6 +21,7 @@ def inject_tools_into_prompt(
 ) -> str:
     """Takes the system prompt and explicitly tells the LLM the tools it has."""
     base_prompt = str(base_prompt if base_prompt is not None else profile.system_prompt)
+    base_prompt = f"{_build_runtime_prompt_prelude()}\n\n{base_prompt}"
     if not tools_cache:
         return base_prompt
 
