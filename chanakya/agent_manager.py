@@ -47,6 +47,7 @@ from chanakya.subagents import (
 
 WORKFLOW_SOFTWARE = "software_delivery"
 WORKFLOW_INFORMATION = "information_delivery"
+WORKFLOW_MANAGER_DIRECT = "manager_direct_fallback"
 MAX_UNTRUSTED_ARTIFACT_CHARS = 12000
 
 _ACTIVE_WORK_ID: ContextVar[str | None] = ContextVar("active_work_id", default=None)
@@ -179,6 +180,17 @@ class AgentManager:
         )
 
         route = self._select_route(message)
+        coverage_issue = self._get_route_coverage_issue(route)
+        if coverage_issue is not None:
+            return self._execute_manager_direct_fallback(
+                session_id=session_id,
+                request_id=request_id,
+                root_task_id=root_task_id,
+                manager_task_id=manager_task_id,
+                message=message,
+                route=route,
+                coverage_issue=coverage_issue,
+            )
         specialist_profile = self.store.get_agent_profile(route.selected_agent_id)
         specialist_task_id = self._create_child_task(
             request_id=request_id,
@@ -571,6 +583,114 @@ class AgentManager:
                     "specialist_task_id": specialist_task_id,
                     "writer_task_id": writer_task_id,
                     "source_request_id": source_request_id,
+                },
+            )
+
+    def _execute_manager_direct_fallback(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        root_task_id: str,
+        manager_task_id: str,
+        message: str,
+        route: RoutingDecision,
+        coverage_issue: str,
+    ) -> ManagerRunResult:
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=manager_task_id,
+            event_type="manager_direct_fallback_selected",
+            payload={
+                "reason": coverage_issue,
+                "route_execution_mode": route.execution_mode,
+                "route_selected_role": route.selected_role,
+            },
+        )
+        fallback_prompt = self._build_manager_direct_fallback_prompt(
+            message=message,
+            route=route,
+            coverage_issue=coverage_issue,
+        )
+        try:
+            direct_output = self._run_profile_prompt_with_options(
+                self.manager_profile,
+                fallback_prompt,
+                include_history=True,
+                store=True,
+                use_work_session=True,
+            ).strip()
+            if not direct_output:
+                raise ValueError("Manager direct fallback returned empty output")
+            finished_at = now_iso()
+            result_json = {
+                "workflow_type": WORKFLOW_MANAGER_DIRECT,
+                "fallback_from_execution_mode": route.execution_mode,
+                "fallback_reason": coverage_issue,
+                "summary": direct_output,
+            }
+            self._transition_task(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=manager_task_id,
+                from_status=TASK_STATUS_IN_PROGRESS,
+                to_status=TASK_STATUS_DONE,
+                finished_at=finished_at,
+                result_json=result_json,
+                event_type="workflow_completed",
+                event_payload={
+                    "workflow_type": WORKFLOW_MANAGER_DIRECT,
+                    "fallback_reason": coverage_issue,
+                },
+            )
+            self.store.create_task_event(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=root_task_id,
+                event_type="manager_direct_fallback_completed",
+                payload={
+                    "workflow_type": WORKFLOW_MANAGER_DIRECT,
+                    "fallback_reason": coverage_issue,
+                },
+            )
+            return ManagerRunResult(
+                text=direct_output,
+                workflow_type=WORKFLOW_MANAGER_DIRECT,
+                child_task_ids=[manager_task_id],
+                manager_agent_id=self.manager_profile.id,
+                worker_agent_ids=[],
+                task_status=TASK_STATUS_DONE,
+                result_json=result_json,
+            )
+        except Exception as exc:
+            error_text = self._describe_exception(exc)
+            finished_at = now_iso()
+            self._transition_task(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=manager_task_id,
+                from_status=TASK_STATUS_IN_PROGRESS,
+                to_status=TASK_STATUS_FAILED,
+                finished_at=finished_at,
+                error_text=error_text,
+                event_type="workflow_failed",
+                event_payload={
+                    "workflow_type": WORKFLOW_MANAGER_DIRECT,
+                    "fallback_reason": coverage_issue,
+                },
+            )
+            return ManagerRunResult(
+                text=f"Manager fallback failed: {error_text}",
+                workflow_type=WORKFLOW_MANAGER_DIRECT,
+                child_task_ids=[manager_task_id],
+                manager_agent_id=self.manager_profile.id,
+                worker_agent_ids=[],
+                task_status=TASK_STATUS_FAILED,
+                result_json={
+                    "workflow_type": WORKFLOW_MANAGER_DIRECT,
+                    "fallback_reason": coverage_issue,
+                    "error": error_text,
                 },
             )
 
@@ -1589,6 +1709,23 @@ class AgentManager:
             f"User request: {message}\n\n"
             "Return JSON with this exact schema:\n"
             '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"...","execution_mode":"software_delivery"}'
+        )
+
+    def _build_manager_direct_fallback_prompt(
+        self,
+        *,
+        message: str,
+        route: RoutingDecision,
+        coverage_issue: str,
+    ) -> str:
+        return (
+            "You are Chanakya's Agent Manager. You normally orchestrate specialists instead of solving work directly. "
+            "However, in this special case the required specialist coverage is unavailable, so you must provide the best direct answer yourself. "
+            "Be explicit, concise, and avoid pretending downstream execution happened.\n\n"
+            f"Original request: {message}\n\n"
+            f"Originally intended workflow: {route.execution_mode}\n"
+            f"Coverage issue: {coverage_issue}\n\n"
+            "Return the best direct response you can. If limitations matter, mention them briefly."
         )
 
     def _build_manager_route_repair_prompt(self, *, message: str, raw_output: str) -> str:
@@ -2853,6 +2990,25 @@ class AgentManager:
             execution_mode=WORKFLOW_INFORMATION,
             source="fallback",
         )
+
+    def _get_route_coverage_issue(self, route: RoutingDecision) -> str | None:
+        specialist_matches = self.store.find_active_agents_by_role(route.selected_role)
+        specialist_available = any(
+            profile.id == route.selected_agent_id for profile in specialist_matches
+        )
+        if not specialist_available:
+            return f"No active specialist available for role {route.selected_role}."
+        if route.execution_mode == WORKFLOW_SOFTWARE:
+            if not self.store.find_active_agents_by_role("developer"):
+                return "No active developer worker is available for software delivery."
+            if not self.store.find_active_agents_by_role("tester"):
+                return "No active tester worker is available for software delivery."
+        if route.execution_mode == WORKFLOW_INFORMATION:
+            if not self.store.find_active_agents_by_role("researcher"):
+                return "No active researcher worker is available for information delivery."
+            if not self.store.find_active_agents_by_role("writer"):
+                return "No active writer worker is available for information delivery."
+        return None
 
     def _pick_worker(self, role: str) -> AgentProfileModel:
         matches = self.store.find_active_agents_by_role(role)

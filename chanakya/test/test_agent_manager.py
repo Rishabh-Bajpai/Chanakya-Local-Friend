@@ -188,6 +188,153 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
     assert "manager_summary_completed" in event_types
 
 
+def test_normal_chat_prefers_direct_for_fast_non_trivial_request() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+
+    def _should_not_delegate(**kwargs: str) -> ManagerRunResult:
+        raise AssertionError("manager.execute should not run for fast normal-chat request")
+
+    service.manager.execute = _should_not_delegate  # type: ignore[method-assign]
+
+    reply = service.chat("session_direct_fast", "Rewrite this sentence to sound more formal.")
+
+    assert reply.route == "direct_answer"
+    assert reply.message == "personal_assistant:Rewrite this sentence to sound more formal."
+
+
+def test_work_mode_prefers_delegation_for_non_trivial_request() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+
+    store.create_work(work_id="work_delegate_bias", title="Work Bias", description="")
+    store.ensure_work_agent_session(
+        work_id="work_delegate_bias",
+        agent_id=chanakya.id,
+        session_id="session_work_bias",
+        session_title="Work bias",
+    )
+
+    called = {"delegated": False}
+
+    def _execute(**kwargs: str) -> ManagerRunResult:
+        called["delegated"] = True
+        return ManagerRunResult(
+            text="Delegated work response",
+            workflow_type=WORKFLOW_INFORMATION,
+            child_task_ids=["task_mgr"],
+            manager_agent_id="agent_manager",
+            worker_agent_ids=["agent_informer"],
+            task_status=TASK_STATUS_DONE,
+            result_json={"workflow_type": WORKFLOW_INFORMATION},
+        )
+
+    service.manager.execute = _execute  # type: ignore[method-assign]
+
+    reply = service.chat(
+        "session_work_bias",
+        "Rewrite this sentence to sound more formal.",
+        work_id="work_delegate_bias",
+    )
+
+    assert called["delegated"] is True
+    assert reply.route == "delegated_manager"
+
+
+def test_normal_chat_persists_visible_delegation_notice_before_manager_result() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+
+    service.manager.execute = lambda **kwargs: ManagerRunResult(
+        text="Completed by specialist.",
+        workflow_type=WORKFLOW_SOFTWARE,
+        child_task_ids=["task_mgr"],
+        manager_agent_id="agent_manager",
+        worker_agent_ids=["agent_cto"],
+        task_status=TASK_STATUS_DONE,
+        result_json={"workflow_type": WORKFLOW_SOFTWARE},
+    )  # type: ignore[method-assign]
+
+    reply = service.chat("session_notice", "Implement and test login rate limiting")
+
+    assert reply.route == "delegated_manager"
+    messages = store.list_messages("session_notice")
+    assistant_messages = [message for message in messages if message["role"] == "assistant"]
+    assert len(assistant_messages) == 2
+    assert assistant_messages[0]["route"] == "delegation_notice"
+    assert assistant_messages[0]["metadata"]["delegation_notice"] is True
+    assert "Transferring your work to an expert" in assistant_messages[0]["content"]
+    assert assistant_messages[1]["content"] == "Completed by specialist."
+    events = store.list_task_events(session_id="session_notice", limit=50)
+    assert any(event["event_type"] == "delegation_notice_persisted" for event in events)
+
+
+def test_manager_direct_fallback_runs_when_required_worker_is_missing() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    tester_profile = store.get_agent_profile("agent_tester")
+    store.update_agent_profile(
+        tester_profile.id,
+        name=tester_profile.name,
+        role=tester_profile.role,
+        system_prompt=tester_profile.system_prompt,
+        personality=tester_profile.personality,
+        tool_ids=list(tester_profile.tool_ids_json or []),
+        workspace=tester_profile.workspace,
+        heartbeat_enabled=tester_profile.heartbeat_enabled,
+        heartbeat_interval_seconds=tester_profile.heartbeat_interval_seconds,
+        heartbeat_file_path=tester_profile.heartbeat_file_path,
+        is_active=False,
+    )
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager._run_profile_prompt_with_options = (  # type: ignore[method-assign]
+        lambda profile, prompt, **kwargs: "Best-effort manager fallback answer."
+    )
+
+    reply = service.chat("session_manager_fallback", "Implement and test login rate limiting")
+
+    assert reply.route == "delegated_manager"
+    assert reply.response_mode == "manager_direct_fallback"
+    assert reply.message == "Best-effort manager fallback answer."
+    tasks = store.list_tasks(session_id="session_manager_fallback", limit=20)
+    assert [task["task_type"] for task in tasks if task["parent_task_id"] is not None] == [
+        "manager_orchestration"
+    ]
+    events = store.list_task_events(session_id="session_manager_fallback", limit=50)
+    assert any(event["event_type"] == "manager_direct_fallback_selected" for event in events)
+    assert any(event["event_type"] == "manager_direct_fallback_completed" for event in events)
+
+
 def test_work_followup_writer_modification_uses_targeted_execution() -> None:
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)

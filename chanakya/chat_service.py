@@ -51,6 +51,51 @@ _TRIAGE_SYSTEM_PROMPT = (
     'Output ONLY the single word "direct" or "delegate". Nothing else.'
 )
 
+_COMPLEX_DELEGATION_MARKERS = (
+    "implement",
+    "code",
+    "debug",
+    "fix ",
+    "fix the bug",
+    "refactor",
+    "write a function",
+    "write a python",
+    "write a ",
+    "build a",
+    "architecture",
+    "database",
+    "endpoint",
+    "api",
+    "test ",
+    "test this",
+    "write tests",
+    "research ",
+    "research deeply",
+    "investigate",
+    "analyze in depth",
+    "compare and recommend",
+    "step by step plan",
+    "full report",
+    "tell me",
+    "give me",
+    "biography",
+)
+
+_FAST_DIRECT_PATTERNS = (
+    "summarize",
+    "rephrase",
+    "rewrite",
+    "translate",
+    "shorten",
+    "make this",
+    "make it",
+    "improve this sentence",
+    "fix grammar",
+    "polish this",
+)
+
+_NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
+
 
 class ChatService:
     def __init__(
@@ -64,12 +109,21 @@ class ChatService:
         self.manager = manager
         self._triage_client = OpenAIChatClient(env_file_path=".env")
 
-    def _triage_message(self, message: str) -> str:
+    def _triage_message(self, message: str, *, work_id: str | None = None) -> str:
         """Classify a message as 'direct' or 'delegate'."""
-        if self._is_simple_direct_request(message):
+        if self._should_handle_directly(message, work_id=work_id):
             debug_log(
                 "triage_heuristic",
-                {"message": message, "decision": "direct", "reason": "simple_request"},
+                {
+                    "message": message,
+                    "decision": "direct",
+                    "reason": (
+                        "work_trivial_request"
+                        if work_id is not None
+                        else "normal_chat_fast_request"
+                    ),
+                    "work_id": work_id,
+                },
             )
             return "direct"
         if self.manager is not None:
@@ -78,7 +132,12 @@ class ChatService:
                 {
                     "message": message,
                     "decision": "delegate",
-                    "reason": "manager_present_non_simple_request",
+                    "reason": (
+                        "work_non_trivial_request"
+                        if work_id is not None
+                        else "normal_chat_complex_request"
+                    ),
+                    "work_id": work_id,
                 },
             )
             return "delegate"
@@ -136,6 +195,40 @@ class ChatService:
         if re.fullmatch(r"[0-9+\-*/().]+", normalized):
             return True
         return False
+
+    @classmethod
+    def _is_fast_direct_request(cls, message: str) -> bool:
+        text = message.strip().lower()
+        if cls._is_simple_direct_request(message):
+            return True
+        if cls._is_complex_request(message):
+            return False
+        if len(text) <= 220 and any(pattern in text for pattern in _FAST_DIRECT_PATTERNS):
+            return True
+        if len(text) <= 160 and text.startswith(("what is ", "who is ", "when is ", "where is ")):
+            return True
+        return False
+
+    @classmethod
+    def _is_complex_request(cls, message: str) -> bool:
+        text = message.strip().lower()
+        if not text:
+            return False
+        if any(marker in text for marker in _COMPLEX_DELEGATION_MARKERS):
+            return True
+        if text.count(" and ") >= 2 and len(text) > 120:
+            return True
+        if len(text) > 280:
+            return True
+        return False
+
+    @classmethod
+    def _should_handle_directly(cls, message: str, *, work_id: str | None) -> bool:
+        if work_id is not None:
+            return cls._is_simple_direct_request(message)
+        if cls._is_fast_direct_request(message):
+            return True
+        return not cls._is_complex_request(message)
 
     def chat(self, session_id: str, message: str, *, work_id: str | None = None) -> ChatReply:
         request_id = make_id("req")
@@ -227,7 +320,7 @@ class ChatService:
         try:
             use_manager = False
             if self.manager is not None:
-                triage = self._triage_message(message)
+                triage = self._triage_message(message, work_id=work_id)
                 use_manager = triage == "delegate"
                 self.store.create_task_event(
                     session_id=session_id,
@@ -241,6 +334,27 @@ class ChatService:
                 )
 
             if use_manager:
+                if work_id is None:
+                    self.store.add_message(
+                        session_id,
+                        "assistant",
+                        _NORMAL_CHAT_DELEGATION_NOTICE,
+                        request_id=request_id,
+                        route="delegation_notice",
+                        metadata={
+                            "runtime": "maf_agent",
+                            "delegation_notice": True,
+                            "request_status": REQUEST_STATUS_IN_PROGRESS,
+                            "root_task_id": root_task_id,
+                        },
+                    )
+                    self.store.create_task_event(
+                        session_id=session_id,
+                        request_id=request_id,
+                        task_id=root_task_id,
+                        event_type="delegation_notice_persisted",
+                        payload={"message": _NORMAL_CHAT_DELEGATION_NOTICE},
+                    )
                 context_tokens = self.manager.bind_execution_context(
                     session_id=session_id,
                     work_id=work_id,
