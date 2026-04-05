@@ -208,6 +208,7 @@ class _DeveloperExecutor(Executor):
             self.message,
             self.implementation_brief,
             developer_output,
+            clarification_answer,
         )
         tester_input = dict(self.store.get_task(self.tester_task_id).input_json or {})
         tester_input.update(
@@ -219,6 +220,7 @@ class _DeveloperExecutor(Executor):
                 "developer_handoff": developer_output,
                 "delegated_handoff_prompt": tester_handoff_prompt,
                 "temporary_agent_ids": developer_result.temporary_agent_ids,
+                "clarification_answer": clarification_answer,
             }
         )
         self.store.update_task(self.tester_task_id, input_json=tester_input)
@@ -233,6 +235,7 @@ class _DeveloperExecutor(Executor):
                 "implementation_brief": self.implementation_brief,
                 "handoff": developer_output,
                 "temporary_agent_ids": developer_result.temporary_agent_ids,
+                "clarification_answer": clarification_answer,
             },
             event_type="worker_handoff_ready",
             event_payload={"handoff_for_role": self.tester_profile.role},
@@ -243,8 +246,9 @@ class _DeveloperExecutor(Executor):
                 "developer_output": developer_output,
                 "developer_temporary_agent_ids": developer_result.temporary_agent_ids,
                 "tester_handoff_prompt": tester_handoff_prompt,
+                "clarification_answer": clarification_answer,
             },
-            target_id=f"tester_step_{self.tester_task_id}"
+            target_id=f"tester_step_{self.tester_task_id}",
         )
 
 
@@ -318,6 +322,7 @@ class _TesterExecutor(Executor):
         )
         tester_output = tester_result.text
         developer_output = str(payload.get("developer_output") or "")
+        clarification_answer = str(payload.get("clarification_answer") or "").strip() or None
         if self.manager._is_invalid_tester_output(tester_output, developer_output):
             tester_output = await asyncio.to_thread(
                 self.manager._run_tester_recovery,
@@ -325,6 +330,7 @@ class _TesterExecutor(Executor):
                 message=self.message,
                 implementation_brief=self.implementation_brief,
                 developer_output=developer_output,
+                clarification_answer=clarification_answer,
             )
         finished_at = now_iso()
         self.manager._transition_task(
@@ -338,6 +344,7 @@ class _TesterExecutor(Executor):
                 "developer_task_id": self.developer_task_id,
                 "validation_report": tester_output,
                 "temporary_agent_ids": tester_result.temporary_agent_ids,
+                "clarification_answer": clarification_answer,
             },
             event_type="worker_validation_completed",
             event_payload={"validated_task_id": self.developer_task_id},

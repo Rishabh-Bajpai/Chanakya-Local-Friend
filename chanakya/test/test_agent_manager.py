@@ -821,6 +821,42 @@ def test_handoff_prompts_wrap_untrusted_artifacts() -> None:
     assert "BEGIN_UNTRUSTED_RESEARCH_HANDOFF" in writer_prompt
 
 
+def test_information_prompts_include_chanakya_clarification_when_provided() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    clarification = "Focus the summary on his robotics and clinical AI work."
+    writer_prompt = manager._build_writer_handoff_prompt(
+        "Research notes about Rishabh Bajpai",
+        clarification,
+    )
+    review_prompt = manager._build_informer_review_prompt(
+        "Summarize Rishabh Bajpai",
+        "Gather a concise biography",
+        "Research handoff",
+        "Writer draft",
+        clarification,
+    )
+    revision_prompt = manager._build_writer_revision_prompt(
+        modification_request="Shorten the biography",
+        previous_writer_output="Long biography draft",
+        previous_research_handoff="Research handoff",
+        clarification_answer=clarification,
+    )
+    repair_prompt = manager._build_writer_repair_prompt(
+        "Research handoff",
+        clarification,
+    )
+
+    assert clarification in writer_prompt
+    assert clarification in review_prompt
+    assert clarification in revision_prompt
+    assert clarification in repair_prompt
+    assert "User clarification relayed by Chanakya" in writer_prompt
+
+
 def test_forced_helper_prompt_treats_parent_prompt_as_reference_only() -> None:
     store = _build_store()
     _seed_full_hierarchy(store)
@@ -1334,16 +1370,14 @@ def test_manager_waits_for_user_input_and_resumes_same_request() -> None:
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
-    service.manager.specialist_runner = lambda profile, prompt, step: {
-        (
-            "cto",
-            "brief",
-        ): '{"implementation_brief":"Need stack decision before coding","assumptions":[],"risks":[],"testing_focus":["resume"]}',
-        (
-            "cto",
-            "review",
-        ): "The resumed workflow completed after clarification.",
-    }[(profile.role, step)]
+
+    def _specialist_runner(profile: AgentProfileModel, prompt: str, step: str) -> str:
+        if step == "brief":
+            return '{"implementation_brief":"Need stack decision before coding","assumptions":[],"risks":[],"testing_focus":["resume"]}'
+        assert "Use Flask for the implementation." in prompt
+        return "The resumed workflow completed after clarification."
+
+    service.manager.specialist_runner = _specialist_runner
     clarification_calls = {"count": 0}
 
     def _clarification_runner(profile: AgentProfileModel, prompt: str) -> str:
@@ -1359,6 +1393,8 @@ def test_manager_waits_for_user_input_and_resumes_same_request() -> None:
             assert "User clarification received" in prompt
             return "Implemented the endpoint using Flask."
         if profile.role == "tester":
+            assert "User clarification relayed by Chanakya" in prompt
+            assert "Use Flask for the implementation." in prompt
             return (
                 '{"validation_summary":"Validated Flask endpoint","checks_performed":["request smoke test"],'
                 '"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
@@ -1702,16 +1738,14 @@ def test_main_chat_composer_resumes_single_waiting_task() -> None:
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
-    service.manager.specialist_runner = lambda profile, prompt, step: {
-        (
-            "cto",
-            "brief",
-        ): '{"implementation_brief":"Need stack decision before coding","assumptions":[],"risks":[],"testing_focus":["resume"]}',
-        (
-            "cto",
-            "review",
-        ): "The resumed workflow completed after clarification.",
-    }[(profile.role, step)]
+
+    def _specialist_runner(profile: AgentProfileModel, prompt: str, step: str) -> str:
+        if step == "brief":
+            return '{"implementation_brief":"Need stack decision before coding","assumptions":[],"risks":[],"testing_focus":["resume"]}'
+        assert "Use Flask for the implementation." in prompt
+        return "The resumed workflow completed after clarification."
+
+    service.manager.specialist_runner = _specialist_runner
     clarification_calls = {"count": 0}
 
     def _clarification_runner(profile: AgentProfileModel, prompt: str) -> str:
@@ -1727,6 +1761,8 @@ def test_main_chat_composer_resumes_single_waiting_task() -> None:
             assert "User clarification received" in prompt
             return "Implemented the endpoint using Flask."
         if profile.role == "tester":
+            assert "User clarification relayed by Chanakya" in prompt
+            assert "Use Flask for the implementation." in prompt
             return (
                 '{"validation_summary":"Validated Flask endpoint","checks_performed":["request smoke test"],'
                 '"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
@@ -1870,6 +1906,67 @@ def test_waiting_input_cancel_intent_stops_active_work_task() -> None:
 
     assert cancelled_reply.root_task_status == TASK_STATUS_CANCELLED
     assert "Stopped that task" in cancelled_reply.message
+
+
+def test_resumed_clarification_reaches_tester_recovery_prompt() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "cto",
+            "brief",
+        ): '{"implementation_brief":"Need stack decision before coding","assumptions":[],"risks":[],"testing_focus":["resume"]}',
+        ("cto", "review"): "Recovered workflow completed after clarification.",
+    }[(profile.role, step)]
+    clarification_calls = {"count": 0}
+
+    def _clarification_runner(profile: AgentProfileModel, prompt: str) -> str:
+        clarification_calls["count"] += 1
+        if clarification_calls["count"] == 1:
+            return '{"needs_input":true,"question":"Should the implementation target Flask or FastAPI?","reason":"The requested stack is ambiguous."}'
+        return '{"needs_input":false,"question":"","reason":""}'
+
+    service.manager.clarification_runner = _clarification_runner
+    tester_prompts: list[str] = []
+
+    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
+        if profile.role == "developer":
+            return "Implemented the endpoint using Flask."
+        if profile.role == "tester":
+            tester_prompts.append(prompt)
+            if len(tester_prompts) == 1:
+                return "Implemented the endpoint using Flask."
+            return (
+                '{"validation_summary":"Validated Flask endpoint","checks_performed":["request smoke test"],'
+                '"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
+            )
+        raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
+
+    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+
+    waiting_reply = service.chat(
+        "session_waiting_recovery",
+        "Implement the API, but I have not chosen the stack yet",
+    )
+    assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
+
+    resumed_reply = service.chat(
+        "session_waiting_recovery",
+        "Use Flask for the implementation.",
+    )
+
+    assert resumed_reply.root_task_status == TASK_STATUS_DONE
+    assert len(tester_prompts) == 2
+    assert all("Use Flask for the implementation." in prompt for prompt in tester_prompts)
 
 
 def test_classic_unrelated_complex_request_replaces_active_work() -> None:
