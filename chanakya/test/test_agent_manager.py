@@ -9,10 +9,10 @@ from pytest import MonkeyPatch, raises
 
 from chanakya.agent.runtime import MAFRuntime, build_profile_agent_config
 from chanakya.agent_manager import (
-    AgentManager,
-    ManagerRunResult,
     WORKFLOW_INFORMATION,
     WORKFLOW_SOFTWARE,
+    AgentManager,
+    ManagerRunResult,
 )
 from chanakya.chat_service import ChatService
 from chanakya.db import build_engine, build_session_factory, init_database
@@ -811,6 +811,8 @@ def test_handoff_prompts_wrap_untrusted_artifacts() -> None:
         "Implement safely",
         "Use staged rollout",
         developer_handoff,
+        sandbox_workspace="chanakya_data/shared_workspace/temp",
+        sandbox_work_id="temp",
     )
     writer_prompt = manager._build_writer_handoff_prompt(developer_handoff)
 

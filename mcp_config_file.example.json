@@ -1,5 +1,15 @@
 {
   "mcpServers": {
+    "mcp_websearch": {
+      "command": "uvx",
+      "args": [
+        "duckduckgo-mcp-server",
+        "--transport",
+        "stdio"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
     "mcp_fetch": {
       "command": "uvx",
       "args": [
@@ -9,10 +19,18 @@
       "env": {}
     },
     "mcp_calculator": {
+      "command": "uvx",
+      "args": [
+        "calculator-mcp-server"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_code_execution": {
       "command": "python",
       "args": [
         "-m",
-        "mcp_server_calculator"
+        "chanakya.services.mcp_sandbox_exec_server"
       ],
       "transport": "stdio",
       "env": {}

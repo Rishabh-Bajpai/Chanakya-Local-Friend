@@ -24,6 +24,7 @@ TEMPORARY_AGENT_STATUS_CLEANED = "cleaned"
 TEMPORARY_AGENT_STATUS_FAILED = "failed"
 
 WORKER_ROLES_WITH_SUBAGENTS = {"developer", "tester", "researcher", "writer"}
+TEMP_SUBAGENT_BLOCKED_TOOLS = {"mcp_code_execution"}
 
 
 @dataclass(slots=True)
@@ -340,6 +341,7 @@ class WorkerSubagentOrchestrator:
                 tool_id
                 for tool_id in helper.tool_ids
                 if tool_id in list(worker_profile.tool_ids_json or [])
+                and tool_id not in TEMP_SUBAGENT_BLOCKED_TOOLS
             ]
             record = TemporaryAgentModel(
                 id=temporary_agent_id,

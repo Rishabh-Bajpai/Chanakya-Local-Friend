@@ -32,6 +32,20 @@ Set values in `.env`:
 
 MCP servers are configured in `mcp_config_file.json`.
 
+Default MCP servers now include:
+
+- `mcp_websearch` (free DuckDuckGo web search)
+- `mcp_fetch` (webpage fetching)
+- `mcp_calculator` (calculator)
+- `mcp_code_execution` (sandboxed code execution for developer/tester only)
+
+Sandboxed code execution uses a shared persistent workspace under:
+
+- `chanakya_data/shared_workspace/<work_id>`
+- `chanakya_data/shared_workspace/temp` (fallback when no work id is available)
+
+Code execution is container-only (Docker/Podman) and must not execute host-system commands.
+
 ## Validation Commands
 
 ```bash

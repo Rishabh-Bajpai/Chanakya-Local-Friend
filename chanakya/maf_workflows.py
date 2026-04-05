@@ -208,7 +208,9 @@ class _DeveloperExecutor(Executor):
             self.message,
             self.implementation_brief,
             developer_output,
-            clarification_answer,
+            sandbox_workspace=self.manager._resolve_current_shared_workspace(),
+            sandbox_work_id=self.manager._resolve_current_sandbox_work_id(),
+            clarification_answer=clarification_answer,
         )
         tester_input = dict(self.store.get_task(self.tester_task_id).input_json or {})
         tester_input.update(

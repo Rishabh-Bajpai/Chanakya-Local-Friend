@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import threading
-import time
 from dataclasses import asdict
 from pathlib import Path
-import re
 from typing import Any
 
 from flask import Flask, Response, jsonify, render_template, request
@@ -27,6 +26,7 @@ from chanakya.domain import make_id, now_iso
 from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
+from chanakya.services.sandbox_workspace import get_shared_workspace_root
 from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
 
@@ -90,7 +90,9 @@ def create_app() -> Flask:
     session_factory = build_session_factory(engine)
     store = ChanakyaStore(session_factory)
     load_agent_seeds(store, BASE_DIR / "chanakya" / "seeds" / "agents.json")
+    sync_default_agent_tools(store)
     ensure_heartbeat_files(store, BASE_DIR)
+    get_shared_workspace_root()
     debug_log(
         "app_initialized",
         {
@@ -791,6 +793,39 @@ def ensure_heartbeat_file(profile: AgentProfileModel, repo_root: Path) -> None:
             "path": str(target),
         },
     )
+
+
+def sync_default_agent_tools(store: ChanakyaStore) -> None:
+    baseline_tools = ["mcp_websearch", "mcp_fetch", "mcp_calculator"]
+    code_exec_tool = "mcp_code_execution"
+    changed_count = 0
+    for profile in store.list_agent_profiles():
+        required = list(baseline_tools)
+        if profile.role in {"developer", "tester"}:
+            required.append(code_exec_tool)
+        existing = list(profile.tool_ids_json or [])
+        merged: list[str] = []
+        for tool_id in [*existing, *required]:
+            if tool_id and tool_id not in merged:
+                merged.append(tool_id)
+        if merged == existing:
+            continue
+        store.update_agent_profile(
+            profile.id,
+            name=profile.name,
+            role=profile.role,
+            system_prompt=profile.system_prompt,
+            personality=profile.personality,
+            tool_ids=merged,
+            workspace=profile.workspace,
+            heartbeat_enabled=profile.heartbeat_enabled,
+            heartbeat_interval_seconds=profile.heartbeat_interval_seconds,
+            heartbeat_file_path=profile.heartbeat_file_path,
+            is_active=profile.is_active,
+        )
+        changed_count += 1
+    if changed_count:
+        debug_log("agent_tool_sync_completed", {"updated_profiles": changed_count})
 
 
 def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:

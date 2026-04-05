@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import chanakya.app as app_module
 from flask import Flask
 from pytest import MonkeyPatch
+
+import chanakya.app as app_module
 from chanakya.app import create_app
 from chanakya.db import build_engine, build_session_factory
 from chanakya.domain import TASK_STATUS_DONE, now_iso
@@ -378,6 +379,29 @@ def test_tools_availability_api_returns_payload(
 
     assert response.status_code == 200
     assert "tools" in response.get_json()
+
+
+def test_startup_sync_adds_default_tools_to_seeded_agents(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.get("/api/agents")
+
+    assert response.status_code == 200
+    agents = {item["id"]: item for item in response.get_json()["agents"]}
+    assert set(agents["agent_chanakya"]["tool_ids"]) >= {
+        "mcp_websearch",
+        "mcp_fetch",
+        "mcp_calculator",
+    }
+    assert set(agents["agent_manager"]["tool_ids"]) >= {
+        "mcp_websearch",
+        "mcp_fetch",
+        "mcp_calculator",
+    }
 
 
 def test_work_create_list_and_history_apis(

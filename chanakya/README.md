@@ -252,15 +252,41 @@ Example:
 ```json
 {
   "mcpServers": {
+    "mcp_websearch": {
+      "command": "uvx",
+      "args": ["duckduckgo-mcp-server", "--transport", "stdio"],
+      "transport": "stdio",
+      "env": {}
+    },
     "mcp_fetch": {
       "command": "uvx",
       "args": ["mcp-server-fetch"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_calculator": {
+      "command": "uvx",
+      "args": ["calculator-mcp-server"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_code_execution": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_sandbox_exec_server"],
       "transport": "stdio",
       "env": {}
     }
   }
 }
 ```
+
+### Sandboxed Code Execution
+
+- Developer and Tester can run code only through `mcp_code_execution`.
+- Execution is restricted to container runtime (`docker` or `podman`) and never runs user commands on the host shell.
+- Shared persistent sandbox workspace paths are:
+  - `chanakya_data/shared_workspace/<work_id>`
+  - `chanakya_data/shared_workspace/temp`
 
 Implementation references:
 
