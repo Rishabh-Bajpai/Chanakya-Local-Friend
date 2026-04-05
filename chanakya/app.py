@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import threading
-import time
 from dataclasses import asdict
 from pathlib import Path
-import re
 from typing import Any
 
 from flask import Flask, Response, jsonify, render_template, request
@@ -27,6 +26,7 @@ from chanakya.domain import make_id, now_iso
 from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
+from chanakya.services.sandbox_workspace import get_shared_workspace_root
 from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
 
@@ -90,7 +90,9 @@ def create_app() -> Flask:
     session_factory = build_session_factory(engine)
     store = ChanakyaStore(session_factory)
     load_agent_seeds(store, BASE_DIR / "chanakya" / "seeds" / "agents.json")
+    sync_default_agent_tools(store)
     ensure_heartbeat_files(store, BASE_DIR)
+    get_shared_workspace_root()
     debug_log(
         "app_initialized",
         {
@@ -159,7 +161,6 @@ def create_app() -> Flask:
         event_bus.publish("message_added", {"session_id": session_id, "role": role})
 
     store.add_message = _patched_add_message  # type: ignore[assignment]
-
 
     @app.get("/")
     def index() -> str:
@@ -445,6 +446,24 @@ def create_app() -> Flask:
         works = store.list_works(limit=limit)
         return jsonify({"works": works})
 
+    @app.delete("/api/works/<work_id>")
+    def api_delete_work(work_id: str) -> Any:
+        try:
+            deleted_session_ids = store.delete_work(work_id)
+        except KeyError as exc:
+            message = str(exc.args[0]) if exc.args else str(exc)
+            return jsonify({"error": message}), 404
+        store.log_event(
+            "work_deleted",
+            {
+                "work_id": work_id,
+                "session_count": len(deleted_session_ids),
+            },
+        )
+        return jsonify(
+            {"deleted": True, "work_id": work_id, "session_count": len(deleted_session_ids)}
+        )
+
     @app.get("/api/works/<work_id>/sessions")
     def api_work_sessions(work_id: str) -> Any:
         try:
@@ -476,6 +495,7 @@ def create_app() -> Flask:
             return jsonify({"error": message}), 404
         raw_task_limit = request.args.get("task_limit", "2000")
         raw_event_limit = request.args.get("event_limit", "5000")
+        raw_request_limit = request.args.get("request_limit", "2000")
         try:
             task_limit = int(raw_task_limit)
         except (TypeError, ValueError):
@@ -484,8 +504,13 @@ def create_app() -> Flask:
             event_limit = int(raw_event_limit)
         except (TypeError, ValueError):
             event_limit = 5000
+        try:
+            request_limit = int(raw_request_limit)
+        except (TypeError, ValueError):
+            request_limit = 2000
         task_limit = max(100, min(task_limit, 10000))
         event_limit = max(100, min(event_limit, 20000))
+        request_limit = max(100, min(request_limit, 10000))
         mappings = store.list_work_agent_sessions(work_id)
         grouped = []
         mapped_session_ids: list[str] = []
@@ -520,6 +545,13 @@ def create_app() -> Flask:
             if profile.id not in agent_role_by_id:
                 agent_role_by_id[profile.id] = profile.role
         unique_session_ids = list(dict.fromkeys(mapped_session_ids))
+        requests_by_id: dict[str, dict[str, Any]] = {}
+        for session_id in unique_session_ids:
+            request_records = store.list_requests(session_id=session_id, limit=request_limit)
+            for record in request_records:
+                request_id = str(record.get("id") or "")
+                if request_id and request_id not in requests_by_id:
+                    requests_by_id[request_id] = record
 
         tasks_by_id: dict[str, dict[str, Any]] = {}
         task_flow = []
@@ -575,6 +607,13 @@ def create_app() -> Flask:
                 str(item.get("id") or ""),
             ),
         )
+        request_records = sorted(
+            requests_by_id.values(),
+            key=lambda item: (
+                str(item.get("created_at") or ""),
+                str(item.get("id") or ""),
+            ),
+        )
         return jsonify(
             {
                 "work": {
@@ -588,9 +627,11 @@ def create_app() -> Flask:
                 "agent_histories": grouped,
                 "task_flow": task_flow,
                 "tasks": task_records,
+                "requests": request_records,
                 "limits": {
                     "task_limit": task_limit,
                     "event_limit": event_limit,
+                    "request_limit": request_limit,
                 },
             }
         )
@@ -693,6 +734,7 @@ def create_app() -> Flask:
     @app.get("/api/stream")
     def api_stream() -> Response:
         """SSE endpoint: pushes lightweight change notifications to the browser."""
+
         def generate():
             q = event_bus.subscribe()
             try:
@@ -751,6 +793,47 @@ def ensure_heartbeat_file(profile: AgentProfileModel, repo_root: Path) -> None:
             "path": str(target),
         },
     )
+
+
+def sync_default_agent_tools(store: ChanakyaStore) -> None:
+    baseline_tools = ["mcp_websearch", "mcp_fetch", "mcp_calculator"]
+    code_exec_tool = "mcp_code_execution"
+    sandbox_prompt_hint = (
+        " Inside the sandbox, host files are readable but read-only, and only the shared "
+        "workspace is writable. If you hit a permission-related error, copy the needed file "
+        "into the shared workspace and retry there."
+    )
+    changed_count = 0
+    for profile in store.list_agent_profiles():
+        required = list(baseline_tools)
+        if profile.role in {"developer", "tester"}:
+            required.append(code_exec_tool)
+        existing = list(profile.tool_ids_json or [])
+        merged: list[str] = []
+        for tool_id in [*existing, *required]:
+            if tool_id and tool_id not in merged:
+                merged.append(tool_id)
+        prompt = profile.system_prompt
+        if profile.role in {"developer", "tester"} and sandbox_prompt_hint.strip() not in prompt:
+            prompt = f"{prompt.rstrip()}{sandbox_prompt_hint}"
+        if merged == existing and prompt == profile.system_prompt:
+            continue
+        store.update_agent_profile(
+            profile.id,
+            name=profile.name,
+            role=profile.role,
+            system_prompt=prompt,
+            personality=profile.personality,
+            tool_ids=merged,
+            workspace=profile.workspace,
+            heartbeat_enabled=profile.heartbeat_enabled,
+            heartbeat_interval_seconds=profile.heartbeat_interval_seconds,
+            heartbeat_file_path=profile.heartbeat_file_path,
+            is_active=profile.is_active,
+        )
+        changed_count += 1
+    if changed_count:
+        debug_log("agent_tool_sync_completed", {"updated_profiles": changed_count})
 
 
 def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:

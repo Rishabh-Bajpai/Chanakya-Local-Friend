@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
-import re
 
 from chanakya.model import AgentProfileModel
-
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]{3,}")
 
@@ -309,7 +308,11 @@ def _default_skills_for_role(role: str) -> list[dict[str, str | list[str]]]:
                 "name": "implement_changes",
                 "description": "Produce implementation changes aligned with the brief.",
                 "triggers": ["Code changes", "Feature implementation", "Bug fix"],
-                "constraints": "Do not claim testing is complete.",
+                "constraints": (
+                    "Do not claim testing is complete. If execution is needed, use sandbox "
+                    "code-execution tools only. Host files are read-only in sandbox; only "
+                    "shared workspace is writable."
+                ),
             },
             {
                 "name": "handoff_to_tester",
@@ -323,7 +326,11 @@ def _default_skills_for_role(role: str) -> list[dict[str, str | list[str]]]:
                 "name": "validate_implementation",
                 "description": "Assess implementation outcome against requirements.",
                 "triggers": ["Post-implementation validation", "Regression checks"],
-                "constraints": "Do not rewrite implementation plan.",
+                "constraints": (
+                    "Do not rewrite implementation plan. If execution is needed, use sandbox "
+                    "code-execution tools only. Host files are read-only in sandbox; only "
+                    "shared workspace is writable."
+                ),
             },
             {
                 "name": "report_quality_risk",

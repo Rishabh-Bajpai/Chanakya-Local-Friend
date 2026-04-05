@@ -120,6 +120,10 @@
       box-shadow: 0 0 6px rgba(231, 76, 60, 0.4);
     }
 
+    .progress-dot.cancelled {
+      background: #6c6c6c;
+    }
+
     .progress-dot.blocked,
     .progress-dot.waiting_input {
       background: #e67e22;
@@ -148,9 +152,8 @@
       font-size: 13px;
       font-weight: 600;
       color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
 
     .progress-status {
@@ -405,6 +408,10 @@
       background: linear-gradient(90deg, #7c6cf2, rgba(124, 108, 242, 0.15));
     }
 
+    .section[data-panel="sandbox-guide"]::before {
+      background: linear-gradient(90deg, #5aa9e6, rgba(90, 169, 230, 0.15));
+    }
+
     .section[data-panel="task-timeline"]::before {
       background: linear-gradient(90deg, #f39c12, rgba(243, 156, 18, 0.15));
     }
@@ -429,6 +436,10 @@
       background: linear-gradient(180deg, rgba(124, 108, 242, 0.08), rgba(25, 25, 25, 0.95) 32%);
     }
 
+    .section[data-panel="sandbox-guide"] {
+      background: linear-gradient(180deg, rgba(90, 169, 230, 0.08), rgba(25, 25, 25, 0.95) 32%);
+    }
+
     .section[data-panel="task-timeline"] {
       background: linear-gradient(180deg, rgba(243, 156, 18, 0.08), rgba(25, 25, 25, 0.95) 32%);
     }
@@ -443,6 +454,7 @@
 
     .section[data-panel="request-trace"],
     .section[data-panel="tool-traces"],
+    .section[data-panel="sandbox-guide"],
     .section[data-panel="tasks"],
     .section[data-panel="task-timeline"],
     .section[data-panel="temporary-subagents"] {
@@ -548,6 +560,11 @@
     }
 
     .section.collapsed .section-body {
+      display: none;
+    }
+
+    .section.collapsed .form-actions,
+    .section.collapsed #taskProgressSummary {
       display: none;
     }
 
@@ -738,6 +755,42 @@
       color: var(--muted);
     }
 
+    .sandbox-guide {
+      display: grid;
+      gap: 12px;
+    }
+
+    .sandbox-note {
+      border: 1px solid rgba(90, 169, 230, 0.26);
+      border-left: 4px solid #5aa9e6;
+      border-radius: 14px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .sandbox-note h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+
+    .sandbox-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .sandbox-path {
+      display: inline-block;
+      margin-top: 6px;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      color: #d7d3ce;
+      word-break: break-word;
+    }
+
     @media (max-width: 1200px) {
       .shell {
         grid-template-columns: 1fr;
@@ -837,6 +890,45 @@
         </div>
         <div class="section-body">
           <div id="toolTraceList"></div>
+        </div>
+      </div>
+
+      <div class="panel section" data-panel="sandbox-guide">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Sandbox Guide</h2>
+            <p>What agents can read, write, and recover from during sandbox execution.</p>
+          </div>
+          <button type="button" class="detach-button" data-detach-panel="sandbox-guide" title="Open in new tab"
+            aria-label="Open Sandbox Guide in new tab">&#x2197;</button>
+        </div>
+        <div class="section-body">
+          <div class="sandbox-guide">
+            <div class="sandbox-note">
+              <h3>Available</h3>
+              <ul class="sandbox-list">
+                <li>Run Python and shell commands inside an isolated container.</li>
+                <li>Read host project files from read-only mounts at <code>/host/repo</code> and <code>/host/chanakya_data</code>.</li>
+                <li>Write persistent files only in the shared workspace for the current work id.</li>
+                <li>Retry after permission errors by copying files into <code>/workspace</code> first.</li>
+              </ul>
+              <span class="sandbox-path">Writable path: <code>/workspace</code> -> <code>chanakya_data/shared_workspace/&lt;work_id&gt;</code> or <code>temp</code></span>
+            </div>
+            <div class="sandbox-note">
+              <h3>Blocked</h3>
+              <ul class="sandbox-list">
+                <li>Writing to host-mounted files or directories outside <code>/workspace</code>.</li>
+                <li>Direct host command execution, privilege escalation, or path traversal escapes.</li>
+                <li>Network-dependent downloads or external API calls from sandboxed code.</li>
+              </ul>
+            </div>
+            <div class="sandbox-note">
+              <h3>Common Permission Fix</h3>
+              <ul class="sandbox-list">
+                <li>If you see <code>Permission denied</code> or <code>Read-only file system</code>, the agent should copy the target file into <code>/workspace</code> and modify the copy there.</li>
+              </ul>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -978,6 +1070,7 @@
     const panelTitles = {
       "request-trace": "Request Trace",
       "tool-traces": "Tool Traces",
+      "sandbox-guide": "Sandbox Guide",
       "tasks": "Tasks",
       "task-timeline": "Task Timeline",
       "temporary-subagents": "Temporary Subagents",
@@ -1046,6 +1139,10 @@
         collapseButton.className = "collapse-button";
         actions.insertBefore(collapseButton, actions.firstChild || null);
         collapseButton.addEventListener("click", () => {
+          setPanelCollapsed(section, !section.classList.contains("collapsed"));
+        });
+        header.addEventListener("click", (event) => {
+          if (event.target.closest("button")) return;
           setPanelCollapsed(section, !section.classList.contains("collapsed"));
         });
         setPanelCollapsed(section, collapsedPanels.has(panelId));
@@ -1207,6 +1304,10 @@
     }
 
     function renderTrace(data) {
+      if (!data) {
+        requestTrace.innerHTML = `<div class="empty-state">No request metadata for this session yet.</div>`;
+        return;
+      }
       const card = document.createElement("div");
       card.className = "card";
       const modePill = data.response_mode === "tool_assisted"
@@ -1227,6 +1328,118 @@
       }, null, 2);
       card.appendChild(pre);
       replaceChildren(requestTrace, [card]);
+    }
+
+    function formatAgentLabel(agentId) {
+      if (!agentId) return "Chanakya";
+      return agentId.replace(/^agent_/, "").replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function formatTaskProgressTitle(task) {
+      const ownerLabel = formatAgentLabel(task.owner_agent_id);
+      if (task.owner_agent_id === "agent_chanakya") {
+        return "Chanakya is processing the request";
+      }
+      if (task.owner_agent_id === "agent_manager") {
+        return task.status === "waiting_input"
+          ? "Agent Manager is waiting for your input"
+          : "Agent Manager is coordinating the task";
+      }
+      if (!task.owner_agent_id) {
+        return task.title || task.summary || "Task in progress";
+      }
+      if (task.status === "waiting_input") {
+        return `${ownerLabel} is waiting for your input`;
+      }
+      if (task.status === "blocked") {
+        return `${ownerLabel} is blocked`;
+      }
+      if (task.status === "done") {
+        return `${ownerLabel} completed work`;
+      }
+      if (task.status === "failed") {
+        return `${ownerLabel} failed`;
+      }
+      if (task.status === "cancelled") {
+        return `${ownerLabel} was cancelled`;
+      }
+      return `${ownerLabel} is working on it`;
+    }
+
+    function buildTaskProgressItems(tasks, events, rootTaskId) {
+      const relevantTasks = (tasks || [])
+        .filter((task) => !rootTaskId || task.id === rootTaskId || task.parent_task_id)
+        .sort((a, b) => {
+          const createdCompare = String(a.created_at || "").localeCompare(String(b.created_at || ""));
+          if (createdCompare !== 0) return createdCompare;
+          return String(a.id || "").localeCompare(String(b.id || ""));
+        });
+
+      const items = [{
+        id: "request-received",
+        text: "Task received by Chanakya",
+        status: relevantTasks.length ? "completed" : "in_progress",
+        meta: null,
+      }];
+
+      relevantTasks.forEach((task) => {
+        items.push({
+          id: task.id,
+          text: formatTaskProgressTitle(task),
+          status: task.status || "created",
+          meta: task.title || task.task_type || null,
+        });
+      });
+
+      const responsePersisted = (events || []).some((event) => event.event_type === "response_persisted");
+      if (responsePersisted) {
+        items.push({
+          id: "response-ready",
+          text: "Response ready",
+          status: "completed",
+          meta: null,
+        });
+      }
+
+      return items;
+    }
+
+    function renderTaskProgressSummary(tasks) {
+      const counts = (tasks || []).reduce((acc, task) => {
+        const status = task.status || "created";
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      }, {});
+      const orderedStatuses = ["in_progress", "waiting_input", "blocked", "done", "failed"];
+      const labels = {
+        in_progress: "Working",
+        waiting_input: "Waiting",
+        blocked: "Blocked",
+        done: "Done",
+        failed: "Failed",
+      };
+      const colors = {
+        in_progress: "var(--yellow)",
+        waiting_input: "#e67e22",
+        blocked: "#e67e22",
+        done: "var(--green)",
+        failed: "var(--red)",
+      };
+      const nodes = orderedStatuses
+        .filter((status) => counts[status])
+        .map((status) => {
+          const stat = document.createElement("div");
+          stat.className = "stat";
+          const dot = document.createElement("span");
+          dot.className = "stat-dot";
+          dot.style.background = colors[status];
+          stat.appendChild(dot);
+          const text = document.createElement("span");
+          text.textContent = `${labels[status]} ${counts[status]}`;
+          stat.appendChild(text);
+          return stat;
+        });
+      replaceChildren(taskProgressSummary, nodes);
     }
 
     function renderToolTraces(traces) {
@@ -1659,52 +1872,26 @@
       replaceChildren(taskTimeline, nodes);
     }
 
-    function renderTaskProgress(events, rootTaskId) {
-      if (!events || !events.length) {
+    function renderTaskProgress(tasks, events, rootTaskId) {
+      if ((!tasks || !tasks.length) && (!events || !events.length)) {
         taskProgress.innerHTML = '<div class="progress-empty">No active task sequence yet. Send a message to see progress.</div>';
         taskProgressSummary.innerHTML = '';
         return;
       }
 
-      const mappedTexts = [];
-      events.forEach((e) => {
-        const type = e.event_type;
-        const p = e.payload || {};
-        let text = null;
+      const progressItems = buildTaskProgressItems(tasks, events, rootTaskId);
+      if (!progressItems.length) {
+        taskProgress.innerHTML = '<div class="progress-empty">No active task sequence yet. Send a message to see progress.</div>';
+        taskProgressSummary.innerHTML = '';
+        return;
+      }
 
-        if (type === 'request_received') text = "Task received by Chanakya";
-        else if (type === 'task_status_changed' && e.task_id === rootTaskId && p.from_status === 'created' && p.to_status === 'in_progress') text = "Chanakya is processing the request";
-        else if (type === 'triage_completed' && p.use_manager) text = "Task delegated to Agent Manager";
-        else if (type === 'manager_route_selected') {
-          const owner = p.specialist_agent_id || "manager";
-          text = `Agent Manager delegated the task to ${owner.replace('agent_', '').toUpperCase()}`;
-        }
-        else if (type === 'task_owner_assigned' && p.owner_agent_id !== 'agent_chanakya' && p.owner_agent_id !== 'agent_manager') {
-          text = `${p.owner_agent_id.replace('agent_', '').toUpperCase()} is working on it`;
-        }
-        else if (type === 'response_persisted') {
-          text = "Response ready";
-        } else if (type === 'manager_waiting_input' || type === 'workflow_waiting_input') {
-          text = "Waiting for your input...";
-        }
-
-        if (text) {
-          mappedTexts.push({ text: text, isError: type.includes('failed') });
-        }
-      });
-
-      if (mappedTexts.length === 0) mappedTexts.push({ text: "Processing...", isError: false });
-
-      const nodes = mappedTexts.map((item, index) => {
+      const nodes = progressItems.map((item) => {
         const nodeItem = document.createElement("div");
         nodeItem.className = "progress-item";
 
-        const isLast = index === mappedTexts.length - 1;
-        let statusClass = isLast && !item.isError && item.text !== "Response ready" ? "in_progress" : "completed";
-        if (item.isError) statusClass = "failed";
-
         const dot = document.createElement("div");
-        dot.className = `progress-dot ${statusClass}`;
+        dot.className = `progress-dot ${item.status}`;
         nodeItem.appendChild(dot);
 
         const info = document.createElement("div");
@@ -1714,12 +1901,18 @@
         title.textContent = item.text;
         title.title = item.text;
         info.appendChild(title);
+        if (item.meta) {
+          const meta = document.createElement("div");
+          meta.className = "progress-owner";
+          meta.textContent = item.meta;
+          info.appendChild(meta);
+        }
         nodeItem.appendChild(info);
         return nodeItem;
       });
 
       replaceChildren(taskProgress, nodes);
-      taskProgressSummary.innerHTML = ''; // Not needed for the chronological view
+      renderTaskProgressSummary(tasks || []);
     }
 
     async function refreshToolTraces() {
@@ -1760,18 +1953,22 @@
         renderTasks(tasksData.tasks || []);
         renderSubagents(subagentsData.subagents || []);
         const latestRequest = (requestsData.requests || []).slice(-1)[0];
+        const allTasks = tasksData.tasks || [];
+        const latestRequestTasks = latestRequest
+          ? allTasks.filter((task) => task.request_id === latestRequest.id)
+          : allTasks;
         const latestTimeline = latestRequest
           ? (timelineData.events || []).filter((event) => event.request_id === latestRequest.id)
           : (timelineData.events || []);
         renderTaskTimeline(latestTimeline);
-        renderTaskProgress(latestTimeline, latestRequest ? latestRequest.root_task_id : null);
+        renderTaskProgress(latestRequestTasks, latestTimeline, latestRequest ? latestRequest.root_task_id : null);
         if (latestRequest) {
           renderTrace({
             request_id: latestRequest.id,
             session_id: latestRequest.session_id,
             request_status: latestRequest.status,
             root_task_id: latestRequest.root_task_id,
-            root_task_status: (tasksData.tasks || []).find((item) => item.id === latestRequest.root_task_id)?.status || null,
+            root_task_status: latestRequestTasks.find((item) => item.id === latestRequest.root_task_id)?.status || null,
             runtime: "maf_agent",
             model: null,
             endpoint: null,
@@ -1779,13 +1976,16 @@
             tool_calls_used: 0,
             agent_name: "Chanakya",
           });
+        } else {
+          renderTrace(null);
         }
       } catch {
         renderAgents([]);
         renderTasks([]);
-        renderTaskProgress([], null);
+        renderTaskProgress([], [], null);
         renderTaskTimeline([]);
         renderSubagents([]);
+        renderTrace(null);
       }
       await refreshToolTraces();
     }

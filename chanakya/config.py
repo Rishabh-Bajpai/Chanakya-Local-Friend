@@ -4,7 +4,6 @@ import os
 import shlex
 from pathlib import Path
 
-
 _LOCAL_ENV_LOADED = False
 
 
@@ -90,6 +89,52 @@ def get_agent_request_timeout_seconds() -> int:
     except ValueError:
         return 120
     return value if value > 0 else 120
+
+
+def get_long_running_agent_request_timeout_seconds() -> int:
+    load_local_env()
+    raw = os.getenv("AGENT_LONG_RUNNING_TIMEOUT_SECONDS", "600")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 600
+    return value if value > 0 else 600
+
+
+def get_subagent_group_chat_round_multiplier() -> int:
+    load_local_env()
+    raw = os.getenv("CHANAKYA_SUBAGENT_GROUP_CHAT_ROUND_MULTIPLIER", "2")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 2
+    return value if value > 0 else 2
+
+
+def _get_positive_int_env(name: str, default: int) -> int:
+    load_local_env()
+    raw = os.getenv(name, str(default))
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def get_history_recent_window_messages() -> int:
+    return _get_positive_int_env("CHANAKYA_HISTORY_RECENT_WINDOW_MESSAGES", 16)
+
+
+def get_history_max_messages() -> int:
+    return _get_positive_int_env("CHANAKYA_HISTORY_MAX_MESSAGES", 48)
+
+
+def get_history_max_chars() -> int:
+    return _get_positive_int_env("CHANAKYA_HISTORY_MAX_CHARS", 24000)
+
+
+def get_history_max_message_chars() -> int:
+    return _get_positive_int_env("CHANAKYA_HISTORY_MAX_MESSAGE_CHARS", 3000)
 
 
 def force_subagents_enabled() -> bool:

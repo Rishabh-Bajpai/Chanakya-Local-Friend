@@ -62,6 +62,8 @@ def build_profile_agent(
     client: OpenAIChatClient | None = None,
     env_file_path: str = ".env",
     include_history: bool = False,
+    store_inputs: bool = True,
+    store_outputs: bool = True,
     usage_text: str = "",
     repo_root: Path | None = None,
 ) -> tuple[Agent, ProfileAgentConfig]:
@@ -76,8 +78,8 @@ def build_profile_agent(
             SQLAlchemyHistoryProvider(
                 session_factory=session_factory,
                 load_messages=True,
-                store_inputs=True,
-                store_outputs=True,
+                store_inputs=store_inputs,
+                store_outputs=store_outputs,
             )
         ]
     agent = Agent(
@@ -128,6 +130,8 @@ class MAFRuntime:
             client=self.client,
             env_file_path=env_file_path,
             include_history=True,
+            store_inputs=False,
+            store_outputs=False,
             usage_text="",
             repo_root=self.repo_root,
         )
@@ -170,11 +174,14 @@ class MAFRuntime:
             self.session_factory,
             client=self.client,
             include_history=True,
+            store_inputs=False,
+            store_outputs=False,
             usage_text=text,
             repo_root=self.repo_root,
         )
         session = run_agent.create_session(session_id=session_id)
         session.state["request_id"] = request_id
+        session.state["history_query_text"] = text
 
         debug_log(
             "maf_runtime_before_run",

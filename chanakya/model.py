@@ -48,6 +48,20 @@ class WorkAgentSessionModel(Base):
     updated_at: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class ClassicActiveWorkModel(Base):
+    __tablename__ = "classic_active_works"
+
+    chat_session_id: Mapped[str] = mapped_column(String, primary_key=True)
+    work_id: Mapped[str] = mapped_column(ForeignKey("works.id"), nullable=False, index=True)
+    work_session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    root_request_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workflow_type: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class ChatMessageModel(Base):
     __tablename__ = "chat_messages"
 
