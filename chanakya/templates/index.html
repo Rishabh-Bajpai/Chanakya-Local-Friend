@@ -405,6 +405,10 @@
       background: linear-gradient(90deg, #7c6cf2, rgba(124, 108, 242, 0.15));
     }
 
+    .section[data-panel="sandbox-guide"]::before {
+      background: linear-gradient(90deg, #5aa9e6, rgba(90, 169, 230, 0.15));
+    }
+
     .section[data-panel="task-timeline"]::before {
       background: linear-gradient(90deg, #f39c12, rgba(243, 156, 18, 0.15));
     }
@@ -429,6 +433,10 @@
       background: linear-gradient(180deg, rgba(124, 108, 242, 0.08), rgba(25, 25, 25, 0.95) 32%);
     }
 
+    .section[data-panel="sandbox-guide"] {
+      background: linear-gradient(180deg, rgba(90, 169, 230, 0.08), rgba(25, 25, 25, 0.95) 32%);
+    }
+
     .section[data-panel="task-timeline"] {
       background: linear-gradient(180deg, rgba(243, 156, 18, 0.08), rgba(25, 25, 25, 0.95) 32%);
     }
@@ -443,6 +451,7 @@
 
     .section[data-panel="request-trace"],
     .section[data-panel="tool-traces"],
+    .section[data-panel="sandbox-guide"],
     .section[data-panel="tasks"],
     .section[data-panel="task-timeline"],
     .section[data-panel="temporary-subagents"] {
@@ -738,6 +747,42 @@
       color: var(--muted);
     }
 
+    .sandbox-guide {
+      display: grid;
+      gap: 12px;
+    }
+
+    .sandbox-note {
+      border: 1px solid rgba(90, 169, 230, 0.26);
+      border-left: 4px solid #5aa9e6;
+      border-radius: 14px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .sandbox-note h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+
+    .sandbox-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .sandbox-path {
+      display: inline-block;
+      margin-top: 6px;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      color: #d7d3ce;
+      word-break: break-word;
+    }
+
     @media (max-width: 1200px) {
       .shell {
         grid-template-columns: 1fr;
@@ -837,6 +882,45 @@
         </div>
         <div class="section-body">
           <div id="toolTraceList"></div>
+        </div>
+      </div>
+
+      <div class="panel section" data-panel="sandbox-guide">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Sandbox Guide</h2>
+            <p>What agents can read, write, and recover from during sandbox execution.</p>
+          </div>
+          <button type="button" class="detach-button" data-detach-panel="sandbox-guide" title="Open in new tab"
+            aria-label="Open Sandbox Guide in new tab">&#x2197;</button>
+        </div>
+        <div class="section-body">
+          <div class="sandbox-guide">
+            <div class="sandbox-note">
+              <h3>Available</h3>
+              <ul class="sandbox-list">
+                <li>Run Python and shell commands inside an isolated container.</li>
+                <li>Read host project files from read-only mounts at <code>/host/repo</code> and <code>/host/chanakya_data</code>.</li>
+                <li>Write persistent files only in the shared workspace for the current work id.</li>
+                <li>Retry after permission errors by copying files into <code>/workspace</code> first.</li>
+              </ul>
+              <span class="sandbox-path">Writable path: <code>/workspace</code> -> <code>chanakya_data/shared_workspace/&lt;work_id&gt;</code> or <code>temp</code></span>
+            </div>
+            <div class="sandbox-note">
+              <h3>Blocked</h3>
+              <ul class="sandbox-list">
+                <li>Writing to host-mounted files or directories outside <code>/workspace</code>.</li>
+                <li>Direct host command execution, privilege escalation, or path traversal escapes.</li>
+                <li>Network-dependent downloads or external API calls from sandboxed code.</li>
+              </ul>
+            </div>
+            <div class="sandbox-note">
+              <h3>Common Permission Fix</h3>
+              <ul class="sandbox-list">
+                <li>If you see <code>Permission denied</code> or <code>Read-only file system</code>, the agent should copy the target file into <code>/workspace</code> and modify the copy there.</li>
+              </ul>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -978,6 +1062,7 @@
     const panelTitles = {
       "request-trace": "Request Trace",
       "tool-traces": "Tool Traces",
+      "sandbox-guide": "Sandbox Guide",
       "tasks": "Tasks",
       "task-timeline": "Task Timeline",
       "temporary-subagents": "Temporary Subagents",

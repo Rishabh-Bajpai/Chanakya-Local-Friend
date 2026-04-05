@@ -798,6 +798,11 @@ def ensure_heartbeat_file(profile: AgentProfileModel, repo_root: Path) -> None:
 def sync_default_agent_tools(store: ChanakyaStore) -> None:
     baseline_tools = ["mcp_websearch", "mcp_fetch", "mcp_calculator"]
     code_exec_tool = "mcp_code_execution"
+    sandbox_prompt_hint = (
+        " Inside the sandbox, host files are readable but read-only, and only the shared "
+        "workspace is writable. If you hit a permission-related error, copy the needed file "
+        "into the shared workspace and retry there."
+    )
     changed_count = 0
     for profile in store.list_agent_profiles():
         required = list(baseline_tools)
@@ -808,13 +813,16 @@ def sync_default_agent_tools(store: ChanakyaStore) -> None:
         for tool_id in [*existing, *required]:
             if tool_id and tool_id not in merged:
                 merged.append(tool_id)
-        if merged == existing:
+        prompt = profile.system_prompt
+        if profile.role in {"developer", "tester"} and sandbox_prompt_hint.strip() not in prompt:
+            prompt = f"{prompt.rstrip()}{sandbox_prompt_hint}"
+        if merged == existing and prompt == profile.system_prompt:
             continue
         store.update_agent_profile(
             profile.id,
             name=profile.name,
             role=profile.role,
-            system_prompt=profile.system_prompt,
+            system_prompt=prompt,
             personality=profile.personality,
             tool_ids=merged,
             workspace=profile.workspace,

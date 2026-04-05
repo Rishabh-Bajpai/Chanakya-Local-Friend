@@ -17,6 +17,7 @@ def test_resolve_shared_workspace_uses_temp_for_empty_work_id(
 
     assert workspace == (tmp_path / "shared_workspace" / "temp")
     assert workspace.exists()
+    assert oct(workspace.stat().st_mode & 0o777) == "0o775"
 
 
 @pytest.mark.parametrize("work_id", ["../escape", "..", "bad/value", "bad\\value"])

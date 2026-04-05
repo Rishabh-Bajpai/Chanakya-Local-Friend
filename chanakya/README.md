@@ -288,6 +288,27 @@ Example:
   - `chanakya_data/shared_workspace/<work_id>`
   - `chanakya_data/shared_workspace/temp`
 
+Available features:
+
+- Execute Python snippets and shell commands inside the containerized sandbox
+- Persist generated files in the shared work directory across multiple agent turns
+- Read host project data through read-only mounts at `/host/repo` and `/host/chanakya_data`
+- Write only inside `/workspace`, which maps to the shared work directory
+- Use bounded resources and no network access for safer execution
+
+Unavailable features:
+
+- Writing to host files outside `/workspace`
+- Direct host command execution
+- Network-dependent installation, downloads, or external API calls from sandboxed code
+- Escaping the shared workspace via path traversal or absolute host writes
+
+Permission model:
+
+- `/workspace` is writable and persistent for the current `work_id`
+- Host files are readable but read-only
+- If a worker sees `Permission denied` or `Read-only file system`, it should copy the needed file into `/workspace` and retry there
+
 Implementation references:
 
 - Tool loader: `chanakya/services/tool_loader.py`

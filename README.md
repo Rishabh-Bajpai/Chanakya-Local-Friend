@@ -46,6 +46,31 @@ Sandboxed code execution uses a shared persistent workspace under:
 
 Code execution is container-only (Docker/Podman) and must not execute host-system commands.
 
+## Sandbox Capabilities
+
+Available:
+
+- Execute Python and shell commands inside an isolated container
+- Persist files across runs in `chanakya_data/shared_workspace/<work_id>` or `temp`
+- Read host project files through read-only mounts inside the sandbox
+- Use the shared workspace as the only writable location during sandbox execution
+- Run with bounded CPU, memory, pid count, and no network access
+- Retry safely after permission errors by copying files into `/workspace`
+
+Unavailable:
+
+- Writing to host-mounted files or directories outside the shared workspace
+- Running commands directly on the host system
+- Privilege escalation or container capability expansion
+- Unrestricted network access from sandboxed code
+- Arbitrary path traversal outside the sandbox workspace policy
+
+Common permission behavior:
+
+- Host files are readable but read-only inside the sandbox
+- Only `/workspace` is writable in the container
+- If an agent hits `Permission denied` or `Read-only file system`, it should copy the target file into the shared workspace and retry there
+
 ## Validation Commands
 
 ```bash

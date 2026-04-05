@@ -9,6 +9,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
+from chanakya.config import get_data_dir
 from chanakya.services.sandbox_workspace import resolve_shared_workspace
 
 DEFAULT_TIMEOUT_SECONDS = 30
@@ -16,6 +17,7 @@ MAX_TIMEOUT_SECONDS = 120
 MAX_OUTPUT_CHARS = 20000
 PYTHON_IMAGE = os.getenv("CHANAKYA_SANDBOX_PYTHON_IMAGE", "python:3.11-alpine")
 SHELL_IMAGE = os.getenv("CHANAKYA_SANDBOX_SHELL_IMAGE", "alpine:3.20")
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 mcp = FastMCP("Chanakya Sandbox Executor", json_response=True)
 
@@ -48,6 +50,34 @@ def _trim_output(text: str) -> tuple[str, bool]:
     return text[:MAX_OUTPUT_CHARS] + "\n...[truncated]", True
 
 
+def _annotate_permission_error(text: str, workspace: Path) -> str:
+    lowered = text.lower()
+    if "permission denied" not in lowered and "read-only file system" not in lowered:
+        return text
+    hint = (
+        "Permission hint: Host files are mounted read-only inside the sandbox. "
+        f"Write only inside /workspace (mapped to {workspace}) or copy host files "
+        "into /workspace before modifying them."
+    )
+    return f"{text}\n\n{hint}" if text else hint
+
+
+def _get_host_read_mounts() -> list[tuple[Path, str]]:
+    data_dir = get_data_dir().resolve()
+    return [
+        (REPO_ROOT, "/host/repo"),
+        (data_dir, "/host/chanakya_data"),
+    ]
+
+
+def _ensure_workspace_writable(workspace: Path) -> None:
+    workspace.mkdir(parents=True, exist_ok=True)
+    workspace.chmod(0o775)
+    probe = workspace / ".sandbox_write_probe"
+    probe.write_text("ok", encoding="utf-8")
+    probe.unlink(missing_ok=True)
+
+
 def _build_runtime_base_args(
     *,
     runtime: RuntimeSelection,
@@ -66,6 +96,8 @@ def _build_runtime_base_args(
         "512m",
         "--pids-limit",
         "256",
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
         "-v",
         f"{workspace}:/workspace",
         "-w",
@@ -73,6 +105,8 @@ def _build_runtime_base_args(
         "-e",
         f"CHANAKYA_TIMEOUT_SECONDS={timeout_seconds}",
     ]
+    for host_path, sandbox_path in _get_host_read_mounts():
+        args.extend(["-v", f"{host_path}:{sandbox_path}:ro"])
     if runtime.engine == "docker":
         args.extend(["--security-opt", "no-new-privileges", "--cap-drop", "ALL"])
     return args
@@ -87,6 +121,20 @@ def _run_in_sandbox(
 ) -> dict[str, object]:
     runtime = _select_runtime()
     workspace = resolve_shared_workspace(work_id)
+    try:
+        _ensure_workspace_writable(workspace)
+    except PermissionError as exc:
+        message = _annotate_permission_error(str(exc), workspace)
+        return {
+            "ok": False,
+            "exit_code": None,
+            "output": message,
+            "truncated": False,
+            "timed_out": False,
+            "workspace": str(workspace),
+            "runtime": runtime.engine,
+            "image": image,
+        }
     bounded_timeout = _bounded_timeout(timeout_seconds)
     cmd = [
         *_build_runtime_base_args(
@@ -110,6 +158,7 @@ def _run_in_sandbox(
         stdout = exc.stdout or ""
         stderr = exc.stderr or "Execution timed out"
         merged = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
+        merged = _annotate_permission_error(merged, workspace)
         trimmed, truncated = _trim_output(merged)
         return {
             "ok": False,
@@ -125,6 +174,7 @@ def _run_in_sandbox(
     merged_output = "\n".join(
         part for part in (result.stdout.strip(), result.stderr.strip()) if part
     )
+    merged_output = _annotate_permission_error(merged_output, workspace)
     trimmed_output, truncated = _trim_output(merged_output)
     return {
         "ok": result.returncode == 0,

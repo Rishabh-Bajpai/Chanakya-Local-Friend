@@ -11,6 +11,7 @@ _WORK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 def get_shared_workspace_root() -> Path:
     root = get_data_dir() / "shared_workspace"
     root.mkdir(parents=True, exist_ok=True)
+    root.chmod(0o775)
     return root
 
 
@@ -34,4 +35,5 @@ def resolve_shared_workspace(work_id: str | None) -> Path:
     if target != root and root not in target.parents:
         raise PermissionError("Resolved sandbox workspace escapes shared root")
     target.mkdir(parents=True, exist_ok=True)
+    target.chmod(0o775)
     return target
