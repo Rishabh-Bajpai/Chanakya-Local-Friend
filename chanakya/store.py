@@ -12,6 +12,7 @@ from chanakya.model import (
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
+    ClassicActiveWorkModel,
     RequestModel,
     TaskEventModel,
     TaskModel,
@@ -822,6 +823,74 @@ class WorkAgentSessionRepository:
             session.commit()
 
 
+class ClassicActiveWorkRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def get_active_work(self, chat_session_id: str) -> dict[str, Any] | None:
+        with session_scope(self.Session) as session:
+            row = session.get(ClassicActiveWorkModel, chat_session_id)
+        if row is None:
+            return None
+        return {
+            "chat_session_id": row.chat_session_id,
+            "work_id": row.work_id,
+            "work_session_id": row.work_session_id,
+            "root_request_id": row.root_request_id,
+            "title": row.title,
+            "summary": row.summary,
+            "workflow_type": row.workflow_type,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    def set_active_work(
+        self,
+        *,
+        chat_session_id: str,
+        work_id: str,
+        work_session_id: str,
+        root_request_id: str | None,
+        title: str,
+        summary: str | None,
+        workflow_type: str | None,
+    ) -> None:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            row = session.get(ClassicActiveWorkModel, chat_session_id)
+            if row is None:
+                session.add(
+                    ClassicActiveWorkModel(
+                        chat_session_id=chat_session_id,
+                        work_id=work_id,
+                        work_session_id=work_session_id,
+                        root_request_id=root_request_id,
+                        title=title,
+                        summary=summary,
+                        workflow_type=workflow_type,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
+                )
+            else:
+                row.work_id = work_id
+                row.work_session_id = work_session_id
+                row.root_request_id = root_request_id
+                row.title = title
+                row.summary = summary
+                row.workflow_type = workflow_type
+                row.updated_at = timestamp
+            session.commit()
+
+    def clear_active_work(self, chat_session_id: str) -> None:
+        with session_scope(self.Session) as session:
+            row = session.get(ClassicActiveWorkModel, chat_session_id)
+            if row is None:
+                return
+            session.delete(row)
+            session.commit()
+
+
 class TemporaryAgentRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
@@ -897,6 +966,7 @@ class ChanakyaStore:
         self.chat = ChatRepository(session_factory)
         self.works = WorkRepository(session_factory)
         self.work_agent_sessions = WorkAgentSessionRepository(session_factory)
+        self.classic_active_works = ClassicActiveWorkRepository(session_factory)
         self.requests = RequestRepository(session_factory)
         self.tasks = TaskRepository(session_factory)
         self.events = EventRepository(session_factory)
@@ -973,8 +1043,31 @@ class ChanakyaStore:
                 session.execute(
                     delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
                 )
+                session.execute(
+                    delete(ClassicActiveWorkModel).where(ClassicActiveWorkModel.work_id == work_id)
+                )
             session.execute(delete(WorkModel).where(WorkModel.id == work_id))
             session.commit()
+        return session_ids
+
+    def get_active_classic_work(self, chat_session_id: str) -> dict[str, Any] | None:
+        return self.classic_active_works.get_active_work(chat_session_id)
+
+    def set_active_classic_work(self, **kwargs: Any) -> None:
+        self.classic_active_works.set_active_work(**kwargs)
+
+    def clear_active_classic_work(self, chat_session_id: str) -> None:
+        self.classic_active_works.clear_active_work(chat_session_id)
+
+    def _expand_session_ids(self, session_id: str | None) -> list[str]:
+        if session_id is None:
+            return []
+        session_ids = [session_id]
+        active_work = self.get_active_classic_work(session_id)
+        if active_work is not None:
+            work_session_id = str(active_work.get("work_session_id") or "").strip()
+            if work_session_id and work_session_id not in session_ids:
+                session_ids.append(work_session_id)
         return session_ids
 
     def ensure_work_agent_session(
@@ -1067,12 +1160,30 @@ class ChanakyaStore:
         task_id: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        return self.events.list_task_events(
-            session_id=session_id,
-            request_id=request_id,
-            task_id=task_id,
-            limit=limit,
-        )
+        session_ids = self._expand_session_ids(session_id)
+        if len(session_ids) <= 1:
+            return self.events.list_task_events(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=task_id,
+                limit=limit,
+            )
+        merged: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for item_session_id in session_ids:
+            for event in self.events.list_task_events(
+                session_id=item_session_id,
+                request_id=request_id,
+                task_id=task_id,
+                limit=limit,
+            ):
+                event_id = int(event["id"])
+                if event_id in seen:
+                    continue
+                seen.add(event_id)
+                merged.append(event)
+        merged.sort(key=lambda item: (str(item.get("created_at") or ""), int(item.get("id") or 0)))
+        return merged[-limit:]
 
     def create_request(self, **kwargs: Any) -> None:
         self.requests.create_request(**kwargs)
@@ -1086,7 +1197,20 @@ class ChanakyaStore:
     def list_requests(
         self, *, session_id: str | None = None, limit: int = 100
     ) -> list[dict[str, Any]]:
-        return self.requests.list_requests(session_id=session_id, limit=limit)
+        session_ids = self._expand_session_ids(session_id)
+        if len(session_ids) <= 1:
+            return self.requests.list_requests(session_id=session_id, limit=limit)
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item_session_id in session_ids:
+            for request in self.requests.list_requests(session_id=item_session_id, limit=limit):
+                request_id = str(request["id"])
+                if request_id in seen:
+                    continue
+                seen.add(request_id)
+                merged.append(request)
+        merged.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")))
+        return merged[-limit:]
 
     def create_task(self, **kwargs: Any) -> None:
         self.tasks.create_task(**kwargs)
@@ -1105,12 +1229,30 @@ class ChanakyaStore:
         root_only: bool = False,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        return self.tasks.list_tasks(
-            session_id=session_id,
-            request_id=request_id,
-            root_only=root_only,
-            limit=limit,
-        )
+        session_ids = self._expand_session_ids(session_id)
+        if len(session_ids) <= 1:
+            return self.tasks.list_tasks(
+                session_id=session_id,
+                request_id=request_id,
+                root_only=root_only,
+                limit=limit,
+            )
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item_session_id in session_ids:
+            for task in self.tasks.list_tasks(
+                session_id=item_session_id,
+                request_id=request_id,
+                root_only=root_only,
+                limit=limit,
+            ):
+                task_id = str(task["id"])
+                if task_id in seen:
+                    continue
+                seen.add(task_id)
+                merged.append(task)
+        merged.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")))
+        return merged[-limit:]
 
     def list_task_children(
         self,
@@ -1140,11 +1282,33 @@ class ChanakyaStore:
         request_id: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        return self.tools.list_tool_invocations(
-            session_id=session_id,
-            request_id=request_id,
-            limit=limit,
+        session_ids = self._expand_session_ids(session_id)
+        if len(session_ids) <= 1:
+            return self.tools.list_tool_invocations(
+                session_id=session_id,
+                request_id=request_id,
+                limit=limit,
+            )
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item_session_id in session_ids:
+            for trace in self.tools.list_tool_invocations(
+                session_id=item_session_id,
+                request_id=request_id,
+                limit=limit,
+            ):
+                invocation_id = str(trace["invocation_id"])
+                if invocation_id in seen:
+                    continue
+                seen.add(invocation_id)
+                merged.append(trace)
+        merged.sort(
+            key=lambda item: (
+                str(item.get("started_at") or ""),
+                str(item.get("invocation_id") or ""),
+            )
         )
+        return merged[-limit:]
 
     def upsert_agent_profile(self, profile: AgentProfileModel) -> None:
         self.agents.upsert_agent_profile(profile)
@@ -1181,12 +1345,30 @@ class ChanakyaStore:
         parent_task_id: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        return self.temporary_agents.list_temporary_agents(
-            session_id=session_id,
-            request_id=request_id,
-            parent_task_id=parent_task_id,
-            limit=limit,
-        )
+        session_ids = self._expand_session_ids(session_id)
+        if len(session_ids) <= 1:
+            return self.temporary_agents.list_temporary_agents(
+                session_id=session_id,
+                request_id=request_id,
+                parent_task_id=parent_task_id,
+                limit=limit,
+            )
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item_session_id in session_ids:
+            for agent in self.temporary_agents.list_temporary_agents(
+                session_id=item_session_id,
+                request_id=request_id,
+                parent_task_id=parent_task_id,
+                limit=limit,
+            ):
+                agent_id = str(agent["id"])
+                if agent_id in seen:
+                    continue
+                seen.add(agent_id)
+                merged.append(agent)
+        merged.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")))
+        return merged[-limit:]
 
     def get_temporary_agent(self, temporary_agent_id: str) -> TemporaryAgentModel:
         return self.temporary_agents.get_temporary_agent(temporary_agent_id)

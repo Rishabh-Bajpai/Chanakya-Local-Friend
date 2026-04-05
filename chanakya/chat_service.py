@@ -96,6 +96,7 @@ _FAST_DIRECT_PATTERNS = (
 
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
 _WAITING_INPUT_ROUTE = "waiting_input_prompt"
+_CLASSIC_ACTIVE_WORK_PREFIX = "cwork"
 
 
 class ChatService:
@@ -231,11 +232,310 @@ class ChatService:
             return True
         return not cls._is_complex_request(message)
 
+    @staticmethod
+    def _summarize_work_title(message: str) -> str:
+        cleaned = " ".join(message.strip().split())
+        if not cleaned:
+            return "Active Task"
+        return f"Active Task: {cleaned[:60]}"
+
+    @classmethod
+    def _is_related_to_active_work(cls, message: str, active_work: dict[str, str | None]) -> bool:
+        lowered = message.strip().lower()
+        if not lowered:
+            return False
+        referential_phrases = (
+            "continue",
+            "update",
+            "revise",
+            "rewrite",
+            "rephrase",
+            "fix that",
+            "fix this",
+            "the above",
+            "the report",
+            "the code",
+            "add tests",
+            "make it",
+            "make this",
+        )
+        if any(marker in lowered for marker in referential_phrases):
+            return True
+        message_tokens = set(re.findall(r"[a-z0-9]+", lowered))
+        if {"it", "this", "that"} & message_tokens:
+            return True
+        summary = str(active_work.get("summary") or "").lower()
+        if not summary:
+            return False
+        summary_tokens = {
+            token
+            for token in re.findall(r"[a-z0-9]+", summary)
+            if len(token) >= 5 and token not in {"which", "their", "there", "about"}
+        }
+        return len(summary_tokens & message_tokens) >= 2
+
+    def _ensure_classic_active_work(self, session_id: str, message: str) -> dict[str, str | None]:
+        active_work = self.store.get_active_classic_work(session_id)
+        if active_work is not None:
+            return active_work
+        work_id = make_id(_CLASSIC_ACTIVE_WORK_PREFIX)
+        title = self._summarize_work_title(message)
+        work_session_id = make_id("session")
+        self.store.create_work(
+            work_id=work_id,
+            title=title,
+            description="Classic chat active delegated workspace",
+            status="active",
+        )
+        active_profiles = [
+            profile for profile in self.store.list_agent_profiles() if profile.is_active
+        ]
+        for profile in active_profiles:
+            mapped_session_id = (
+                work_session_id if profile.id == self.runtime.profile.id else make_id("session")
+            )
+            self.store.ensure_work_agent_session(
+                work_id=work_id,
+                agent_id=profile.id,
+                session_id=mapped_session_id,
+                session_title=f"{title} - {profile.name}",
+            )
+        active_work = {
+            "chat_session_id": session_id,
+            "work_id": work_id,
+            "work_session_id": work_session_id,
+            "root_request_id": None,
+            "title": title,
+            "summary": message,
+            "workflow_type": None,
+        }
+        self.store.set_active_classic_work(
+            chat_session_id=session_id,
+            work_id=work_id,
+            work_session_id=work_session_id,
+            root_request_id=None,
+            title=title,
+            summary=message,
+            workflow_type=None,
+        )
+        self.store.log_event(
+            "classic_active_work_created",
+            {"session_id": session_id, "work_id": work_id, "work_session_id": work_session_id},
+        )
+        return active_work
+
+    def _replace_classic_active_work(self, session_id: str, message: str) -> dict[str, str | None]:
+        existing = self.store.get_active_classic_work(session_id)
+        if existing is not None:
+            self.store.delete_work(str(existing["work_id"]))
+            self.store.log_event(
+                "classic_active_work_replaced",
+                {"session_id": session_id, "replaced_work_id": existing["work_id"]},
+            )
+        return self._ensure_classic_active_work(session_id, message)
+
+    def _update_classic_active_work_from_reply(
+        self,
+        *,
+        session_id: str,
+        active_work: dict[str, str | None],
+        reply: ChatReply,
+        summary: str,
+    ) -> None:
+        self.store.set_active_classic_work(
+            chat_session_id=session_id,
+            work_id=str(active_work["work_id"]),
+            work_session_id=str(active_work["work_session_id"]),
+            root_request_id=reply.request_id,
+            title=str(active_work["title"]),
+            summary=summary,
+            workflow_type=reply.response_mode,
+        )
+
+    def _chat_in_active_work(self, classic_session_id: str, message: str) -> ChatReply:
+        active_work = self.store.get_active_classic_work(classic_session_id)
+        if active_work is None:
+            active_work = self._ensure_classic_active_work(classic_session_id, message)
+        self.store.add_message(
+            classic_session_id,
+            "assistant",
+            _NORMAL_CHAT_DELEGATION_NOTICE,
+            route="delegation_notice",
+            metadata={
+                "runtime": "maf_agent",
+                "delegation_notice": True,
+                "active_work_id": active_work["work_id"],
+                "active_work_session_id": active_work["work_session_id"],
+            },
+        )
+        self.store.create_task_event(
+            session_id=str(active_work["work_session_id"]),
+            event_type="delegation_notice_persisted",
+            payload={"message": _NORMAL_CHAT_DELEGATION_NOTICE},
+        )
+        reply = self._chat_internal(
+            str(active_work["work_session_id"]),
+            message,
+            work_id=str(active_work["work_id"]),
+        )
+        self.store.add_message(
+            classic_session_id,
+            "user",
+            message,
+            request_id=reply.request_id,
+            route="active_work_user_message",
+            metadata={
+                "active_work_id": active_work["work_id"],
+                "active_work_session_id": active_work["work_session_id"],
+                "mirrored_from": "classic_chat",
+            },
+        )
+        self.store.add_message(
+            classic_session_id,
+            "assistant",
+            reply.message,
+            request_id=reply.request_id,
+            route=_WAITING_INPUT_ROUTE
+            if reply.requires_input and reply.input_prompt
+            else reply.route,
+            metadata={
+                "runtime": reply.runtime,
+                "response_mode": reply.response_mode,
+                "root_task_id": reply.root_task_id,
+                "task_status": reply.root_task_status,
+                "active_work_id": active_work["work_id"],
+                "active_work_session_id": active_work["work_session_id"],
+                "mirrored_from_work": True,
+                "waiting_task_id": reply.waiting_task_id,
+                "input_prompt": reply.input_prompt,
+                "awaiting_user_input": reply.requires_input,
+            },
+        )
+        self._update_classic_active_work_from_reply(
+            session_id=classic_session_id,
+            active_work=active_work,
+            reply=reply,
+            summary=message,
+        )
+        return ChatReply(
+            request_id=reply.request_id,
+            session_id=classic_session_id,
+            work_id=str(active_work["work_id"]),
+            route=reply.route,
+            message=reply.message,
+            model=reply.model,
+            endpoint=reply.endpoint,
+            runtime=reply.runtime,
+            agent_name=reply.agent_name,
+            request_status=reply.request_status,
+            root_task_id=reply.root_task_id,
+            root_task_status=reply.root_task_status,
+            response_mode=reply.response_mode,
+            tool_calls_used=reply.tool_calls_used,
+            tool_trace_ids=reply.tool_trace_ids,
+            requires_input=reply.requires_input,
+            waiting_task_id=reply.waiting_task_id,
+            input_prompt=reply.input_prompt,
+        )
+
     def chat(self, session_id: str, message: str, *, work_id: str | None = None) -> ChatReply:
+        if work_id is None:
+            active_work = self.store.get_active_classic_work(session_id)
+            active_work_session_id = (
+                str(active_work["work_session_id"]) if active_work is not None else None
+            )
+            if active_work_session_id is not None:
+                resumable_task = self.store.find_waiting_input_task(active_work_session_id)
+                if resumable_task is not None:
+                    reply = self.submit_task_input(str(resumable_task["id"]), message)
+                    self.store.add_message(
+                        session_id,
+                        "user",
+                        message,
+                        request_id=reply.request_id,
+                        route="active_work_user_message",
+                        metadata={
+                            "active_work_id": active_work["work_id"],
+                            "active_work_session_id": active_work_session_id,
+                            "mirrored_from": "classic_chat",
+                            "input_submission": True,
+                        },
+                    )
+                    if reply.input_prompt:
+                        self.store.add_message(
+                            session_id,
+                            "assistant",
+                            reply.message,
+                            request_id=reply.request_id,
+                            route=_WAITING_INPUT_ROUTE,
+                            metadata={
+                                "active_work_id": active_work["work_id"],
+                                "active_work_session_id": active_work_session_id,
+                                "mirrored_from_work": True,
+                                "waiting_task_id": reply.waiting_task_id,
+                                "input_prompt": reply.input_prompt,
+                                "awaiting_user_input": True,
+                            },
+                        )
+                    elif reply.message:
+                        self.store.add_message(
+                            session_id,
+                            "assistant",
+                            reply.message,
+                            request_id=reply.request_id,
+                            route=reply.route,
+                            metadata={
+                                "active_work_id": active_work["work_id"],
+                                "active_work_session_id": active_work_session_id,
+                                "mirrored_from_work": True,
+                            },
+                        )
+                    self._update_classic_active_work_from_reply(
+                        session_id=session_id,
+                        active_work=active_work,
+                        reply=reply,
+                        summary=message,
+                    )
+                    return ChatReply(
+                        request_id=reply.request_id,
+                        session_id=session_id,
+                        work_id=str(active_work["work_id"]),
+                        route=reply.route,
+                        message=reply.message,
+                        model=reply.model,
+                        endpoint=reply.endpoint,
+                        runtime=reply.runtime,
+                        agent_name=reply.agent_name,
+                        request_status=reply.request_status,
+                        root_task_id=reply.root_task_id,
+                        root_task_status=reply.root_task_status,
+                        response_mode=reply.response_mode,
+                        tool_calls_used=reply.tool_calls_used,
+                        tool_trace_ids=reply.tool_trace_ids,
+                        requires_input=reply.requires_input,
+                        waiting_task_id=reply.waiting_task_id,
+                        input_prompt=reply.input_prompt,
+                    )
+
+            if active_work is not None and self._is_related_to_active_work(message, active_work):
+                return self._chat_in_active_work(session_id, message)
+
+            if (
+                self.manager is not None
+                and self._triage_message(message, work_id=None) == "delegate"
+            ):
+                active_work = self._replace_classic_active_work(session_id, message)
+                return self._chat_in_active_work(session_id, message)
+
         resumable_task = self.store.find_waiting_input_task(session_id)
         if resumable_task is not None:
             return self.submit_task_input(str(resumable_task["id"]), message)
 
+        return self._chat_internal(session_id, message, work_id=work_id)
+
+    def _chat_internal(
+        self, session_id: str, message: str, *, work_id: str | None = None
+    ) -> ChatReply:
         request_id = make_id("req")
         root_task_id = make_id("task")
         runtime_meta = self.runtime.runtime_metadata()

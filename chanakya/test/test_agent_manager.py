@@ -615,6 +615,9 @@ def test_manager_runs_worker_stages_with_the_persisted_prompts() -> None:
         )
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.manager.clarification_runner = lambda profile, prompt: (
+        '{"needs_input":false,"question":"","reason":""}'
+    )
 
     reply = service.chat(
         "session_prompt_persistence", "Write a python program to print hello world"
@@ -675,6 +678,9 @@ def test_informer_writer_recovers_when_output_echoes_research_handoff() -> None:
         )
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.manager.clarification_runner = lambda profile, prompt: (
+        '{"needs_input":false,"question":"","reason":""}'
+    )
 
     reply = service.chat("session_writer_echo", "Give me a short biography of Virat Kohli")
 
@@ -1739,6 +1745,110 @@ def test_main_chat_composer_resumes_single_waiting_task() -> None:
         "Implement the API, but I have not chosen the stack yet",
         "Use Flask for the implementation.",
     ]
+
+
+def test_classic_complex_request_creates_and_reuses_active_work() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_informer","selected_role":"informer","reason":"report work","execution_mode":"information_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "informer",
+            "brief",
+        ): '{"research_brief":"Research climate report","audience":"general","constraints":[],"sources_to_check":[]}',
+        ("informer", "review"): "Reviewed final report.",
+    }[(profile.role, step)]
+
+    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
+        if profile.role == "researcher":
+            return '{"findings":["warming trend"],"sources":["NOAA"],"handoff":"Climate report handoff"}'
+        if profile.role == "writer":
+            if "Add a short conclusion" in prompt:
+                return "Updated climate report with a short conclusion."
+            return "Draft climate report."
+        raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
+
+    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+
+    first_reply = service.chat("session_classic_active", "Write a report on climate change")
+    active_work = store.get_active_classic_work("session_classic_active")
+
+    assert first_reply.work_id is not None
+    assert active_work is not None
+    first_work_id = str(active_work["work_id"])
+    assert first_reply.work_id == first_work_id
+
+    second_reply = service.chat("session_classic_active", "Add a short conclusion to it")
+    active_work_after = store.get_active_classic_work("session_classic_active")
+
+    assert second_reply.work_id == first_work_id
+    assert active_work_after is not None
+    assert active_work_after["work_id"] == first_work_id
+    classic_messages = store.list_messages("session_classic_active")
+    assert [message["role"] for message in classic_messages] == [
+        "assistant",
+        "user",
+        "assistant",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+
+
+def test_classic_unrelated_complex_request_replaces_active_work() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "cto",
+            "brief",
+        ): '{"implementation_brief":"Implement requested software","assumptions":[],"risks":[],"testing_focus":[]}',
+        ("cto", "review"): "Reviewed software delivery.",
+    }[(profile.role, step)]
+
+    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
+        if profile.role == "developer":
+            return "Implemented requested change."
+        if profile.role == "tester":
+            return '{"validation_summary":"Looks good","checks_performed":[],"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
+        raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
+
+    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.manager.clarification_runner = lambda profile, prompt: (
+        '{"needs_input":false,"question":"","reason":""}'
+    )
+
+    first_reply = service.chat("session_replace_active", "Implement a login API")
+    first_active_work = store.get_active_classic_work("session_replace_active")
+    assert first_active_work is not None
+
+    second_reply = service.chat("session_replace_active", "Build a database migration tool")
+    second_active_work = store.get_active_classic_work("session_replace_active")
+
+    assert first_reply.work_id is not None
+    assert second_reply.work_id is not None
+    assert second_active_work is not None
+    assert second_active_work["work_id"] != first_active_work["work_id"]
+    assert (
+        store.get_active_classic_work("session_replace_active")["work_id"] == second_reply.work_id
+    )
 
 
 def test_clarification_warning_logged_when_output_is_unparsable() -> None:
