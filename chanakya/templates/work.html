@@ -246,6 +246,170 @@
         font-family: "Courier New", Courier, monospace;
         font-size: 11px;
       }
+      .slideshow-shell {
+        border: 1px solid #3a3a3a;
+        border-radius: 12px;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .slideshow-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .slideshow-controls button {
+        padding: 8px 12px;
+        border-radius: 8px;
+      }
+      .slideshow-controls select {
+        background: #1a1a1a;
+        color: var(--text);
+        border: 1px solid #454545;
+        border-radius: 8px;
+        padding: 8px;
+      }
+      .slide-progress {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .slide-card {
+        border: 1px solid #3a3a3a;
+        border-left: 4px solid var(--accent);
+        border-radius: 12px;
+        padding: 10px;
+        min-height: 220px;
+        transition: opacity 220ms ease, transform 220ms ease;
+      }
+      .slide-header {
+        margin-bottom: 8px;
+      }
+      .slide-title {
+        margin: 0;
+        font-size: 16px;
+      }
+      .slide-subtitle {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .agent-chip-row {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin: 8px 0;
+      }
+      .agent-chip {
+        border: 1px solid #4a4a4a;
+        border-radius: 999px;
+        background: #1d1d1d;
+        color: var(--text);
+        padding: 5px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .slide-event {
+        margin-top: 8px;
+        border: 1px solid #353535;
+        border-radius: 10px;
+        padding: 8px;
+        background: #171717;
+      }
+      .slide-event-meta {
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .slide-event pre {
+        margin: 6px 0 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 11px;
+      }
+      .pixel-stage {
+        margin: 8px 0;
+        padding: 10px;
+        border: 1px dashed #3e4f6d;
+        border-radius: 10px;
+        background:
+          linear-gradient(180deg, rgba(42, 57, 90, 0.2), rgba(18, 24, 41, 0.2)),
+          repeating-linear-gradient(
+            0deg,
+            rgba(255, 255, 255, 0.03),
+            rgba(255, 255, 255, 0.03) 8px,
+            rgba(0, 0, 0, 0.05) 8px,
+            rgba(0, 0, 0, 0.05) 16px
+          );
+      }
+      .pixel-stage-title {
+        margin: 0 0 8px;
+        font-size: 12px;
+        color: #a6b6d6;
+        letter-spacing: 0.03em;
+      }
+      .pixel-agent-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+        gap: 8px;
+      }
+      .pixel-agent {
+        border: 1px solid #36537c;
+        border-radius: 8px;
+        background: #102039;
+        padding: 8px;
+        cursor: pointer;
+      }
+      .pixel-agent:hover {
+        border-color: #69a3ff;
+      }
+      .pixel-agent.working {
+        box-shadow: 0 0 0 1px rgba(80, 222, 140, 0.4), 0 0 18px rgba(80, 222, 140, 0.18);
+      }
+      .pixel-agent.done {
+        box-shadow: 0 0 0 1px rgba(70, 160, 255, 0.35);
+      }
+      .pixel-agent.failed {
+        box-shadow: 0 0 0 1px rgba(255, 112, 112, 0.45), 0 0 16px rgba(255, 72, 72, 0.16);
+      }
+      .pixel-agent-avatar {
+        width: 36px;
+        height: 36px;
+        border: 1px solid #5785c7;
+        background: #173360;
+        border-radius: 4px;
+        display: grid;
+        place-items: center;
+        font-size: 19px;
+      }
+      .pixel-agent-name {
+        margin-top: 6px;
+        font-size: 11px;
+        color: #dbe7ff;
+      }
+      .pixel-agent-state {
+        margin-top: 4px;
+        font-size: 10px;
+        color: #98b4df;
+      }
+      .pixel-agent.working .pixel-agent-state::before {
+        content: "";
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 6px;
+        background: #63e39a;
+        animation: pulse 1s infinite ease-in-out;
+      }
+      @keyframes pulse {
+        0% { transform: scale(0.8); opacity: 0.55; }
+        50% { transform: scale(1.2); opacity: 1; }
+        100% { transform: scale(0.8); opacity: 0.55; }
+      }
+      .scrubber {
+        width: 100%;
+      }
       .empty {
         color: var(--muted);
         font-style: italic;
@@ -317,6 +481,7 @@
       const WORK_STORAGE_KEY = "chanakya-active-work";
       let activeWorkId = null;
       let works = [];
+      let slideshowTimer = null;
 
       function setStatus(text, isError = false) {
         workStatus.textContent = text || "";
@@ -372,6 +537,318 @@
         workList.replaceChildren(...nodes);
       }
 
+      function stopSlideshow() {
+        if (slideshowTimer) {
+          window.clearInterval(slideshowTimer);
+          slideshowTimer = null;
+        }
+      }
+
+      function groupTaskFlow(taskFlow, requestId) {
+        const filtered = (taskFlow || []).filter((event) => {
+          if (!requestId || requestId === "all") return true;
+          return event.request_id === requestId;
+        });
+        if (!filtered.length) return [];
+        const slides = [];
+        let current = null;
+        filtered.forEach((event) => {
+          const key = `${event.request_id || "none"}|${event.task_id || "none"}`;
+          if (!current || current.key !== key || current.events.length >= 6) {
+            current = {
+              key,
+              request_id: event.request_id || null,
+              task_id: event.task_id || null,
+              task_title: event.task_title || "Untitled task",
+              task_type: event.task_type || "unknown",
+              task_status: event.task_status || "unknown",
+              owner_agent_id: event.owner_agent_id || null,
+              owner_agent_name: event.owner_agent_name || event.owner_agent_id || "unknown-agent",
+              owner_agent_role: event.owner_agent_role || "unknown",
+              started_at: event.created_at,
+              ended_at: event.created_at,
+              events: [event],
+            };
+            slides.push(current);
+          } else {
+            current.events.push(event);
+            current.ended_at = event.created_at;
+            if (event.task_status) current.task_status = event.task_status;
+          }
+        });
+        return slides;
+      }
+
+      function roleToAvatar(role) {
+        const key = String(role || "").toLowerCase();
+        if (key.includes("manager")) return "🧠";
+        if (key.includes("developer")) return "🛠";
+        if (key.includes("tester")) return "🧪";
+        if (key.includes("research")) return "🔎";
+        if (key.includes("writer")) return "📝";
+        if (key.includes("informer")) return "📚";
+        if (key.includes("cto")) return "🧭";
+        return "🤖";
+      }
+
+      function deriveAgentState(slide, agentId) {
+        const related = slide.events.filter((event) => event.owner_agent_id === agentId);
+        const text = related.map((event) => `${event.event_type} ${event.task_status || ""}`.toLowerCase()).join(" ");
+        if (text.includes("failed")) return "failed";
+        if (text.includes("done") || text.includes("completed")) return "done";
+        if (text.includes("in_progress") || text.includes("started") || text.includes("waiting")) return "working";
+        return "idle";
+      }
+
+      function renderTaskSlideshow(taskFlow, tasks, agentHistories) {
+        const wrap = document.createElement("details");
+        wrap.className = "flow-wrap section-toggle";
+        wrap.open = true;
+        const summary = document.createElement("summary");
+        summary.textContent = "Task Flow Slideshow";
+        wrap.appendChild(summary);
+
+        const body = document.createElement("div");
+        const shell = document.createElement("div");
+        shell.className = "slideshow-shell";
+
+        const allRequestIds = Array.from(
+          new Set((taskFlow || []).map((event) => event.request_id).filter(Boolean))
+        );
+        let selectedRequestId = allRequestIds.length ? allRequestIds[allRequestIds.length - 1] : "all";
+        let slides = groupTaskFlow(taskFlow, selectedRequestId);
+        let currentIndex = 0;
+        let speedMs = 1800;
+
+        const controls = document.createElement("div");
+        controls.className = "slideshow-controls";
+
+        const requestSelect = document.createElement("select");
+        const allOpt = document.createElement("option");
+        allOpt.value = "all";
+        allOpt.textContent = `All requests (${allRequestIds.length})`;
+        requestSelect.appendChild(allOpt);
+        allRequestIds.forEach((requestId) => {
+          const opt = document.createElement("option");
+          opt.value = requestId;
+          opt.textContent = requestId;
+          requestSelect.appendChild(opt);
+        });
+        requestSelect.value = selectedRequestId;
+
+        const prevButton = document.createElement("button");
+        prevButton.type = "button";
+        prevButton.textContent = "Prev";
+        const nextButton = document.createElement("button");
+        nextButton.type = "button";
+        nextButton.textContent = "Next";
+        const playButton = document.createElement("button");
+        playButton.type = "button";
+        playButton.textContent = "Play";
+
+        const speedSelect = document.createElement("select");
+        [
+          [1200, "Fast"],
+          [1800, "Normal"],
+          [2600, "Slow"],
+        ].forEach(([value, label]) => {
+          const opt = document.createElement("option");
+          opt.value = String(value);
+          opt.textContent = label;
+          speedSelect.appendChild(opt);
+        });
+        speedSelect.value = String(speedMs);
+
+        const progress = document.createElement("div");
+        progress.className = "slide-progress";
+
+        const scrubber = document.createElement("input");
+        scrubber.type = "range";
+        scrubber.className = "scrubber";
+        scrubber.min = "0";
+        scrubber.step = "1";
+
+        const slideCard = document.createElement("div");
+        slideCard.className = "slide-card";
+
+        function openAgentHistory(agentId) {
+          const messageSection = historyList.querySelector("details.section-toggle");
+          if (messageSection) messageSection.open = true;
+          const card = historyList.querySelector(`details.agent-toggle[data-agent-id="${agentId}"]`);
+          if (card) {
+            card.open = true;
+            card.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        }
+
+        function renderSlide() {
+          if (!slides.length) {
+            progress.textContent = "No task flow data available.";
+            scrubber.max = "0";
+            scrubber.value = "0";
+            slideCard.innerHTML = '<div class="empty">No grouped task steps for this request.</div>';
+            return;
+          }
+          if (currentIndex < 0) currentIndex = 0;
+          if (currentIndex >= slides.length) currentIndex = slides.length - 1;
+
+          scrubber.max = String(slides.length - 1);
+          scrubber.value = String(currentIndex);
+          const slide = slides[currentIndex];
+          progress.textContent = `Step ${currentIndex + 1} / ${slides.length} | request=${slide.request_id || "none"} | task=${slide.task_id || "none"}`;
+
+          slideCard.innerHTML = "";
+          const header = document.createElement("div");
+          header.className = "slide-header";
+          const title = document.createElement("h4");
+          title.className = "slide-title";
+          title.textContent = slide.task_title;
+          const subtitle = document.createElement("div");
+          subtitle.className = "slide-subtitle";
+          subtitle.textContent = `${slide.task_type} | status=${slide.task_status} | ${slide.started_at || "unknown"} -> ${slide.ended_at || "unknown"} | events=${slide.events.length}`;
+          header.appendChild(title);
+          header.appendChild(subtitle);
+          slideCard.appendChild(header);
+
+          const chipRow = document.createElement("div");
+          chipRow.className = "agent-chip-row";
+          const uniqueAgents = Array.from(
+            new Set(
+              slide.events
+                .map((event) => event.owner_agent_id)
+                .filter(Boolean)
+            )
+          );
+          if (!uniqueAgents.length && slide.owner_agent_id) {
+            uniqueAgents.push(slide.owner_agent_id);
+          }
+          uniqueAgents.forEach((agentId) => {
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "agent-chip";
+            const info = (agentHistories || []).find((item) => item.agent_id === agentId);
+            const label = info ? info.agent_name || info.agent_id : agentId;
+            chip.textContent = label;
+            chip.addEventListener("click", () => openAgentHistory(agentId));
+            chipRow.appendChild(chip);
+          });
+          slideCard.appendChild(chipRow);
+
+          const stage = document.createElement("div");
+          stage.className = "pixel-stage";
+          const stageTitle = document.createElement("p");
+          stageTitle.className = "pixel-stage-title";
+          stageTitle.textContent = "Step Scene";
+          stage.appendChild(stageTitle);
+          const grid = document.createElement("div");
+          grid.className = "pixel-agent-grid";
+          uniqueAgents.forEach((agentId) => {
+            const info = (agentHistories || []).find((item) => item.agent_id === agentId);
+            const state = deriveAgentState(slide, agentId);
+            const card = document.createElement("button");
+            card.type = "button";
+            card.className = `pixel-agent ${state}`;
+            card.addEventListener("click", () => openAgentHistory(agentId));
+
+            const avatar = document.createElement("div");
+            avatar.className = "pixel-agent-avatar";
+            avatar.textContent = roleToAvatar(info ? info.agent_role : "");
+            const name = document.createElement("div");
+            name.className = "pixel-agent-name";
+            name.textContent = info ? info.agent_name || info.agent_id : agentId;
+            const stateNode = document.createElement("div");
+            stateNode.className = "pixel-agent-state";
+            stateNode.textContent = state.toUpperCase();
+
+            card.appendChild(avatar);
+            card.appendChild(name);
+            card.appendChild(stateNode);
+            grid.appendChild(card);
+          });
+          stage.appendChild(grid);
+          slideCard.appendChild(stage);
+
+          slide.events.forEach((event) => {
+            const row = document.createElement("div");
+            row.className = "slide-event";
+            const meta = document.createElement("div");
+            meta.className = "slide-event-meta";
+            meta.textContent = `${event.created_at || "unknown-time"} | ${event.event_type || "unknown_event"} | owner=${event.owner_agent_name || event.owner_agent_id || "unknown"}`;
+            const pre = document.createElement("pre");
+            pre.textContent = JSON.stringify(event.payload || {}, null, 2);
+            row.appendChild(meta);
+            row.appendChild(pre);
+            slideCard.appendChild(row);
+          });
+        }
+
+        function startSlideshow() {
+          stopSlideshow();
+          slideshowTimer = window.setInterval(() => {
+            if (!slides.length) return;
+            currentIndex = (currentIndex + 1) % slides.length;
+            renderSlide();
+          }, speedMs);
+          playButton.textContent = "Pause";
+        }
+
+        function togglePlay() {
+          if (slideshowTimer) {
+            stopSlideshow();
+            playButton.textContent = "Play";
+            return;
+          }
+          startSlideshow();
+        }
+
+        prevButton.addEventListener("click", () => {
+          stopSlideshow();
+          playButton.textContent = "Play";
+          currentIndex = Math.max(0, currentIndex - 1);
+          renderSlide();
+        });
+        nextButton.addEventListener("click", () => {
+          stopSlideshow();
+          playButton.textContent = "Play";
+          currentIndex = Math.min(slides.length - 1, currentIndex + 1);
+          renderSlide();
+        });
+        playButton.addEventListener("click", togglePlay);
+        speedSelect.addEventListener("change", () => {
+          speedMs = Number(speedSelect.value || 1800);
+          if (slideshowTimer) startSlideshow();
+        });
+        scrubber.addEventListener("input", () => {
+          stopSlideshow();
+          playButton.textContent = "Play";
+          currentIndex = Number(scrubber.value || "0");
+          renderSlide();
+        });
+        requestSelect.addEventListener("change", () => {
+          stopSlideshow();
+          playButton.textContent = "Play";
+          selectedRequestId = requestSelect.value;
+          slides = groupTaskFlow(taskFlow, selectedRequestId);
+          currentIndex = 0;
+          renderSlide();
+        });
+
+        controls.appendChild(prevButton);
+        controls.appendChild(nextButton);
+        controls.appendChild(playButton);
+        controls.appendChild(speedSelect);
+        controls.appendChild(requestSelect);
+        controls.appendChild(progress);
+        shell.appendChild(controls);
+        shell.appendChild(scrubber);
+        shell.appendChild(slideCard);
+        renderSlide();
+
+        body.appendChild(shell);
+        wrap.appendChild(body);
+        return wrap;
+      }
+
       function renderChatFromHistory(agentHistories) {
         const chanakyaHistory = agentHistories.find((item) => item.agent_id === "agent_chanakya");
         chatLog.replaceChildren();
@@ -393,6 +870,7 @@
         const cards = agentHistories.map((history) => {
           const card = document.createElement("details");
           card.className = "agent-card agent-toggle";
+          card.dataset.agentId = history.agent_id || "";
           const summary = document.createElement("summary");
           const title = history.agent_name || history.agent_id;
           const messageCount = (history.messages || []).length;
@@ -442,48 +920,8 @@
         messageBody.replaceChildren(...cards);
         messageSection.appendChild(messageBody);
 
-        const flowWrap = document.createElement("details");
-        flowWrap.className = "flow-wrap section-toggle";
-        const flowTitle = document.createElement("summary");
-        flowTitle.textContent = "Task Flow";
-        flowWrap.appendChild(flowTitle);
-        const flowBody = document.createElement("div");
-        const taskCount = document.createElement("div");
-        taskCount.className = "flow-meta";
-        taskCount.textContent = `Tasks: ${(tasks || []).length} | Events: ${(taskFlow || []).length}`;
-        flowBody.appendChild(taskCount);
-        const flow = taskFlow || [];
-        if (!flow.length) {
-          const empty = document.createElement("div");
-          empty.className = "empty";
-          empty.textContent = "No task events yet.";
-          flowBody.appendChild(empty);
-        } else {
-          flow.forEach((item) => {
-            const row = document.createElement("div");
-            row.className = "flow-item";
-            const meta = document.createElement("div");
-            meta.className = "flow-meta";
-            meta.textContent = `${item.created_at || "unknown-time"} | ${item.event_type || "unknown_event"} | ${item.owner_agent_name || item.owner_agent_id || "unknown-agent"} (${item.owner_agent_role || "unknown"}) | task=${item.task_id || "none"} | req=${item.request_id || "none"}`;
-            const content = document.createElement("div");
-            content.className = "flow-content";
-            const details = {
-              task_title: item.task_title,
-              task_type: item.task_type,
-              task_status: item.task_status,
-              task_parent_id: item.task_parent_id,
-              session_id: item.session_id,
-              payload: item.payload,
-            };
-            content.textContent = JSON.stringify(details, null, 2);
-            row.appendChild(meta);
-            row.appendChild(content);
-            flowBody.appendChild(row);
-          });
-        }
-        flowWrap.appendChild(flowBody);
-
-        historyList.replaceChildren(messageSection, flowWrap);
+        const slideshow = renderTaskSlideshow(taskFlow, tasks, agentHistories);
+        historyList.replaceChildren(messageSection, slideshow);
       }
 
       async function loadWorks() {
