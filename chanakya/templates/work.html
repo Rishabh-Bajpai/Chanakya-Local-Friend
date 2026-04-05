@@ -44,7 +44,19 @@
       .history {
         display: flex;
         flex-direction: column;
-        min-height: calc(100vh - 40px);
+        min-height: 0;
+      }
+      .left,
+      .history {
+        max-height: calc(100vh - 40px);
+        position: sticky;
+        top: 20px;
+        overflow: hidden;
+      }
+      .chat {
+        height: calc(100vh - 40px);
+        position: sticky;
+        top: 20px;
       }
       .header {
         padding: 16px;
@@ -68,7 +80,23 @@
       }
       .body {
         padding: 14px;
-        overflow: auto;
+        flex: 1;
+        overflow-x: hidden;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: #4a4a4a rgba(0, 0, 0, 0.3);
+      }
+      .body::-webkit-scrollbar {
+        width: 10px;
+      }
+      .body::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.25);
+        border-radius: 999px;
+      }
+      .body::-webkit-scrollbar-thumb {
+        background: #4a4a4a;
+        border-radius: 999px;
+        border: 2px solid rgba(0, 0, 0, 0.25);
       }
       .work-form {
         display: grid;
@@ -420,6 +448,10 @@
         .chat,
         .history {
           min-height: auto;
+          max-height: none;
+          height: auto;
+          position: static;
+          top: auto;
         }
       }
     </style>
