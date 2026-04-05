@@ -160,7 +160,6 @@ def create_app() -> Flask:
 
     store.add_message = _patched_add_message  # type: ignore[assignment]
 
-
     @app.get("/")
     def index() -> str:
         return render_template(
@@ -476,6 +475,7 @@ def create_app() -> Flask:
             return jsonify({"error": message}), 404
         raw_task_limit = request.args.get("task_limit", "2000")
         raw_event_limit = request.args.get("event_limit", "5000")
+        raw_request_limit = request.args.get("request_limit", "2000")
         try:
             task_limit = int(raw_task_limit)
         except (TypeError, ValueError):
@@ -484,8 +484,13 @@ def create_app() -> Flask:
             event_limit = int(raw_event_limit)
         except (TypeError, ValueError):
             event_limit = 5000
+        try:
+            request_limit = int(raw_request_limit)
+        except (TypeError, ValueError):
+            request_limit = 2000
         task_limit = max(100, min(task_limit, 10000))
         event_limit = max(100, min(event_limit, 20000))
+        request_limit = max(100, min(request_limit, 10000))
         mappings = store.list_work_agent_sessions(work_id)
         grouped = []
         mapped_session_ids: list[str] = []
@@ -520,6 +525,13 @@ def create_app() -> Flask:
             if profile.id not in agent_role_by_id:
                 agent_role_by_id[profile.id] = profile.role
         unique_session_ids = list(dict.fromkeys(mapped_session_ids))
+        requests_by_id: dict[str, dict[str, Any]] = {}
+        for session_id in unique_session_ids:
+            request_records = store.list_requests(session_id=session_id, limit=request_limit)
+            for record in request_records:
+                request_id = str(record.get("id") or "")
+                if request_id and request_id not in requests_by_id:
+                    requests_by_id[request_id] = record
 
         tasks_by_id: dict[str, dict[str, Any]] = {}
         task_flow = []
@@ -575,6 +587,13 @@ def create_app() -> Flask:
                 str(item.get("id") or ""),
             ),
         )
+        request_records = sorted(
+            requests_by_id.values(),
+            key=lambda item: (
+                str(item.get("created_at") or ""),
+                str(item.get("id") or ""),
+            ),
+        )
         return jsonify(
             {
                 "work": {
@@ -588,9 +607,11 @@ def create_app() -> Flask:
                 "agent_histories": grouped,
                 "task_flow": task_flow,
                 "tasks": task_records,
+                "requests": request_records,
                 "limits": {
                     "task_limit": task_limit,
                     "event_limit": event_limit,
+                    "request_limit": request_limit,
                 },
             }
         )
@@ -693,6 +714,7 @@ def create_app() -> Flask:
     @app.get("/api/stream")
     def api_stream() -> Response:
         """SSE endpoint: pushes lightweight change notifications to the browser."""
+
         def generate():
             q = event_bus.subscribe()
             try:

@@ -1680,7 +1680,7 @@ class AgentManager:
     def _run_route_prompt(self, prompt: str) -> str:
         if self.route_runner is not None:
             return str(self.route_runner(prompt))
-        return self._run_profile_prompt(
+        return self._run_profile_prompt_with_options(
             self.manager_profile,
             prompt,
             include_history=False,
@@ -1691,7 +1691,7 @@ class AgentManager:
     def _run_summary_prompt(self, prompt: str) -> str:
         if self.summary_runner is not None:
             return str(self.summary_runner(prompt))
-        return self._run_profile_prompt(
+        return self._run_profile_prompt_with_options(
             self.manager_profile,
             prompt,
             include_history=False,
@@ -1719,7 +1719,7 @@ class AgentManager:
         raw = (
             str(self.clarification_runner(worker_profile, prompt))
             if self.clarification_runner is not None
-            else self._run_profile_prompt(
+            else self._run_profile_prompt_with_options(
                 worker_profile,
                 prompt,
                 include_history=False,
@@ -1844,7 +1844,7 @@ class AgentManager:
         if self.specialist_runner is not None:
             return str(self.specialist_runner(profile, prompt, step))
         if step == "brief":
-            return self._run_profile_prompt(
+            return self._run_profile_prompt_with_options(
                 profile,
                 prompt,
                 include_history=False,
@@ -1915,6 +1915,13 @@ class AgentManager:
         self,
         profile: AgentProfileModel,
         prompt: str,
+    ) -> str:
+        return self._run_profile_prompt_with_options(profile, prompt)
+
+    def _run_profile_prompt_with_options(
+        self,
+        profile: AgentProfileModel,
+        prompt: str,
         *,
         include_history: bool | None = None,
         store: bool | None = None,
@@ -1943,7 +1950,7 @@ class AgentManager:
         )
         if self.subagent_plan_runner is not None:
             return str(self.subagent_plan_runner(worker_profile, prompt))
-        return self._run_profile_prompt(
+        return self._run_profile_prompt_with_options(
             worker_profile,
             prompt,
             include_history=False,
@@ -1964,7 +1971,7 @@ class AgentManager:
         )
         if self.subagent_decision_runner is not None:
             return str(self.subagent_decision_runner(worker_profile, prompt))
-        return self._run_profile_prompt(
+        return self._run_profile_prompt_with_options(
             worker_profile,
             prompt,
             include_history=False,

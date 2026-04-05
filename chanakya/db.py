@@ -5,19 +5,24 @@ from contextlib import contextmanager
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from chanakya.model import Base
 
 
 def build_engine(database_url: str) -> Engine:
     connect_args: dict[str, object] = {}
+    engine_kwargs: dict[str, object] = {}
     if database_url.startswith("sqlite"):
         connect_args["check_same_thread"] = False
+        if database_url in {"sqlite:///:memory:", "sqlite://"}:
+            engine_kwargs["poolclass"] = StaticPool
     return create_engine(
         database_url,
         future=True,
         pool_pre_ping=True,
         connect_args=connect_args,
+        **engine_kwargs,
     )
 
 

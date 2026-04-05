@@ -482,6 +482,22 @@
       let activeWorkId = null;
       let works = [];
       let slideshowTimer = null;
+      let workLiveRefreshTimer = null;
+      let historyInFlight = false;
+      let historyFetchNonce = 0;
+      let taskUiInteractingUntil = 0;
+      let cachedAgentHistories = [];
+      let cachedTaskFlow = [];
+      let cachedTasks = [];
+      let cachedRequests = [];
+      const slideshowState = {
+        requestId: null,
+        followLatest: true,
+        slideIndexByRequest: {},
+        speedMs: 1800,
+        autoplay: false,
+        open: true,
+      };
 
       function setStatus(text, isError = false) {
         workStatus.textContent = text || "";
@@ -544,6 +560,26 @@
         }
       }
 
+      function stopLiveRefresh() {
+        if (workLiveRefreshTimer) {
+          window.clearInterval(workLiveRefreshTimer);
+          workLiveRefreshTimer = null;
+        }
+      }
+
+      function markTaskUiInteraction(holdMs = 4500) {
+        taskUiInteractingUntil = Date.now() + holdMs;
+      }
+
+      function startLiveRefresh(intervalMs = 2400) {
+        stopLiveRefresh();
+        if (!activeWorkId) return;
+        workLiveRefreshTimer = window.setInterval(() => {
+          if (!activeWorkId) return;
+          loadWorkHistory(activeWorkId, { background: true });
+        }, intervalMs);
+      }
+
       function groupTaskFlow(taskFlow, requestId) {
         const filtered = (taskFlow || []).filter((event) => {
           if (!requestId || requestId === "all") return true;
@@ -600,10 +636,13 @@
         return "idle";
       }
 
-      function renderTaskSlideshow(taskFlow, tasks, agentHistories) {
+      function renderTaskSlideshow(taskFlow, tasks, agentHistories, requests) {
         const wrap = document.createElement("details");
         wrap.className = "flow-wrap section-toggle";
-        wrap.open = true;
+        wrap.open = slideshowState.open;
+        wrap.addEventListener("toggle", () => {
+          slideshowState.open = wrap.open;
+        });
         const summary = document.createElement("summary");
         summary.textContent = "Task Flow Slideshow";
         wrap.appendChild(summary);
@@ -612,29 +651,40 @@
         const shell = document.createElement("div");
         shell.className = "slideshow-shell";
 
-        const allRequestIds = Array.from(
-          new Set((taskFlow || []).map((event) => event.request_id).filter(Boolean))
-        );
-        let selectedRequestId = allRequestIds.length ? allRequestIds[allRequestIds.length - 1] : "all";
+        const requestRecords = (requests || []).filter((item) => item && item.id);
+        const allRequestIds = requestRecords.map((item) => item.id);
+        const latestRequestId = allRequestIds.length ? allRequestIds[allRequestIds.length - 1] : null;
+        let selectedRequestId = slideshowState.requestId;
+        if (slideshowState.followLatest || !selectedRequestId || !allRequestIds.includes(selectedRequestId)) {
+          selectedRequestId = latestRequestId;
+          slideshowState.requestId = selectedRequestId;
+        }
         let slides = groupTaskFlow(taskFlow, selectedRequestId);
-        let currentIndex = 0;
-        let speedMs = 1800;
+        let currentIndex = Number(slideshowState.slideIndexByRequest[selectedRequestId || "none"] || 0);
+        let speedMs = Number(slideshowState.speedMs || 1800);
 
         const controls = document.createElement("div");
         controls.className = "slideshow-controls";
+        controls.addEventListener("pointerdown", () => markTaskUiInteraction());
+        controls.addEventListener("focusin", () => markTaskUiInteraction());
 
         const requestSelect = document.createElement("select");
-        const allOpt = document.createElement("option");
-        allOpt.value = "all";
-        allOpt.textContent = `All requests (${allRequestIds.length})`;
-        requestSelect.appendChild(allOpt);
         allRequestIds.forEach((requestId) => {
           const opt = document.createElement("option");
           opt.value = requestId;
-          opt.textContent = requestId;
+          const requestInfo = requestRecords.find((item) => item.id === requestId);
+          const messagePreview = String(requestInfo && requestInfo.user_message ? requestInfo.user_message : "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 52);
+          opt.textContent = messagePreview
+            ? `${requestId} - ${messagePreview}${messagePreview.length >= 52 ? "..." : ""}`
+            : requestId;
           requestSelect.appendChild(opt);
         });
-        requestSelect.value = selectedRequestId;
+        if (selectedRequestId && allRequestIds.includes(selectedRequestId)) {
+          requestSelect.value = selectedRequestId;
+        }
 
         const prevButton = document.createElement("button");
         prevButton.type = "button";
@@ -691,6 +741,7 @@
           }
           if (currentIndex < 0) currentIndex = 0;
           if (currentIndex >= slides.length) currentIndex = slides.length - 1;
+          slideshowState.slideIndexByRequest[selectedRequestId || "none"] = currentIndex;
 
           scrubber.max = String(slides.length - 1);
           scrubber.value = String(currentIndex);
@@ -789,12 +840,14 @@
             currentIndex = (currentIndex + 1) % slides.length;
             renderSlide();
           }, speedMs);
+          slideshowState.autoplay = true;
           playButton.textContent = "Pause";
         }
 
         function togglePlay() {
           if (slideshowTimer) {
             stopSlideshow();
+            slideshowState.autoplay = false;
             playButton.textContent = "Play";
             return;
           }
@@ -802,34 +855,46 @@
         }
 
         prevButton.addEventListener("click", () => {
+          markTaskUiInteraction();
           stopSlideshow();
+          slideshowState.autoplay = false;
           playButton.textContent = "Play";
           currentIndex = Math.max(0, currentIndex - 1);
           renderSlide();
         });
         nextButton.addEventListener("click", () => {
+          markTaskUiInteraction();
           stopSlideshow();
+          slideshowState.autoplay = false;
           playButton.textContent = "Play";
           currentIndex = Math.min(slides.length - 1, currentIndex + 1);
           renderSlide();
         });
         playButton.addEventListener("click", togglePlay);
         speedSelect.addEventListener("change", () => {
+          markTaskUiInteraction();
           speedMs = Number(speedSelect.value || 1800);
+          slideshowState.speedMs = speedMs;
           if (slideshowTimer) startSlideshow();
         });
         scrubber.addEventListener("input", () => {
+          markTaskUiInteraction();
           stopSlideshow();
+          slideshowState.autoplay = false;
           playButton.textContent = "Play";
           currentIndex = Number(scrubber.value || "0");
           renderSlide();
         });
         requestSelect.addEventListener("change", () => {
+          markTaskUiInteraction();
           stopSlideshow();
+          slideshowState.autoplay = false;
           playButton.textContent = "Play";
           selectedRequestId = requestSelect.value;
+          slideshowState.requestId = selectedRequestId;
+          slideshowState.followLatest = false;
           slides = groupTaskFlow(taskFlow, selectedRequestId);
-          currentIndex = 0;
+          currentIndex = Number(slideshowState.slideIndexByRequest[selectedRequestId || "none"] || 0);
           renderSlide();
         });
 
@@ -843,34 +908,60 @@
         shell.appendChild(scrubber);
         shell.appendChild(slideCard);
         renderSlide();
+        speedSelect.value = String(speedMs);
+        if (slideshowState.autoplay) {
+          startSlideshow();
+        } else {
+          playButton.textContent = "Play";
+        }
 
         body.appendChild(shell);
         wrap.appendChild(body);
         return wrap;
       }
 
-      function renderChatFromHistory(agentHistories) {
-        const chanakyaHistory = agentHistories.find((item) => item.agent_id === "agent_chanakya");
-        chatLog.replaceChildren();
-        const messages = chanakyaHistory ? chanakyaHistory.messages || [] : [];
-        if (!messages.length) {
-          chatLog.innerHTML = '<div class="empty">No messages in this work yet.</div>';
-          return;
+      function ensureHistoryHosts() {
+        let messageHost = document.getElementById("messageFlowHost");
+        let taskHost = document.getElementById("taskFlowHost");
+        if (messageHost && taskHost) {
+          return { messageHost, taskHost };
         }
-        messages.forEach((message) => {
-          appendChatMessage(message.role === "user" ? "user" : "assistant", message.content || "");
-        });
+        historyList.replaceChildren();
+        messageHost = document.createElement("div");
+        messageHost.id = "messageFlowHost";
+        taskHost = document.createElement("div");
+        taskHost.id = "taskFlowHost";
+        historyList.appendChild(messageHost);
+        historyList.appendChild(taskHost);
+        return { messageHost, taskHost };
       }
 
-      function renderAgentHistories(agentHistories, taskFlow, tasks) {
+      function renderMessageSection(agentHistories) {
+        const { messageHost } = ensureHistoryHosts();
+        const previousSection = messageHost.querySelector("details.section-toggle");
+        const previousOpenAgents = new Set(
+          Array.from(messageHost.querySelectorAll("details.agent-toggle[open]"))
+            .map((node) => node.dataset.agentId)
+            .filter(Boolean)
+        );
+        const previousOpen = previousSection ? previousSection.open : false;
+
         if (!agentHistories.length) {
-          historyList.innerHTML = '<div class="empty">No agent histories for this work.</div>';
+          messageHost.replaceChildren();
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No agent histories for this work.";
+          messageHost.appendChild(empty);
           return;
         }
+
         const cards = agentHistories.map((history) => {
           const card = document.createElement("details");
           card.className = "agent-card agent-toggle";
           card.dataset.agentId = history.agent_id || "";
+          if (history.agent_id && previousOpenAgents.has(history.agent_id)) {
+            card.open = true;
+          }
           const summary = document.createElement("summary");
           const title = history.agent_name || history.agent_id;
           const messageCount = (history.messages || []).length;
@@ -913,15 +1004,42 @@
 
         const messageSection = document.createElement("details");
         messageSection.className = "section-toggle";
+        messageSection.open = previousSection ? previousOpen : false;
         const messageSummary = document.createElement("summary");
         messageSummary.textContent = `Message Flow (Agent Histories) - ${agentHistories.length} agents`;
         messageSection.appendChild(messageSummary);
         const messageBody = document.createElement("div");
         messageBody.replaceChildren(...cards);
         messageSection.appendChild(messageBody);
+        messageHost.replaceChildren(messageSection);
+      }
 
-        const slideshow = renderTaskSlideshow(taskFlow, tasks, agentHistories);
-        historyList.replaceChildren(messageSection, slideshow);
+      function renderTaskSection(taskFlow, tasks, agentHistories, requests) {
+        const { taskHost } = ensureHistoryHosts();
+        const slideshow = renderTaskSlideshow(taskFlow, tasks, agentHistories, requests);
+        taskHost.replaceChildren(slideshow);
+      }
+
+      function renderChatFromHistory(agentHistories) {
+        const chanakyaHistory = agentHistories.find((item) => item.agent_id === "agent_chanakya");
+        chatLog.replaceChildren();
+        const messages = chanakyaHistory ? chanakyaHistory.messages || [] : [];
+        if (!messages.length) {
+          chatLog.innerHTML = '<div class="empty">No messages in this work yet.</div>';
+          return;
+        }
+        messages.forEach((message) => {
+          appendChatMessage(message.role === "user" ? "user" : "assistant", message.content || "");
+        });
+      }
+
+      function renderAgentHistories(agentHistories, taskFlow, tasks, requests) {
+        cachedAgentHistories = agentHistories || [];
+        cachedTaskFlow = taskFlow || [];
+        cachedTasks = tasks || [];
+        cachedRequests = requests || [];
+        renderMessageSection(cachedAgentHistories);
+        renderTaskSection(cachedTaskFlow, cachedTasks, cachedAgentHistories, cachedRequests);
       }
 
       async function loadWorks() {
@@ -931,27 +1049,71 @@
         renderWorks();
       }
 
-      async function loadWorkHistory(workId) {
-        const response = await fetch(
-          `/api/works/${encodeURIComponent(workId)}/history?task_limit=3000&event_limit=8000`
-        );
-        const data = await response.json();
+      async function loadWorkHistory(workId, { background = false } = {}) {
+        if (historyInFlight) return;
+        historyInFlight = true;
+        const nonce = ++historyFetchNonce;
+        let response;
+        let data;
+        try {
+          response = await fetch(
+            `/api/works/${encodeURIComponent(workId)}/history?task_limit=3000&event_limit=8000&request_limit=4000`
+          );
+          data = await response.json();
+        } finally {
+          historyInFlight = false;
+        }
+        if (nonce !== historyFetchNonce || workId !== activeWorkId) {
+          return;
+        }
         if (!response.ok) {
           throw new Error(data.error || "Failed to load work history");
         }
-        chatTitle.textContent = data.work.title;
-        chatSubtitle.textContent = data.work.description || "Work-scoped chat with Chanakya.";
-        renderChatFromHistory(data.agent_histories || []);
-        renderAgentHistories(data.agent_histories || [], data.task_flow || [], data.tasks || []);
+        if (!background) {
+          chatTitle.textContent = data.work.title;
+          chatSubtitle.textContent = data.work.description || "Work-scoped chat with Chanakya.";
+          renderChatFromHistory(data.agent_histories || []);
+        }
+        cachedAgentHistories = data.agent_histories || [];
+        cachedTaskFlow = data.task_flow || [];
+        cachedTasks = data.tasks || [];
+        cachedRequests = data.requests || [];
+        if (background) {
+          const activeElement = document.activeElement;
+          const taskHost = document.getElementById("taskFlowHost");
+          const focusInsideTaskHost = Boolean(
+            activeElement instanceof HTMLElement
+            && taskHost
+            && taskHost.contains(activeElement)
+          );
+          const interactionHold = Date.now() < taskUiInteractingUntil;
+          if (!focusInsideTaskHost && !interactionHold) {
+            renderTaskSection(cachedTaskFlow, cachedTasks, cachedAgentHistories, cachedRequests);
+          }
+        } else {
+          renderAgentHistories(
+            cachedAgentHistories,
+            cachedTaskFlow,
+            cachedTasks,
+            cachedRequests
+          );
+        }
+        if (!background && slideshowState.followLatest && Array.isArray(data.requests) && data.requests.length) {
+          slideshowState.requestId = data.requests[data.requests.length - 1].id;
+        }
       }
 
       async function selectWork(workId) {
         activeWorkId = workId;
+        stopSlideshow();
+        stopLiveRefresh();
         saveActiveWork(workId);
         renderWorks();
         sendButton.disabled = false;
         messageInput.disabled = false;
         await loadWorkHistory(workId);
+        slideshowState.followLatest = true;
+        startLiveRefresh(2400);
       }
 
       workForm.addEventListener("submit", async (event) => {
@@ -985,6 +1147,8 @@
         appendChatMessage("user", message);
         messageInput.value = "";
         sendButton.disabled = true;
+        slideshowState.followLatest = true;
+        startLiveRefresh(900);
         try {
           const response = await fetch("/api/chat", {
             method: "POST",
@@ -998,6 +1162,7 @@
         } catch (error) {
           appendChatMessage("assistant", error instanceof Error ? error.message : String(error));
         } finally {
+          startLiveRefresh(2400);
           sendButton.disabled = false;
         }
       });

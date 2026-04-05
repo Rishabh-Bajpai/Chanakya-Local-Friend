@@ -432,6 +432,8 @@ def test_work_create_list_and_history_apis(
     histories = history_payload["agent_histories"]
     assert "task_flow" in history_payload
     assert "tasks" in history_payload
+    assert "requests" in history_payload
+    assert "limits" in history_payload
     chanakya_history = next(item for item in histories if item["agent_id"] == "agent_chanakya")
     assert any(
         msg["content"] == "Initial report draft ready." for msg in chanakya_history["messages"]

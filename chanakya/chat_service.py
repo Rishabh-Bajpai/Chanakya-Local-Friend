@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 from agent_framework import Agent, Message
 from agent_framework.openai import OpenAIChatClient
@@ -33,7 +34,7 @@ from chanakya.store import ChanakyaStore
 
 _TRIAGE_SYSTEM_PROMPT = (
     "You are a request classifier. Your ONLY job is to output exactly one word.\n"
-    "Reply with \"direct\" if the user's message is:\n"
+    'Reply with "direct" if the user\'s message is:\n'
     "- A greeting, small talk, or simple conversational exchange\n"
     "- A simple factual question answerable from general knowledge\n"
     "- A math calculation or unit conversion\n"
@@ -41,13 +42,13 @@ _TRIAGE_SYSTEM_PROMPT = (
     "- A request to fetch or summarise a single URL or web page\n"
     "- Anything a single assistant with a calculator and web-fetch tool can fully answer in one step\n"
     "\n"
-    "Reply with \"delegate\" if the user's message requires:\n"
+    'Reply with "delegate" if the user\'s message requires:\n'
     "- Multi-step research across multiple sources\n"
     "- Software development, code generation, architecture, or debugging\n"
     "- Complex analysis requiring structured specialist workflows\n"
     "- Coordination between multiple specialists (researcher+writer, developer+tester)\n"
     "\n"
-    "Output ONLY the single word \"direct\" or \"delegate\". Nothing else."
+    'Output ONLY the single word "direct" or "delegate". Nothing else.'
 )
 
 
@@ -64,7 +65,23 @@ class ChatService:
         self._triage_client = OpenAIChatClient(env_file_path=".env")
 
     def _triage_message(self, message: str) -> str:
-        """Lightweight LLM call to classify a message as 'direct' or 'delegate'."""
+        """Classify a message as 'direct' or 'delegate'."""
+        if self._is_simple_direct_request(message):
+            debug_log(
+                "triage_heuristic",
+                {"message": message, "decision": "direct", "reason": "simple_request"},
+            )
+            return "direct"
+        if self.manager is not None:
+            debug_log(
+                "triage_heuristic",
+                {
+                    "message": message,
+                    "decision": "delegate",
+                    "reason": "manager_present_non_simple_request",
+                },
+            )
+            return "delegate"
         try:
             triage_agent = Agent(
                 client=self._triage_client,
@@ -95,6 +112,30 @@ class ChatService:
                 {"message": message, "error": str(exc), "decision": "delegate"},
             )
             return "delegate"
+
+    @staticmethod
+    def _is_simple_direct_request(message: str) -> bool:
+        text = message.strip().lower()
+        if not text:
+            return True
+        greeting_markers = {
+            "hi",
+            "hello",
+            "hey",
+            "thanks",
+            "thank you",
+            "good morning",
+            "good evening",
+            "how are you",
+        }
+        if text in greeting_markers:
+            return True
+        if any(text.startswith(f"{marker} ") for marker in greeting_markers):
+            return True
+        normalized = text.replace(" ", "")
+        if re.fullmatch(r"[0-9+\-*/().]+", normalized):
+            return True
+        return False
 
     def chat(self, session_id: str, message: str, *, work_id: str | None = None) -> ChatReply:
         request_id = make_id("req")
