@@ -964,6 +964,50 @@ def test_build_clone_validation_report_uses_existing_artifacts(
     assert "asset_manifest.json" in report
 
 
+def test_invalid_researcher_output_rejects_empty_placeholder_response() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    bad_output = (
+        "I'm ready to help you transform your research into a polished response. "
+        "However, there is no content between the BEGIN and END markers."
+    )
+
+    assert manager._is_invalid_researcher_output(bad_output) is True
+
+
+def test_researcher_stage_prompt_requires_actual_findings() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    prompt = manager._build_researcher_stage_prompt(
+        'Perform research on "mind control, reality or myth"',
+        '{"topic":"Mind Control"}',
+    )
+
+    assert "Return completed research findings" in prompt
+    assert "Include facts, references_or_sources, uncertainties, and notes_for_writer" in prompt
+
+
+def test_researcher_fallback_prompt_forbids_blank_output() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    prompt = manager._build_researcher_fallback_prompt(
+        'Perform research on "mind control, reality or myth"',
+        '{"topic":"Mind Control"}',
+    )
+
+    assert "Do not return blank output" in prompt
+    assert "Do not ask the user to provide the research" in prompt
+
+
 def test_normalize_implementation_brief_repairs_blank_output(monkeypatch: MonkeyPatch) -> None:
     store = _build_store()
     _seed_full_hierarchy(store)

@@ -1464,6 +1464,13 @@ class AgentManager:
                     participants=[researcher_profile, writer_profile],
                 )
                 researcher_output = worker_outputs[0]
+                if self._is_invalid_researcher_output(researcher_output):
+                    researcher_output = self._run_researcher_recovery(
+                        researcher_profile=researcher_profile,
+                        message=message,
+                        research_brief=research_brief,
+                        invalid_output=researcher_output,
+                    )
                 writer_output = worker_outputs[1]
                 if self._is_invalid_writer_output(writer_output, researcher_output):
                     writer_output = self._run_writer_recovery(
@@ -1535,6 +1542,13 @@ class AgentManager:
                     effective_prompt=researcher_prompt,
                 )
                 researcher_output = researcher_result.text
+                if self._is_invalid_researcher_output(researcher_output):
+                    researcher_output = self._run_researcher_recovery(
+                        researcher_profile=researcher_profile,
+                        message=message,
+                        research_brief=research_brief,
+                        invalid_output=researcher_output,
+                    )
                 researcher_finished_at = now_iso()
                 writer_handoff_prompt = self._build_writer_handoff_prompt(
                     researcher_output,
@@ -2105,6 +2119,31 @@ class AgentManager:
     def _build_researcher_stage_prompt(self, message: str, research_brief: str) -> str:
         return (
             "Research the topic below and produce only a structured research handoff.\n\n"
+            "Return completed research findings, not blank output, placeholder text, or process notes. "
+            "Include facts, references_or_sources, uncertainties, and notes_for_writer.\n\n"
+            f"Original request: {message}\n\n"
+            f"Research brief: {research_brief}"
+        )
+
+    def _build_researcher_repair_prompt(
+        self, message: str, research_brief: str, invalid_output: str
+    ) -> str:
+        invalid_handoff = self._wrap_untrusted_artifact("invalid_research_handoff", invalid_output)
+        return (
+            "Your previous researcher response was empty or invalid. Retry now and return only a structured "
+            "research handoff with these sections: facts, references_or_sources, uncertainties, notes_for_writer.\n\n"
+            "Do not return blank lines, placeholders, or writer instructions without research content.\n\n"
+            f"Original request: {message}\n\n"
+            f"Research brief: {research_brief}\n\n"
+            f"Invalid previous output:\n{invalid_handoff}"
+        )
+
+    def _build_researcher_fallback_prompt(self, message: str, research_brief: str) -> str:
+        return (
+            "Produce a best-effort structured research handoff even if external retrieval was weak or incomplete. "
+            "Use cautious, high-level general knowledge, clearly separate established evidence from myths, and mark uncertainty where needed. "
+            "Return only these sections: facts, references_or_sources, uncertainties, notes_for_writer.\n\n"
+            "Do not return blank output. Do not ask the user to provide the research.\n\n"
             f"Original request: {message}\n\n"
             f"Research brief: {research_brief}"
         )
@@ -2610,6 +2649,41 @@ class AgentManager:
         if self._is_invalid_writer_output(recovered, researcher_output):
             raise ValueError(
                 "Writer produced invalid or echoed output instead of a polished response"
+            )
+        return recovered
+
+    def _run_researcher_recovery(
+        self,
+        *,
+        researcher_profile: AgentProfileModel,
+        message: str,
+        research_brief: str,
+        invalid_output: str,
+    ) -> str:
+        repair_prompt = self._build_researcher_repair_prompt(
+            message,
+            research_brief,
+            invalid_output,
+        )
+        recovered = self._run_profile_prompt_with_options(
+            researcher_profile,
+            repair_prompt,
+            include_history=False,
+            store=False,
+            use_work_session=False,
+        ).strip()
+        if self._is_invalid_researcher_output(recovered):
+            fallback_prompt = self._build_researcher_fallback_prompt(message, research_brief)
+            recovered = self._run_profile_prompt_with_options(
+                researcher_profile,
+                fallback_prompt,
+                include_history=False,
+                store=False,
+                use_work_session=False,
+            ).strip()
+        if self._is_invalid_researcher_output(recovered):
+            raise ValueError(
+                "Researcher produced invalid or empty output instead of a structured research handoff"
             )
         return recovered
 
@@ -3191,6 +3265,22 @@ class AgentManager:
             "<agent_framework._types.Message object",
         ]
         return any(marker in stripped for marker in invalid_markers)
+
+    def _is_invalid_researcher_output(self, text: str) -> bool:
+        stripped = text.strip()
+        if self._is_invalid_worker_output(stripped):
+            return True
+        lowered = stripped.lower()
+        invalid_researcher_markers = [
+            "please share the actual research notes",
+            "i'm ready to help you transform your research",
+            "there's no content between",
+            "writer output",
+            "research handoff is empty",
+        ]
+        if any(marker in lowered for marker in invalid_researcher_markers):
+            return True
+        return False
 
     def _is_invalid_writer_output(self, text: str, research_handoff: str) -> bool:
         stripped = text.strip()
