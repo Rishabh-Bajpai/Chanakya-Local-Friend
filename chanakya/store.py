@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.db import session_scope
@@ -702,6 +702,14 @@ class WorkRepository:
             raise KeyError(f"Work not found: {work_id}")
         return row
 
+    def delete_work(self, work_id: str) -> None:
+        with session_scope(self.Session) as session:
+            row = session.get(WorkModel, work_id)
+            if row is None:
+                raise KeyError(f"Work not found: {work_id}")
+            session.delete(row)
+            session.commit()
+
 
 class WorkAgentSessionRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
@@ -796,6 +804,22 @@ class WorkAgentSessionRepository:
                 .limit(1)
             ).first()
         return None if row is None else row.work_id
+
+    def list_session_ids_for_work(self, work_id: str) -> list[str]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(WorkAgentSessionModel.session_id)
+                .where(WorkAgentSessionModel.work_id == work_id)
+                .order_by(WorkAgentSessionModel.id.asc())
+            ).all()
+        return list(rows)
+
+    def delete_work_sessions(self, work_id: str) -> None:
+        with session_scope(self.Session) as session:
+            session.execute(
+                delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
+            )
+            session.commit()
 
 
 class TemporaryAgentRepository:
@@ -901,6 +925,58 @@ class ChanakyaStore:
     def get_work(self, work_id: str) -> WorkModel:
         return self.works.get_work(work_id)
 
+    def delete_work(self, work_id: str) -> list[str]:
+        self.get_work(work_id)
+        session_ids = self.work_agent_sessions.list_session_ids_for_work(work_id)
+        request_ids: list[str] = []
+        task_ids: list[str] = []
+        with session_scope(self.Session) as session:
+            if session_ids:
+                request_ids = list(
+                    session.scalars(
+                        select(RequestModel.id).where(RequestModel.session_id.in_(session_ids))
+                    ).all()
+                )
+                if request_ids:
+                    task_ids = list(
+                        session.scalars(
+                            select(TaskModel.id).where(TaskModel.request_id.in_(request_ids))
+                        ).all()
+                    )
+                if task_ids:
+                    session.execute(
+                        delete(TaskEventModel).where(TaskEventModel.task_id.in_(task_ids))
+                    )
+                    session.execute(
+                        delete(TemporaryAgentModel).where(
+                            TemporaryAgentModel.parent_task_id.in_(task_ids)
+                        )
+                    )
+                session.execute(
+                    delete(TaskEventModel).where(TaskEventModel.session_id.in_(session_ids))
+                )
+                session.execute(
+                    delete(ChatMessageModel).where(ChatMessageModel.session_id.in_(session_ids))
+                )
+                session.execute(
+                    delete(ToolInvocationModel).where(
+                        ToolInvocationModel.session_id.in_(session_ids)
+                    )
+                )
+                if task_ids:
+                    session.execute(delete(TaskModel).where(TaskModel.id.in_(task_ids)))
+                if request_ids:
+                    session.execute(delete(RequestModel).where(RequestModel.id.in_(request_ids)))
+                session.execute(
+                    delete(ChatSessionModel).where(ChatSessionModel.id.in_(session_ids))
+                )
+                session.execute(
+                    delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
+                )
+            session.execute(delete(WorkModel).where(WorkModel.id == work_id))
+            session.commit()
+        return session_ids
+
     def ensure_work_agent_session(
         self,
         *,
@@ -919,11 +995,26 @@ class ChanakyaStore:
     def list_work_agent_sessions(self, work_id: str) -> list[dict[str, Any]]:
         return self.work_agent_sessions.list_work_agent_sessions(work_id)
 
+    def list_session_ids_for_work(self, work_id: str) -> list[str]:
+        return self.work_agent_sessions.list_session_ids_for_work(work_id)
+
     def find_work_id_by_session(self, *, agent_id: str, session_id: str) -> str | None:
         return self.work_agent_sessions.find_work_id_by_session(
             agent_id=agent_id,
             session_id=session_id,
         )
+
+    def find_waiting_input_task(self, session_id: str) -> dict[str, Any] | None:
+        tasks = self.list_tasks(session_id=session_id, limit=200)
+        waiting_tasks = [
+            task
+            for task in tasks
+            if task.get("status") == "waiting_input"
+            and (task.get("input") or {}).get("maf_pending_request_id")
+        ]
+        if len(waiting_tasks) != 1:
+            return None
+        return waiting_tasks[-1]
 
     def create_session(self, session_id: str, title: str) -> None:
         self.chat.create_session(session_id, title)

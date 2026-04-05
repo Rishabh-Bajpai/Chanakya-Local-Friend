@@ -472,3 +472,32 @@ def test_work_session_mapping_is_unique_per_agent(
     with session_factory() as db_session:
         rows = db_session.query(WorkAgentSessionModel).filter_by(work_id="work_test_unique").all()
     assert len(rows) == 1
+
+
+def test_work_delete_api_removes_work_history(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    created = client.post(
+        "/api/works",
+        json={"title": "Disposable Work", "description": "delete me"},
+    )
+    assert created.status_code == 201
+    work_id = created.get_json()["id"]
+
+    deleted = client.delete(f"/api/works/{work_id}")
+    assert deleted.status_code == 200
+    deleted_payload = deleted.get_json()
+    assert deleted_payload["deleted"] is True
+    assert deleted_payload["work_id"] == work_id
+
+    listed = client.get("/api/works")
+    assert listed.status_code == 200
+    listed_ids = [item["id"] for item in listed.get_json()["works"]]
+    assert work_id not in listed_ids
+
+    history_response = client.get(f"/api/works/{work_id}/history")
+    assert history_response.status_code == 404

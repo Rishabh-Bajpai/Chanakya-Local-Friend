@@ -95,6 +95,7 @@ _FAST_DIRECT_PATTERNS = (
 )
 
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
+_WAITING_INPUT_ROUTE = "waiting_input_prompt"
 
 
 class ChatService:
@@ -231,6 +232,10 @@ class ChatService:
         return not cls._is_complex_request(message)
 
     def chat(self, session_id: str, message: str, *, work_id: str | None = None) -> ChatReply:
+        resumable_task = self.store.find_waiting_input_task(session_id)
+        if resumable_task is not None:
+            return self.submit_task_input(str(resumable_task["id"]), message)
+
         request_id = make_id("req")
         root_task_id = make_id("task")
         runtime_meta = self.runtime.runtime_metadata()
@@ -512,7 +517,32 @@ class ChatService:
             input_prompt = None
         finished_at = None if task_status == TASK_STATUS_WAITING_INPUT else now_iso()
         request_status = self._request_status_from_task_status(task_status)
-        if task_status != TASK_STATUS_WAITING_INPUT:
+        if task_status == TASK_STATUS_WAITING_INPUT and input_prompt:
+            self.store.add_message(
+                session_id,
+                "assistant",
+                input_prompt,
+                request_id=request_id,
+                route=_WAITING_INPUT_ROUTE,
+                metadata={
+                    "runtime": "maf_agent",
+                    "response_mode": response_mode,
+                    "tool_calls_used": direct_tool_calls_used,
+                    "root_task_id": root_task_id,
+                    "request_status": request_status,
+                    "task_status": task_status,
+                    "workflow_type": manager_result.workflow_type
+                    if manager_result is not None
+                    else None,
+                    "child_task_ids": manager_result.child_task_ids
+                    if manager_result is not None
+                    else [],
+                    "waiting_task_id": waiting_task_id,
+                    "input_prompt": input_prompt,
+                    "awaiting_user_input": True,
+                },
+            )
+        elif task_status != TASK_STATUS_WAITING_INPUT:
             self.store.add_message(
                 session_id,
                 "assistant",
@@ -782,7 +812,28 @@ class ChatService:
             self.manager.reset_execution_context(context_tokens)
         request_status = self._request_status_from_task_status(result.task_status)
         finished_at = None if result.task_status == TASK_STATUS_WAITING_INPUT else now_iso()
-        if result.task_status != TASK_STATUS_WAITING_INPUT:
+        if result.task_status == TASK_STATUS_WAITING_INPUT and result.input_prompt:
+            self.store.add_message(
+                session_id,
+                "assistant",
+                result.input_prompt,
+                request_id=request.id,
+                route=_WAITING_INPUT_ROUTE,
+                metadata={
+                    "runtime": "maf_agent",
+                    "response_mode": result.workflow_type,
+                    "tool_calls_used": 0,
+                    "root_task_id": root_task_id,
+                    "request_status": request_status,
+                    "task_status": result.task_status,
+                    "workflow_type": result.workflow_type,
+                    "child_task_ids": result.child_task_ids,
+                    "waiting_task_id": result.waiting_task_id,
+                    "input_prompt": result.input_prompt,
+                    "awaiting_user_input": True,
+                },
+            )
+        elif result.task_status != TASK_STATUS_WAITING_INPUT:
             self.store.add_message(
                 session_id,
                 "assistant",

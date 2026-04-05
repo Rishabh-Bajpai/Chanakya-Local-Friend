@@ -1640,6 +1640,107 @@ def test_clarification_warning_logged_when_model_ignores_explicit_intervention()
     assert latest["worker_role"] == "developer"
 
 
+def test_waiting_input_prompt_is_persisted_as_chanakya_message() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "cto",
+            "brief",
+        ): '{"implementation_brief":"Need stack decision","assumptions":[],"risks":[],"testing_focus":[]}',
+        (
+            "cto",
+            "review",
+        ): "reviewed",
+    }[(profile.role, step)]
+    service.manager.clarification_runner = lambda profile, prompt: (
+        '{"needs_input":true,"question":"Should the implementation target Flask or FastAPI?","reason":"Framework choice required."}'
+    )
+
+    reply = service.chat("session_waiting_message", "Implement the API")
+
+    assert reply.root_task_status == TASK_STATUS_WAITING_INPUT
+    messages = store.list_messages("session_waiting_message")
+    assistant_messages = [message for message in messages if message["role"] == "assistant"]
+    assert assistant_messages[-1]["content"] == "Should the implementation target Flask or FastAPI?"
+    assert assistant_messages[-1]["route"] == "waiting_input_prompt"
+    assert assistant_messages[-1]["metadata"]["awaiting_user_input"] is True
+
+
+def test_main_chat_composer_resumes_single_waiting_task() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "cto",
+            "brief",
+        ): '{"implementation_brief":"Need stack decision before coding","assumptions":[],"risks":[],"testing_focus":["resume"]}',
+        (
+            "cto",
+            "review",
+        ): "The resumed workflow completed after clarification.",
+    }[(profile.role, step)]
+    clarification_calls = {"count": 0}
+
+    def _clarification_runner(profile: AgentProfileModel, prompt: str) -> str:
+        clarification_calls["count"] += 1
+        if clarification_calls["count"] == 1:
+            return '{"needs_input":true,"question":"Should the implementation target Flask or FastAPI?","reason":"The requested stack is ambiguous."}'
+        return '{"needs_input":false,"question":"","reason":""}'
+
+    service.manager.clarification_runner = _clarification_runner
+
+    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
+        if profile.role == "developer":
+            assert "User clarification received" in prompt
+            return "Implemented the endpoint using Flask."
+        if profile.role == "tester":
+            return (
+                '{"validation_summary":"Validated Flask endpoint","checks_performed":["request smoke test"],'
+                '"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
+            )
+        raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
+
+    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+
+    waiting_reply = service.chat(
+        "session_waiting_autoresume",
+        "Implement the API, but I have not chosen the stack yet",
+    )
+    assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
+
+    resumed_reply = service.chat(
+        "session_waiting_autoresume",
+        "Use Flask for the implementation.",
+    )
+
+    assert resumed_reply.root_task_status == TASK_STATUS_DONE
+    messages = store.list_messages("session_waiting_autoresume")
+    user_messages = [message["content"] for message in messages if message["role"] == "user"]
+    assert user_messages == [
+        "Implement the API, but I have not chosen the stack yet",
+        "Use Flask for the implementation.",
+    ]
+
+
 def test_clarification_warning_logged_when_output_is_unparsable() -> None:
     store = _build_store()
     _seed_full_hierarchy(store)

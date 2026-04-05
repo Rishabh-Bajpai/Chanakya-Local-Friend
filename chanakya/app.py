@@ -444,6 +444,24 @@ def create_app() -> Flask:
         works = store.list_works(limit=limit)
         return jsonify({"works": works})
 
+    @app.delete("/api/works/<work_id>")
+    def api_delete_work(work_id: str) -> Any:
+        try:
+            deleted_session_ids = store.delete_work(work_id)
+        except KeyError as exc:
+            message = str(exc.args[0]) if exc.args else str(exc)
+            return jsonify({"error": message}), 404
+        store.log_event(
+            "work_deleted",
+            {
+                "work_id": work_id,
+                "session_count": len(deleted_session_ids),
+            },
+        )
+        return jsonify(
+            {"deleted": True, "work_id": work_id, "session_count": len(deleted_session_ids)}
+        )
+
     @app.get("/api/works/<work_id>/sessions")
     def api_work_sessions(work_id: str) -> Any:
         try:

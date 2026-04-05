@@ -71,6 +71,15 @@
         color: var(--muted);
         font-size: 13px;
       }
+      .header-actions {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
+      }
+      .button-secondary {
+        background: #2a2a2a;
+        border: 1px solid #454545;
+      }
       .link-row {
         margin-top: 10px;
       }
@@ -479,6 +488,9 @@
         <div class="header">
           <h2 id="chatTitle">Select a work</h2>
           <p id="chatSubtitle">Work-scoped chat with Chanakya.</p>
+          <div class="header-actions">
+            <button id="deleteWorkButton" type="button" class="button-secondary" disabled>Delete Work</button>
+          </div>
         </div>
         <div id="chatLog" class="chat-log"><div class="empty">No work selected.</div></div>
         <form id="chatForm" class="composer">
@@ -509,6 +521,7 @@
       const messageInput = document.getElementById("messageInput");
       const sendButton = document.getElementById("sendButton");
       const historyList = document.getElementById("historyList");
+      const deleteWorkButton = document.getElementById("deleteWorkButton");
 
       const WORK_STORAGE_KEY = "chanakya-active-work";
       let activeWorkId = null;
@@ -573,6 +586,7 @@
       function renderWorks() {
         if (!works.length) {
           workList.innerHTML = '<div class="empty">No works yet.</div>';
+          deleteWorkButton.disabled = true;
           return;
         }
         const nodes = works.map((work) => {
@@ -583,6 +597,21 @@
           return card;
         });
         workList.replaceChildren(...nodes);
+        deleteWorkButton.disabled = !activeWorkId;
+      }
+
+      function resetWorkView() {
+        chatTitle.textContent = "Select a work";
+        chatSubtitle.textContent = "Work-scoped chat with Chanakya.";
+        chatLog.innerHTML = '<div class="empty">No work selected.</div>';
+        historyList.innerHTML = '<div class="empty">No histories yet.</div>';
+        cachedAgentHistories = [];
+        cachedTaskFlow = [];
+        cachedTasks = [];
+        cachedRequests = [];
+        sendButton.disabled = true;
+        messageInput.disabled = true;
+        deleteWorkButton.disabled = true;
       }
 
       function stopSlideshow() {
@@ -596,6 +625,38 @@
         if (workLiveRefreshTimer) {
           window.clearInterval(workLiveRefreshTimer);
           workLiveRefreshTimer = null;
+        }
+      }
+
+      async function deleteActiveWork() {
+        if (!activeWorkId) return;
+        const targetWork = works.find((work) => work.id === activeWorkId);
+        const label = targetWork ? targetWork.title : activeWorkId;
+        if (!window.confirm(`Delete work "${label}" and all of its history?`)) {
+          return;
+        }
+        stopSlideshow();
+        stopLiveRefresh();
+        deleteWorkButton.disabled = true;
+        try {
+          const response = await fetch(`/api/works/${encodeURIComponent(activeWorkId)}`, {
+            method: "DELETE",
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Work deletion failed");
+          const deletedWorkId = activeWorkId;
+          works = works.filter((work) => work.id !== deletedWorkId);
+          activeWorkId = null;
+          try {
+            window.localStorage.removeItem(WORK_STORAGE_KEY);
+          } catch {
+          }
+          renderWorks();
+          resetWorkView();
+          setStatus(`Deleted ${label}`);
+        } catch (error) {
+          deleteWorkButton.disabled = false;
+          setStatus(error instanceof Error ? error.message : String(error), true);
         }
       }
 
@@ -1143,6 +1204,7 @@
         renderWorks();
         sendButton.disabled = false;
         messageInput.disabled = false;
+        deleteWorkButton.disabled = false;
         await loadWorkHistory(workId);
         slideshowState.followLatest = true;
         startLiveRefresh(2400);
@@ -1199,9 +1261,12 @@
         }
       });
 
+      deleteWorkButton.addEventListener("click", () => {
+        deleteActiveWork();
+      });
+
       async function bootstrap() {
-        sendButton.disabled = true;
-        messageInput.disabled = true;
+        resetWorkView();
         await loadWorks();
         const saved = loadSavedWork();
         if (saved && works.some((work) => work.id === saved)) {
