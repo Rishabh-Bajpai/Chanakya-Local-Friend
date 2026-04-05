@@ -181,6 +181,7 @@ class MAFRuntime:
         )
         session = run_agent.create_session(session_id=session_id)
         session.state["request_id"] = request_id
+        session.state["history_query_text"] = text
 
         debug_log(
             "maf_runtime_before_run",

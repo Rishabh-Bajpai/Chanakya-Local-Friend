@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
+from agent_framework import Message
+
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.chat_service import ChatService
 from chanakya.db import build_engine, build_session_factory, init_database
@@ -15,6 +17,7 @@ from chanakya.domain import (
 )
 from chanakya.model import AgentProfileModel
 from chanakya.history_provider import SQLAlchemyHistoryProvider
+from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.store import ChanakyaStore
 
 
@@ -183,3 +186,115 @@ def test_history_provider_filters_control_json_messages() -> None:
         },
     )()
     assert SQLAlchemyHistoryProvider._is_control_history_row(normal_row) is False
+
+
+def test_history_provider_compresses_history_with_relevance_and_recency() -> None:
+    rows = [
+        type(
+            "Row", (), {"content": "old unrelated note", "role": "assistant", "metadata_json": {}}
+        )(),
+        type(
+            "Row",
+            (),
+            {
+                "content": "billing retry policy and timeout handling",
+                "role": "assistant",
+                "metadata_json": {},
+            },
+        )(),
+        type(
+            "Row",
+            (),
+            {"content": "another unrelated item", "role": "assistant", "metadata_json": {}},
+        )(),
+        type(
+            "Row", (), {"content": "latest user follow-up", "role": "user", "metadata_json": {}}
+        )(),
+        type(
+            "Row",
+            (),
+            {"content": "latest assistant reply", "role": "assistant", "metadata_json": {}},
+        )(),
+    ]
+
+    selected = SQLAlchemyHistoryProvider._compress_history_rows(
+        rows,
+        query_text="help with billing retry",
+        recent_window=2,
+        max_messages=3,
+        max_chars=2000,
+        max_message_chars=500,
+    )
+
+    texts = [content for _, content in selected]
+    assert any("billing retry policy" in text for text in texts)
+    assert any("latest user follow-up" in text for text in texts)
+    assert any("latest assistant reply" in text for text in texts)
+
+
+def test_history_provider_enforces_character_budgets() -> None:
+    rows = [
+        type(
+            "Row",
+            (),
+            {
+                "content": "A" * 500,
+                "role": "assistant",
+                "metadata_json": {},
+            },
+        )(),
+        type(
+            "Row",
+            (),
+            {
+                "content": "B" * 500,
+                "role": "assistant",
+                "metadata_json": {},
+            },
+        )(),
+    ]
+
+    selected = SQLAlchemyHistoryProvider._compress_history_rows(
+        rows,
+        query_text="",
+        recent_window=2,
+        max_messages=10,
+        max_chars=320,
+        max_message_chars=180,
+    )
+
+    assert selected
+    combined = "".join(content for _, content in selected)
+    assert len(combined) <= 323
+    assert all(len(content) <= 183 for _, content in selected)
+
+
+def test_history_context_stats_are_persisted_in_message_metadata() -> None:
+    store = _build_store()
+    provider = SQLAlchemyHistoryProvider(store.Session)
+
+    run_in_maf_loop(
+        provider.save_messages(
+            "session_hist_stats",
+            [Message(role="assistant", text="Final answer")],
+            state={
+                "request_id": "req_hist_stats",
+                "history_context_stats": {
+                    "available_messages": 12,
+                    "selected_messages": 5,
+                    "selected_chars": 980,
+                    "relevance_hits": 2,
+                    "backfill_hits": 1,
+                    "truncated_messages": 0,
+                    "query_text": "implement billing retry",
+                },
+            },
+        )
+    )
+
+    messages = store.list_messages("session_hist_stats")
+    assert len(messages) == 1
+    metadata = messages[0]["metadata"]
+    assert "history_context" in metadata
+    assert metadata["history_context"]["selected_messages"] == 5
+    assert metadata["history_context"]["relevance_hits"] == 2

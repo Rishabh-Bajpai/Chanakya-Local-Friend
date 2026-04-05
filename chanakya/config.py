@@ -92,5 +92,31 @@ def get_agent_request_timeout_seconds() -> int:
     return value if value > 0 else 120
 
 
+def _get_positive_int_env(name: str, default: int) -> int:
+    load_local_env()
+    raw = os.getenv(name, str(default))
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def get_history_recent_window_messages() -> int:
+    return _get_positive_int_env("CHANAKYA_HISTORY_RECENT_WINDOW_MESSAGES", 16)
+
+
+def get_history_max_messages() -> int:
+    return _get_positive_int_env("CHANAKYA_HISTORY_MAX_MESSAGES", 48)
+
+
+def get_history_max_chars() -> int:
+    return _get_positive_int_env("CHANAKYA_HISTORY_MAX_CHARS", 24000)
+
+
+def get_history_max_message_chars() -> int:
+    return _get_positive_int_env("CHANAKYA_HISTORY_MAX_MESSAGE_CHARS", 3000)
+
+
 def force_subagents_enabled() -> bool:
     return env_flag("CHANAKYA_FORCE_SUBAGENTS", default=False)
