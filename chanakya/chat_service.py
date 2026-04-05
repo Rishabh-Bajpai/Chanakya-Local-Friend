@@ -200,7 +200,6 @@ class ChatService:
                 )
 
             if use_manager:
-                manager_result = self.manager.execute(
                 context_tokens = self.manager.bind_execution_context(
                     session_id=session_id,
                     work_id=work_id,
