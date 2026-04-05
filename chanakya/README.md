@@ -294,13 +294,12 @@ Available features:
 - Persist generated files in the shared work directory across multiple agent turns
 - Read host project data through read-only mounts at `/host/repo` and `/host/chanakya_data`
 - Write only inside `/workspace`, which maps to the shared work directory
-- Use bounded resources and no network access for safer execution
+- Use bounded resources with live network access for external fetches and site mirroring
 
 Unavailable features:
 
 - Writing to host files outside `/workspace`
 - Direct host command execution
-- Network-dependent installation, downloads, or external API calls from sandboxed code
 - Escaping the shared workspace via path traversal or absolute host writes
 
 Permission model:

@@ -54,7 +54,8 @@ Available:
 - Persist files across runs in `chanakya_data/shared_workspace/<work_id>` or `temp`
 - Read host project files through read-only mounts inside the sandbox
 - Use the shared workspace as the only writable location during sandbox execution
-- Run with bounded CPU, memory, pid count, and no network access
+- Run with bounded CPU, memory, and pid count
+- Use full network access from sandboxed code when external fetches are required
 - Retry safely after permission errors by copying files into `/workspace`
 
 Unavailable:
@@ -62,7 +63,6 @@ Unavailable:
 - Writing to host-mounted files or directories outside the shared workspace
 - Running commands directly on the host system
 - Privilege escalation or container capability expansion
-- Unrestricted network access from sandboxed code
 - Arbitrary path traversal outside the sandbox workspace policy
 
 Common permission behavior:

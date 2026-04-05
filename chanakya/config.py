@@ -4,7 +4,6 @@ import os
 import shlex
 from pathlib import Path
 
-
 _LOCAL_ENV_LOADED = False
 
 
@@ -90,6 +89,26 @@ def get_agent_request_timeout_seconds() -> int:
     except ValueError:
         return 120
     return value if value > 0 else 120
+
+
+def get_long_running_agent_request_timeout_seconds() -> int:
+    load_local_env()
+    raw = os.getenv("AGENT_LONG_RUNNING_TIMEOUT_SECONDS", "600")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 600
+    return value if value > 0 else 600
+
+
+def get_subagent_group_chat_round_multiplier() -> int:
+    load_local_env()
+    raw = os.getenv("CHANAKYA_SUBAGENT_GROUP_CHAT_ROUND_MULTIPLIER", "2")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 2
+    return value if value > 0 else 2
 
 
 def _get_positive_int_env(name: str, default: int) -> int:

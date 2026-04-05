@@ -203,6 +203,52 @@ class _DeveloperExecutor(Executor):
             effective_prompt=effective_prompt,
         )
         developer_output = developer_result.text
+        if self.manager._is_invalid_developer_output(developer_output):
+            developer_output = await asyncio.to_thread(
+                self.manager._repair_developer_output,
+                developer_profile=self.developer_profile,
+                message=self.message,
+                implementation_brief=self.implementation_brief,
+                invalid_output=developer_output,
+            )
+        if self.manager._request_looks_like_site_clone(self.message, self.implementation_brief):
+            has_artifacts = await asyncio.to_thread(
+                self.manager._workspace_has_clone_artifacts,
+                self.manager._resolve_current_sandbox_work_id(),
+            )
+            if not has_artifacts:
+                bootstrap_output = await asyncio.to_thread(
+                    self.manager._attempt_clone_artifact_bootstrap,
+                    self.message,
+                    self.manager._resolve_current_sandbox_work_id(),
+                )
+                if bootstrap_output:
+                    developer_output = bootstrap_output
+                    has_artifacts = True
+            if not has_artifacts:
+                developer_output = await asyncio.to_thread(
+                    self.manager._repair_developer_output,
+                    developer_profile=self.developer_profile,
+                    message=self.message,
+                    implementation_brief=self.implementation_brief,
+                    invalid_output=(
+                        developer_output
+                        + "\n\nArtifact gate failure: no clone artifacts were created in the shared workspace. "
+                        + "Create actual cloned files before returning the handoff."
+                    ),
+                )
+                has_artifacts = await asyncio.to_thread(
+                    self.manager._workspace_has_clone_artifacts,
+                    self.manager._resolve_current_sandbox_work_id(),
+                )
+                if not has_artifacts:
+                    raise ValueError(
+                        "Developer did not create clone artifacts in the shared workspace"
+                    )
+        if self.manager._is_invalid_developer_output(developer_output):
+            raise ValueError(
+                "Developer produced invalid or incomplete output instead of a completed implementation handoff"
+            )
         developer_finished_at = now_iso()
         tester_handoff_prompt = self.manager._build_tester_handoff_prompt(
             self.message,
@@ -333,6 +379,22 @@ class _TesterExecutor(Executor):
                 implementation_brief=self.implementation_brief,
                 developer_output=developer_output,
                 clarification_answer=clarification_answer,
+            )
+        if self.manager._is_invalid_tester_output(
+            tester_output, developer_output
+        ) and self.manager._request_looks_like_site_clone(
+            self.message,
+            self.implementation_brief,
+        ):
+            fallback = await asyncio.to_thread(
+                self.manager._build_clone_validation_report,
+                self.manager._resolve_current_sandbox_work_id(),
+            )
+            if fallback:
+                tester_output = fallback
+        if self.manager._is_invalid_tester_output(tester_output, developer_output):
+            raise ValueError(
+                "Tester produced invalid or echoed output instead of a validation report"
             )
         finished_at = now_iso()
         self.manager._transition_task(

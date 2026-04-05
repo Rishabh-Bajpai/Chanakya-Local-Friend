@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -11,6 +12,11 @@ from agent_framework.orchestrations import GroupChatBuilder, GroupChatState
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.agent.runtime import build_profile_agent
+from chanakya.config import (
+    get_agent_request_timeout_seconds,
+    get_long_running_agent_request_timeout_seconds,
+    get_subagent_group_chat_round_multiplier,
+)
 from chanakya.debug import debug_log
 from chanakya.domain import make_id, now_iso
 from chanakya.model import AgentProfileModel, TemporaryAgentModel
@@ -24,7 +30,6 @@ TEMPORARY_AGENT_STATUS_CLEANED = "cleaned"
 TEMPORARY_AGENT_STATUS_FAILED = "failed"
 
 WORKER_ROLES_WITH_SUBAGENTS = {"developer", "tester", "researcher", "writer"}
-TEMP_SUBAGENT_BLOCKED_TOOLS = {"mcp_code_execution"}
 
 
 @dataclass(slots=True)
@@ -341,7 +346,6 @@ class WorkerSubagentOrchestrator:
                 tool_id
                 for tool_id in helper.tool_ids
                 if tool_id in list(worker_profile.tool_ids_json or [])
-                and tool_id not in TEMP_SUBAGENT_BLOCKED_TOOLS
             ]
             record = TemporaryAgentModel(
                 id=temporary_agent_id,
@@ -467,10 +471,11 @@ class WorkerSubagentOrchestrator:
             index = min(state.current_round, len(sequence) - 1)
             return sequence[index]
 
+        round_multiplier = get_subagent_group_chat_round_multiplier()
         workflow = GroupChatBuilder(
             participants=participants,
             selection_func=selection_func,
-            max_rounds=len(sequence),
+            max_rounds=max(len(sequence), len(sequence) * round_multiplier),
             intermediate_outputs=True,
         ).build()
         kickoff = (
@@ -484,9 +489,13 @@ class WorkerSubagentOrchestrator:
             "- Final message: parent worker synthesizes helper outputs into the result for the parent task.\n"
             "- No one should ask clarifying questions in this workflow.\n"
         )
-        result = await workflow.run(
-            message=Message(role="user", text=kickoff),
-            include_status_events=True,
+        timeout_seconds = self._resolve_worker_timeout_seconds(message, effective_prompt)
+        result = await asyncio.wait_for(
+            workflow.run(
+                message=Message(role="user", text=kickoff),
+                include_status_events=True,
+            ),
+            timeout=timeout_seconds,
         )
         outputs = self._extract_stage_outputs(result)
         if not outputs:
@@ -501,6 +510,23 @@ class WorkerSubagentOrchestrator:
             },
         )
         return outputs
+
+    def _resolve_worker_timeout_seconds(self, message: str, effective_prompt: str) -> int:
+        combined = f"{message}\n{effective_prompt}".lower()
+        long_running_markers = [
+            "clone this website",
+            "clone website",
+            "crawl",
+            "crawler",
+            "download assets",
+            "download the site",
+            "subpages",
+            "scrape",
+            "mirror site",
+        ]
+        if any(marker in combined for marker in long_running_markers):
+            return get_long_running_agent_request_timeout_seconds()
+        return get_agent_request_timeout_seconds()
 
     def _map_group_chat_outputs(
         self,

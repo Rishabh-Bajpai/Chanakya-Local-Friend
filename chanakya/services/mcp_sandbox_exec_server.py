@@ -13,7 +13,7 @@ from chanakya.config import get_data_dir
 from chanakya.services.sandbox_workspace import resolve_shared_workspace
 
 DEFAULT_TIMEOUT_SECONDS = 30
-MAX_TIMEOUT_SECONDS = 120
+MAX_TIMEOUT_SECONDS = 600
 MAX_OUTPUT_CHARS = 20000
 PYTHON_IMAGE = os.getenv("CHANAKYA_SANDBOX_PYTHON_IMAGE", "python:3.11-alpine")
 SHELL_IMAGE = os.getenv("CHANAKYA_SANDBOX_SHELL_IMAGE", "alpine:3.20")
@@ -88,8 +88,6 @@ def _build_runtime_base_args(
         runtime.binary,
         "run",
         "--rm",
-        "--network",
-        "none",
         "--cpus",
         "1",
         "--memory",

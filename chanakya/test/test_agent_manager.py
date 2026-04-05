@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import cast
 
 from agent_framework import Message
@@ -823,6 +824,180 @@ def test_handoff_prompts_wrap_untrusted_artifacts() -> None:
     assert "BEGIN_UNTRUSTED_RESEARCH_HANDOFF" in writer_prompt
 
 
+def test_invalid_developer_output_rejects_plan_only_status_updates() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    bad_output = (
+        "I have decomposed the task into helper workers.\n\n"
+        "Expected output: downloaded site.\n"
+        "Status: Awaiting implementation."
+    )
+
+    assert manager._is_invalid_developer_output(bad_output) is True
+
+
+def test_invalid_developer_output_rejects_clarification_json() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    bad_output = '{"needs_input": false, "question": "", "reason": "Proceeding."}'
+
+    assert manager._is_invalid_developer_output(bad_output) is True
+
+
+def test_developer_stage_prompt_forbids_plan_only_output() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    prompt = manager._build_developer_stage_prompt(
+        "Clone a website",
+        "Build the local copy",
+        sandbox_workspace="/tmp/workspace",
+        sandbox_work_id="temp",
+    )
+
+    assert "Return completed work, not a plan" in prompt
+    assert "When files are produced, name the workspace paths" in prompt
+
+
+def test_long_running_clone_request_uses_extended_timeout(monkeypatch: MonkeyPatch) -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    monkeypatch.setenv("AGENT_REQUEST_TIMEOUT_SECONDS", "120")
+    monkeypatch.setenv("AGENT_LONG_RUNNING_TIMEOUT_SECONDS", "600")
+
+    timeout = manager._resolve_request_timeout_seconds(
+        'clone this website and pages and subpages "https://example.com/"'
+    )
+
+    assert timeout == 600
+
+
+def test_clone_request_detection_matches_site_mirroring_prompt() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    assert manager._request_looks_like_site_clone(
+        'clone this website and pages and subpages "https://example.com/"',
+        '{"implementation_brief":"Use wget --mirror and create asset manifest"}',
+    )
+
+
+def test_workspace_clone_artifact_gate_rejects_snippet_only(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    monkeypatch.setattr("chanakya.services.sandbox_workspace.get_data_dir", lambda: tmp_path)
+
+    workspace = tmp_path / "shared_workspace" / "work_x"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "snippet.py").write_text("print('hello')", encoding="utf-8")
+
+    assert manager._workspace_has_clone_artifacts("work_x") is False
+
+
+def test_workspace_clone_artifact_gate_accepts_html_output(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    monkeypatch.setattr("chanakya.services.sandbox_workspace.get_data_dir", lambda: tmp_path)
+
+    workspace = tmp_path / "shared_workspace" / "work_x"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "index.html").write_text("<html></html>", encoding="utf-8")
+
+    assert manager._workspace_has_clone_artifacts("work_x") is True
+
+
+def test_extract_first_url_returns_first_http_url() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    assert (
+        manager._extract_first_url(
+            'clone "https://example.com/" and then inspect https://second.example'
+        )
+        == "https://example.com/"
+    )
+
+
+def test_build_clone_validation_report_uses_existing_artifacts(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    monkeypatch.setattr("chanakya.services.sandbox_workspace.get_data_dir", lambda: tmp_path)
+
+    workspace = tmp_path / "shared_workspace" / "work_x" / "cloned_site"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "index.html").write_text("<html></html>", encoding="utf-8")
+    (workspace / "README.md").write_text("readme", encoding="utf-8")
+    (workspace / "asset_manifest.json").write_text(
+        '{"assets":[{"path":"assets/a.js"}]}', encoding="utf-8"
+    )
+
+    report = manager._build_clone_validation_report("work_x")
+
+    assert report is not None
+    assert "pass_fail_recommendation: PASS" in report
+    assert "asset_manifest.json" in report
+
+
+def test_normalize_implementation_brief_repairs_blank_output(monkeypatch: MonkeyPatch) -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    def _fake_run_profile_prompt_with_options(profile, prompt, **kwargs):
+        return (
+            '{"implementation_brief":"Clone the site and preserve assets",'
+            '"assumptions":[],"risks":[],"testing_focus":["site structure"]}'
+        )
+
+    manager._run_profile_prompt_with_options = _fake_run_profile_prompt_with_options  # type: ignore[method-assign]
+
+    normalized = manager._normalize_implementation_brief(
+        'clone this website and pages and subpages "https://example.com/"',
+        "",
+    )
+
+    assert "Clone the site and preserve assets" in normalized
+
+
+def test_normalize_implementation_brief_falls_back_when_repair_is_invalid() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    manager._repair_implementation_brief = lambda message, invalid_output: ""  # type: ignore[method-assign]
+
+    normalized = manager._normalize_implementation_brief("Build a tool", "")
+
+    assert "Implement the user request directly" in normalized
+
+
 def test_information_prompts_include_chanakya_clarification_when_provided() -> None:
     store = _build_store()
     _seed_full_hierarchy(store)
@@ -1019,6 +1194,20 @@ def test_worker_role_policy_limits_temporary_subagent_creation() -> None:
 def test_developer_temporary_subagent_lifecycle_is_persisted_and_cleaned() -> None:
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)
+    developer_profile = store.get_agent_profile("agent_developer")
+    store.update_agent_profile(
+        developer_profile.id,
+        name=developer_profile.name,
+        role=developer_profile.role,
+        system_prompt=developer_profile.system_prompt,
+        personality=developer_profile.personality,
+        tool_ids=["mcp_fetch", "mcp_code_execution"],
+        workspace=developer_profile.workspace,
+        heartbeat_enabled=developer_profile.heartbeat_enabled,
+        heartbeat_interval_seconds=developer_profile.heartbeat_interval_seconds,
+        heartbeat_file_path=developer_profile.heartbeat_file_path,
+        is_active=developer_profile.is_active,
+    )
     service = ChatService(
         store,
         cast(MAFRuntime, _RuntimeStub(chanakya)),
@@ -1056,7 +1245,7 @@ def test_developer_temporary_subagent_lifecycle_is_persisted_and_cleaned() -> No
                         "purpose": "Inspect the request and return likely implementation touchpoints.",
                         "instructions": "Return a concise implementation note with no extra commentary.",
                         "expected_output": "A short list of likely change points.",
-                        "tool_ids": [],
+                        "tool_ids": ["mcp_code_execution"],
                     }
                 ],
             }
@@ -1096,6 +1285,7 @@ def test_developer_temporary_subagent_lifecycle_is_persisted_and_cleaned() -> No
     assert subagents[0]["status"] == "cleaned"
     assert subagents[0]["cleanup_reason"] == "completed"
     assert subagents[0]["cleaned_up_at"] is not None
+    assert "mcp_code_execution" in subagents[0]["tool_ids"]
 
     tasks = store.list_tasks(session_id="session_temp_subagents", limit=20)
     developer_task = next(task for task in tasks if task["task_type"] == "developer_execution")
