@@ -1374,7 +1374,9 @@ def test_manager_waits_for_user_input_and_resumes_same_request() -> None:
 
     assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
     assert waiting_reply.requires_input is True
-    assert waiting_reply.input_prompt == "Should the implementation target Flask or FastAPI?"
+    assert waiting_reply.input_prompt == (
+        "I need one detail before I can continue: Should the implementation target Flask or FastAPI?"
+    )
     waiting_task = next(
         task
         for task in store.list_tasks(session_id="session_waiting", limit=20)
@@ -1566,7 +1568,9 @@ def test_developer_clarification_fallback_uses_paused_brief_without_runner() -> 
 
     assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
     assert waiting_reply.requires_input is True
-    assert waiting_reply.input_prompt == "Should the implementation use Flask or FastAPI?"
+    assert waiting_reply.input_prompt == (
+        "I need one detail before I can continue: Should the implementation use Flask or FastAPI?"
+    )
 
 
 def test_clarification_prompt_requires_input_on_explicit_user_intervention() -> None:
@@ -1609,7 +1613,9 @@ def test_clarification_prompt_requires_input_on_explicit_user_intervention() -> 
 
     assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
     assert waiting_reply.requires_input is True
-    assert waiting_reply.input_prompt == "Should the implementation target Flask or FastAPI?"
+    assert waiting_reply.input_prompt == (
+        "I need one detail before I can continue: Should the implementation target Flask or FastAPI?"
+    )
 
 
 def test_clarification_warning_logged_when_model_ignores_explicit_intervention() -> None:
@@ -1677,7 +1683,9 @@ def test_waiting_input_prompt_is_persisted_as_chanakya_message() -> None:
     assert reply.root_task_status == TASK_STATUS_WAITING_INPUT
     messages = store.list_messages("session_waiting_message")
     assistant_messages = [message for message in messages if message["role"] == "assistant"]
-    assert assistant_messages[-1]["content"] == "Should the implementation target Flask or FastAPI?"
+    assert assistant_messages[-1]["content"] == (
+        "I need one detail before I can continue: Should the implementation target Flask or FastAPI?"
+    )
     assert assistant_messages[-1]["route"] == "waiting_input_prompt"
     assert assistant_messages[-1]["metadata"]["awaiting_user_input"] is True
 
@@ -1794,13 +1802,74 @@ def test_classic_complex_request_creates_and_reuses_active_work() -> None:
     assert active_work_after["work_id"] == first_work_id
     classic_messages = store.list_messages("session_classic_active")
     assert [message["role"] for message in classic_messages] == [
-        "assistant",
         "user",
         "assistant",
         "assistant",
         "user",
+        "assistant",
         "assistant",
     ]
+
+
+def test_classic_active_work_keeps_user_message_before_transfer_notice() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.execute = lambda **kwargs: ManagerRunResult(
+        text="Completed by specialist.",
+        workflow_type=WORKFLOW_SOFTWARE,
+        child_task_ids=["task_mgr"],
+        manager_agent_id="agent_manager",
+        worker_agent_ids=["agent_cto"],
+        task_status=TASK_STATUS_DONE,
+        result_json={"workflow_type": WORKFLOW_SOFTWARE},
+    )  # type: ignore[method-assign]
+
+    service.chat("session_ordering", "Implement and test login rate limiting")
+
+    messages = store.list_messages("session_ordering")
+    assert [message["role"] for message in messages] == ["user", "assistant", "assistant"]
+    assert messages[0]["content"] == "Implement and test login rate limiting"
+    assert messages[1]["route"] == "delegation_notice"
+
+
+def test_waiting_input_cancel_intent_stops_active_work_task() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "cto",
+            "brief",
+        ): '{"implementation_brief":"Need stack decision","assumptions":[],"risks":[],"testing_focus":[]}',
+        ("cto", "review"): "reviewed",
+    }[(profile.role, step)]
+    service.manager.clarification_runner = lambda profile, prompt: (
+        '{"needs_input":true,"question":"Should the implementation target Flask or FastAPI?","reason":"Framework choice required."}'
+    )
+
+    waiting_reply = service.chat("session_waiting_cancel", "Implement the API")
+    assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
+
+    cancelled_reply = service.chat(
+        "session_waiting_cancel", "forgot about it, and don't do anything! thanks"
+    )
+
+    assert cancelled_reply.root_task_status == TASK_STATUS_CANCELLED
+    assert "Stopped that task" in cancelled_reply.message
 
 
 def test_classic_unrelated_complex_request_replaces_active_work() -> None:

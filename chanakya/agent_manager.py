@@ -2165,9 +2165,9 @@ class AgentManager:
             else self._run_profile_prompt_with_options(
                 worker_profile,
                 prompt,
-                include_history=False,
+                include_history=True,
                 store=False,
-                use_work_session=False,
+                use_work_session=True,
             )
         )
         parsed = self._parse_json_object_relaxed(raw)
@@ -2235,14 +2235,16 @@ class AgentManager:
     ) -> str:
         prior_answer = clarification_answer.strip() if clarification_answer else ""
         return (
-            "You are deciding whether the worker must ask the user for clarification before continuing. "
-            "Analyze the original request, current worker prompt, and any prior clarification answer. "
+            "You are deciding whether the worker must request clarification through Chanakya before continuing. "
+            "Analyze the original request, current worker prompt, prior worker session context, and any prior clarification answer. "
             "If a missing detail materially changes implementation scope, architecture, or validation approach, request clarification. "
             "If the user explicitly asks to be consulted/intervened before a choice (for example: asks you to ask before choosing), "
             "set needs_input=true and provide the exact clarification question needed to proceed. "
             "This rule is mandatory and cannot be overridden by assumptions in the implementation brief. "
             "If the user says they have not decided between options and asks you to ask first, you must ask that choice question now. "
-            "If the worker can proceed safely, do not request clarification.\n\n"
+            "If the worker can proceed safely using the existing worker session history, do not request clarification. "
+            "Do not ask for information that is already present in the prior conversation or worker session history. "
+            "The returned question will be relayed by Chanakya to the user, so phrase it as a concise question Chanakya can ask the user.\n\n"
             "Return strict JSON only with this schema: "
             '{"needs_input": <boolean>, "question": <string>, "reason": <string>}. '
             "When needs_input is false, set question to an empty string.\n\n"

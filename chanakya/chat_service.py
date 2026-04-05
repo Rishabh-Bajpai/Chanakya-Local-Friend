@@ -97,6 +97,18 @@ _FAST_DIRECT_PATTERNS = (
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
 _WAITING_INPUT_ROUTE = "waiting_input_prompt"
 _CLASSIC_ACTIVE_WORK_PREFIX = "cwork"
+_WAITING_INPUT_CANCEL_MARKERS = (
+    "never mind",
+    "nevermind",
+    "don't do anything",
+    "do not do anything",
+    "stop",
+    "cancel",
+    "forget about it",
+    "forgot about it",
+    "leave it",
+    "ignore it",
+)
 
 
 class ChatService:
@@ -352,10 +364,96 @@ class ChatService:
             workflow_type=reply.response_mode,
         )
 
+    @staticmethod
+    def _format_chanakya_input_prompt(question: str) -> str:
+        cleaned = " ".join(question.strip().split())
+        if not cleaned:
+            return "I need one detail before I can continue."
+        if cleaned.endswith(("?", ".", "!")):
+            return f"I need one detail before I can continue: {cleaned}"
+        return f"I need one detail before I can continue: {cleaned}?"
+
+    @classmethod
+    def _is_waiting_input_cancel_intent(cls, message: str) -> bool:
+        lowered = message.strip().lower()
+        return any(marker in lowered for marker in _WAITING_INPUT_CANCEL_MARKERS)
+
+    def _cancel_waiting_task_via_chat(
+        self,
+        *,
+        visible_session_id: str,
+        task_id: str,
+        user_message: str,
+        work_id: str | None,
+        active_work_session_id: str | None = None,
+    ) -> ChatReply:
+        task = self.store.get_task(task_id)
+        request = self.store.get_request(task.request_id)
+        self.cancel_task(task_id)
+        self.store.add_message(
+            visible_session_id,
+            "user",
+            user_message,
+            request_id=request.id,
+            route="active_work_user_message" if work_id is not None else None,
+            metadata={
+                "input_submission": True,
+                "cancel_waiting_task": True,
+                "active_work_id": work_id,
+                "active_work_session_id": active_work_session_id,
+            },
+        )
+        final_message = "Stopped that task. I won't continue it unless you ask me to restart it."
+        self.store.add_message(
+            visible_session_id,
+            "assistant",
+            final_message,
+            request_id=request.id,
+            route="task_cancelled",
+            metadata={
+                "runtime": "maf_agent",
+                "task_status": TASK_STATUS_CANCELLED,
+                "cancelled_task_id": task_id,
+                "active_work_id": work_id,
+                "active_work_session_id": active_work_session_id,
+            },
+        )
+        return ChatReply(
+            request_id=request.id,
+            session_id=visible_session_id,
+            work_id=work_id,
+            route="task_cancelled",
+            message=final_message,
+            model=None,
+            endpoint=None,
+            runtime="maf_agent",
+            agent_name=self.runtime.profile.name,
+            request_status=REQUEST_STATUS_CANCELLED,
+            root_task_id=request.root_task_id,
+            root_task_status=TASK_STATUS_CANCELLED,
+            response_mode="cancelled",
+            tool_calls_used=0,
+            tool_trace_ids=[],
+            requires_input=False,
+            waiting_task_id=None,
+            input_prompt=None,
+        )
+
     def _chat_in_active_work(self, classic_session_id: str, message: str) -> ChatReply:
         active_work = self.store.get_active_classic_work(classic_session_id)
         if active_work is None:
             active_work = self._ensure_classic_active_work(classic_session_id, message)
+        self.store.add_message(
+            classic_session_id,
+            "user",
+            message,
+            route="active_work_user_message",
+            metadata={
+                "active_work_id": active_work["work_id"],
+                "active_work_session_id": active_work["work_session_id"],
+                "mirrored_from": "classic_chat",
+            },
+        )
         self.store.add_message(
             classic_session_id,
             "assistant",
@@ -380,20 +478,8 @@ class ChatService:
         )
         self.store.add_message(
             classic_session_id,
-            "user",
-            message,
-            request_id=reply.request_id,
-            route="active_work_user_message",
-            metadata={
-                "active_work_id": active_work["work_id"],
-                "active_work_session_id": active_work["work_session_id"],
-                "mirrored_from": "classic_chat",
-            },
-        )
-        self.store.add_message(
-            classic_session_id,
             "assistant",
-            reply.message,
+            reply.input_prompt if reply.requires_input and reply.input_prompt else reply.message,
             request_id=reply.request_id,
             route=_WAITING_INPUT_ROUTE
             if reply.requires_input and reply.input_prompt
@@ -447,6 +533,14 @@ class ChatService:
             if active_work_session_id is not None:
                 resumable_task = self.store.find_waiting_input_task(active_work_session_id)
                 if resumable_task is not None:
+                    if self._is_waiting_input_cancel_intent(message):
+                        return self._cancel_waiting_task_via_chat(
+                            visible_session_id=session_id,
+                            task_id=str(resumable_task["id"]),
+                            user_message=message,
+                            work_id=str(active_work["work_id"]),
+                            active_work_session_id=active_work_session_id,
+                        )
                     reply = self.submit_task_input(str(resumable_task["id"]), message)
                     self.store.add_message(
                         session_id,
@@ -529,6 +623,13 @@ class ChatService:
 
         resumable_task = self.store.find_waiting_input_task(session_id)
         if resumable_task is not None:
+            if self._is_waiting_input_cancel_intent(message):
+                return self._cancel_waiting_task_via_chat(
+                    visible_session_id=session_id,
+                    task_id=str(resumable_task["id"]),
+                    user_message=message,
+                    work_id=work_id,
+                )
             return self.submit_task_input(str(resumable_task["id"]), message)
 
         return self._chat_internal(session_id, message, work_id=work_id)
@@ -799,7 +900,11 @@ class ChatService:
             direct_tool_calls_used = 0
             result_json = manager_result.result_json
             waiting_task_id = manager_result.waiting_task_id
-            input_prompt = manager_result.input_prompt
+            input_prompt = (
+                self._format_chanakya_input_prompt(manager_result.input_prompt)
+                if manager_result.input_prompt
+                else None
+            )
         else:
             assert run_result is not None
             direct_run_result = run_result
