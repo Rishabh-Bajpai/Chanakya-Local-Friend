@@ -1,0 +1,1280 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chanakya Workspaces</title>
+    <style>
+      :root {
+        --bg: #111111;
+        --panel: rgba(24, 24, 24, 0.95);
+        --line: #343434;
+        --text: #e8e6e3;
+        --muted: #9a9590;
+        --accent: #d86b4a;
+        --ink: #3a8a87;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--text);
+        font-family: Georgia, "Iowan Old Style", serif;
+        background:
+          radial-gradient(circle at top left, rgba(50,50,50,0.35), transparent 35%),
+          linear-gradient(135deg, #1b1b1b 0%, #121212 45%, #0d0d0d 100%);
+      }
+      .shell {
+        max-width: 1500px;
+        margin: 0 auto;
+        min-height: 100vh;
+        padding: 20px;
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 320px 1fr 1.2fr;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+        min-height: 0;
+      }
+      .left,
+      .chat,
+      .history {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .left,
+      .history {
+        max-height: calc(100vh - 40px);
+        position: sticky;
+        top: 20px;
+        overflow: hidden;
+      }
+      .chat {
+        height: calc(100vh - 40px);
+        position: sticky;
+        top: 20px;
+      }
+      .header {
+        padding: 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .header h1,
+      .header h2 {
+        margin: 0;
+      }
+      .header p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .header-actions {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
+      }
+      .button-secondary {
+        background: #2a2a2a;
+        border: 1px solid #454545;
+      }
+      .link-row {
+        margin-top: 10px;
+      }
+      .link-row a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .body {
+        padding: 14px;
+        flex: 1;
+        overflow-x: hidden;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: #4a4a4a rgba(0, 0, 0, 0.3);
+      }
+      .body::-webkit-scrollbar {
+        width: 10px;
+      }
+      .body::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.25);
+        border-radius: 999px;
+      }
+      .body::-webkit-scrollbar-thumb {
+        background: #4a4a4a;
+        border-radius: 999px;
+        border: 2px solid rgba(0, 0, 0, 0.25);
+      }
+      .work-form {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 14px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--line);
+      }
+      input,
+      textarea,
+      button {
+        font: inherit;
+      }
+      input,
+      textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #454545;
+        background: #1a1a1a;
+        color: var(--text);
+      }
+      textarea {
+        min-height: 70px;
+        resize: vertical;
+      }
+      button {
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 14px;
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .status {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .work-item {
+        border: 1px solid #3a3a3a;
+        border-left: 4px solid var(--ink);
+        border-radius: 12px;
+        padding: 10px;
+        margin-bottom: 10px;
+        cursor: pointer;
+      }
+      .work-item.active {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.3);
+      }
+      .work-item h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+      .work-item p {
+        margin: 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .chat-log {
+        flex: 1;
+        overflow: auto;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .msg {
+        max-width: 86%;
+        border-radius: 14px;
+        padding: 10px 12px;
+      }
+      .msg.user {
+        align-self: flex-end;
+        background: #3d2a20;
+      }
+      .msg.assistant {
+        align-self: flex-start;
+        background: #252525;
+        border: 1px solid #383838;
+      }
+      .composer {
+        border-top: 1px solid var(--line);
+        padding: 12px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+      }
+      .agent-card {
+        border: 1px solid #3a3a3a;
+        border-left: 4px solid var(--ink);
+        border-radius: 12px;
+        padding: 10px;
+        margin-bottom: 10px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .agent-card h3 {
+        margin: 0 0 6px;
+      }
+      .agent-meta {
+        margin-bottom: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .agent-msg {
+        font-size: 12px;
+        padding: 8px;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        background: #1d1d1d;
+        border: 1px solid #303030;
+      }
+      .agent-msg pre {
+        margin: 6px 0 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 11px;
+      }
+      .agent-msg.user {
+        border-left: 3px solid #d86b4a;
+      }
+      .agent-msg.assistant {
+        border-left: 3px solid #3a8a87;
+      }
+      .flow-wrap {
+        margin-top: 16px;
+        border-top: 1px solid var(--line);
+        padding-top: 12px;
+      }
+      details.section-toggle {
+        margin-top: 14px;
+        border: 1px solid #3a3a3a;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      details.section-toggle > summary {
+        cursor: pointer;
+        padding: 10px 12px;
+        font-weight: 700;
+        color: var(--text);
+      }
+      details.section-toggle > div {
+        padding: 0 12px 12px;
+      }
+      details.agent-toggle {
+        margin-bottom: 10px;
+        border: 1px solid #343434;
+        border-radius: 10px;
+      }
+      details.agent-toggle > summary {
+        cursor: pointer;
+        padding: 8px 10px;
+        color: var(--text);
+      }
+      .flow-item {
+        border: 1px solid #343434;
+        border-radius: 10px;
+        padding: 8px;
+        margin-bottom: 8px;
+        background: #161616;
+      }
+      .flow-meta {
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .flow-content {
+        margin-top: 6px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 11px;
+      }
+      .slideshow-shell {
+        border: 1px solid #3a3a3a;
+        border-radius: 12px;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .slideshow-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .slideshow-controls button {
+        padding: 8px 12px;
+        border-radius: 8px;
+      }
+      .slideshow-controls select {
+        background: #1a1a1a;
+        color: var(--text);
+        border: 1px solid #454545;
+        border-radius: 8px;
+        padding: 8px;
+      }
+      .slide-progress {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .slide-card {
+        border: 1px solid #3a3a3a;
+        border-left: 4px solid var(--accent);
+        border-radius: 12px;
+        padding: 10px;
+        min-height: 220px;
+        transition: opacity 220ms ease, transform 220ms ease;
+      }
+      .slide-header {
+        margin-bottom: 8px;
+      }
+      .slide-title {
+        margin: 0;
+        font-size: 16px;
+      }
+      .slide-subtitle {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .agent-chip-row {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin: 8px 0;
+      }
+      .agent-chip {
+        border: 1px solid #4a4a4a;
+        border-radius: 999px;
+        background: #1d1d1d;
+        color: var(--text);
+        padding: 5px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .slide-event {
+        margin-top: 8px;
+        border: 1px solid #353535;
+        border-radius: 10px;
+        padding: 8px;
+        background: #171717;
+      }
+      .slide-event-meta {
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .slide-event pre {
+        margin: 6px 0 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 11px;
+      }
+      .pixel-stage {
+        margin: 8px 0;
+        padding: 10px;
+        border: 1px dashed #3e4f6d;
+        border-radius: 10px;
+        background:
+          linear-gradient(180deg, rgba(42, 57, 90, 0.2), rgba(18, 24, 41, 0.2)),
+          repeating-linear-gradient(
+            0deg,
+            rgba(255, 255, 255, 0.03),
+            rgba(255, 255, 255, 0.03) 8px,
+            rgba(0, 0, 0, 0.05) 8px,
+            rgba(0, 0, 0, 0.05) 16px
+          );
+      }
+      .pixel-stage-title {
+        margin: 0 0 8px;
+        font-size: 12px;
+        color: #a6b6d6;
+        letter-spacing: 0.03em;
+      }
+      .pixel-agent-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+        gap: 8px;
+      }
+      .pixel-agent {
+        border: 1px solid #36537c;
+        border-radius: 8px;
+        background: #102039;
+        padding: 8px;
+        cursor: pointer;
+      }
+      .pixel-agent:hover {
+        border-color: #69a3ff;
+      }
+      .pixel-agent.working {
+        box-shadow: 0 0 0 1px rgba(80, 222, 140, 0.4), 0 0 18px rgba(80, 222, 140, 0.18);
+      }
+      .pixel-agent.done {
+        box-shadow: 0 0 0 1px rgba(70, 160, 255, 0.35);
+      }
+      .pixel-agent.failed {
+        box-shadow: 0 0 0 1px rgba(255, 112, 112, 0.45), 0 0 16px rgba(255, 72, 72, 0.16);
+      }
+      .pixel-agent-avatar {
+        width: 36px;
+        height: 36px;
+        border: 1px solid #5785c7;
+        background: #173360;
+        border-radius: 4px;
+        display: grid;
+        place-items: center;
+        font-size: 19px;
+      }
+      .pixel-agent-name {
+        margin-top: 6px;
+        font-size: 11px;
+        color: #dbe7ff;
+      }
+      .pixel-agent-state {
+        margin-top: 4px;
+        font-size: 10px;
+        color: #98b4df;
+      }
+      .pixel-agent.working .pixel-agent-state::before {
+        content: "";
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 6px;
+        background: #63e39a;
+        animation: pulse 1s infinite ease-in-out;
+      }
+      @keyframes pulse {
+        0% { transform: scale(0.8); opacity: 0.55; }
+        50% { transform: scale(1.2); opacity: 1; }
+        100% { transform: scale(0.8); opacity: 0.55; }
+      }
+      .scrubber {
+        width: 100%;
+      }
+      .empty {
+        color: var(--muted);
+        font-style: italic;
+      }
+      @media (max-width: 1200px) {
+        .shell { grid-template-columns: 1fr; }
+        .left,
+        .chat,
+        .history {
+          min-height: auto;
+          max-height: none;
+          height: auto;
+          position: static;
+          top: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="panel left">
+        <div class="header">
+          <h1>Works</h1>
+          <p>Create and reopen long-running work contexts.</p>
+          <div class="link-row"><a href="/">Open classic chat</a></div>
+        </div>
+        <div class="body">
+          <form id="workForm" class="work-form">
+            <input id="workTitle" type="text" placeholder="Work title" required />
+            <textarea id="workDescription" placeholder="Describe the objective (optional)"></textarea>
+            <button id="createWorkButton" type="submit">Create Work</button>
+            <div id="workStatus" class="status"></div>
+          </form>
+          <div id="workList"></div>
+        </div>
+      </section>
+
+      <section class="panel chat">
+        <div class="header">
+          <h2 id="chatTitle">Select a work</h2>
+          <p id="chatSubtitle">Work-scoped chat with Chanakya.</p>
+          <div class="header-actions">
+            <button id="deleteWorkButton" type="button" class="button-secondary" disabled>Delete Work</button>
+          </div>
+        </div>
+        <div id="chatLog" class="chat-log"><div class="empty">No work selected.</div></div>
+        <form id="chatForm" class="composer">
+          <input id="messageInput" type="text" placeholder="Send update request for this work..." required />
+          <button id="sendButton" type="submit" disabled>Send</button>
+        </form>
+      </section>
+
+      <section class="panel history">
+        <div class="header">
+          <h2>Agent Histories</h2>
+          <p>All work-scoped sessions across agents.</p>
+        </div>
+        <div id="historyList" class="body"><div class="empty">No histories yet.</div></div>
+      </section>
+    </div>
+
+    <script>
+      const workForm = document.getElementById("workForm");
+      const workTitle = document.getElementById("workTitle");
+      const workDescription = document.getElementById("workDescription");
+      const workStatus = document.getElementById("workStatus");
+      const workList = document.getElementById("workList");
+      const chatTitle = document.getElementById("chatTitle");
+      const chatSubtitle = document.getElementById("chatSubtitle");
+      const chatLog = document.getElementById("chatLog");
+      const chatForm = document.getElementById("chatForm");
+      const messageInput = document.getElementById("messageInput");
+      const sendButton = document.getElementById("sendButton");
+      const historyList = document.getElementById("historyList");
+      const deleteWorkButton = document.getElementById("deleteWorkButton");
+
+      const WORK_STORAGE_KEY = "chanakya-active-work";
+      let activeWorkId = null;
+      let works = [];
+      let slideshowTimer = null;
+      let workLiveRefreshTimer = null;
+      let historyInFlight = false;
+      let historyFetchNonce = 0;
+      let taskUiInteractingUntil = 0;
+      let cachedAgentHistories = [];
+      let cachedTaskFlow = [];
+      let cachedTasks = [];
+      let cachedRequests = [];
+      const slideshowState = {
+        requestId: null,
+        followLatest: true,
+        slideIndexByRequest: {},
+        speedMs: 1800,
+        autoplay: false,
+        open: true,
+      };
+
+      function setStatus(text, isError = false) {
+        workStatus.textContent = text || "";
+        workStatus.style.color = isError ? "#e74c3c" : "var(--muted)";
+      }
+
+      function saveActiveWork(workId) {
+        try {
+          if (workId) window.localStorage.setItem(WORK_STORAGE_KEY, workId);
+        } catch {
+        }
+      }
+
+      function loadSavedWork() {
+        try {
+          return window.localStorage.getItem(WORK_STORAGE_KEY);
+        } catch {
+          return null;
+        }
+      }
+
+      function appendChatMessage(role, content) {
+        const node = document.createElement("div");
+        node.className = `msg ${role}`;
+        node.textContent = content;
+        chatLog.appendChild(node);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function formatAsPrettyJSON(text) {
+        if (typeof text !== "string") return "";
+        const trimmed = text.trim();
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return text;
+        try {
+          return JSON.stringify(JSON.parse(trimmed), null, 2);
+        } catch {
+          return text;
+        }
+      }
+
+      function renderWorks() {
+        if (!works.length) {
+          workList.innerHTML = '<div class="empty">No works yet.</div>';
+          deleteWorkButton.disabled = true;
+          return;
+        }
+        const nodes = works.map((work) => {
+          const card = document.createElement("div");
+          card.className = `work-item${work.id === activeWorkId ? " active" : ""}`;
+          card.innerHTML = `<h3>${work.title}</h3><p>${work.description || "No description"}</p><p>${work.id}</p>`;
+          card.addEventListener("click", () => selectWork(work.id));
+          return card;
+        });
+        workList.replaceChildren(...nodes);
+        deleteWorkButton.disabled = !activeWorkId;
+      }
+
+      function resetWorkView() {
+        chatTitle.textContent = "Select a work";
+        chatSubtitle.textContent = "Work-scoped chat with Chanakya.";
+        chatLog.innerHTML = '<div class="empty">No work selected.</div>';
+        historyList.innerHTML = '<div class="empty">No histories yet.</div>';
+        cachedAgentHistories = [];
+        cachedTaskFlow = [];
+        cachedTasks = [];
+        cachedRequests = [];
+        sendButton.disabled = true;
+        messageInput.disabled = true;
+        deleteWorkButton.disabled = true;
+      }
+
+      function stopSlideshow() {
+        if (slideshowTimer) {
+          window.clearInterval(slideshowTimer);
+          slideshowTimer = null;
+        }
+      }
+
+      function stopLiveRefresh() {
+        if (workLiveRefreshTimer) {
+          window.clearInterval(workLiveRefreshTimer);
+          workLiveRefreshTimer = null;
+        }
+      }
+
+      async function deleteActiveWork() {
+        if (!activeWorkId) return;
+        const targetWork = works.find((work) => work.id === activeWorkId);
+        const label = targetWork ? targetWork.title : activeWorkId;
+        if (!window.confirm(`Delete work "${label}" and all of its history?`)) {
+          return;
+        }
+        stopSlideshow();
+        stopLiveRefresh();
+        deleteWorkButton.disabled = true;
+        try {
+          const response = await fetch(`/api/works/${encodeURIComponent(activeWorkId)}`, {
+            method: "DELETE",
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Work deletion failed");
+          const deletedWorkId = activeWorkId;
+          works = works.filter((work) => work.id !== deletedWorkId);
+          activeWorkId = null;
+          try {
+            window.localStorage.removeItem(WORK_STORAGE_KEY);
+          } catch {
+          }
+          renderWorks();
+          resetWorkView();
+          setStatus(`Deleted ${label}`);
+        } catch (error) {
+          deleteWorkButton.disabled = false;
+          setStatus(error instanceof Error ? error.message : String(error), true);
+        }
+      }
+
+      function markTaskUiInteraction(holdMs = 4500) {
+        taskUiInteractingUntil = Date.now() + holdMs;
+      }
+
+      function startLiveRefresh(intervalMs = 2400) {
+        stopLiveRefresh();
+        if (!activeWorkId) return;
+        workLiveRefreshTimer = window.setInterval(() => {
+          if (!activeWorkId) return;
+          loadWorkHistory(activeWorkId, { background: true });
+        }, intervalMs);
+      }
+
+      function groupTaskFlow(taskFlow, requestId) {
+        const filtered = (taskFlow || []).filter((event) => {
+          if (!requestId || requestId === "all") return true;
+          return event.request_id === requestId;
+        });
+        if (!filtered.length) return [];
+        const slides = [];
+        let current = null;
+        filtered.forEach((event) => {
+          const key = `${event.request_id || "none"}|${event.task_id || "none"}`;
+          if (!current || current.key !== key || current.events.length >= 6) {
+            current = {
+              key,
+              request_id: event.request_id || null,
+              task_id: event.task_id || null,
+              task_title: event.task_title || "Untitled task",
+              task_type: event.task_type || "unknown",
+              task_status: event.task_status || "unknown",
+              owner_agent_id: event.owner_agent_id || null,
+              owner_agent_name: event.owner_agent_name || event.owner_agent_id || "unknown-agent",
+              owner_agent_role: event.owner_agent_role || "unknown",
+              started_at: event.created_at,
+              ended_at: event.created_at,
+              events: [event],
+            };
+            slides.push(current);
+          } else {
+            current.events.push(event);
+            current.ended_at = event.created_at;
+            if (event.task_status) current.task_status = event.task_status;
+          }
+        });
+        return slides;
+      }
+
+      function roleToAvatar(role) {
+        const key = String(role || "").toLowerCase();
+        if (key.includes("manager")) return "🧠";
+        if (key.includes("developer")) return "🛠";
+        if (key.includes("tester")) return "🧪";
+        if (key.includes("research")) return "🔎";
+        if (key.includes("writer")) return "📝";
+        if (key.includes("informer")) return "📚";
+        if (key.includes("cto")) return "🧭";
+        return "🤖";
+      }
+
+      function deriveAgentState(slide, agentId) {
+        const related = slide.events.filter((event) => event.owner_agent_id === agentId);
+        const text = related.map((event) => `${event.event_type} ${event.task_status || ""}`.toLowerCase()).join(" ");
+        if (text.includes("failed")) return "failed";
+        if (text.includes("done") || text.includes("completed")) return "done";
+        if (text.includes("in_progress") || text.includes("started") || text.includes("waiting")) return "working";
+        return "idle";
+      }
+
+      function renderTaskSlideshow(taskFlow, tasks, agentHistories, requests) {
+        const wrap = document.createElement("details");
+        wrap.className = "flow-wrap section-toggle";
+        wrap.open = slideshowState.open;
+        wrap.addEventListener("toggle", () => {
+          slideshowState.open = wrap.open;
+        });
+        const summary = document.createElement("summary");
+        summary.textContent = "Task Flow Slideshow";
+        wrap.appendChild(summary);
+
+        const body = document.createElement("div");
+        const shell = document.createElement("div");
+        shell.className = "slideshow-shell";
+
+        const requestRecords = (requests || []).filter((item) => item && item.id);
+        const allRequestIds = requestRecords.map((item) => item.id);
+        const latestRequestId = allRequestIds.length ? allRequestIds[allRequestIds.length - 1] : null;
+        let selectedRequestId = slideshowState.requestId;
+        if (slideshowState.followLatest || !selectedRequestId || !allRequestIds.includes(selectedRequestId)) {
+          selectedRequestId = latestRequestId;
+          slideshowState.requestId = selectedRequestId;
+        }
+        let slides = groupTaskFlow(taskFlow, selectedRequestId);
+        let currentIndex = Number(slideshowState.slideIndexByRequest[selectedRequestId || "none"] || 0);
+        let speedMs = Number(slideshowState.speedMs || 1800);
+
+        const controls = document.createElement("div");
+        controls.className = "slideshow-controls";
+        controls.addEventListener("pointerdown", () => markTaskUiInteraction());
+        controls.addEventListener("focusin", () => markTaskUiInteraction());
+
+        const requestSelect = document.createElement("select");
+        allRequestIds.forEach((requestId) => {
+          const opt = document.createElement("option");
+          opt.value = requestId;
+          const requestInfo = requestRecords.find((item) => item.id === requestId);
+          const messagePreview = String(requestInfo && requestInfo.user_message ? requestInfo.user_message : "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 52);
+          opt.textContent = messagePreview
+            ? `${requestId} - ${messagePreview}${messagePreview.length >= 52 ? "..." : ""}`
+            : requestId;
+          requestSelect.appendChild(opt);
+        });
+        if (selectedRequestId && allRequestIds.includes(selectedRequestId)) {
+          requestSelect.value = selectedRequestId;
+        }
+
+        const prevButton = document.createElement("button");
+        prevButton.type = "button";
+        prevButton.textContent = "Prev";
+        const nextButton = document.createElement("button");
+        nextButton.type = "button";
+        nextButton.textContent = "Next";
+        const playButton = document.createElement("button");
+        playButton.type = "button";
+        playButton.textContent = "Play";
+
+        const speedSelect = document.createElement("select");
+        [
+          [1200, "Fast"],
+          [1800, "Normal"],
+          [2600, "Slow"],
+        ].forEach(([value, label]) => {
+          const opt = document.createElement("option");
+          opt.value = String(value);
+          opt.textContent = label;
+          speedSelect.appendChild(opt);
+        });
+        speedSelect.value = String(speedMs);
+
+        const progress = document.createElement("div");
+        progress.className = "slide-progress";
+
+        const scrubber = document.createElement("input");
+        scrubber.type = "range";
+        scrubber.className = "scrubber";
+        scrubber.min = "0";
+        scrubber.step = "1";
+
+        const slideCard = document.createElement("div");
+        slideCard.className = "slide-card";
+
+        function openAgentHistory(agentId) {
+          const messageSection = historyList.querySelector("details.section-toggle");
+          if (messageSection) messageSection.open = true;
+          const card = historyList.querySelector(`details.agent-toggle[data-agent-id="${agentId}"]`);
+          if (card) {
+            card.open = true;
+            card.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        }
+
+        function renderSlide() {
+          if (!slides.length) {
+            progress.textContent = "No task flow data available.";
+            scrubber.max = "0";
+            scrubber.value = "0";
+            slideCard.innerHTML = '<div class="empty">No grouped task steps for this request.</div>';
+            return;
+          }
+          if (currentIndex < 0) currentIndex = 0;
+          if (currentIndex >= slides.length) currentIndex = slides.length - 1;
+          slideshowState.slideIndexByRequest[selectedRequestId || "none"] = currentIndex;
+
+          scrubber.max = String(slides.length - 1);
+          scrubber.value = String(currentIndex);
+          const slide = slides[currentIndex];
+          progress.textContent = `Step ${currentIndex + 1} / ${slides.length} | request=${slide.request_id || "none"} | task=${slide.task_id || "none"}`;
+
+          slideCard.innerHTML = "";
+          const header = document.createElement("div");
+          header.className = "slide-header";
+          const title = document.createElement("h4");
+          title.className = "slide-title";
+          title.textContent = slide.task_title;
+          const subtitle = document.createElement("div");
+          subtitle.className = "slide-subtitle";
+          subtitle.textContent = `${slide.task_type} | status=${slide.task_status} | ${slide.started_at || "unknown"} -> ${slide.ended_at || "unknown"} | events=${slide.events.length}`;
+          header.appendChild(title);
+          header.appendChild(subtitle);
+          slideCard.appendChild(header);
+
+          const chipRow = document.createElement("div");
+          chipRow.className = "agent-chip-row";
+          const uniqueAgents = Array.from(
+            new Set(
+              slide.events
+                .map((event) => event.owner_agent_id)
+                .filter(Boolean)
+            )
+          );
+          if (!uniqueAgents.length && slide.owner_agent_id) {
+            uniqueAgents.push(slide.owner_agent_id);
+          }
+          uniqueAgents.forEach((agentId) => {
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "agent-chip";
+            const info = (agentHistories || []).find((item) => item.agent_id === agentId);
+            const label = info ? info.agent_name || info.agent_id : agentId;
+            chip.textContent = label;
+            chip.addEventListener("click", () => openAgentHistory(agentId));
+            chipRow.appendChild(chip);
+          });
+          slideCard.appendChild(chipRow);
+
+          const stage = document.createElement("div");
+          stage.className = "pixel-stage";
+          const stageTitle = document.createElement("p");
+          stageTitle.className = "pixel-stage-title";
+          stageTitle.textContent = "Step Scene";
+          stage.appendChild(stageTitle);
+          const grid = document.createElement("div");
+          grid.className = "pixel-agent-grid";
+          uniqueAgents.forEach((agentId) => {
+            const info = (agentHistories || []).find((item) => item.agent_id === agentId);
+            const state = deriveAgentState(slide, agentId);
+            const card = document.createElement("button");
+            card.type = "button";
+            card.className = `pixel-agent ${state}`;
+            card.addEventListener("click", () => openAgentHistory(agentId));
+
+            const avatar = document.createElement("div");
+            avatar.className = "pixel-agent-avatar";
+            avatar.textContent = roleToAvatar(info ? info.agent_role : "");
+            const name = document.createElement("div");
+            name.className = "pixel-agent-name";
+            name.textContent = info ? info.agent_name || info.agent_id : agentId;
+            const stateNode = document.createElement("div");
+            stateNode.className = "pixel-agent-state";
+            stateNode.textContent = state.toUpperCase();
+
+            card.appendChild(avatar);
+            card.appendChild(name);
+            card.appendChild(stateNode);
+            grid.appendChild(card);
+          });
+          stage.appendChild(grid);
+          slideCard.appendChild(stage);
+
+          slide.events.forEach((event) => {
+            const row = document.createElement("div");
+            row.className = "slide-event";
+            const meta = document.createElement("div");
+            meta.className = "slide-event-meta";
+            meta.textContent = `${event.created_at || "unknown-time"} | ${event.event_type || "unknown_event"} | owner=${event.owner_agent_name || event.owner_agent_id || "unknown"}`;
+            const pre = document.createElement("pre");
+            pre.textContent = JSON.stringify(event.payload || {}, null, 2);
+            row.appendChild(meta);
+            row.appendChild(pre);
+            slideCard.appendChild(row);
+          });
+        }
+
+        function startSlideshow() {
+          stopSlideshow();
+          slideshowTimer = window.setInterval(() => {
+            if (!slides.length) return;
+            currentIndex = (currentIndex + 1) % slides.length;
+            renderSlide();
+          }, speedMs);
+          slideshowState.autoplay = true;
+          playButton.textContent = "Pause";
+        }
+
+        function togglePlay() {
+          if (slideshowTimer) {
+            stopSlideshow();
+            slideshowState.autoplay = false;
+            playButton.textContent = "Play";
+            return;
+          }
+          startSlideshow();
+        }
+
+        prevButton.addEventListener("click", () => {
+          markTaskUiInteraction();
+          stopSlideshow();
+          slideshowState.autoplay = false;
+          playButton.textContent = "Play";
+          currentIndex = Math.max(0, currentIndex - 1);
+          renderSlide();
+        });
+        nextButton.addEventListener("click", () => {
+          markTaskUiInteraction();
+          stopSlideshow();
+          slideshowState.autoplay = false;
+          playButton.textContent = "Play";
+          currentIndex = Math.min(slides.length - 1, currentIndex + 1);
+          renderSlide();
+        });
+        playButton.addEventListener("click", togglePlay);
+        speedSelect.addEventListener("change", () => {
+          markTaskUiInteraction();
+          speedMs = Number(speedSelect.value || 1800);
+          slideshowState.speedMs = speedMs;
+          if (slideshowTimer) startSlideshow();
+        });
+        scrubber.addEventListener("input", () => {
+          markTaskUiInteraction();
+          stopSlideshow();
+          slideshowState.autoplay = false;
+          playButton.textContent = "Play";
+          currentIndex = Number(scrubber.value || "0");
+          renderSlide();
+        });
+        requestSelect.addEventListener("change", () => {
+          markTaskUiInteraction();
+          stopSlideshow();
+          slideshowState.autoplay = false;
+          playButton.textContent = "Play";
+          selectedRequestId = requestSelect.value;
+          slideshowState.requestId = selectedRequestId;
+          slideshowState.followLatest = false;
+          slides = groupTaskFlow(taskFlow, selectedRequestId);
+          currentIndex = Number(slideshowState.slideIndexByRequest[selectedRequestId || "none"] || 0);
+          renderSlide();
+        });
+
+        controls.appendChild(prevButton);
+        controls.appendChild(nextButton);
+        controls.appendChild(playButton);
+        controls.appendChild(speedSelect);
+        controls.appendChild(requestSelect);
+        controls.appendChild(progress);
+        shell.appendChild(controls);
+        shell.appendChild(scrubber);
+        shell.appendChild(slideCard);
+        renderSlide();
+        speedSelect.value = String(speedMs);
+        if (slideshowState.autoplay) {
+          startSlideshow();
+        } else {
+          playButton.textContent = "Play";
+        }
+
+        body.appendChild(shell);
+        wrap.appendChild(body);
+        return wrap;
+      }
+
+      function ensureHistoryHosts() {
+        let messageHost = document.getElementById("messageFlowHost");
+        let taskHost = document.getElementById("taskFlowHost");
+        if (messageHost && taskHost) {
+          return { messageHost, taskHost };
+        }
+        historyList.replaceChildren();
+        messageHost = document.createElement("div");
+        messageHost.id = "messageFlowHost";
+        taskHost = document.createElement("div");
+        taskHost.id = "taskFlowHost";
+        historyList.appendChild(messageHost);
+        historyList.appendChild(taskHost);
+        return { messageHost, taskHost };
+      }
+
+      function renderMessageSection(agentHistories) {
+        const { messageHost } = ensureHistoryHosts();
+        const previousSection = messageHost.querySelector("details.section-toggle");
+        const previousOpenAgents = new Set(
+          Array.from(messageHost.querySelectorAll("details.agent-toggle[open]"))
+            .map((node) => node.dataset.agentId)
+            .filter(Boolean)
+        );
+        const previousOpen = previousSection ? previousSection.open : false;
+
+        if (!agentHistories.length) {
+          messageHost.replaceChildren();
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No agent histories for this work.";
+          messageHost.appendChild(empty);
+          return;
+        }
+
+        const cards = agentHistories.map((history) => {
+          const card = document.createElement("details");
+          card.className = "agent-card agent-toggle";
+          card.dataset.agentId = history.agent_id || "";
+          if (history.agent_id && previousOpenAgents.has(history.agent_id)) {
+            card.open = true;
+          }
+          const summary = document.createElement("summary");
+          const title = history.agent_name || history.agent_id;
+          const messageCount = (history.messages || []).length;
+          summary.textContent = `${title} (${history.agent_role || "unknown"}) | ${history.session_id} | messages=${messageCount}`;
+          card.appendChild(summary);
+          const cardBody = document.createElement("div");
+          const messages = history.messages || [];
+          if (!messages.length) {
+            const empty = document.createElement("div");
+            empty.className = "empty";
+            empty.textContent = "No messages yet.";
+            cardBody.appendChild(empty);
+            card.appendChild(cardBody);
+            return card;
+          }
+          messages.forEach((message) => {
+            const msg = document.createElement("div");
+            const role = message.role === "user" ? "user" : "assistant";
+            msg.className = `agent-msg ${role}`;
+            const meta = document.createElement("div");
+            meta.className = "flow-meta";
+            const createdAt = message.created_at || "unknown-time";
+            const requestId = message.request_id || "no-request";
+            const route = message.route || "no-route";
+            meta.textContent = `${message.role} | ${createdAt} | ${requestId} | ${route}`;
+            const content = document.createElement("pre");
+            content.textContent = formatAsPrettyJSON(message.content || "");
+            msg.appendChild(meta);
+            msg.appendChild(content);
+            if (message.metadata && Object.keys(message.metadata).length > 0) {
+              const metadata = document.createElement("pre");
+              metadata.textContent = `metadata:\n${JSON.stringify(message.metadata, null, 2)}`;
+              msg.appendChild(metadata);
+            }
+            cardBody.appendChild(msg);
+          });
+          card.appendChild(cardBody);
+          return card;
+        });
+
+        const messageSection = document.createElement("details");
+        messageSection.className = "section-toggle";
+        messageSection.open = previousSection ? previousOpen : false;
+        const messageSummary = document.createElement("summary");
+        messageSummary.textContent = `Message Flow (Agent Histories) - ${agentHistories.length} agents`;
+        messageSection.appendChild(messageSummary);
+        const messageBody = document.createElement("div");
+        messageBody.replaceChildren(...cards);
+        messageSection.appendChild(messageBody);
+        messageHost.replaceChildren(messageSection);
+      }
+
+      function renderTaskSection(taskFlow, tasks, agentHistories, requests) {
+        const { taskHost } = ensureHistoryHosts();
+        const slideshow = renderTaskSlideshow(taskFlow, tasks, agentHistories, requests);
+        taskHost.replaceChildren(slideshow);
+      }
+
+      function renderChatFromHistory(agentHistories) {
+        const chanakyaHistory = agentHistories.find((item) => item.agent_id === "agent_chanakya");
+        chatLog.replaceChildren();
+        const messages = chanakyaHistory ? chanakyaHistory.messages || [] : [];
+        if (!messages.length) {
+          chatLog.innerHTML = '<div class="empty">No messages in this work yet.</div>';
+          return;
+        }
+        messages.forEach((message) => {
+          appendChatMessage(message.role === "user" ? "user" : "assistant", message.content || "");
+        });
+      }
+
+      function renderAgentHistories(agentHistories, taskFlow, tasks, requests) {
+        cachedAgentHistories = agentHistories || [];
+        cachedTaskFlow = taskFlow || [];
+        cachedTasks = tasks || [];
+        cachedRequests = requests || [];
+        renderMessageSection(cachedAgentHistories);
+        renderTaskSection(cachedTaskFlow, cachedTasks, cachedAgentHistories, cachedRequests);
+      }
+
+      async function loadWorks() {
+        const response = await fetch("/api/works?limit=200");
+        const data = await response.json();
+        works = data.works || [];
+        renderWorks();
+      }
+
+      async function loadWorkHistory(workId, { background = false } = {}) {
+        if (historyInFlight) return;
+        historyInFlight = true;
+        const nonce = ++historyFetchNonce;
+        let response;
+        let data;
+        try {
+          response = await fetch(
+            `/api/works/${encodeURIComponent(workId)}/history?task_limit=3000&event_limit=8000&request_limit=4000`
+          );
+          data = await response.json();
+        } finally {
+          historyInFlight = false;
+        }
+        if (nonce !== historyFetchNonce || workId !== activeWorkId) {
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to load work history");
+        }
+        if (!background) {
+          chatTitle.textContent = data.work.title;
+          chatSubtitle.textContent = data.work.description || "Work-scoped chat with Chanakya.";
+          renderChatFromHistory(data.agent_histories || []);
+        }
+        cachedAgentHistories = data.agent_histories || [];
+        cachedTaskFlow = data.task_flow || [];
+        cachedTasks = data.tasks || [];
+        cachedRequests = data.requests || [];
+        if (background) {
+          const activeElement = document.activeElement;
+          const taskHost = document.getElementById("taskFlowHost");
+          const focusInsideTaskHost = Boolean(
+            activeElement instanceof HTMLElement
+            && taskHost
+            && taskHost.contains(activeElement)
+          );
+          const interactionHold = Date.now() < taskUiInteractingUntil;
+          if (!focusInsideTaskHost && !interactionHold) {
+            renderTaskSection(cachedTaskFlow, cachedTasks, cachedAgentHistories, cachedRequests);
+          }
+        } else {
+          renderAgentHistories(
+            cachedAgentHistories,
+            cachedTaskFlow,
+            cachedTasks,
+            cachedRequests
+          );
+        }
+        if (!background && slideshowState.followLatest && Array.isArray(data.requests) && data.requests.length) {
+          slideshowState.requestId = data.requests[data.requests.length - 1].id;
+        }
+      }
+
+      async function selectWork(workId) {
+        activeWorkId = workId;
+        stopSlideshow();
+        stopLiveRefresh();
+        saveActiveWork(workId);
+        renderWorks();
+        sendButton.disabled = false;
+        messageInput.disabled = false;
+        deleteWorkButton.disabled = false;
+        await loadWorkHistory(workId);
+        slideshowState.followLatest = true;
+        startLiveRefresh(2400);
+      }
+
+      workForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const title = workTitle.value.trim();
+        if (!title) return;
+        const description = workDescription.value.trim();
+        setStatus("Creating work...");
+        try {
+          const response = await fetch("/api/works", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, description }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Work creation failed");
+          setStatus(`Created ${data.title}`);
+          workForm.reset();
+          await loadWorks();
+          await selectWork(data.id);
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : String(error), true);
+        }
+      });
+
+      chatForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!activeWorkId) return;
+        const message = messageInput.value.trim();
+        if (!message) return;
+        appendChatMessage("user", message);
+        messageInput.value = "";
+        sendButton.disabled = true;
+        slideshowState.followLatest = true;
+        startLiveRefresh(900);
+        try {
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ work_id: activeWorkId, message }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Chat failed");
+          appendChatMessage("assistant", data.message || "");
+          await loadWorkHistory(activeWorkId);
+        } catch (error) {
+          appendChatMessage("assistant", error instanceof Error ? error.message : String(error));
+        } finally {
+          startLiveRefresh(2400);
+          sendButton.disabled = false;
+        }
+      });
+
+      deleteWorkButton.addEventListener("click", () => {
+        deleteActiveWork();
+      });
+
+      async function bootstrap() {
+        resetWorkView();
+        await loadWorks();
+        const saved = loadSavedWork();
+        if (saved && works.some((work) => work.id === saved)) {
+          await selectWork(saved);
+        }
+      }
+
+      bootstrap();
+    </script>
+  </body>
+</html>

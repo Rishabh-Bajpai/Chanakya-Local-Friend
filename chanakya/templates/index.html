@@ -1,1527 +1,2103 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Chanakya</title>
-    <style>
-      :root {
-        --bg: #121212;
-        --panel: rgba(25, 25, 25, 0.95);
-        --line: #333333;
-        --text: #e8e6e3;
-        --muted: #9a9590;
-        --accent: #d86b4a;
-        --accent-soft: #2d2520;
-        --ink: #3a8a87;
-        --green: #4caf50;
-        --red: #e74c3c;
-        --yellow: #f39c12;
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chanakya</title>
+  <style>
+    :root {
+      --bg: #121212;
+      --panel: rgba(25, 25, 25, 0.95);
+      --line: #333333;
+      --text: #e8e6e3;
+      --muted: #9a9590;
+      --accent: #d86b4a;
+      --accent-soft: #2d2520;
+      --ink: #3a8a87;
+      --green: #4caf50;
+      --red: #e74c3c;
+      --yellow: #f39c12;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Georgia, "Iowan Old Style", serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(50, 50, 50, 0.4), transparent 30%),
+        linear-gradient(135deg, #1a1a1a 0%, #121212 45%, #0d0d0d 100%);
+    }
+
+    .shell {
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 280px 1.4fr 1fr;
+      gap: 18px;
+      min-height: 100vh;
+      height: auto;
+      min-height: 0;
+      align-items: start;
+    }
+
+    /* ---- Left sidebar: Current Task Progress ---- */
+    .left-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      max-height: calc(100vh - 40px);
+      position: sticky;
+      top: 20px;
+      overflow: hidden;
+    }
+
+    .left-sidebar .panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      height: 100%;
+    }
+
+    .left-sidebar .section-header {
+      padding: 14px 14px 0;
+    }
+
+    .left-sidebar .section-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px 14px;
+      scrollbar-width: thin;
+      scrollbar-color: #4a4a4a rgba(0, 0, 0, 0.3);
+    }
+
+    .progress-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      position: relative;
+    }
+
+    .progress-item:last-child {
+      border-bottom: none;
+    }
+
+    .progress-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+      margin-top: 4px;
+      background: var(--muted);
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+
+    .progress-dot.created {
+      background: #7c6cf2;
+    }
+
+    .progress-dot.in_progress {
+      background: var(--yellow);
+      box-shadow: 0 0 8px rgba(243, 156, 18, 0.6);
+      animation: pulse-dot 1.8s infinite;
+    }
+
+    .progress-dot.completed,
+    .progress-dot.succeeded {
+      background: var(--green);
+      box-shadow: 0 0 6px rgba(76, 175, 80, 0.4);
+    }
+
+    .progress-dot.failed {
+      background: var(--red);
+      box-shadow: 0 0 6px rgba(231, 76, 60, 0.4);
+    }
+
+    .progress-dot.cancelled {
+      background: #6c6c6c;
+    }
+
+    .progress-dot.blocked,
+    .progress-dot.waiting_input {
+      background: #e67e22;
+    }
+
+    @keyframes pulse-dot {
+
+      0%,
+      100% {
+        opacity: 1;
+        transform: scale(1);
       }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        font-family: Georgia, "Iowan Old Style", serif;
-        color: var(--text);
-        background:
-          radial-gradient(circle at top left, rgba(50,50,50,0.4), transparent 30%),
-          linear-gradient(135deg, #1a1a1a 0%, #121212 45%, #0d0d0d 100%);
+
+      50% {
+        opacity: 0.5;
+        transform: scale(1.4);
       }
+    }
+
+    .progress-info {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .progress-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .progress-status {
+      font-size: 11px;
+      margin-top: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .progress-owner {
+      font-size: 11px;
+      color: #7a7570;
+      margin-top: 1px;
+    }
+
+    .progress-empty {
+      color: var(--muted);
+      font-style: italic;
+      font-size: 12px;
+      padding: 14px 0;
+      text-align: center;
+    }
+
+    .progress-summary {
+      display: flex;
+      gap: 8px;
+      padding: 10px 14px;
+      border-top: 1px solid var(--line);
+      font-size: 11px;
+      color: var(--muted);
+      flex-wrap: wrap;
+    }
+
+    .progress-summary .stat {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .progress-summary .stat-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(10px);
+      min-height: 0;
+    }
+
+    .hero {
+      padding: 18px 20px 8px;
+    }
+
+    .hero-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .eyebrow {
+      margin: 0;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .debug-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(243, 156, 18, 0.45);
+      background: rgba(243, 156, 18, 0.14);
+      color: #ffd28a;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .debug-badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #f39c12;
+      box-shadow: 0 0 12px rgba(243, 156, 18, 0.65);
+    }
+
+    h1 {
+      margin: 8px 0 6px;
+      font-size: 34px;
+      line-height: 1.05;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 54ch;
+      color: var(--muted);
+    }
+
+    .chat {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: calc(100vh - 40px);
+      position: sticky;
+      top: 20px;
+    }
+
+    .chat-log {
+      flex: 1;
+      padding: 14px 20px;
+      overflow-x: hidden;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      scrollbar-width: thin;
+      scrollbar-color: #4a4a4a rgba(0, 0, 0, 0.3);
+    }
+
+    .message {
+      max-width: 88%;
+      border-radius: 16px;
+      padding: 12px 14px;
+      line-height: 1.45;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      background: #3d2a20;
+    }
+
+    .message.assistant {
+      align-self: flex-start;
+      background: #252525;
+      border: 1px solid #383838;
+    }
+
+    .meta {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 14px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 13px 14px;
+      font-size: 15px;
+      border-radius: 14px;
+      border: 1px solid #444444;
+      background: #1a1a1a;
+      color: var(--text);
+    }
+
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 0 18px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #c95b3a;
+    }
+
+    .side {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 0;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      padding-right: 6px;
+      scrollbar-width: thin;
+      scrollbar-color: #4a4a4a rgba(0, 0, 0, 0.3);
+    }
+
+    .side::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    .side::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 999px;
+    }
+
+    .side::-webkit-scrollbar-thumb {
+      background: #4a4a4a;
+      border-radius: 999px;
+      border: 2px solid rgba(0, 0, 0, 0.25);
+    }
+
+    .section {
+      display: flex;
+      flex-direction: column;
+      padding: 14px 16px;
+      min-height: 0;
+      position: relative;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+
+    .section::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 4px;
+      border-radius: 18px 18px 0 0;
+      background: linear-gradient(90deg, var(--accent), rgba(216, 107, 74, 0.15));
+    }
+
+    .section[data-panel="task-progress"]::before {
+      background: linear-gradient(90deg, #f39c12, rgba(243, 156, 18, 0.15));
+    }
+
+    .section[data-panel="task-progress"] {
+      background: linear-gradient(180deg, rgba(243, 156, 18, 0.08), rgba(25, 25, 25, 0.95) 32%);
+    }
+
+    .section[data-panel="request-trace"]::before {
+      background: linear-gradient(90deg, #d86b4a, rgba(216, 107, 74, 0.15));
+    }
+
+    .section[data-panel="tool-traces"]::before {
+      background: linear-gradient(90deg, #3a8a87, rgba(58, 138, 135, 0.15));
+    }
+
+    .section[data-panel="tasks"]::before {
+      background: linear-gradient(90deg, #7c6cf2, rgba(124, 108, 242, 0.15));
+    }
+
+    .section[data-panel="sandbox-guide"]::before {
+      background: linear-gradient(90deg, #5aa9e6, rgba(90, 169, 230, 0.15));
+    }
+
+    .section[data-panel="task-timeline"]::before {
+      background: linear-gradient(90deg, #f39c12, rgba(243, 156, 18, 0.15));
+    }
+
+    .section[data-panel="temporary-subagents"]::before {
+      background: linear-gradient(90deg, #4caf50, rgba(76, 175, 80, 0.15));
+    }
+
+    .section[data-panel="persistent-agents"]::before {
+      background: linear-gradient(90deg, #d14fd1, rgba(209, 79, 209, 0.15));
+    }
+
+    .section[data-panel="request-trace"] {
+      background: linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(25, 25, 25, 0.95) 32%);
+    }
+
+    .section[data-panel="tool-traces"] {
+      background: linear-gradient(180deg, rgba(58, 138, 135, 0.08), rgba(25, 25, 25, 0.95) 32%);
+    }
+
+    .section[data-panel="tasks"] {
+      background: linear-gradient(180deg, rgba(124, 108, 242, 0.08), rgba(25, 25, 25, 0.95) 32%);
+    }
+
+    .section[data-panel="sandbox-guide"] {
+      background: linear-gradient(180deg, rgba(90, 169, 230, 0.08), rgba(25, 25, 25, 0.95) 32%);
+    }
+
+    .section[data-panel="task-timeline"] {
+      background: linear-gradient(180deg, rgba(243, 156, 18, 0.08), rgba(25, 25, 25, 0.95) 32%);
+    }
+
+    .section[data-panel="temporary-subagents"] {
+      background: linear-gradient(180deg, rgba(76, 175, 80, 0.08), rgba(25, 25, 25, 0.95) 32%);
+    }
+
+    .section[data-panel="persistent-agents"] {
+      background: linear-gradient(180deg, rgba(209, 79, 209, 0.08), rgba(25, 25, 25, 0.95) 32%);
+    }
+
+    .section[data-panel="request-trace"],
+    .section[data-panel="tool-traces"],
+    .section[data-panel="sandbox-guide"],
+    .section[data-panel="tasks"],
+    .section[data-panel="task-timeline"],
+    .section[data-panel="temporary-subagents"] {
+      min-height: 220px;
+      flex: 0 0 auto;
+    }
+
+    .section[data-panel="persistent-agents"] {
+      min-height: 420px;
+      flex: 1 0 auto;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .section-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .section-copy {
+      min-width: 0;
+    }
+
+    .section-body {
+      overflow-x: hidden;
+      overflow-y: auto;
+      min-height: 0;
+      flex: 1;
+      scrollbar-width: thin;
+      scrollbar-color: #4a4a4a rgba(0, 0, 0, 0.3);
+    }
+
+    .chat-log::-webkit-scrollbar,
+    .section-body::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    .chat-log::-webkit-scrollbar-track,
+    .section-body::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 999px;
+    }
+
+    .chat-log::-webkit-scrollbar-thumb,
+    .section-body::-webkit-scrollbar-thumb {
+      background: #4a4a4a;
+      border-radius: 999px;
+      border: 2px solid rgba(0, 0, 0, 0.25);
+    }
+
+    .section h2 {
+      margin: 0 0 4px;
+      font-size: 18px;
+    }
+
+    .section p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .detach-button {
+      width: 30px;
+      height: 30px;
+      flex: 0 0 auto;
+      padding: 0;
+      border-radius: 10px;
+      background: transparent;
+      border: 1px solid #444444;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .collapse-button {
+      width: 30px;
+      height: 30px;
+      flex: 0 0 auto;
+      padding: 0;
+      border-radius: 10px;
+      background: transparent;
+      border: 1px solid #444444;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .collapse-button:hover {
+      color: var(--text);
+      background: #252525;
+    }
+
+    .section.collapsed {
+      min-height: auto !important;
+      flex: 0 0 auto !important;
+    }
+
+    .section.collapsed .section-body {
+      display: none;
+    }
+
+    .section.collapsed .form-actions,
+    .section.collapsed #taskProgressSummary {
+      display: none;
+    }
+
+    .section.collapsed .section-header {
+      align-items: center;
+    }
+
+    .section.collapsed .section-copy p {
+      margin-bottom: 0;
+    }
+
+    .detach-button:hover {
+      color: var(--text);
+      background: #252525;
+    }
+
+    body.detached-view {
+      min-height: 100vh;
+    }
+
+    .detached-shell {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    .detached-shell .panel.section {
+      min-height: calc(100vh - 40px);
+    }
+
+    .card {
+      border: 1px solid #383838;
+      border-left: 4px solid var(--ink);
+      border-radius: 14px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .card.clickable {
+      cursor: pointer;
+    }
+
+    .card.clickable:hover {
+      border-color: #5b514b;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .card.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.35);
+    }
+
+    .card h3 {
+      margin: 0 0 6px;
+      font-size: 15px;
+    }
+
+    .card pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 8px 0 0;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      color: #b0aea8;
+    }
+
+    .pill {
+      display: inline-block;
+      margin-right: 6px;
+      margin-bottom: 6px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      font-size: 12px;
+    }
+
+    .pill.succeeded {
+      background: rgba(76, 175, 80, 0.2);
+      color: var(--green);
+    }
+
+    .pill.failed {
+      background: rgba(231, 76, 60, 0.2);
+      color: var(--red);
+    }
+
+    .pill.tool {
+      background: rgba(58, 138, 135, 0.2);
+      color: var(--ink);
+    }
+
+    .tool-trace-card {
+      border-left-color: var(--ink);
+    }
+
+    .tool-trace-card.failed {
+      border-left-color: var(--red);
+    }
+
+    .empty-state {
+      color: var(--muted);
+      font-style: italic;
+      font-size: 13px;
+      padding: 4px 0;
+    }
+
+    .agent-editor {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .agent-editor-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .agent-editor label {
+      display: grid;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .agent-editor input[type="text"],
+    .agent-editor input[type="number"],
+    .agent-editor textarea,
+    .agent-editor select {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 14px;
+      border-radius: 12px;
+      border: 1px solid #444444;
+      background: #1a1a1a;
+      color: var(--text);
+      font-family: inherit;
+    }
+
+    .agent-editor textarea {
+      min-height: 76px;
+      resize: vertical;
+    }
+
+    .agent-flags {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .agent-flags label,
+    .tool-checkboxes label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+    }
+
+    .tool-checkboxes {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .form-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .button-secondary {
+      background: transparent;
+      border: 1px solid #444444;
+      color: var(--text);
+    }
+
+    .button-secondary:hover {
+      background: #252525;
+    }
+
+    .status-text {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .sandbox-guide {
+      display: grid;
+      gap: 12px;
+    }
+
+    .sandbox-note {
+      border: 1px solid rgba(90, 169, 230, 0.26);
+      border-left: 4px solid #5aa9e6;
+      border-radius: 14px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .sandbox-note h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+
+    .sandbox-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .sandbox-path {
+      display: inline-block;
+      margin-top: 6px;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      color: #d7d3ce;
+      word-break: break-word;
+    }
+
+    @media (max-width: 1200px) {
       .shell {
-        max-width: 1320px;
-        margin: 0 auto;
-        padding: 20px;
-        display: grid;
-        grid-template-columns: 1.4fr 1fr;
-        gap: 18px;
-        min-height: 100vh;
-        height: auto;
-        min-height: 0;
-        align-items: start;
+        grid-template-columns: 1fr;
       }
-      .panel {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 18px;
-        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
-        backdrop-filter: blur(10px);
-        min-height: 0;
+
+      .left-sidebar {
+        position: static;
+        max-height: none;
       }
-      .hero {
-        padding: 18px 20px 8px;
-      }
-      .hero-top {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-      .eyebrow {
-        margin: 0;
-        font-size: 12px;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: var(--muted);
-      }
-      .debug-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        border: 1px solid rgba(243, 156, 18, 0.45);
-        background: rgba(243, 156, 18, 0.14);
-        color: #ffd28a;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        white-space: nowrap;
-      }
-      .debug-badge::before {
-        content: "";
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        background: #f39c12;
-        box-shadow: 0 0 12px rgba(243, 156, 18, 0.65);
-      }
-      h1 {
-        margin: 8px 0 6px;
-        font-size: 34px;
-        line-height: 1.05;
-      }
-      .hero p {
-        margin: 0;
-        max-width: 54ch;
-        color: var(--muted);
-      }
+
       .chat {
-        display: flex;
+        min-height: 70vh;
+        height: auto;
+        position: static;
+      }
+
+      .hero-top {
         flex-direction: column;
-        min-height: 0;
-        height: calc(100vh - 40px);
-        position: sticky;
-        top: 20px;
-      }
-      .chat-log {
-        flex: 1;
-        padding: 14px 20px;
-        overflow-x: hidden;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        scrollbar-width: thin;
-        scrollbar-color: #4a4a4a rgba(0,0,0,0.3);
-      }
-      .message {
-        max-width: 88%;
-        border-radius: 16px;
-        padding: 12px 14px;
-        line-height: 1.45;
-      }
-      .message.user {
-        align-self: flex-end;
-        background: #3d2a20;
-      }
-      .message.assistant {
-        align-self: flex-start;
-        background: #252525;
-        border: 1px solid #383838;
-      }
-      .meta {
-        margin-top: 8px;
-        font-size: 12px;
-        color: var(--muted);
-      }
-      .composer {
-        border-top: 1px solid var(--line);
-        padding: 14px;
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 10px;
-      }
-      input[type="text"] {
-        width: 100%;
-        padding: 13px 14px;
-        font-size: 15px;
-        border-radius: 14px;
-        border: 1px solid #444444;
-        background: #1a1a1a;
-        color: var(--text);
-      }
-      button {
-        border: 0;
-        border-radius: 14px;
-        padding: 0 18px;
-        background: var(--accent);
-        color: #fff;
-        font-size: 14px;
-        cursor: pointer;
-        transition: background 0.2s;
-      }
-      button:hover {
-        background: #c95b3a;
-      }
-      .side {
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-        min-height: 0;
-        max-height: calc(100vh - 40px);
-        overflow-y: auto;
-        padding-right: 6px;
-        scrollbar-width: thin;
-        scrollbar-color: #4a4a4a rgba(0,0,0,0.3);
-      }
-      .side::-webkit-scrollbar {
-        width: 10px;
-      }
-      .side::-webkit-scrollbar-track {
-        background: rgba(0,0,0,0.25);
-        border-radius: 999px;
-      }
-      .side::-webkit-scrollbar-thumb {
-        background: #4a4a4a;
-        border-radius: 999px;
-        border: 2px solid rgba(0,0,0,0.25);
-      }
-      .section {
-        display: flex;
-        flex-direction: column;
-        padding: 14px 16px;
-        min-height: 0;
-        position: relative;
-        transition: background 0.2s ease, border-color 0.2s ease;
-      }
-      .section::before {
-        content: "";
-        position: absolute;
-        inset: 0 0 auto 0;
-        height: 4px;
-        border-radius: 18px 18px 0 0;
-        background: linear-gradient(90deg, var(--accent), rgba(216, 107, 74, 0.15));
-      }
-      .section[data-panel="request-trace"]::before {
-        background: linear-gradient(90deg, #d86b4a, rgba(216, 107, 74, 0.15));
-      }
-      .section[data-panel="tool-traces"]::before {
-        background: linear-gradient(90deg, #3a8a87, rgba(58, 138, 135, 0.15));
-      }
-      .section[data-panel="tasks"]::before {
-        background: linear-gradient(90deg, #7c6cf2, rgba(124, 108, 242, 0.15));
-      }
-      .section[data-panel="task-timeline"]::before {
-        background: linear-gradient(90deg, #f39c12, rgba(243, 156, 18, 0.15));
-      }
-      .section[data-panel="temporary-subagents"]::before {
-        background: linear-gradient(90deg, #4caf50, rgba(76, 175, 80, 0.15));
-      }
-      .section[data-panel="persistent-agents"]::before {
-        background: linear-gradient(90deg, #d14fd1, rgba(209, 79, 209, 0.15));
-      }
-      .section[data-panel="request-trace"] {
-        background: linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(25, 25, 25, 0.95) 32%);
-      }
-      .section[data-panel="tool-traces"] {
-        background: linear-gradient(180deg, rgba(58, 138, 135, 0.08), rgba(25, 25, 25, 0.95) 32%);
-      }
-      .section[data-panel="tasks"] {
-        background: linear-gradient(180deg, rgba(124, 108, 242, 0.08), rgba(25, 25, 25, 0.95) 32%);
-      }
-      .section[data-panel="task-timeline"] {
-        background: linear-gradient(180deg, rgba(243, 156, 18, 0.08), rgba(25, 25, 25, 0.95) 32%);
-      }
-      .section[data-panel="temporary-subagents"] {
-        background: linear-gradient(180deg, rgba(76, 175, 80, 0.08), rgba(25, 25, 25, 0.95) 32%);
-      }
-      .section[data-panel="persistent-agents"] {
-        background: linear-gradient(180deg, rgba(209, 79, 209, 0.08), rgba(25, 25, 25, 0.95) 32%);
-      }
-      .section[data-panel="request-trace"],
-      .section[data-panel="tool-traces"],
-      .section[data-panel="tasks"],
-      .section[data-panel="task-timeline"],
-      .section[data-panel="temporary-subagents"] {
-        min-height: 220px;
-        flex: 0 0 auto;
-      }
-      .section[data-panel="persistent-agents"] {
-        min-height: 420px;
-        flex: 1 0 auto;
-      }
-      .section-header {
-        display: flex;
         align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
       }
-      .section-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex: 0 0 auto;
+
+      .side {
+        max-height: none;
+        overflow: visible;
+        padding-right: 0;
       }
-      .section-copy {
-        min-width: 0;
-      }
-      .section-body {
-        overflow-x: hidden;
-        overflow-y: auto;
-        min-height: 0;
-        flex: 1;
-        scrollbar-width: thin;
-        scrollbar-color: #4a4a4a rgba(0,0,0,0.3);
-      }
-      .chat-log::-webkit-scrollbar,
-      .section-body::-webkit-scrollbar {
-        width: 10px;
-      }
-      .chat-log::-webkit-scrollbar-track,
-      .section-body::-webkit-scrollbar-track {
-        background: rgba(0,0,0,0.25);
-        border-radius: 999px;
-      }
-      .chat-log::-webkit-scrollbar-thumb,
-      .section-body::-webkit-scrollbar-thumb {
-        background: #4a4a4a;
-        border-radius: 999px;
-        border: 2px solid rgba(0,0,0,0.25);
-      }
-      .section h2 {
-        margin: 0 0 4px;
-        font-size: 18px;
-      }
-      .section p {
-        margin: 0 0 10px;
-        color: var(--muted);
-        font-size: 13px;
-      }
-      .detach-button {
-        width: 30px;
-        height: 30px;
-        flex: 0 0 auto;
-        padding: 0;
-        border-radius: 10px;
-        background: transparent;
-        border: 1px solid #444444;
-        color: var(--muted);
-        font-size: 14px;
-        line-height: 1;
-      }
-      .collapse-button {
-        width: 30px;
-        height: 30px;
-        flex: 0 0 auto;
-        padding: 0;
-        border-radius: 10px;
-        background: transparent;
-        border: 1px solid #444444;
-        color: var(--muted);
-        font-size: 16px;
-        line-height: 1;
-      }
-      .collapse-button:hover {
-        color: var(--text);
-        background: #252525;
-      }
-      .section.collapsed {
-        min-height: auto !important;
-        flex: 0 0 auto !important;
-      }
-      .section.collapsed .section-body {
-        display: none;
-      }
-      .section.collapsed .section-header {
-        align-items: center;
-      }
-      .section.collapsed .section-copy p {
-        margin-bottom: 0;
-      }
-      .detach-button:hover {
-        color: var(--text);
-        background: #252525;
-      }
-      body.detached-view {
-        min-height: 100vh;
-      }
-      .detached-shell {
-        max-width: 1100px;
-        margin: 0 auto;
-        padding: 20px;
-        min-height: 100vh;
-      }
-      .detached-shell .panel.section {
-        min-height: calc(100vh - 40px);
-      }
-      .card {
-        border: 1px solid #383838;
-        border-left: 4px solid var(--ink);
-        border-radius: 14px;
-        padding: 10px 12px;
-        margin-bottom: 10px;
-        background: rgba(255,255,255,0.03);
-      }
-      .card.clickable {
-        cursor: pointer;
-      }
-      .card.clickable:hover {
-        border-color: #5b514b;
-        background: rgba(255,255,255,0.05);
-      }
-      .card.selected {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.35);
-      }
-      .card h3 {
-        margin: 0 0 6px;
-        font-size: 15px;
-      }
-      .card pre {
-        white-space: pre-wrap;
-        word-break: break-word;
-        margin: 8px 0 0;
-        font-family: "SFMono-Regular", Consolas, monospace;
-        font-size: 12px;
-        color: #b0aea8;
-      }
-      .pill {
-        display: inline-block;
-        margin-right: 6px;
-        margin-bottom: 6px;
-        padding: 3px 8px;
-        border-radius: 999px;
-        background: var(--accent-soft);
-        font-size: 12px;
-      }
-      .pill.succeeded {
-        background: rgba(76, 175, 80, 0.2);
-        color: var(--green);
-      }
-      .pill.failed {
-        background: rgba(231, 76, 60, 0.2);
-        color: var(--red);
-      }
-      .pill.tool {
-        background: rgba(58, 138, 135, 0.2);
-        color: var(--ink);
-      }
-      .tool-trace-card {
-        border-left-color: var(--ink);
-      }
-      .tool-trace-card.failed {
-        border-left-color: var(--red);
-      }
-      .empty-state {
-        color: var(--muted);
-        font-style: italic;
-        font-size: 13px;
-        padding: 4px 0;
-      }
-      .agent-editor {
-        display: grid;
-        gap: 10px;
-        margin-bottom: 14px;
-        padding-bottom: 14px;
-        border-bottom: 1px solid var(--line);
-      }
+
       .agent-editor-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
+        grid-template-columns: 1fr;
       }
-      .agent-editor label {
-        display: grid;
-        gap: 6px;
-        font-size: 12px;
-        color: var(--muted);
-      }
-      .agent-editor input[type="text"],
-      .agent-editor input[type="number"],
-      .agent-editor textarea,
-      .agent-editor select {
-        width: 100%;
-        padding: 10px 12px;
-        font-size: 14px;
-        border-radius: 12px;
-        border: 1px solid #444444;
-        background: #1a1a1a;
-        color: var(--text);
-        font-family: inherit;
-      }
-      .agent-editor textarea {
-        min-height: 76px;
-        resize: vertical;
-      }
-      .agent-flags {
-        display: flex;
-        gap: 14px;
-        flex-wrap: wrap;
-      }
-      .agent-flags label,
-      .tool-checkboxes label {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: var(--text);
-      }
-      .tool-checkboxes {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-      .form-actions {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-      .button-secondary {
-        background: transparent;
-        border: 1px solid #444444;
-        color: var(--text);
-      }
-      .button-secondary:hover {
-        background: #252525;
-      }
-      .status-text {
-        font-size: 12px;
-        color: var(--muted);
-      }
-      @media (max-width: 980px) {
-        .shell { grid-template-columns: 1fr; }
-        .chat {
-          min-height: 70vh;
-          height: auto;
-          position: static;
-        }
-        .hero-top {
-          flex-direction: column;
-          align-items: flex-start;
-        }
-        .side {
-          max-height: none;
-          overflow: visible;
-          padding-right: 0;
-        }
-        .agent-editor-grid { grid-template-columns: 1fr; }
-      }
-    </style>
-  </head>
-  <body>
-    <div class="shell">
-      <section class="panel chat">
-        <div class="hero">
-          <div class="hero-top">
-            <p class="eyebrow">Chanakya Operating System</p>
-            {% if force_subagents_enabled %}
-              <span class="debug-badge">Force Subagents: ON</span>
-            {% endif %}
-          </div>
-          <h1>Chat with tools, visible in real-time.</h1>
-          <p>
-            Chanakya uses external MCP tools (calculator, fetch) when needed.
-            Tool selections, inputs, outputs, and errors are traced in the panel on the right.
-          </p>
-        </div>
-        <div id="chatLog" class="chat-log"></div>
-        <form id="chatForm" class="composer">
-          <input id="messageInput" type="text" placeholder="Talk to Chanakya..." required />
-          <button type="submit">Send</button>
-        </form>
-      </section>
+    }
+  </style>
+</head>
 
-      <section class="side">
-        <div class="panel section" data-panel="request-trace">
-          <div class="section-header">
-            <div class="section-copy">
-              <h2>Request Trace</h2>
-              <p>Route metadata for the latest request.</p>
-            </div>
-            <button type="button" class="detach-button" data-detach-panel="request-trace" title="Open in new tab" aria-label="Open Request Trace in new tab">&#x2197;</button>
-          </div>
-          <div class="section-body">
-            <div id="requestTrace"></div>
+<body>
+  <div class="shell">
+    <!-- Left Sidebar: Current Task Progress -->
+    <aside class="left-sidebar">
+      <div class="panel section" data-panel="task-progress" style="height:calc(100vh - 40px)">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2 style="font-size:16px;">Current Task Progress</h2>
+            <p>Live status of the current task.</p>
           </div>
         </div>
+        <div class="section-body">
+          <div id="taskProgress"></div>
+        </div>
+        <div id="taskProgressSummary" class="progress-summary"></div>
+      </div>
+    </aside>
 
-        <div class="panel section" data-panel="tool-traces">
-          <div class="section-header">
-            <div class="section-copy">
-              <h2>Tool Traces</h2>
-              <p>MCP tool selections, inputs, outputs, and errors.</p>
-            </div>
-            <button type="button" class="detach-button" data-detach-panel="tool-traces" title="Open in new tab" aria-label="Open Tool Traces in new tab">&#x2197;</button>
+    <section class="panel chat">
+      <div class="hero">
+        <div class="hero-top">
+          <p class="eyebrow">Chanakya Operating System</p>
+          {% if force_subagents_enabled %}
+          <span class="debug-badge">Force Subagents: ON</span>
+          {% endif %}
+        </div>
+        <h1>Chat with tools, visible in real-time.</h1>
+        <p>
+          Chanakya uses external MCP tools (calculator, fetch) when needed.
+          Tool selections, inputs, outputs, and errors are traced in the panel on the right.
+        </p>
+      </div>
+      <div id="chatLog" class="chat-log"></div>
+      <form id="chatForm" class="composer">
+        <input id="messageInput" type="text" placeholder="Talk to Chanakya..." required />
+        <button type="submit">Send</button>
+      </form>
+    </section>
+
+    <section class="side">
+      <div class="panel section" data-panel="request-trace">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Request Trace</h2>
+            <p>Route metadata for the latest request.</p>
           </div>
-          <div class="section-body">
-            <div id="toolTraceList"></div>
+          <button type="button" class="detach-button" data-detach-panel="request-trace" title="Open in new tab"
+            aria-label="Open Request Trace in new tab">&#x2197;</button>
+        </div>
+        <div class="section-body">
+          <div id="requestTrace"></div>
+        </div>
+      </div>
+
+      <div class="panel section" data-panel="tool-traces">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Tool Traces</h2>
+            <p>MCP tool selections, inputs, outputs, and errors.</p>
+          </div>
+          <button type="button" class="detach-button" data-detach-panel="tool-traces" title="Open in new tab"
+            aria-label="Open Tool Traces in new tab">&#x2197;</button>
+        </div>
+        <div class="section-body">
+          <div id="toolTraceList"></div>
+        </div>
+      </div>
+
+      <div class="panel section" data-panel="sandbox-guide">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Sandbox Guide</h2>
+            <p>What agents can read, write, and recover from during sandbox execution.</p>
+          </div>
+          <button type="button" class="detach-button" data-detach-panel="sandbox-guide" title="Open in new tab"
+            aria-label="Open Sandbox Guide in new tab">&#x2197;</button>
+        </div>
+        <div class="section-body">
+          <div class="sandbox-guide">
+            <div class="sandbox-note">
+              <h3>Available</h3>
+              <ul class="sandbox-list">
+                <li>Run Python and shell commands inside an isolated container.</li>
+                <li>Read host project files from read-only mounts at <code>/host/repo</code> and <code>/host/chanakya_data</code>.</li>
+                <li>Write persistent files only in the shared workspace for the current work id.</li>
+                <li>Retry after permission errors by copying files into <code>/workspace</code> first.</li>
+              </ul>
+              <span class="sandbox-path">Writable path: <code>/workspace</code> -> <code>chanakya_data/shared_workspace/&lt;work_id&gt;</code> or <code>temp</code></span>
+            </div>
+            <div class="sandbox-note">
+              <h3>Blocked</h3>
+              <ul class="sandbox-list">
+                <li>Writing to host-mounted files or directories outside <code>/workspace</code>.</li>
+                <li>Direct host command execution, privilege escalation, or path traversal escapes.</li>
+                <li>Network-dependent downloads or external API calls from sandboxed code.</li>
+              </ul>
+            </div>
+            <div class="sandbox-note">
+              <h3>Common Permission Fix</h3>
+              <ul class="sandbox-list">
+                <li>If you see <code>Permission denied</code> or <code>Read-only file system</code>, the agent should copy the target file into <code>/workspace</code> and modify the copy there.</li>
+              </ul>
+            </div>
           </div>
         </div>
+      </div>
 
-        <div class="panel section" data-panel="tasks">
-          <div class="section-header">
-            <div class="section-copy">
-              <h2>Tasks</h2>
-              <p>Persisted task graph, workflow type, owners, and lifecycle state.</p>
-            </div>
-            <button type="button" class="detach-button" data-detach-panel="tasks" title="Open in new tab" aria-label="Open Tasks in new tab">&#x2197;</button>
+      <div class="panel section" data-panel="tasks">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Tasks</h2>
+            <p>Persisted task graph, workflow type, owners, and lifecycle state.</p>
           </div>
-          <div class="section-body">
-            <div id="taskList"></div>
-          </div>
+          <button type="button" class="detach-button" data-detach-panel="tasks" title="Open in new tab"
+            aria-label="Open Tasks in new tab">&#x2197;</button>
         </div>
-
-        <div class="panel section" data-panel="task-timeline">
-          <div class="section-header">
-            <div class="section-copy">
-              <h2>Task Timeline</h2>
-              <p>Ordered request and task lifecycle events for this session.</p>
-            </div>
-            <button type="button" class="detach-button" data-detach-panel="task-timeline" title="Open in new tab" aria-label="Open Task Timeline in new tab">&#x2197;</button>
-          </div>
-          <div class="section-body">
-            <div id="taskTimeline"></div>
-          </div>
+        <div class="section-body">
+          <div id="taskList"></div>
         </div>
+      </div>
 
-        <div class="panel section" data-panel="temporary-subagents">
-          <div class="section-header">
-            <div class="section-copy">
-              <h2>Temporary Subagents</h2>
-              <p>Worker-scoped helper agents, their purpose, and cleanup lifecycle.</p>
-            </div>
-            <button type="button" class="detach-button" data-detach-panel="temporary-subagents" title="Open in new tab" aria-label="Open Temporary Subagents in new tab">&#x2197;</button>
+      <div class="panel section" data-panel="task-timeline">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Task Timeline</h2>
+            <p>Ordered request and task lifecycle events for this session.</p>
           </div>
-          <div class="section-body">
-            <div id="subagentList"></div>
-          </div>
+          <button type="button" class="detach-button" data-detach-panel="task-timeline" title="Open in new tab"
+            aria-label="Open Task Timeline in new tab">&#x2197;</button>
         </div>
+        <div class="section-body">
+          <div id="taskTimeline"></div>
+        </div>
+      </div>
 
-        <div class="panel section" data-panel="persistent-agents">
-          <div class="section-header">
-            <div class="section-copy">
-              <h2>Persistent Agents</h2>
-              <p>Create and edit saved agents used by the manager workflow.</p>
-            </div>
-            <button type="button" class="detach-button" data-detach-panel="persistent-agents" title="Open in new tab" aria-label="Open Persistent Agents in new tab">&#x2197;</button>
+      <div class="panel section" data-panel="temporary-subagents">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Temporary Subagents</h2>
+            <p>Worker-scoped helper agents, their purpose, and cleanup lifecycle.</p>
           </div>
-          <div class="section-body">
-            <form id="agentForm" class="agent-editor">
-              <div class="agent-editor-grid">
-                <label>
-                  Name
-                  <input id="agentName" type="text" required />
-                </label>
-                <label>
-                  Role
-                  <input id="agentRole" type="text" required placeholder="developer, tester, researcher..." />
-                </label>
-              </div>
+          <button type="button" class="detach-button" data-detach-panel="temporary-subagents" title="Open in new tab"
+            aria-label="Open Temporary Subagents in new tab">&#x2197;</button>
+        </div>
+        <div class="section-body">
+          <div id="subagentList"></div>
+        </div>
+      </div>
+
+      <div class="panel section" data-panel="persistent-agents">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Persistent Agents</h2>
+            <p>Create and edit saved agents used by the manager workflow.</p>
+          </div>
+          <button type="button" class="detach-button" data-detach-panel="persistent-agents" title="Open in new tab"
+            aria-label="Open Persistent Agents in new tab">&#x2197;</button>
+        </div>
+        <div class="section-body">
+          <form id="agentForm" class="agent-editor">
+            <div class="agent-editor-grid">
               <label>
-                System Prompt
-                <textarea id="agentSystemPrompt" required></textarea>
+                Name
+                <input id="agentName" type="text" required />
               </label>
               <label>
-                Personality
-                <input id="agentPersonality" type="text" placeholder="calm, direct, task-oriented" />
+                Role
+                <input id="agentRole" type="text" required placeholder="developer, tester, researcher..." />
               </label>
-              <div class="agent-editor-grid">
-                <label>
-                  Workspace
-                  <input id="agentWorkspace" type="text" placeholder="dev-workspace" />
-                </label>
-                <label>
-                  Heartbeat File Path
-                  <input id="agentHeartbeatFilePath" type="text" placeholder="chanakya_data/heartbeats/developer.md" />
-                </label>
+            </div>
+            <label>
+              System Prompt
+              <textarea id="agentSystemPrompt" required></textarea>
+            </label>
+            <label>
+              Personality
+              <input id="agentPersonality" type="text" placeholder="calm, direct, task-oriented" />
+            </label>
+            <div class="agent-editor-grid">
+              <label>
+                Workspace
+                <input id="agentWorkspace" type="text" placeholder="dev-workspace" />
+              </label>
+              <label>
+                Heartbeat File Path
+                <input id="agentHeartbeatFilePath" type="text" placeholder="chanakya_data/heartbeats/developer.md" />
+              </label>
+            </div>
+            <div class="agent-editor-grid">
+              <label>
+                Heartbeat Interval Seconds
+                <input id="agentHeartbeatInterval" type="number" min="1" value="300" />
+              </label>
+              <div>
+                <div class="status-text">Allowed Tools</div>
+                <div id="agentToolOptions" class="tool-checkboxes"></div>
               </div>
-              <div class="agent-editor-grid">
-                <label>
-                  Heartbeat Interval Seconds
-                  <input id="agentHeartbeatInterval" type="number" min="1" value="300" />
-                </label>
-                <div>
-                  <div class="status-text">Allowed Tools</div>
-                  <div id="agentToolOptions" class="tool-checkboxes"></div>
-                </div>
-              </div>
-              <div class="agent-flags">
-                <label><input id="agentIsActive" type="checkbox" checked /> Active</label>
-                <label><input id="agentHeartbeatEnabled" type="checkbox" /> Heartbeat Enabled</label>
-              </div>
-              <div class="form-actions">
-                <button id="agentSaveButton" type="submit">Create Agent</button>
-                <button id="agentResetButton" type="button" class="button-secondary">New Agent</button>
-                <span id="agentFormStatus" class="status-text"></span>
-              </div>
-            </form>
-            <div id="agentList"></div>
-          </div>
+            </div>
+            <div class="agent-flags">
+              <label><input id="agentIsActive" type="checkbox" checked /> Active</label>
+              <label><input id="agentHeartbeatEnabled" type="checkbox" /> Heartbeat Enabled</label>
+            </div>
+            <div class="form-actions">
+              <button id="agentSaveButton" type="submit">Create Agent</button>
+              <button id="agentResetButton" type="button" class="button-secondary">New Agent</button>
+              <span id="agentFormStatus" class="status-text"></span>
+            </div>
+          </form>
+          <div id="agentList"></div>
         </div>
-      </section>
-    </div>
+      </div>
+    </section>
+  </div>
 
-    <script>
-      const chatForm = document.getElementById("chatForm");
-      const messageInput = document.getElementById("messageInput");
-      const chatLog = document.getElementById("chatLog");
-      const requestTrace = document.getElementById("requestTrace");
-      const toolTraceList = document.getElementById("toolTraceList");
-      const taskList = document.getElementById("taskList");
-      const taskTimeline = document.getElementById("taskTimeline");
-      const subagentList = document.getElementById("subagentList");
-      const agentList = document.getElementById("agentList");
-      const agentForm = document.getElementById("agentForm");
-      const agentName = document.getElementById("agentName");
-      const agentRole = document.getElementById("agentRole");
-      const agentSystemPrompt = document.getElementById("agentSystemPrompt");
-      const agentPersonality = document.getElementById("agentPersonality");
-      const agentWorkspace = document.getElementById("agentWorkspace");
-      const agentHeartbeatFilePath = document.getElementById("agentHeartbeatFilePath");
-      const agentHeartbeatInterval = document.getElementById("agentHeartbeatInterval");
-      const agentIsActive = document.getElementById("agentIsActive");
-      const agentHeartbeatEnabled = document.getElementById("agentHeartbeatEnabled");
-      const agentToolOptions = document.getElementById("agentToolOptions");
-      const agentSaveButton = document.getElementById("agentSaveButton");
-      const agentResetButton = document.getElementById("agentResetButton");
-      const agentFormStatus = document.getElementById("agentFormStatus");
-      const detachedPanel = new URLSearchParams(window.location.search).get("panel");
-      const COLLAPSE_STORAGE_KEY = "chanakya-collapsed-panels";
-      const panelTitles = {
-        "request-trace": "Request Trace",
-        "tool-traces": "Tool Traces",
-        "tasks": "Tasks",
-        "task-timeline": "Task Timeline",
-        "temporary-subagents": "Temporary Subagents",
-        "persistent-agents": "Persistent Agents",
-      };
+  <script>
+    const chatForm = document.getElementById("chatForm");
+    const messageInput = document.getElementById("messageInput");
+    const chatLog = document.getElementById("chatLog");
+    const requestTrace = document.getElementById("requestTrace");
+    const toolTraceList = document.getElementById("toolTraceList");
+    const taskList = document.getElementById("taskList");
+    const taskTimeline = document.getElementById("taskTimeline");
+    const taskProgress = document.getElementById("taskProgress");
+    const taskProgressSummary = document.getElementById("taskProgressSummary");
+    const subagentList = document.getElementById("subagentList");
+    const agentList = document.getElementById("agentList");
+    const agentForm = document.getElementById("agentForm");
+    const agentName = document.getElementById("agentName");
+    const agentRole = document.getElementById("agentRole");
+    const agentSystemPrompt = document.getElementById("agentSystemPrompt");
+    const agentPersonality = document.getElementById("agentPersonality");
+    const agentWorkspace = document.getElementById("agentWorkspace");
+    const agentHeartbeatFilePath = document.getElementById("agentHeartbeatFilePath");
+    const agentHeartbeatInterval = document.getElementById("agentHeartbeatInterval");
+    const agentIsActive = document.getElementById("agentIsActive");
+    const agentHeartbeatEnabled = document.getElementById("agentHeartbeatEnabled");
+    const agentToolOptions = document.getElementById("agentToolOptions");
+    const agentSaveButton = document.getElementById("agentSaveButton");
+    const agentResetButton = document.getElementById("agentResetButton");
+    const agentFormStatus = document.getElementById("agentFormStatus");
+    const detachedPanel = new URLSearchParams(window.location.search).get("panel");
+    const COLLAPSE_STORAGE_KEY = "chanakya-collapsed-panels";
+    const panelTitles = {
+      "request-trace": "Request Trace",
+      "tool-traces": "Tool Traces",
+      "sandbox-guide": "Sandbox Guide",
+      "tasks": "Tasks",
+      "task-timeline": "Task Timeline",
+      "temporary-subagents": "Temporary Subagents",
+      "persistent-agents": "Persistent Agents",
+    };
 
-      let sessionId = null;
-      let selectedAgentId = null;
-      let availableTools = [];
-      const STORAGE_KEY = "chanakya-active-session";
+    let sessionId = null;
+    let selectedAgentId = null;
+    let availableTools = [];
+    const STORAGE_KEY = "chanakya-active-session";
 
-      function loadCollapsedPanels() {
-        try {
-          const raw = window.localStorage.getItem(COLLAPSE_STORAGE_KEY);
-          const value = raw ? JSON.parse(raw) : [];
-          return Array.isArray(value) ? value : [];
-        } catch {
-          return [];
-        }
+    function loadCollapsedPanels() {
+      try {
+        const raw = window.localStorage.getItem(COLLAPSE_STORAGE_KEY);
+        const value = raw ? JSON.parse(raw) : [];
+        return Array.isArray(value) ? value : [];
+      } catch {
+        return [];
       }
+    }
 
-      function storeCollapsedPanels(panelIds) {
-        try {
-          window.localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(panelIds));
-        } catch {
-        }
+    function storeCollapsedPanels(panelIds) {
+      try {
+        window.localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(panelIds));
+      } catch {
       }
+    }
 
-      function setPanelCollapsed(section, collapsed) {
+    function setPanelCollapsed(section, collapsed) {
+      const panelId = section.getAttribute("data-panel");
+      const button = section.querySelector(".collapse-button");
+      if (!panelId || !button) return;
+      section.classList.toggle("collapsed", collapsed);
+      button.textContent = collapsed ? "+" : "-";
+      button.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} ${panelTitles[panelId] || panelId}`);
+      button.setAttribute("title", `${collapsed ? "Expand" : "Collapse"} panel`);
+      const collapsedPanels = new Set(loadCollapsedPanels());
+      if (collapsed) {
+        collapsedPanels.add(panelId);
+      } else {
+        collapsedPanels.delete(panelId);
+      }
+      storeCollapsedPanels(Array.from(collapsedPanels));
+    }
+
+    function setupCollapseButtons() {
+      const collapsedPanels = new Set(loadCollapsedPanels());
+      document.querySelectorAll(".panel.section[data-panel]").forEach((section) => {
+        const header = section.querySelector(".section-header");
+        const detachButton = section.querySelector(".detach-button");
         const panelId = section.getAttribute("data-panel");
-        const button = section.querySelector(".collapse-button");
-        if (!panelId || !button) return;
-        section.classList.toggle("collapsed", collapsed);
-        button.textContent = collapsed ? "+" : "-";
-        button.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} ${panelTitles[panelId] || panelId}`);
-        button.setAttribute("title", `${collapsed ? "Expand" : "Collapse"} panel`);
-        const collapsedPanels = new Set(loadCollapsedPanels());
-        if (collapsed) {
-          collapsedPanels.add(panelId);
-        } else {
-          collapsedPanels.delete(panelId);
-        }
-        storeCollapsedPanels(Array.from(collapsedPanels));
-      }
-
-      function setupCollapseButtons() {
-        const collapsedPanels = new Set(loadCollapsedPanels());
-        document.querySelectorAll(".panel.section[data-panel]").forEach((section) => {
-          const header = section.querySelector(".section-header");
-          const detachButton = section.querySelector(".detach-button");
-          const panelId = section.getAttribute("data-panel");
-          if (!header || !panelId || section.querySelector(".collapse-button")) return;
-          let actions = header.querySelector(".section-actions");
-          if (!actions) {
-            actions = document.createElement("div");
-            actions.className = "section-actions";
-            if (detachButton) {
-              header.insertBefore(actions, detachButton);
-              actions.appendChild(detachButton);
-            } else {
-              header.appendChild(actions);
-            }
+        if (!header || !panelId || section.querySelector(".collapse-button")) return;
+        let actions = header.querySelector(".section-actions");
+        if (!actions) {
+          actions = document.createElement("div");
+          actions.className = "section-actions";
+          if (detachButton) {
+            header.insertBefore(actions, detachButton);
+            actions.appendChild(detachButton);
+          } else {
+            header.appendChild(actions);
           }
-          const collapseButton = document.createElement("button");
-          collapseButton.type = "button";
-          collapseButton.className = "collapse-button";
-          actions.insertBefore(collapseButton, actions.firstChild || null);
-          collapseButton.addEventListener("click", () => {
-            setPanelCollapsed(section, !section.classList.contains("collapsed"));
-          });
-          setPanelCollapsed(section, collapsedPanels.has(panelId));
+        }
+        const collapseButton = document.createElement("button");
+        collapseButton.type = "button";
+        collapseButton.className = "collapse-button";
+        actions.insertBefore(collapseButton, actions.firstChild || null);
+        collapseButton.addEventListener("click", () => {
+          setPanelCollapsed(section, !section.classList.contains("collapsed"));
         });
-      }
-
-      function applyDetachedView() {
-        if (!detachedPanel || !panelTitles[detachedPanel]) return;
-        document.body.classList.add("detached-view");
-        document.title = `Chanakya - ${panelTitles[detachedPanel]}`;
-
-        const selectedPanel = document.querySelector(`[data-panel="${detachedPanel}"]`);
-        const shell = document.querySelector(".shell");
-        if (!selectedPanel || !shell) return;
-
-        shell.replaceChildren(selectedPanel);
-        shell.className = "detached-shell";
-      }
-
-      function setupDetachButtons() {
-        document.querySelectorAll("[data-detach-panel]").forEach((button) => {
-          button.addEventListener("click", () => {
-            const panel = button.getAttribute("data-detach-panel");
-            const url = new URL(window.location.href);
-            url.searchParams.set("panel", panel);
-            window.open(url.toString(), "_blank", "noopener,noreferrer");
-          });
+        header.addEventListener("click", (event) => {
+          if (event.target.closest("button")) return;
+          setPanelCollapsed(section, !section.classList.contains("collapsed"));
         });
-      }
+        setPanelCollapsed(section, collapsedPanels.has(panelId));
+      });
+    }
 
-      function appendMessage(role, text, meta) {
-        const node = document.createElement("div");
-        node.className = `message ${role}`;
-        node.textContent = text;
-        if (meta) {
-          const metaNode = document.createElement("div");
-          metaNode.className = "meta";
-          metaNode.textContent = meta;
-          node.appendChild(metaNode);
-        }
-        chatLog.appendChild(node);
-        chatLog.scrollTop = chatLog.scrollHeight;
-      }
+    function applyDetachedView() {
+      if (!detachedPanel || !panelTitles[detachedPanel]) return;
+      document.body.classList.add("detached-view");
+      document.title = `Chanakya - ${panelTitles[detachedPanel]}`;
 
-      function loadStoredSessionId() {
-        try {
-          return window.localStorage.getItem(STORAGE_KEY);
-        } catch {
-          return null;
-        }
-      }
+      const selectedPanel = document.querySelector(`[data-panel="${detachedPanel}"]`);
+      const shell = document.querySelector(".shell");
+      if (!selectedPanel || !shell) return;
 
-      function storeSessionId(value) {
-        try {
-          if (value) {
-            window.localStorage.setItem(STORAGE_KEY, value);
-          }
-        } catch {
-          return;
-        }
-      }
+      shell.replaceChildren(selectedPanel);
+      shell.className = "detached-shell";
+    }
 
-      function replaceChildren(node, children) {
-        node.replaceChildren(...children);
-      }
-
-      function setAgentFormStatus(text, isError = false) {
-        agentFormStatus.textContent = text || "";
-        agentFormStatus.style.color = isError ? "var(--red)" : "var(--muted)";
-      }
-
-      function getSelectedToolIds() {
-        return Array.from(agentToolOptions.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
-      }
-
-      function renderToolOptions() {
-        if (!availableTools.length) {
-          agentToolOptions.innerHTML = '<span class="status-text">No MCP tools available.</span>';
-          return;
-        }
-        const nodes = availableTools.map((tool) => {
-          const label = document.createElement("label");
-          const input = document.createElement("input");
-          input.type = "checkbox";
-          input.value = tool.tool_id;
-          const text = document.createElement("span");
-          const status = tool.status === "available" ? "" : ` (${tool.status})`;
-          text.textContent = `${tool.tool_id}${status}`;
-          label.appendChild(input);
-          label.appendChild(text);
-          return label;
+    function setupDetachButtons() {
+      document.querySelectorAll("[data-detach-panel]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const panel = button.getAttribute("data-detach-panel");
+          const url = new URL(window.location.href);
+          url.searchParams.set("panel", panel);
+          window.open(url.toString(), "_blank", "noopener,noreferrer");
         });
-        replaceChildren(agentToolOptions, nodes);
+      });
+    }
+
+    function appendMessage(role, text, meta) {
+      const node = document.createElement("div");
+      node.className = `message ${role}`;
+      node.textContent = text;
+      if (meta) {
+        const metaNode = document.createElement("div");
+        metaNode.className = "meta";
+        metaNode.textContent = meta;
+        node.appendChild(metaNode);
       }
+      chatLog.appendChild(node);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
 
-      function resetAgentForm() {
-        selectedAgentId = null;
-        agentForm.reset();
-        agentHeartbeatInterval.value = 300;
-        agentIsActive.checked = true;
-        agentHeartbeatEnabled.checked = false;
-        agentSaveButton.textContent = "Create Agent";
-        setAgentFormStatus("");
-        agentToolOptions.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-          input.checked = false;
-        });
-      }
-
-      function populateAgentForm(agent) {
-        selectedAgentId = agent.id;
-        agentName.value = agent.name || "";
-        agentRole.value = agent.role || "";
-        agentSystemPrompt.value = agent.system_prompt || "";
-        agentPersonality.value = agent.personality || "";
-        agentWorkspace.value = agent.workspace || "";
-        agentHeartbeatFilePath.value = agent.heartbeat_file_path || "";
-        agentHeartbeatInterval.value = agent.heartbeat_interval_seconds || 300;
-        agentIsActive.checked = Boolean(agent.is_active);
-        agentHeartbeatEnabled.checked = Boolean(agent.heartbeat_enabled);
-        const selectedTools = new Set(agent.tool_ids || []);
-        agentToolOptions.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-          input.checked = selectedTools.has(input.value);
-        });
-        agentSaveButton.textContent = "Update Agent";
-        setAgentFormStatus(`Editing ${agent.name}`);
-      }
-
-      function buildAgentPayload() {
-        return {
-          name: agentName.value.trim(),
-          role: agentRole.value.trim(),
-          system_prompt: agentSystemPrompt.value.trim(),
-          personality: agentPersonality.value.trim(),
-          workspace: agentWorkspace.value.trim(),
-          heartbeat_enabled: agentHeartbeatEnabled.checked,
-          heartbeat_interval_seconds: Number(agentHeartbeatInterval.value || 300),
-          heartbeat_file_path: agentHeartbeatFilePath.value.trim(),
-          is_active: agentIsActive.checked,
-          tool_ids: getSelectedToolIds(),
-        };
-      }
-
-      function renderChatHistory(messages) {
-        chatLog.replaceChildren();
-        if (!messages.length) {
-          appendMessage(
-            "assistant",
-            "I am Chanakya. I can answer questions directly, calculate expressions, and fetch web pages. Try asking me something!",
-          );
-          return;
-        }
-        messages.forEach((item) => {
-          const meta = [];
-          if (item.route) meta.push(`route=${item.route}`);
-          if (item.request_id) meta.push(`request=${item.request_id}`);
-          if (item.metadata && item.metadata.runtime) meta.push(`runtime=${item.metadata.runtime}`);
-          appendMessage(item.role === "user" ? "user" : "assistant", item.content, meta.join(" "));
-        });
-      }
-
-      function renderTrace(data) {
-        const card = document.createElement("div");
-        card.className = "card";
-        const modePill = data.response_mode === "tool_assisted"
-          ? `<span class="pill tool">tool_assisted</span>`
-          : `<span class="pill">direct_answer</span>`;
-        card.innerHTML = `<h3>${data.agent_name} ${modePill}</h3>`;
-        const pre = document.createElement("pre");
-        pre.textContent = JSON.stringify({
-          request_id: data.request_id,
-          session_id: data.session_id,
-          request_status: data.request_status,
-          root_task_id: data.root_task_id,
-          root_task_status: data.root_task_status,
-          runtime: data.runtime,
-          model: data.model,
-          endpoint: data.endpoint,
-          tool_calls_used: data.tool_calls_used,
-        }, null, 2);
-        card.appendChild(pre);
-        replaceChildren(requestTrace, [card]);
-      }
-
-      function renderToolTraces(traces) {
-        if (!traces || !traces.length) {
-          toolTraceList.innerHTML = `<div class="empty-state">No tool calls for this session yet.</div>`;
-          return;
-        }
-        const nodes = traces.map((trace) => {
-          const card = document.createElement("div");
-          const isFailed = trace.status === "failed";
-          card.className = `card tool-trace-card${isFailed ? " failed" : ""}`;
-
-          const header = document.createElement("h3");
-          const toolName = document.createElement("span");
-          toolName.textContent = trace.tool_name;
-          header.appendChild(toolName);
-          const statusPill = document.createElement("span");
-          statusPill.className = `pill ${trace.status}`;
-          statusPill.textContent = trace.status;
-          header.appendChild(statusPill);
-          card.appendChild(header);
-
-          const serverContainer = document.createElement("div");
-          const serverPill = document.createElement("span");
-          serverPill.className = "pill tool";
-          serverPill.textContent = trace.server_name;
-          serverContainer.appendChild(serverPill);
-          card.appendChild(serverContainer);
-
-          const pre = document.createElement("pre");
-          const details = {};
-          if (trace.input) details.input = trace.input;
-          if (trace.output) details.output = trace.output.substring(0, 500);
-          if (trace.error) details.error = trace.error;
-          details.started_at = trace.started_at;
-          details.finished_at = trace.finished_at;
-          pre.textContent = JSON.stringify(details, null, 2);
-          card.appendChild(pre);
-          return card;
-        });
-        replaceChildren(toolTraceList, nodes);
-      }
-
-      function renderAgents(items) {
-        if (!items.length) {
-          agentList.textContent = "No agents loaded.";
-          return;
-        }
-        const nodes = items.map((agent) => {
-          const card = document.createElement("div");
-          card.className = `card clickable${selectedAgentId === agent.id ? " selected" : ""}`;
-          const pills = [agent.role];
-          if (agent.tool_ids && agent.tool_ids.length) pills.push(`${agent.tool_ids.length} tools`);
-          if (agent.heartbeat_enabled) pills.push(`heartbeat ${agent.heartbeat_interval_seconds}s`);
-          const heading = document.createElement("h3");
-          heading.textContent = agent.name;
-          card.appendChild(heading);
-          const pillRow = document.createElement("div");
-          pills.forEach((pillText) => {
-            const pill = document.createElement("span");
-            pill.className = "pill";
-            pill.textContent = pillText;
-            pillRow.appendChild(pill);
-          });
-          card.appendChild(pillRow);
-          const pre = document.createElement("pre");
-          pre.textContent = JSON.stringify({
-            id: agent.id,
-            system_prompt: agent.system_prompt,
-            workspace: agent.workspace,
-            tools: agent.tool_ids,
-            heartbeat_file_path: agent.heartbeat_file_path,
-            heartbeat_preview: agent.heartbeat_preview,
-          }, null, 2);
-          card.appendChild(pre);
-          card.addEventListener("click", () => populateAgentForm(agent));
-          return card;
-        });
-        replaceChildren(agentList, nodes);
-      }
-
-      function renderSubagents(items) {
-        if (!items.length) {
-          subagentList.innerHTML = `<div class="empty-state">No temporary subagents created for this session yet.</div>`;
-          return;
-        }
-        const nodes = items.map((agent) => {
-          const card = document.createElement("div");
-          card.className = "card";
-          const heading = document.createElement("h3");
-          heading.textContent = agent.name;
-          card.appendChild(heading);
-          const pillRow = document.createElement("div");
-          [agent.status, agent.role, agent.parent_agent_id].filter(Boolean).forEach((value) => {
-            const pill = document.createElement("span");
-            pill.className = "pill";
-            pill.textContent = value;
-            pillRow.appendChild(pill);
-          });
-          card.appendChild(pillRow);
-          const summary = document.createElement("p");
-          summary.className = "meta";
-          summary.textContent = `${agent.purpose} | parent_task=${agent.parent_task_id}`;
-          card.appendChild(summary);
-          const pre = document.createElement("pre");
-          pre.textContent = JSON.stringify({
-            creator_role: agent.creator_role,
-            tool_ids: agent.tool_ids,
-            workspace: agent.workspace,
-            cleanup_reason: agent.cleanup_reason,
-            activated_at: agent.activated_at,
-            cleaned_up_at: agent.cleaned_up_at,
-            metadata: agent.metadata,
-          }, null, 2);
-          card.appendChild(pre);
-          return card;
-        });
-        replaceChildren(subagentList, nodes);
-      }
-
-      async function refreshToolAvailability() {
-        try {
-          const response = await fetch("/api/tools/availability");
-          const data = await response.json();
-          availableTools = data.tools || [];
-        } catch {
-          availableTools = [];
-        }
-        renderToolOptions();
-      }
-
-      function formatEventTitle(eventType) {
-        const titles = {
-          request_received: "Request received",
-          task_created: "Task created",
-          task_owner_assigned: "Task owner assigned",
-          task_status_changed: "Task status changed",
-          task_started: "Task started",
-          task_state_set: "Task state set",
-          manager_delegated: "Delegated to manager",
-          manager_route_selected: "Manager selected specialist",
-          workflow_task_discovered: "Workflow task discovered",
-          workflow_dependency_recorded: "Task dependency recorded",
-          worker_handoff_ready: "Worker handoff ready",
-          worker_unblocked: "Blocked worker released",
-          worker_validation_completed: "Validation completed",
-          worker_output_completed: "Worker output completed",
-          worker_failed: "Worker failed",
-          worker_subagent_plan_accepted: "Worker helper plan accepted",
-          worker_subagent_synthesis_completed: "Worker helper synthesis completed",
-          user_input_requested: "User input requested",
-          user_input_submitted: "User input submitted",
-          task_resumed: "Task resumed",
-          workflow_waiting_input: "Workflow waiting for input",
-          manager_waiting_input: "Manager waiting for input",
-          task_cancelled: "Task cancelled",
-          task_retry_requested: "Task retry requested",
-          task_manual_unblocked: "Task manually unblocked",
-          subagent_created: "Temporary subagent created",
-          subagent_group_started: "Temporary subagent group started",
-          subagent_output_ready: "Temporary subagent output ready",
-          subagent_cleanup_started: "Temporary subagent cleanup started",
-          subagent_cleaned: "Temporary subagent cleaned",
-          subagent_cleanup_failed: "Temporary subagent cleanup failed",
-          subagent_creation_rejected: "Temporary subagent creation rejected",
-          specialist_review_completed: "Supervisor review completed",
-          specialist_workflow_completed: "Supervisor workflow completed",
-          specialist_workflow_failed: "Supervisor workflow failed",
-          workflow_completed: "Workflow completed",
-          workflow_failed: "Workflow failed",
-          manager_summary_completed: "Manager summary completed",
-          response_persisted: "Assistant response persisted",
-          tool_trace_recorded: "Tool trace recorded",
-        };
-        return titles[eventType] || eventType.replaceAll("_", " ");
-      }
-
-      function summarizeEvent(event) {
-        const payload = event.payload || {};
-        if (event.event_type === "task_status_changed") {
-          return `${payload.from_status || "unknown"} -> ${payload.to_status || "unknown"}`;
-        }
-        if (event.event_type === "manager_route_selected") {
-          return `${payload.selected_agent_id || "unknown"} for ${payload.execution_mode || "workflow"}`;
-        }
-        if (event.event_type === "workflow_dependency_recorded") {
-          return `depends on ${payload.depends_on_task_id || payload.dependency_task_id || "unknown task"}`;
-        }
-        if (event.event_type === "task_owner_assigned") {
-          return `${payload.owner_agent_name || payload.owner_agent_id || "unassigned"}`;
-        }
-        if (event.event_type === "worker_handoff_ready") {
-          return `handoff prepared for ${payload.handoff_for_role || "next worker"}`;
-        }
-        if (event.event_type === "worker_unblocked") {
-          return `dependency satisfied by ${payload.dependency_task_id || "previous task"}`;
-        }
-        if (event.event_type === "worker_subagent_plan_accepted") {
-          return `${payload.helper_count || 0} helpers for ${payload.parent_agent_id || "worker"}`;
-        }
-        if (event.event_type === "user_input_requested") {
-          return payload.input_prompt || payload.question || "clarification required";
-        }
-        if (event.event_type === "user_input_submitted") {
-          return payload.message || "user input received";
-        }
-        if (event.event_type === "task_resumed") {
-          return "workflow resumed after input";
-        }
-        if (event.event_type === "subagent_created") {
-          return `${payload.temporary_agent_id || "subagent"} for ${payload.parent_agent_id || "worker"}`;
-        }
-        if (event.event_type === "subagent_cleanup_started" || event.event_type === "subagent_cleaned" || event.event_type === "subagent_cleanup_failed") {
-          return payload.cleanup_reason || "cleanup";
-        }
-        if (event.event_type === "workflow_completed" || event.event_type === "workflow_failed") {
-          return payload.workflow_type || "workflow";
-        }
-        if (event.event_type === "response_persisted") {
-          return `${payload.route || "response"} / ${payload.response_mode || "unknown mode"}`;
-        }
-        if (event.event_type === "tool_trace_recorded") {
-          return payload.tool_name || payload.tool_id || "tool call";
-        }
-        if (typeof payload.message === "string" && payload.message) {
-          return payload.message;
-        }
-        if (typeof payload.reason === "string" && payload.reason) {
-          return payload.reason;
-        }
+    function loadStoredSessionId() {
+      try {
+        return window.localStorage.getItem(STORAGE_KEY);
+      } catch {
         return null;
       }
+    }
 
-      function describeTask(task) {
-        const bits = [];
-        if (task.parent_task_id) bits.push(`parent=${task.parent_task_id}`);
-        if (Array.isArray(task.dependencies) && task.dependencies.length) {
-          bits.push(`depends=${task.dependencies.join(", ")}`);
+    function storeSessionId(value) {
+      try {
+        if (value) {
+          window.localStorage.setItem(STORAGE_KEY, value);
         }
-        if (task.started_at) bits.push(`started=${task.started_at}`);
-        if (task.finished_at) bits.push(`finished=${task.finished_at}`);
-        return bits.join(" | ");
+      } catch {
+        return;
+      }
+    }
+
+    function replaceChildren(node, children) {
+      node.replaceChildren(...children);
+    }
+
+    function setAgentFormStatus(text, isError = false) {
+      agentFormStatus.textContent = text || "";
+      agentFormStatus.style.color = isError ? "var(--red)" : "var(--muted)";
+    }
+
+    function getSelectedToolIds() {
+      return Array.from(agentToolOptions.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
+    }
+
+    function renderToolOptions() {
+      if (!availableTools.length) {
+        agentToolOptions.innerHTML = '<span class="status-text">No MCP tools available.</span>';
+        return;
+      }
+      const nodes = availableTools.map((tool) => {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = tool.tool_id;
+        const text = document.createElement("span");
+        const status = tool.status === "available" ? "" : ` (${tool.status})`;
+        text.textContent = `${tool.tool_id}${status}`;
+        label.appendChild(input);
+        label.appendChild(text);
+        return label;
+      });
+      replaceChildren(agentToolOptions, nodes);
+    }
+
+    function resetAgentForm() {
+      selectedAgentId = null;
+      agentForm.reset();
+      agentHeartbeatInterval.value = 300;
+      agentIsActive.checked = true;
+      agentHeartbeatEnabled.checked = false;
+      agentSaveButton.textContent = "Create Agent";
+      setAgentFormStatus("");
+      agentToolOptions.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+        input.checked = false;
+      });
+    }
+
+    function populateAgentForm(agent) {
+      selectedAgentId = agent.id;
+      agentName.value = agent.name || "";
+      agentRole.value = agent.role || "";
+      agentSystemPrompt.value = agent.system_prompt || "";
+      agentPersonality.value = agent.personality || "";
+      agentWorkspace.value = agent.workspace || "";
+      agentHeartbeatFilePath.value = agent.heartbeat_file_path || "";
+      agentHeartbeatInterval.value = agent.heartbeat_interval_seconds || 300;
+      agentIsActive.checked = Boolean(agent.is_active);
+      agentHeartbeatEnabled.checked = Boolean(agent.heartbeat_enabled);
+      const selectedTools = new Set(agent.tool_ids || []);
+      agentToolOptions.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+        input.checked = selectedTools.has(input.value);
+      });
+      agentSaveButton.textContent = "Update Agent";
+      setAgentFormStatus(`Editing ${agent.name}`);
+    }
+
+    function buildAgentPayload() {
+      return {
+        name: agentName.value.trim(),
+        role: agentRole.value.trim(),
+        system_prompt: agentSystemPrompt.value.trim(),
+        personality: agentPersonality.value.trim(),
+        workspace: agentWorkspace.value.trim(),
+        heartbeat_enabled: agentHeartbeatEnabled.checked,
+        heartbeat_interval_seconds: Number(agentHeartbeatInterval.value || 300),
+        heartbeat_file_path: agentHeartbeatFilePath.value.trim(),
+        is_active: agentIsActive.checked,
+        tool_ids: getSelectedToolIds(),
+      };
+    }
+
+    function renderChatHistory(messages) {
+      chatLog.replaceChildren();
+      if (!messages.length) {
+        appendMessage(
+          "assistant",
+          "I am Chanakya. I can answer questions directly, calculate expressions, and fetch web pages. Try asking me something!",
+        );
+        return;
+      }
+      messages.forEach((item) => {
+        const meta = [];
+        if (item.route) meta.push(`route=${item.route}`);
+        if (item.request_id) meta.push(`request=${item.request_id}`);
+        if (item.metadata && item.metadata.runtime) meta.push(`runtime=${item.metadata.runtime}`);
+        appendMessage(item.role === "user" ? "user" : "assistant", item.content, meta.join(" "));
+      });
+    }
+
+    function renderTrace(data) {
+      if (!data) {
+        requestTrace.innerHTML = `<div class="empty-state">No request metadata for this session yet.</div>`;
+        return;
+      }
+      const card = document.createElement("div");
+      card.className = "card";
+      const modePill = data.response_mode === "tool_assisted"
+        ? `<span class="pill tool">tool_assisted</span>`
+        : `<span class="pill">direct_answer</span>`;
+      card.innerHTML = `<h3>${data.agent_name} ${modePill}</h3>`;
+      const pre = document.createElement("pre");
+      pre.textContent = JSON.stringify({
+        request_id: data.request_id,
+        session_id: data.session_id,
+        request_status: data.request_status,
+        root_task_id: data.root_task_id,
+        root_task_status: data.root_task_status,
+        runtime: data.runtime,
+        model: data.model,
+        endpoint: data.endpoint,
+        tool_calls_used: data.tool_calls_used,
+      }, null, 2);
+      card.appendChild(pre);
+      replaceChildren(requestTrace, [card]);
+    }
+
+    function formatAgentLabel(agentId) {
+      if (!agentId) return "Chanakya";
+      return agentId.replace(/^agent_/, "").replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function formatTaskProgressTitle(task) {
+      const ownerLabel = formatAgentLabel(task.owner_agent_id);
+      if (task.owner_agent_id === "agent_chanakya") {
+        return "Chanakya is processing the request";
+      }
+      if (task.owner_agent_id === "agent_manager") {
+        return task.status === "waiting_input"
+          ? "Agent Manager is waiting for your input"
+          : "Agent Manager is coordinating the task";
+      }
+      if (!task.owner_agent_id) {
+        return task.title || task.summary || "Task in progress";
+      }
+      if (task.status === "waiting_input") {
+        return `${ownerLabel} is waiting for your input`;
+      }
+      if (task.status === "blocked") {
+        return `${ownerLabel} is blocked`;
+      }
+      if (task.status === "done") {
+        return `${ownerLabel} completed work`;
+      }
+      if (task.status === "failed") {
+        return `${ownerLabel} failed`;
+      }
+      if (task.status === "cancelled") {
+        return `${ownerLabel} was cancelled`;
+      }
+      return `${ownerLabel} is working on it`;
+    }
+
+    function buildTaskProgressItems(tasks, events, rootTaskId) {
+      const relevantTasks = (tasks || [])
+        .filter((task) => !rootTaskId || task.id === rootTaskId || task.parent_task_id)
+        .sort((a, b) => {
+          const createdCompare = String(a.created_at || "").localeCompare(String(b.created_at || ""));
+          if (createdCompare !== 0) return createdCompare;
+          return String(a.id || "").localeCompare(String(b.id || ""));
+        });
+
+      const items = [{
+        id: "request-received",
+        text: "Task received by Chanakya",
+        status: relevantTasks.length ? "completed" : "in_progress",
+        meta: null,
+      }];
+
+      relevantTasks.forEach((task) => {
+        items.push({
+          id: task.id,
+          text: formatTaskProgressTitle(task),
+          status: task.status || "created",
+          meta: task.title || task.task_type || null,
+        });
+      });
+
+      const responsePersisted = (events || []).some((event) => event.event_type === "response_persisted");
+      if (responsePersisted) {
+        items.push({
+          id: "response-ready",
+          text: "Response ready",
+          status: "completed",
+          meta: null,
+        });
       }
 
-      async function postTaskAction(taskId, action, payload = {}) {
-        const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/${action}`, {
-          method: "POST",
+      return items;
+    }
+
+    function renderTaskProgressSummary(tasks) {
+      const counts = (tasks || []).reduce((acc, task) => {
+        const status = task.status || "created";
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      }, {});
+      const orderedStatuses = ["in_progress", "waiting_input", "blocked", "done", "failed"];
+      const labels = {
+        in_progress: "Working",
+        waiting_input: "Waiting",
+        blocked: "Blocked",
+        done: "Done",
+        failed: "Failed",
+      };
+      const colors = {
+        in_progress: "var(--yellow)",
+        waiting_input: "#e67e22",
+        blocked: "#e67e22",
+        done: "var(--green)",
+        failed: "var(--red)",
+      };
+      const nodes = orderedStatuses
+        .filter((status) => counts[status])
+        .map((status) => {
+          const stat = document.createElement("div");
+          stat.className = "stat";
+          const dot = document.createElement("span");
+          dot.className = "stat-dot";
+          dot.style.background = colors[status];
+          stat.appendChild(dot);
+          const text = document.createElement("span");
+          text.textContent = `${labels[status]} ${counts[status]}`;
+          stat.appendChild(text);
+          return stat;
+        });
+      replaceChildren(taskProgressSummary, nodes);
+    }
+
+    function renderToolTraces(traces) {
+      if (!traces || !traces.length) {
+        toolTraceList.innerHTML = `<div class="empty-state">No tool calls for this session yet.</div>`;
+        return;
+      }
+      const nodes = traces.map((trace) => {
+        const card = document.createElement("div");
+        const isFailed = trace.status === "failed";
+        card.className = `card tool-trace-card${isFailed ? " failed" : ""}`;
+
+        const header = document.createElement("h3");
+        const toolName = document.createElement("span");
+        toolName.textContent = trace.tool_name;
+        header.appendChild(toolName);
+        const statusPill = document.createElement("span");
+        statusPill.className = `pill ${trace.status}`;
+        statusPill.textContent = trace.status;
+        header.appendChild(statusPill);
+        card.appendChild(header);
+
+        const serverContainer = document.createElement("div");
+        const serverPill = document.createElement("span");
+        serverPill.className = "pill tool";
+        serverPill.textContent = trace.server_name;
+        serverContainer.appendChild(serverPill);
+        card.appendChild(serverContainer);
+
+        const pre = document.createElement("pre");
+        const details = {};
+        if (trace.input) details.input = trace.input;
+        if (trace.output) details.output = trace.output.substring(0, 500);
+        if (trace.error) details.error = trace.error;
+        details.started_at = trace.started_at;
+        details.finished_at = trace.finished_at;
+        pre.textContent = JSON.stringify(details, null, 2);
+        card.appendChild(pre);
+        return card;
+      });
+      replaceChildren(toolTraceList, nodes);
+    }
+
+    function renderAgents(items) {
+      if (!items.length) {
+        agentList.textContent = "No agents loaded.";
+        return;
+      }
+      const nodes = items.map((agent) => {
+        const card = document.createElement("div");
+        card.className = `card clickable${selectedAgentId === agent.id ? " selected" : ""}`;
+        const pills = [agent.role];
+        if (agent.tool_ids && agent.tool_ids.length) pills.push(`${agent.tool_ids.length} tools`);
+        if (agent.heartbeat_enabled) pills.push(`heartbeat ${agent.heartbeat_interval_seconds}s`);
+        const heading = document.createElement("h3");
+        heading.textContent = agent.name;
+        card.appendChild(heading);
+        const pillRow = document.createElement("div");
+        pills.forEach((pillText) => {
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.textContent = pillText;
+          pillRow.appendChild(pill);
+        });
+        card.appendChild(pillRow);
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify({
+          id: agent.id,
+          system_prompt: agent.system_prompt,
+          workspace: agent.workspace,
+          tools: agent.tool_ids,
+          heartbeat_file_path: agent.heartbeat_file_path,
+          heartbeat_preview: agent.heartbeat_preview,
+        }, null, 2);
+        card.appendChild(pre);
+        card.addEventListener("click", () => populateAgentForm(agent));
+        return card;
+      });
+      replaceChildren(agentList, nodes);
+    }
+
+    function renderSubagents(items) {
+      if (!items.length) {
+        subagentList.innerHTML = `<div class="empty-state">No temporary subagents created for this session yet.</div>`;
+        return;
+      }
+      const nodes = items.map((agent) => {
+        const card = document.createElement("div");
+        card.className = "card";
+        const heading = document.createElement("h3");
+        heading.textContent = agent.name;
+        card.appendChild(heading);
+        const pillRow = document.createElement("div");
+        [agent.status, agent.role, agent.parent_agent_id].filter(Boolean).forEach((value) => {
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.textContent = value;
+          pillRow.appendChild(pill);
+        });
+        card.appendChild(pillRow);
+        const summary = document.createElement("p");
+        summary.className = "meta";
+        summary.textContent = `${agent.purpose} | parent_task=${agent.parent_task_id}`;
+        card.appendChild(summary);
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify({
+          creator_role: agent.creator_role,
+          tool_ids: agent.tool_ids,
+          workspace: agent.workspace,
+          cleanup_reason: agent.cleanup_reason,
+          activated_at: agent.activated_at,
+          cleaned_up_at: agent.cleaned_up_at,
+          metadata: agent.metadata,
+        }, null, 2);
+        card.appendChild(pre);
+        return card;
+      });
+      replaceChildren(subagentList, nodes);
+    }
+
+    async function refreshToolAvailability() {
+      try {
+        const response = await fetch("/api/tools/availability");
+        const data = await response.json();
+        availableTools = data.tools || [];
+      } catch {
+        availableTools = [];
+      }
+      renderToolOptions();
+    }
+
+    function formatEventTitle(eventType) {
+      const titles = {
+        request_received: "Request received",
+        task_created: "Task created",
+        task_owner_assigned: "Task owner assigned",
+        task_status_changed: "Task status changed",
+        task_started: "Task started",
+        task_state_set: "Task state set",
+        manager_delegated: "Delegated to manager",
+        manager_route_selected: "Manager selected specialist",
+        workflow_task_discovered: "Workflow task discovered",
+        workflow_dependency_recorded: "Task dependency recorded",
+        worker_handoff_ready: "Worker handoff ready",
+        worker_unblocked: "Blocked worker released",
+        worker_validation_completed: "Validation completed",
+        worker_output_completed: "Worker output completed",
+        worker_failed: "Worker failed",
+        worker_subagent_plan_accepted: "Worker helper plan accepted",
+        worker_subagent_synthesis_completed: "Worker helper synthesis completed",
+        user_input_requested: "User input requested",
+        user_input_submitted: "User input submitted",
+        task_resumed: "Task resumed",
+        workflow_waiting_input: "Workflow waiting for input",
+        manager_waiting_input: "Manager waiting for input",
+        task_cancelled: "Task cancelled",
+        task_retry_requested: "Task retry requested",
+        task_manual_unblocked: "Task manually unblocked",
+        subagent_created: "Temporary subagent created",
+        subagent_group_started: "Temporary subagent group started",
+        subagent_output_ready: "Temporary subagent output ready",
+        subagent_cleanup_started: "Temporary subagent cleanup started",
+        subagent_cleaned: "Temporary subagent cleaned",
+        subagent_cleanup_failed: "Temporary subagent cleanup failed",
+        subagent_creation_rejected: "Temporary subagent creation rejected",
+        specialist_review_completed: "Supervisor review completed",
+        specialist_workflow_completed: "Supervisor workflow completed",
+        specialist_workflow_failed: "Supervisor workflow failed",
+        workflow_completed: "Workflow completed",
+        workflow_failed: "Workflow failed",
+        manager_summary_completed: "Manager summary completed",
+        response_persisted: "Assistant response persisted",
+        tool_trace_recorded: "Tool trace recorded",
+      };
+      return titles[eventType] || eventType.replaceAll("_", " ");
+    }
+
+    function summarizeEvent(event) {
+      const payload = event.payload || {};
+      if (event.event_type === "task_status_changed") {
+        return `${payload.from_status || "unknown"} -> ${payload.to_status || "unknown"}`;
+      }
+      if (event.event_type === "manager_route_selected") {
+        return `${payload.selected_agent_id || "unknown"} for ${payload.execution_mode || "workflow"}`;
+      }
+      if (event.event_type === "workflow_dependency_recorded") {
+        return `depends on ${payload.depends_on_task_id || payload.dependency_task_id || "unknown task"}`;
+      }
+      if (event.event_type === "task_owner_assigned") {
+        return `${payload.owner_agent_name || payload.owner_agent_id || "unassigned"}`;
+      }
+      if (event.event_type === "worker_handoff_ready") {
+        return `handoff prepared for ${payload.handoff_for_role || "next worker"}`;
+      }
+      if (event.event_type === "worker_unblocked") {
+        return `dependency satisfied by ${payload.dependency_task_id || "previous task"}`;
+      }
+      if (event.event_type === "worker_subagent_plan_accepted") {
+        return `${payload.helper_count || 0} helpers for ${payload.parent_agent_id || "worker"}`;
+      }
+      if (event.event_type === "user_input_requested") {
+        return payload.input_prompt || payload.question || "clarification required";
+      }
+      if (event.event_type === "user_input_submitted") {
+        return payload.message || "user input received";
+      }
+      if (event.event_type === "task_resumed") {
+        return "workflow resumed after input";
+      }
+      if (event.event_type === "subagent_created") {
+        return `${payload.temporary_agent_id || "subagent"} for ${payload.parent_agent_id || "worker"}`;
+      }
+      if (event.event_type === "subagent_cleanup_started" || event.event_type === "subagent_cleaned" || event.event_type === "subagent_cleanup_failed") {
+        return payload.cleanup_reason || "cleanup";
+      }
+      if (event.event_type === "workflow_completed" || event.event_type === "workflow_failed") {
+        return payload.workflow_type || "workflow";
+      }
+      if (event.event_type === "response_persisted") {
+        return `${payload.route || "response"} / ${payload.response_mode || "unknown mode"}`;
+      }
+      if (event.event_type === "tool_trace_recorded") {
+        return payload.tool_name || payload.tool_id || "tool call";
+      }
+      if (typeof payload.message === "string" && payload.message) {
+        return payload.message;
+      }
+      if (typeof payload.reason === "string" && payload.reason) {
+        return payload.reason;
+      }
+      return null;
+    }
+
+    function describeTask(task) {
+      const bits = [];
+      if (task.parent_task_id) bits.push(`parent=${task.parent_task_id}`);
+      if (Array.isArray(task.dependencies) && task.dependencies.length) {
+        bits.push(`depends=${task.dependencies.join(", ")}`);
+      }
+      if (task.started_at) bits.push(`started=${task.started_at}`);
+      if (task.finished_at) bits.push(`finished=${task.finished_at}`);
+      return bits.join(" | ");
+    }
+
+    async function postTaskAction(taskId, action, payload = {}) {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || `Task ${action} failed`);
+      }
+      return data;
+    }
+
+    async function submitTaskInput(taskId, input, button = null) {
+      if (button && button.dataset.submitting === "true") {
+        return;
+      }
+      const message = input.value.trim();
+      if (!message) return;
+      input.disabled = true;
+      if (button) {
+        button.disabled = true;
+        button.dataset.submitting = "true";
+      }
+      try {
+        await postTaskAction(taskId, "input", { message });
+        input.value = "";
+        await loadSessionHistory();
+      } catch (error) {
+        appendMessage("assistant", error instanceof Error ? error.message : String(error));
+      } finally {
+        input.disabled = false;
+        if (button) {
+          button.disabled = false;
+          button.dataset.submitting = "false";
+        }
+      }
+    }
+
+    function renderTasks(items) {
+      if (!items.length) {
+        taskList.innerHTML = `<div class="empty-state">No tasks created for this session yet.</div>`;
+        return;
+      }
+      const childrenByParent = new Map();
+      items.forEach((task) => {
+        if (!task.parent_task_id) return;
+        if (!childrenByParent.has(task.parent_task_id)) {
+          childrenByParent.set(task.parent_task_id, []);
+        }
+        childrenByParent.get(task.parent_task_id).push(task);
+      });
+
+      function buildTaskCard(task, depth = 0) {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.style.marginLeft = `${depth * 14}px`;
+        const heading = document.createElement("h3");
+        const workflowType = task.input && task.input.workflow_type ? ` [${task.input.workflow_type}]` : "";
+        heading.textContent = `${task.title}${workflowType}`;
+        card.appendChild(heading);
+        const pillRow = document.createElement("div");
+        [task.status, task.task_type, task.owner_agent_id || "unassigned"].forEach((value) => {
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.textContent = value;
+          pillRow.appendChild(pill);
+        });
+        card.appendChild(pillRow);
+        const summary = document.createElement("p");
+        summary.className = "meta";
+        summary.textContent = describeTask(task) || (task.summary || "No task summary available.");
+        card.appendChild(summary);
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify({
+          id: task.id,
+          error: task.error,
+          summary: task.summary,
+          input: task.input,
+          result: task.result,
+        }, null, 2);
+        card.appendChild(pre);
+        const actionRow = document.createElement("div");
+        actionRow.className = "form-actions";
+        const resumableWaitingTask = task.status === "waiting_input" && !!task.input?.maf_pending_request_id;
+        if (resumableWaitingTask) {
+          const answerInput = document.createElement("input");
+          answerInput.type = "text";
+          answerInput.placeholder = task.input?.maf_pending_prompt || "Reply to continue this task";
+          actionRow.appendChild(answerInput);
+          const replyButton = document.createElement("button");
+          replyButton.type = "button";
+          replyButton.textContent = "Reply";
+          replyButton.addEventListener("click", () => submitTaskInput(task.id, answerInput, replyButton));
+          actionRow.appendChild(replyButton);
+          const cancelButton = document.createElement("button");
+          cancelButton.type = "button";
+          cancelButton.className = "button-secondary";
+          cancelButton.textContent = "Cancel";
+          cancelButton.addEventListener("click", async () => {
+            try {
+              await postTaskAction(task.id, "cancel");
+              await refreshSidePanels();
+            } catch (error) {
+              appendMessage("assistant", error instanceof Error ? error.message : String(error));
+            }
+          });
+          actionRow.appendChild(cancelButton);
+        }
+        if (task.status === "failed" && !task.parent_task_id) {
+          const retryButton = document.createElement("button");
+          retryButton.type = "button";
+          retryButton.className = "button-secondary";
+          retryButton.textContent = "Retry";
+          retryButton.addEventListener("click", async () => {
+            try {
+              await postTaskAction(task.id, "retry");
+              await loadSessionHistory();
+            } catch (error) {
+              appendMessage("assistant", error instanceof Error ? error.message : String(error));
+            }
+          });
+          actionRow.appendChild(retryButton);
+        }
+        if (task.status === "blocked") {
+          const unblockButton = document.createElement("button");
+          unblockButton.type = "button";
+          unblockButton.className = "button-secondary";
+          unblockButton.textContent = "Manual Unblock";
+          unblockButton.addEventListener("click", async () => {
+            try {
+              await postTaskAction(task.id, "unblock");
+              await refreshSidePanels();
+            } catch (error) {
+              appendMessage("assistant", error instanceof Error ? error.message : String(error));
+            }
+          });
+          actionRow.appendChild(unblockButton);
+        }
+        if (actionRow.childNodes.length) {
+          card.appendChild(actionRow);
+        }
+        const childNodes = (childrenByParent.get(task.id) || []).flatMap((child) => buildTaskCard(child, depth + 1));
+        return [card, ...childNodes];
+      }
+
+      const rootTasks = items.filter((task) => !task.parent_task_id);
+      const nodes = rootTasks.flatMap((task) => buildTaskCard(task));
+      replaceChildren(taskList, nodes);
+    }
+
+    function renderTaskTimeline(items) {
+      if (!items.length) {
+        taskTimeline.innerHTML = `<div class="empty-state">No task events recorded for this session yet.</div>`;
+        return;
+      }
+      const nodes = items.map((event) => {
+        const card = document.createElement("div");
+        card.className = "card";
+        const heading = document.createElement("h3");
+        heading.textContent = formatEventTitle(event.event_type);
+        card.appendChild(heading);
+        const pillRow = document.createElement("div");
+        [event.request_id, event.task_id, event.event_type].filter(Boolean).forEach((value) => {
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.textContent = value;
+          pillRow.appendChild(pill);
+        });
+        card.appendChild(pillRow);
+        const summary = summarizeEvent(event);
+        if (summary) {
+          const meta = document.createElement("p");
+          meta.className = "meta";
+          meta.textContent = summary;
+          card.appendChild(meta);
+        }
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify({
+          created_at: event.created_at,
+          payload: event.payload,
+        }, null, 2);
+        card.appendChild(pre);
+        return card;
+      });
+      replaceChildren(taskTimeline, nodes);
+    }
+
+    function renderTaskProgress(tasks, events, rootTaskId) {
+      if ((!tasks || !tasks.length) && (!events || !events.length)) {
+        taskProgress.innerHTML = '<div class="progress-empty">No active task sequence yet. Send a message to see progress.</div>';
+        taskProgressSummary.innerHTML = '';
+        return;
+      }
+
+      const progressItems = buildTaskProgressItems(tasks, events, rootTaskId);
+      if (!progressItems.length) {
+        taskProgress.innerHTML = '<div class="progress-empty">No active task sequence yet. Send a message to see progress.</div>';
+        taskProgressSummary.innerHTML = '';
+        return;
+      }
+
+      const nodes = progressItems.map((item) => {
+        const nodeItem = document.createElement("div");
+        nodeItem.className = "progress-item";
+
+        const dot = document.createElement("div");
+        dot.className = `progress-dot ${item.status}`;
+        nodeItem.appendChild(dot);
+
+        const info = document.createElement("div");
+        info.className = "progress-info";
+        const title = document.createElement("div");
+        title.className = "progress-title";
+        title.textContent = item.text;
+        title.title = item.text;
+        info.appendChild(title);
+        if (item.meta) {
+          const meta = document.createElement("div");
+          meta.className = "progress-owner";
+          meta.textContent = item.meta;
+          info.appendChild(meta);
+        }
+        nodeItem.appendChild(info);
+        return nodeItem;
+      });
+
+      replaceChildren(taskProgress, nodes);
+      renderTaskProgressSummary(tasks || []);
+    }
+
+    async function refreshToolTraces() {
+      if (!sessionId) {
+        renderToolTraces([]);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/tool-traces?session_id=${sessionId}&limit=20`);
+        const data = await res.json();
+        renderToolTraces(data.traces || []);
+      } catch {
+        renderToolTraces([]);
+      }
+    }
+
+    async function refreshSidePanels() {
+      try {
+        const requestsQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=20` : "?limit=20";
+        const tasksQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=50` : "?limit=50";
+        const subagentsQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=50` : "?limit=50";
+        const [agentsRes, requestsRes, tasksRes, timelineRes, subagentsRes] = await Promise.all([
+          fetch("/api/agents"),
+          fetch(`/api/requests${requestsQuery}`),
+          fetch(`/api/tasks${tasksQuery}`),
+          fetch(sessionId ? `/api/task-events?session_id=${encodeURIComponent(sessionId)}&limit=100` : "/api/task-events?limit=100"),
+          fetch(`/api/subagents${subagentsQuery}`),
+        ]);
+        if (!agentsRes.ok || !requestsRes.ok || !tasksRes.ok || !timelineRes.ok || !subagentsRes.ok) {
+          throw new Error("side panel refresh failed");
+        }
+        const agentsData = await agentsRes.json();
+        const requestsData = await requestsRes.json();
+        const tasksData = await tasksRes.json();
+        const timelineData = await timelineRes.json();
+        const subagentsData = await subagentsRes.json();
+        renderAgents(agentsData.agents || []);
+        renderTasks(tasksData.tasks || []);
+        renderSubagents(subagentsData.subagents || []);
+        const latestRequest = (requestsData.requests || []).slice(-1)[0];
+        const allTasks = tasksData.tasks || [];
+        const latestRequestTasks = latestRequest
+          ? allTasks.filter((task) => task.request_id === latestRequest.id)
+          : allTasks;
+        const latestTimeline = latestRequest
+          ? (timelineData.events || []).filter((event) => event.request_id === latestRequest.id)
+          : (timelineData.events || []);
+        renderTaskTimeline(latestTimeline);
+        renderTaskProgress(latestRequestTasks, latestTimeline, latestRequest ? latestRequest.root_task_id : null);
+        if (latestRequest) {
+          renderTrace({
+            request_id: latestRequest.id,
+            session_id: latestRequest.session_id,
+            request_status: latestRequest.status,
+            root_task_id: latestRequest.root_task_id,
+            root_task_status: latestRequestTasks.find((item) => item.id === latestRequest.root_task_id)?.status || null,
+            runtime: "maf_agent",
+            model: null,
+            endpoint: null,
+            response_mode: latestRequest.route || "pending",
+            tool_calls_used: 0,
+            agent_name: "Chanakya",
+          });
+        } else {
+          renderTrace(null);
+        }
+      } catch {
+        renderAgents([]);
+        renderTasks([]);
+        renderTaskProgress([], [], null);
+        renderTaskTimeline([]);
+        renderSubagents([]);
+        renderTrace(null);
+      }
+      await refreshToolTraces();
+    }
+
+    async function loadSessionHistory() {
+      await refreshToolAvailability();
+      const storedSessionId = loadStoredSessionId();
+      if (!storedSessionId) {
+        renderChatHistory([]);
+        await refreshSidePanels();
+        return;
+      }
+      sessionId = storedSessionId;
+      const response = await fetch(`/api/sessions/${sessionId}`);
+      if (!response.ok) {
+        sessionId = null;
+        renderChatHistory([]);
+        await refreshSidePanels();
+        return;
+      }
+      const data = await response.json();
+      renderChatHistory(data.messages || []);
+      await refreshSidePanels();
+    }
+
+    chatForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const message = messageInput.value.trim();
+      if (!message) return;
+      appendMessage("user", message);
+      messageInput.value = "";
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, message }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        appendMessage("assistant", data.error || "Request failed");
+        return;
+      }
+      sessionId = data.session_id;
+      storeSessionId(sessionId);
+      renderTrace(data);
+      await loadSessionHistory();
+    });
+
+    agentForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const payload = buildAgentPayload();
+      setAgentFormStatus(selectedAgentId ? "Updating agent..." : "Creating agent...");
+      try {
+        const response = await fetch(selectedAgentId ? `/api/agents/${selectedAgentId}` : "/api/agents", {
+          method: selectedAgentId ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
         const data = await response.json();
         if (!response.ok) {
-          throw new Error(data.error || `Task ${action} failed`);
+          throw new Error(data.error || "Agent save failed");
         }
-        return data;
-      }
-
-      async function submitTaskInput(taskId, input, button = null) {
-        if (button && button.dataset.submitting === "true") {
-          return;
-        }
-        const message = input.value.trim();
-        if (!message) return;
-        input.disabled = true;
-        if (button) {
-          button.disabled = true;
-          button.dataset.submitting = "true";
-        }
-        try {
-          await postTaskAction(taskId, "input", { message });
-          input.value = "";
-          await loadSessionHistory();
-        } catch (error) {
-          appendMessage("assistant", error instanceof Error ? error.message : String(error));
-        } finally {
-          input.disabled = false;
-          if (button) {
-            button.disabled = false;
-            button.dataset.submitting = "false";
-          }
-        }
-      }
-
-      function renderTasks(items) {
-        if (!items.length) {
-          taskList.innerHTML = `<div class="empty-state">No tasks created for this session yet.</div>`;
-          return;
-        }
-        const childrenByParent = new Map();
-        items.forEach((task) => {
-          if (!task.parent_task_id) return;
-          if (!childrenByParent.has(task.parent_task_id)) {
-            childrenByParent.set(task.parent_task_id, []);
-          }
-          childrenByParent.get(task.parent_task_id).push(task);
-        });
-
-        function buildTaskCard(task, depth = 0) {
-          const card = document.createElement("div");
-          card.className = "card";
-          card.style.marginLeft = `${depth * 14}px`;
-          const heading = document.createElement("h3");
-          const workflowType = task.input && task.input.workflow_type ? ` [${task.input.workflow_type}]` : "";
-          heading.textContent = `${task.title}${workflowType}`;
-          card.appendChild(heading);
-          const pillRow = document.createElement("div");
-          [task.status, task.task_type, task.owner_agent_id || "unassigned"].forEach((value) => {
-            const pill = document.createElement("span");
-            pill.className = "pill";
-            pill.textContent = value;
-            pillRow.appendChild(pill);
-          });
-          card.appendChild(pillRow);
-          const summary = document.createElement("p");
-          summary.className = "meta";
-          summary.textContent = describeTask(task) || (task.summary || "No task summary available.");
-          card.appendChild(summary);
-          const pre = document.createElement("pre");
-          pre.textContent = JSON.stringify({
-            id: task.id,
-            error: task.error,
-            summary: task.summary,
-            input: task.input,
-            result: task.result,
-          }, null, 2);
-          card.appendChild(pre);
-          const actionRow = document.createElement("div");
-          actionRow.className = "form-actions";
-          const resumableWaitingTask = task.status === "waiting_input" && !!task.input?.maf_pending_request_id;
-          if (resumableWaitingTask) {
-            const answerInput = document.createElement("input");
-            answerInput.type = "text";
-            answerInput.placeholder = task.input?.maf_pending_prompt || "Reply to continue this task";
-            actionRow.appendChild(answerInput);
-            const replyButton = document.createElement("button");
-            replyButton.type = "button";
-            replyButton.textContent = "Reply";
-            replyButton.addEventListener("click", () => submitTaskInput(task.id, answerInput, replyButton));
-            actionRow.appendChild(replyButton);
-            const cancelButton = document.createElement("button");
-            cancelButton.type = "button";
-            cancelButton.className = "button-secondary";
-            cancelButton.textContent = "Cancel";
-            cancelButton.addEventListener("click", async () => {
-              try {
-                await postTaskAction(task.id, "cancel");
-                await refreshSidePanels();
-              } catch (error) {
-                appendMessage("assistant", error instanceof Error ? error.message : String(error));
-              }
-            });
-            actionRow.appendChild(cancelButton);
-          }
-          if (task.status === "failed" && !task.parent_task_id) {
-            const retryButton = document.createElement("button");
-            retryButton.type = "button";
-            retryButton.className = "button-secondary";
-            retryButton.textContent = "Retry";
-            retryButton.addEventListener("click", async () => {
-              try {
-                await postTaskAction(task.id, "retry");
-                await loadSessionHistory();
-              } catch (error) {
-                appendMessage("assistant", error instanceof Error ? error.message : String(error));
-              }
-            });
-            actionRow.appendChild(retryButton);
-          }
-          if (task.status === "blocked") {
-            const unblockButton = document.createElement("button");
-            unblockButton.type = "button";
-            unblockButton.className = "button-secondary";
-            unblockButton.textContent = "Manual Unblock";
-            unblockButton.addEventListener("click", async () => {
-              try {
-                await postTaskAction(task.id, "unblock");
-                await refreshSidePanels();
-              } catch (error) {
-                appendMessage("assistant", error instanceof Error ? error.message : String(error));
-              }
-            });
-            actionRow.appendChild(unblockButton);
-          }
-          if (actionRow.childNodes.length) {
-            card.appendChild(actionRow);
-          }
-          const childNodes = (childrenByParent.get(task.id) || []).flatMap((child) => buildTaskCard(child, depth + 1));
-          return [card, ...childNodes];
-        }
-
-        const rootTasks = items.filter((task) => !task.parent_task_id);
-        const nodes = rootTasks.flatMap((task) => buildTaskCard(task));
-        replaceChildren(taskList, nodes);
-      }
-
-      function renderTaskTimeline(items) {
-        if (!items.length) {
-          taskTimeline.innerHTML = `<div class="empty-state">No task events recorded for this session yet.</div>`;
-          return;
-        }
-        const nodes = items.map((event) => {
-          const card = document.createElement("div");
-          card.className = "card";
-          const heading = document.createElement("h3");
-          heading.textContent = formatEventTitle(event.event_type);
-          card.appendChild(heading);
-          const pillRow = document.createElement("div");
-          [event.request_id, event.task_id, event.event_type].filter(Boolean).forEach((value) => {
-            const pill = document.createElement("span");
-            pill.className = "pill";
-            pill.textContent = value;
-            pillRow.appendChild(pill);
-          });
-          card.appendChild(pillRow);
-          const summary = summarizeEvent(event);
-          if (summary) {
-            const meta = document.createElement("p");
-            meta.className = "meta";
-            meta.textContent = summary;
-            card.appendChild(meta);
-          }
-          const pre = document.createElement("pre");
-          pre.textContent = JSON.stringify({
-            created_at: event.created_at,
-            payload: event.payload,
-          }, null, 2);
-          card.appendChild(pre);
-          return card;
-        });
-        replaceChildren(taskTimeline, nodes);
-      }
-
-      async function refreshToolTraces() {
-        if (!sessionId) {
-          renderToolTraces([]);
-          return;
-        }
-        try {
-          const res = await fetch(`/api/tool-traces?session_id=${sessionId}&limit=20`);
-          const data = await res.json();
-          renderToolTraces(data.traces || []);
-        } catch {
-          renderToolTraces([]);
-        }
-      }
-
-      async function refreshSidePanels() {
-        try {
-          const requestsQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=20` : "?limit=20";
-          const tasksQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=50` : "?limit=50";
-          const subagentsQuery = sessionId ? `?session_id=${encodeURIComponent(sessionId)}&limit=50` : "?limit=50";
-          const [agentsRes, requestsRes, tasksRes, timelineRes, subagentsRes] = await Promise.all([
-            fetch("/api/agents"),
-            fetch(`/api/requests${requestsQuery}`),
-            fetch(`/api/tasks${tasksQuery}`),
-            fetch(sessionId ? `/api/task-events?session_id=${encodeURIComponent(sessionId)}&limit=100` : "/api/task-events?limit=100"),
-            fetch(`/api/subagents${subagentsQuery}`),
-          ]);
-          if (!agentsRes.ok || !requestsRes.ok || !tasksRes.ok || !timelineRes.ok || !subagentsRes.ok) {
-            throw new Error("side panel refresh failed");
-          }
-          const agentsData = await agentsRes.json();
-          const requestsData = await requestsRes.json();
-          const tasksData = await tasksRes.json();
-          const timelineData = await timelineRes.json();
-          const subagentsData = await subagentsRes.json();
-          renderAgents(agentsData.agents || []);
-          renderTasks(tasksData.tasks || []);
-          renderSubagents(subagentsData.subagents || []);
-          const latestRequest = (requestsData.requests || []).slice(-1)[0];
-          const latestTimeline = latestRequest
-            ? (timelineData.events || []).filter((event) => event.request_id === latestRequest.id)
-            : (timelineData.events || []);
-          renderTaskTimeline(latestTimeline);
-          if (latestRequest) {
-            renderTrace({
-              request_id: latestRequest.id,
-              session_id: latestRequest.session_id,
-              request_status: latestRequest.status,
-              root_task_id: latestRequest.root_task_id,
-              root_task_status: (tasksData.tasks || []).find((item) => item.id === latestRequest.root_task_id)?.status || null,
-              runtime: "maf_agent",
-              model: null,
-              endpoint: null,
-              response_mode: latestRequest.route || "pending",
-              tool_calls_used: 0,
-              agent_name: "Chanakya",
-            });
-          }
-        } catch {
-          renderAgents([]);
-          renderTasks([]);
-          renderTaskTimeline([]);
-          renderSubagents([]);
-        }
-        await refreshToolTraces();
-      }
-
-      async function loadSessionHistory() {
-        await refreshToolAvailability();
-        const storedSessionId = loadStoredSessionId();
-        if (!storedSessionId) {
-          renderChatHistory([]);
-          await refreshSidePanels();
-          return;
-        }
-        sessionId = storedSessionId;
-        const response = await fetch(`/api/sessions/${sessionId}`);
-        if (!response.ok) {
-          sessionId = null;
-          renderChatHistory([]);
-          await refreshSidePanels();
-          return;
-        }
-        const data = await response.json();
-        renderChatHistory(data.messages || []);
-        await refreshSidePanels();
-      }
-
-      chatForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const message = messageInput.value.trim();
-        if (!message) return;
-        appendMessage("user", message);
-        messageInput.value = "";
-
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sessionId, message }),
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          appendMessage("assistant", data.error || "Request failed");
-          return;
-        }
-        sessionId = data.session_id;
-        storeSessionId(sessionId);
-        const metaParts = [
-          `mode=${data.response_mode || "direct_answer"}`,
-          `runtime=${data.runtime}`,
-          `model=${data.model || "unknown"}`,
-        ];
-        if (data.tool_calls_used > 0) metaParts.push(`tools=${data.tool_calls_used}`);
-        if (data.root_task_status) metaParts.push(`task=${data.root_task_status}`);
-        appendMessage("assistant", data.message, metaParts.join(" "));
-        renderTrace(data);
-        refreshSidePanels();
-      });
-
-      agentForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const payload = buildAgentPayload();
-        setAgentFormStatus(selectedAgentId ? "Updating agent..." : "Creating agent...");
-        try {
-          const response = await fetch(selectedAgentId ? `/api/agents/${selectedAgentId}` : "/api/agents", {
-            method: selectedAgentId ? "PUT" : "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-          const data = await response.json();
-          if (!response.ok) {
-            throw new Error(data.error || "Agent save failed");
-          }
-          setAgentFormStatus(selectedAgentId ? `Updated ${data.name}` : `Created ${data.name}`);
-          resetAgentForm();
-          await refreshSidePanels();
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          setAgentFormStatus(errorMessage || "Agent save failed", true);
-        }
-      });
-
-      agentResetButton.addEventListener("click", () => {
+        setAgentFormStatus(selectedAgentId ? `Updated ${data.name}` : `Created ${data.name}`);
         resetAgentForm();
-      });
+        await refreshSidePanels();
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        setAgentFormStatus(errorMessage || "Agent save failed", true);
+      }
+    });
 
-      applyDetachedView();
-      setupCollapseButtons();
-      setupDetachButtons();
+    agentResetButton.addEventListener("click", () => {
       resetAgentForm();
-      loadSessionHistory();
-    </script>
-  </body>
+    });
+
+    applyDetachedView();
+    setupCollapseButtons();
+    setupDetachButtons();
+    resetAgentForm();
+    loadSessionHistory();
+
+    // ---------- SSE-driven auto-refresh ----------
+    let _sseRefreshTimer = null;
+    function scheduleSSERefresh() {
+      if (_sseRefreshTimer) return;
+      _sseRefreshTimer = setTimeout(async () => {
+        _sseRefreshTimer = null;
+        await refreshSidePanels();
+        // Also refresh chat messages for assistant responses
+        if (sessionId) {
+          try {
+            const res = await fetch(`/api/sessions/${sessionId}`);
+            if (res.ok) {
+              const data = await res.json();
+              renderChatHistory(data.messages || []);
+            }
+          } catch { }
+        }
+      }, 400); // debounce: coalesce rapid events
+    }
+
+    function connectSSE() {
+      const source = new EventSource("/api/stream");
+      source.addEventListener("update", () => scheduleSSERefresh());
+      source.addEventListener("connected", () => console.log("[SSE] connected"));
+      source.onerror = () => {
+        source.close();
+        setTimeout(connectSSE, 3000); // auto-reconnect
+      };
+    }
+    connectSSE();
+  </script>
+</body>
+
 </html>

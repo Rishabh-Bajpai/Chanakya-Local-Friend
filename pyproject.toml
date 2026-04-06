@@ -18,6 +18,7 @@ dependencies = [
 dev = [
   "ruff>=0.6.0",
   "mypy>=1.10.0",
+  "pytest>=7.0.0",
 ]
 
 [tool.ruff]
@@ -38,4 +39,4 @@ markers = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["chanakya*", "chanakya_mvp*"]
+include = ["chanakya*"]

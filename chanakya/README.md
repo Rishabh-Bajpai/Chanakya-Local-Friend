@@ -252,15 +252,97 @@ Example:
 ```json
 {
   "mcpServers": {
+    "mcp_websearch": {
+      "command": "uvx",
+      "args": ["duckduckgo-mcp-server", "--transport", "stdio"],
+      "transport": "stdio",
+      "env": {}
+    },
     "mcp_fetch": {
       "command": "uvx",
       "args": ["mcp-server-fetch"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_calculator": {
+      "command": "uvx",
+      "args": ["calculator-mcp-server"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_code_execution": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_sandbox_exec_server"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_filesystem": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "filesystem"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_git": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "git"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_http": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "http"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_json": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "json"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_shell_utils": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "shell_utils"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_weather": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "weather"],
       "transport": "stdio",
       "env": {}
     }
   }
 }
 ```
+
+### Sandboxed Code Execution
+
+- Developer and Tester can run code only through `mcp_code_execution`.
+- Execution is restricted to container runtime (`docker` or `podman`) and never runs user commands on the host shell.
+- Shared persistent sandbox workspace paths are:
+  - `chanakya_data/shared_workspace/<work_id>`
+  - `chanakya_data/shared_workspace/temp`
+
+Available features:
+
+- Execute Python snippets and shell commands inside the containerized sandbox
+- Persist generated files in the shared work directory across multiple agent turns
+- Read host project data through read-only mounts at `/host/repo` and `/host/chanakya_data`
+- Write only inside `/workspace`, which maps to the shared work directory
+- Use bounded resources with live network access for external fetches and site mirroring
+
+Unavailable features:
+
+- Writing to host files outside `/workspace`
+- Direct host command execution
+- Escaping the shared workspace via path traversal or absolute host writes
+
+Permission model:
+
+- `/workspace` is writable and persistent for the current `work_id`
+- Host files are readable but read-only
+- If a worker sees `Permission denied` or `Read-only file system`, it should copy the needed file into `/workspace` and retry there
 
 Implementation references:
 
@@ -311,7 +393,8 @@ python scripts/clear_database.py
 Notes:
 
 - These scripts use `DATABASE_URL` if set, otherwise they default to `chanakya_data/chanakya.db`.
-- `scripts/db_viewer.py` exposes `ChatSessionModel`, `ChatMessageModel`, `AppEventModel`, `ToolInvocationModel`, and `AgentProfileModel` at `http://localhost:5013`.
+- `scripts/db_viewer.py` exposes core tables (`RequestModel`, `TaskModel`, `TaskEventModel`, `ToolInvocationModel`, `TemporaryAgentModel`, `ChatMessageModel`, etc.) at `http://localhost:5014`.
+- `scripts/db_viewer.py` supports `session_id`, `request_id`, and `agent_id` filters in the UI to inspect delegation flows.
 - `scripts/clear_database.py` is destructive and prompts twice before deleting data.
 
 ### Smoke Tests
@@ -362,4 +445,4 @@ Full milestone details in `task.md`.
 
 - `task.md` — Execution tracker with milestones, risks, and delivery rules
 - `tasks/prd-chanakya-full-system.md` — Product Requirements Document
-- `chanakya_mvp/` — Reference MVP (to be removed after full app is complete)
+- `README.md` — Repo-level quick start for the full app

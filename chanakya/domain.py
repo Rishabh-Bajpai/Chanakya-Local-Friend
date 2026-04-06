@@ -33,6 +33,7 @@ def make_id(prefix: str) -> str:
 class ChatReply:
     request_id: str
     session_id: str
+    work_id: str | None
     route: str
     message: str
     model: str | None

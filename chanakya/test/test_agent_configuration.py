@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import chanakya.app as app_module
 from flask import Flask
 from pytest import MonkeyPatch
+
+import chanakya.app as app_module
 from chanakya.app import create_app
 from chanakya.db import build_engine, build_session_factory
-from chanakya.model import TemporaryAgentModel
-from chanakya.domain import TASK_STATUS_DONE
+from chanakya.domain import TASK_STATUS_DONE, now_iso
+from chanakya.model import ChatMessageModel, TemporaryAgentModel, WorkAgentSessionModel
 from chanakya.services import tool_loader
 from chanakya.store import ChanakyaStore
 
@@ -35,7 +36,7 @@ def _build_test_app(tmp_path: Path, monkeypatch: MonkeyPatch) -> Flask:
                     "workspace": "main",
                     "heartbeat_enabled": False,
                     "heartbeat_interval_seconds": 300,
-                    "heartbeat_file_path": None,
+                    "heartbeat_file_path": "chanakya_data/agents/agent_chanakya/heartbeat.md",
                     "is_active": True,
                 },
                 {
@@ -48,7 +49,7 @@ def _build_test_app(tmp_path: Path, monkeypatch: MonkeyPatch) -> Flask:
                     "workspace": "manager",
                     "heartbeat_enabled": False,
                     "heartbeat_interval_seconds": 300,
-                    "heartbeat_file_path": None,
+                    "heartbeat_file_path": "chanakya_data/agents/agent_manager/heartbeat.md",
                     "is_active": True,
                 },
             ]
@@ -108,7 +109,7 @@ def test_agent_create_and_update_api_persists_configuration(
             "workspace": "alpha-workspace",
             "heartbeat_enabled": True,
             "heartbeat_interval_seconds": 90,
-            "heartbeat_file_path": "chanakya_data/heartbeats/developer-alpha.md",
+            "heartbeat_file_path": "chanakya_data/agents/agent_developer_alpha/heartbeat.md",
             "is_active": True,
         },
     )
@@ -119,7 +120,7 @@ def test_agent_create_and_update_api_persists_configuration(
     assert created["workspace"] == "alpha-workspace"
     assert created["heartbeat_enabled"] is True
 
-    heartbeat_file = tmp_path / "chanakya_data/heartbeats/developer-alpha.md"
+    heartbeat_file = tmp_path / "chanakya_data/agents/agent_developer_alpha/heartbeat.md"
     assert heartbeat_file.exists()
 
     update_response = client.put(
@@ -133,7 +134,7 @@ def test_agent_create_and_update_api_persists_configuration(
             "workspace": "updated-workspace",
             "heartbeat_enabled": False,
             "heartbeat_interval_seconds": 120,
-            "heartbeat_file_path": "chanakya_data/heartbeats/developer-alpha.md",
+            "heartbeat_file_path": "chanakya_data/agents/agent_developer_alpha/heartbeat.md",
             "is_active": False,
         },
     )
@@ -262,7 +263,7 @@ def test_agent_create_api_rejects_invalid_boolean_and_heartbeat_path(
             "workspace": None,
             "heartbeat_enabled": True,
             "heartbeat_interval_seconds": 30,
-            "heartbeat_file_path": "chanakya_data/heartbeats/./../escape.md",
+            "heartbeat_file_path": "chanakya_data/agents/./../escape.md",
             "is_active": True,
         },
     )
@@ -363,7 +364,7 @@ def test_agent_create_api_accepts_null_optional_fields(
     assert response.status_code == 201
     payload = response.get_json()
     assert payload["workspace"] is None
-    assert payload["heartbeat_file_path"] is None
+    assert payload["heartbeat_file_path"] == "chanakya_data/agents/agent_null_friendly/heartbeat.md"
     assert payload["personality"] == ""
 
 
@@ -378,3 +379,149 @@ def test_tools_availability_api_returns_payload(
 
     assert response.status_code == 200
     assert "tools" in response.get_json()
+
+
+def test_startup_sync_adds_default_tools_to_seeded_agents(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.get("/api/agents")
+
+    assert response.status_code == 200
+    agents = {item["id"]: item for item in response.get_json()["agents"]}
+    assert set(agents["agent_chanakya"]["tool_ids"]) >= {
+        "mcp_websearch",
+        "mcp_fetch",
+        "mcp_calculator",
+    }
+    assert set(agents["agent_manager"]["tool_ids"]) >= {
+        "mcp_websearch",
+        "mcp_fetch",
+        "mcp_calculator",
+    }
+
+
+def test_work_create_list_and_history_apis(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    created = client.post(
+        "/api/works",
+        json={"title": "Global Warming Report", "description": "2026 draft"},
+    )
+    assert created.status_code == 201
+    created_payload = created.get_json()
+    work_id = created_payload["id"]
+    assert created_payload["agent_session_count"] == 2
+
+    listed = client.get("/api/works")
+    assert listed.status_code == 200
+    listed_ids = [item["id"] for item in listed.get_json()["works"]]
+    assert work_id in listed_ids
+
+    sessions_response = client.get(f"/api/works/{work_id}/sessions")
+    assert sessions_response.status_code == 200
+    sessions_payload = sessions_response.get_json()
+    sessions = sessions_payload["sessions"]
+    assert len(sessions) == 2
+    chanakya_mapping = next(item for item in sessions if item["agent_id"] == "agent_chanakya")
+
+    database_path = tmp_path / "chanakya-test.db"
+    engine = build_engine(f"sqlite:///{database_path}")
+    session_factory = build_session_factory(engine)
+    with session_factory() as db_session:
+        db_session.add(
+            ChatMessageModel(
+                session_id=chanakya_mapping["session_id"],
+                role="assistant",
+                content="Initial report draft ready.",
+                request_id="req_work_1",
+                route="delegated_manager",
+                metadata_json={"work_test": True},
+                created_at=now_iso(),
+            )
+        )
+        db_session.commit()
+
+    history_response = client.get(f"/api/works/{work_id}/history")
+    assert history_response.status_code == 200
+    history_payload = history_response.get_json()
+    assert history_payload["work"]["id"] == work_id
+    histories = history_payload["agent_histories"]
+    assert "task_flow" in history_payload
+    assert "tasks" in history_payload
+    assert "requests" in history_payload
+    assert "limits" in history_payload
+    chanakya_history = next(item for item in histories if item["agent_id"] == "agent_chanakya")
+    assert any(
+        msg["content"] == "Initial report draft ready." for msg in chanakya_history["messages"]
+    )
+
+
+def test_work_session_mapping_is_unique_per_agent(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    _build_test_app(tmp_path, monkeypatch)
+
+    database_path = tmp_path / "chanakya-test.db"
+    engine = build_engine(f"sqlite:///{database_path}")
+    session_factory = build_session_factory(engine)
+    store = ChanakyaStore(session_factory)
+
+    store.create_work(work_id="work_test_unique", title="Unique Mapping", description=None)
+    first_session = store.ensure_work_agent_session(
+        work_id="work_test_unique",
+        agent_id="agent_chanakya",
+        session_id="session_first",
+        session_title="Unique Mapping - Chanakya",
+    )
+    second_session = store.ensure_work_agent_session(
+        work_id="work_test_unique",
+        agent_id="agent_chanakya",
+        session_id="session_second",
+        session_title="Unique Mapping - Chanakya",
+    )
+
+    mappings = store.list_work_agent_sessions("work_test_unique")
+    assert len([item for item in mappings if item["agent_id"] == "agent_chanakya"]) == 1
+    assert first_session == second_session == "session_first"
+
+    with session_factory() as db_session:
+        rows = db_session.query(WorkAgentSessionModel).filter_by(work_id="work_test_unique").all()
+    assert len(rows) == 1
+
+
+def test_work_delete_api_removes_work_history(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    created = client.post(
+        "/api/works",
+        json={"title": "Disposable Work", "description": "delete me"},
+    )
+    assert created.status_code == 201
+    work_id = created.get_json()["id"]
+
+    deleted = client.delete(f"/api/works/{work_id}")
+    assert deleted.status_code == 200
+    deleted_payload = deleted.get_json()
+    assert deleted_payload["deleted"] is True
+    assert deleted_payload["work_id"] == work_id
+
+    listed = client.get("/api/works")
+    assert listed.status_code == 200
+    listed_ids = [item["id"] for item in listed.get_json()["works"]]
+    assert work_id not in listed_ids
+
+    history_response = client.get(f"/api/works/{work_id}/history")
+    assert history_response.status_code == 404

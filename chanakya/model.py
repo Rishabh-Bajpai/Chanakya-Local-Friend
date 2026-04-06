@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from chanakya.domain import now_iso
@@ -23,6 +23,43 @@ class ChatSessionModel(Base):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+
+
+class WorkModel(Base):
+    __tablename__ = "works"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class WorkAgentSessionModel(Base):
+    __tablename__ = "work_agent_sessions"
+    __table_args__ = (UniqueConstraint("work_id", "agent_id", name="uq_work_agent"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    work_id: Mapped[str] = mapped_column(ForeignKey("works.id"), nullable=False, index=True)
+    agent_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class ClassicActiveWorkModel(Base):
+    __tablename__ = "classic_active_works"
+
+    chat_session_id: Mapped[str] = mapped_column(String, primary_key=True)
+    work_id: Mapped[str] = mapped_column(ForeignKey("works.id"), nullable=False, index=True)
+    work_session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    root_request_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workflow_type: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class ChatMessageModel(Base):

@@ -1,136 +1,84 @@
-# Chanakya MAF MVP
+# Chanakya
 
-The repo now contains two tracks:
+Chanakya is a task orchestration system powered by Microsoft Agent Framework. The active application lives in `chanakya/`.
 
-- `chanakya/`: the new full app under active development
-- `chanakya_mvp/`: the earlier feasibility MVP kept temporarily as reference
-
-## New Full App
-
-Run the current full-app milestone:
+## Quick Start
 
 ```bash
 source /home/rishabh/miniconda3/etc/profile.d/conda.sh
 conda activate test
-export CHANAKYA_DEBUG=true
-python -m flask --app chanakya.app run --host 0.0.0.0 --port 5000
-```
-
-Open `http://localhost:5000` and validate the direct chat flow.
-
-When `CHANAKYA_DEBUG=true`, the app prints important runtime details to the terminal, including request payloads, stored chat history, prompt construction, MAF session state, and model responses.
-
-Execution plan is tracked in `task.md`.
-
-This repository contains a minimal feasibility MVP for the PRD in `tasks/rpd-chanakya-maf-mvp-feasibility.md`.
-
-It validates:
-
-- single user-facing assistant routing,
-- direct/tool/delegated execution paths,
-- parent/child task decomposition,
-- dependency enforcement,
-- persistent task/state tracking,
-- waiting-input pause/resume,
-- final aggregation and user-facing result reporting.
-
-## Project Structure
-
-- `chanakya_mvp/chanakya.py`: user-facing PA entrypoint and routing
-- `chanakya_mvp/manager.py`: Agent Manager orchestration
-- `chanakya_mvp/agents.py`: Developer and Tester agents
-- `chanakya_mvp/tools.py`: weather tool
-- `chanakya_mvp/store.py`: SQLite task persistence and transition history
-- `chanakya_mvp/scenarios.py`: TS-001 to TS-007 scenario implementations
-- `chanakya_mvp/testing/run_scenarios.py`: scenario runner and transition report generation
-- `webapp/app.py`: Flask backend + API endpoints for chat and traces
-- `webapp/templates/index.html`: chat UI with execution trace timeline
-- `chanakya_mvp/testing/docs/task_model.md`: task model definition
-- `chanakya_mvp/testing/docs/maf_class_mapping.md`: MAF class-to-requirement mapping
-- `chanakya_mvp/testing/docs/maf_capability_matrix.md`: US/FR fit matrix (Native vs glue vs custom)
-- `chanakya_mvp/testing/docs/transition_records.md`: generated state transition records
-- `tasks/prd-chanakya-full-system.md`: full-system PRD
-
-## Environment
-
-Use your conda environment:
-
-```bash
-conda activate test
-```
-
-Copy the example environment file:
-
-```bash
 cp .env.example .env
-```
-
-Edit `.env` with your configuration (OpenAI-compatible endpoint metadata):
-
-- `OPENAI_BASE_URL` or `OPENAI_API_BASE`
-- `OPENAI_API_KEY`
-- `OPENAI_CHAT_MODEL_ID` (preferred) or `OPENAI_MODEL` / `MODEL`
-- `DATABASE_URL` (optional; defaults to local SQLite via SQLAlchemy)
-
-The current MVP detects this config and reports it in direct-response evidence.
-
-Model env key support includes `OPENAI_CHAT_MODEL_ID`.
-
-The new full app reads `DATABASE_URL` through SQLAlchemy, so switching to another SQL provider should not require store-layer code changes.
-
-## MCP Configuration
-
-Copy the example MCP config file:
-
-```bash
 cp mcp_config_file.example.json mcp_config_file.json
-```
-
-Edit `mcp_config_file.json` to configure MCP servers for your environment.
-
-## Run Scenarios
-
-```bash
-conda activate test
-python -m chanakya_mvp.testing.run_scenarios
-```
-
-Expected outcomes:
-
-- TS-001 direct response: pass
-- TS-002 weather tool: pass
-- TS-003 delegated workflow: pass
-- TS-004 dependency enforcement: pass
-- TS-005 failure path: pass
-- TS-006 waiting input and resume: pass
-- TS-007 final aggregation: pass
-
-Artifacts written to:
-
-- `chanakya_mvp/testing/artifacts/tasks.db`
-- `chanakya_mvp/testing/artifacts/events.jsonl`
-- `chanakya_mvp/testing/docs/transition_records.md`
-
-## Run Flask UI
-
-```bash
-source /home/rishabh/miniconda3/etc/profile.d/conda.sh
-conda activate test
-python -m flask --app webapp.app run --host 0.0.0.0 --port 5000
+python -m flask --app chanakya.app run --host 0.0.0.0 --port 5000
 ```
 
 Open `http://localhost:5000`.
 
-UI behavior:
+## Core Paths
 
-- left panel: user/assistant chat
-- right top: execution trace events (route/tool/delegation/runtime logs)
-- right bottom: parent + child task state transition timeline from SQLite store
+- `chanakya/` - Flask app, MAF runtime, orchestration, persistence, templates
+- `chanakya/seeds/agents.json` - default persistent agent definitions
+- `task.md` - milestone tracker and execution plan
+- `tasks/prd-chanakya-full-system.md` - product requirements for the full system
 
-## Lint and Typecheck
+## Configuration
+
+Set values in `.env`:
+
+- `OPENAI_BASE_URL` or `OPENAI_API_BASE`
+- `OPENAI_API_KEY`
+- `OPENAI_CHAT_MODEL_ID` (or `OPENAI_MODEL` / `MODEL`)
+- `DATABASE_URL` (optional; defaults to local SQLite)
+
+MCP servers are configured in `mcp_config_file.json`.
+
+Default MCP servers now include:
+
+- `mcp_websearch` (free DuckDuckGo web search)
+- `mcp_fetch` (webpage fetching)
+- `mcp_calculator` (calculator)
+- `mcp_code_execution` (sandboxed code execution for developer/tester only)
+
+Sandboxed code execution uses a shared persistent workspace under:
+
+- `chanakya_data/shared_workspace/<work_id>`
+- `chanakya_data/shared_workspace/temp` (fallback when no work id is available)
+
+Code execution is container-only (Docker/Podman) and must not execute host-system commands.
+
+## Sandbox Capabilities
+
+Available:
+
+- Execute Python and shell commands inside an isolated container
+- Persist files across runs in `chanakya_data/shared_workspace/<work_id>` or `temp`
+- Read host project files through read-only mounts inside the sandbox
+- Use the shared workspace as the only writable location during sandbox execution
+- Run with bounded CPU, memory, and pid count
+- Use full network access from sandboxed code when external fetches are required
+- Retry safely after permission errors by copying files into `/workspace`
+
+Unavailable:
+
+- Writing to host-mounted files or directories outside the shared workspace
+- Running commands directly on the host system
+- Privilege escalation or container capability expansion
+- Arbitrary path traversal outside the sandbox workspace policy
+
+Common permission behavior:
+
+- Host files are readable but read-only inside the sandbox
+- Only `/workspace` is writable in the container
+- If an agent hits `Permission denied` or `Read-only file system`, it should copy the target file into the shared workspace and retry there
+
+## Validation Commands
 
 ```bash
+source /home/rishabh/miniconda3/etc/profile.d/conda.sh
 conda activate test
-python -m ruff check .
-python -m mypy .
+python -m ruff check chanakya/
+python -m mypy chanakya/
+pytest chanakya/test
 ```
+
+For detailed architecture and API documentation, see `chanakya/README.md`.

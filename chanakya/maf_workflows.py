@@ -128,7 +128,8 @@ class _DeveloperExecutor(Executor):
                 event_payload={"pending_request_id": resumed_pending_request_id},
             )
 
-        clarification_decision = self.manager._decide_worker_clarification(
+        clarification_decision = await asyncio.to_thread(
+            self.manager._decide_worker_clarification,
             self.developer_profile,
             self.message,
             developer_prompt,
@@ -192,7 +193,8 @@ class _DeveloperExecutor(Executor):
         )
         self.store.update_task(self.developer_task_id, input_json=developer_input)
 
-        developer_result = self.manager._run_worker_with_optional_subagents(
+        developer_result = await asyncio.to_thread(
+            self.manager._run_worker_with_optional_subagents,
             session_id=self.session_id,
             request_id=self.request_id,
             worker_profile=self.developer_profile,
@@ -201,11 +203,60 @@ class _DeveloperExecutor(Executor):
             effective_prompt=effective_prompt,
         )
         developer_output = developer_result.text
+        if self.manager._is_invalid_developer_output(developer_output):
+            developer_output = await asyncio.to_thread(
+                self.manager._repair_developer_output,
+                developer_profile=self.developer_profile,
+                message=self.message,
+                implementation_brief=self.implementation_brief,
+                invalid_output=developer_output,
+            )
+        if self.manager._request_looks_like_site_clone(self.message, self.implementation_brief):
+            has_artifacts = await asyncio.to_thread(
+                self.manager._workspace_has_clone_artifacts,
+                self.manager._resolve_current_sandbox_work_id(),
+            )
+            if not has_artifacts:
+                bootstrap_output = await asyncio.to_thread(
+                    self.manager._attempt_clone_artifact_bootstrap,
+                    self.message,
+                    self.manager._resolve_current_sandbox_work_id(),
+                )
+                if bootstrap_output:
+                    developer_output = bootstrap_output
+                    has_artifacts = True
+            if not has_artifacts:
+                developer_output = await asyncio.to_thread(
+                    self.manager._repair_developer_output,
+                    developer_profile=self.developer_profile,
+                    message=self.message,
+                    implementation_brief=self.implementation_brief,
+                    invalid_output=(
+                        developer_output
+                        + "\n\nArtifact gate failure: no clone artifacts were created in the shared workspace. "
+                        + "Create actual cloned files before returning the handoff."
+                    ),
+                )
+                has_artifacts = await asyncio.to_thread(
+                    self.manager._workspace_has_clone_artifacts,
+                    self.manager._resolve_current_sandbox_work_id(),
+                )
+                if not has_artifacts:
+                    raise ValueError(
+                        "Developer did not create clone artifacts in the shared workspace"
+                    )
+        if self.manager._is_invalid_developer_output(developer_output):
+            raise ValueError(
+                "Developer produced invalid or incomplete output instead of a completed implementation handoff"
+            )
         developer_finished_at = now_iso()
         tester_handoff_prompt = self.manager._build_tester_handoff_prompt(
             self.message,
             self.implementation_brief,
             developer_output,
+            sandbox_workspace=self.manager._resolve_current_shared_workspace(),
+            sandbox_work_id=self.manager._resolve_current_sandbox_work_id(),
+            clarification_answer=clarification_answer,
         )
         tester_input = dict(self.store.get_task(self.tester_task_id).input_json or {})
         tester_input.update(
@@ -217,6 +268,7 @@ class _DeveloperExecutor(Executor):
                 "developer_handoff": developer_output,
                 "delegated_handoff_prompt": tester_handoff_prompt,
                 "temporary_agent_ids": developer_result.temporary_agent_ids,
+                "clarification_answer": clarification_answer,
             }
         )
         self.store.update_task(self.tester_task_id, input_json=tester_input)
@@ -231,6 +283,7 @@ class _DeveloperExecutor(Executor):
                 "implementation_brief": self.implementation_brief,
                 "handoff": developer_output,
                 "temporary_agent_ids": developer_result.temporary_agent_ids,
+                "clarification_answer": clarification_answer,
             },
             event_type="worker_handoff_ready",
             event_payload={"handoff_for_role": self.tester_profile.role},
@@ -241,7 +294,9 @@ class _DeveloperExecutor(Executor):
                 "developer_output": developer_output,
                 "developer_temporary_agent_ids": developer_result.temporary_agent_ids,
                 "tester_handoff_prompt": tester_handoff_prompt,
-            }
+                "clarification_answer": clarification_answer,
+            },
+            target_id=f"tester_step_{self.tester_task_id}",
         )
 
 
@@ -304,7 +359,8 @@ class _TesterExecutor(Executor):
             event_type="worker_unblocked",
             event_payload={"dependency_task_id": self.developer_task_id},
         )
-        tester_result = self.manager._run_worker_with_optional_subagents(
+        tester_result = await asyncio.to_thread(
+            self.manager._run_worker_with_optional_subagents,
             session_id=self.session_id,
             request_id=self.request_id,
             worker_profile=self.tester_profile,
@@ -314,12 +370,31 @@ class _TesterExecutor(Executor):
         )
         tester_output = tester_result.text
         developer_output = str(payload.get("developer_output") or "")
+        clarification_answer = str(payload.get("clarification_answer") or "").strip() or None
         if self.manager._is_invalid_tester_output(tester_output, developer_output):
-            tester_output = self.manager._run_tester_recovery(
+            tester_output = await asyncio.to_thread(
+                self.manager._run_tester_recovery,
                 tester_profile=self.tester_profile,
                 message=self.message,
                 implementation_brief=self.implementation_brief,
                 developer_output=developer_output,
+                clarification_answer=clarification_answer,
+            )
+        if self.manager._is_invalid_tester_output(
+            tester_output, developer_output
+        ) and self.manager._request_looks_like_site_clone(
+            self.message,
+            self.implementation_brief,
+        ):
+            fallback = await asyncio.to_thread(
+                self.manager._build_clone_validation_report,
+                self.manager._resolve_current_sandbox_work_id(),
+            )
+            if fallback:
+                tester_output = fallback
+        if self.manager._is_invalid_tester_output(tester_output, developer_output):
+            raise ValueError(
+                "Tester produced invalid or echoed output instead of a validation report"
             )
         finished_at = now_iso()
         self.manager._transition_task(
@@ -333,6 +408,7 @@ class _TesterExecutor(Executor):
                 "developer_task_id": self.developer_task_id,
                 "validation_report": tester_output,
                 "temporary_agent_ids": tester_result.temporary_agent_ids,
+                "clarification_answer": clarification_answer,
             },
             event_type="worker_validation_completed",
             event_payload={"validated_task_id": self.developer_task_id},

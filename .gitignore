@@ -27,6 +27,5 @@ dist/
 htmlcov/
 
 # Project-generated artifacts
-chanakya_mvp/testing/artifacts/
 chanakya_data/
 Agent-Framework-Samples/
