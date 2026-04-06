@@ -567,9 +567,11 @@
               <button id="airMicButton" class="air-button" type="button">Mic</button>
               <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
               <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
+              <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
               <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
             </div>
             <div id="airVoiceStatus" class="air-status"></div>
+            <div id="conversationQueueStatus" class="air-status"></div>
           </div>
         </div>
         <div class="body">
@@ -627,8 +629,10 @@
       const airMicButton = document.getElementById("airMicButton");
       const airVoiceLoopButton = document.getElementById("airVoiceLoopButton");
       const airSpeakButton = document.getElementById("airSpeakButton");
+      const airPauseRepliesButton = document.getElementById("airPauseRepliesButton");
       const airRefreshModelsButton = document.getElementById("airRefreshModelsButton");
       const airVoiceStatus = document.getElementById("airVoiceStatus");
+      const conversationQueueStatus = document.getElementById("conversationQueueStatus");
       const historyList = document.getElementById("historyList");
       const deleteWorkButton = document.getElementById("deleteWorkButton");
 
@@ -689,6 +693,35 @@
         return last ? last.textContent || "" : "";
       }
 
+      function setConversationQueueStatus(text, isError = false) {
+        if (!conversationQueueStatus) {
+          return;
+        }
+        conversationQueueStatus.textContent = text || "";
+        conversationQueueStatus.dataset.state = isError ? "error" : "idle";
+      }
+
+      async function pauseConversationReplies() {
+        if (!activeWorkId) {
+          setConversationQueueStatus("No active work session to pause.", true);
+          return;
+        }
+        const work = works.find((item) => item.id === activeWorkId);
+        const targetSessionId = work && work.session_id ? work.session_id : null;
+        if (!targetSessionId) {
+          setConversationQueueStatus("No active direct chat session to pause.", true);
+          return;
+        }
+        const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}/pause`, {
+          method: "POST",
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Pause failed");
+        }
+        setConversationQueueStatus("Paused queued assistant replies.");
+      }
+
       async function pollNextWorkConversationMessages(targetSessionId, options = {}) {
         const { onAssistantMessage } = options;
         while (true) {
@@ -705,13 +738,30 @@
                 onAssistantMessage(text);
               }
             }
+            const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+            setConversationQueueStatus(
+              pendingCount > 0
+                ? `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+                : "Assistant finished replying."
+            );
             continue;
           }
           if (payload.status === "waiting") {
             const waitMs = Math.max(Number(payload.retry_after_ms || 500), 250);
+            const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+            setConversationQueueStatus(
+              pendingCount > 0
+                ? `Assistant is pacing ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+                : "Assistant is thinking..."
+            );
             await new Promise((resolve) => window.setTimeout(resolve, Math.min(waitMs, 1000)));
             continue;
           }
+          if (payload.status === "paused") {
+            setConversationQueueStatus("Queued assistant replies paused.");
+            break;
+          }
+          setConversationQueueStatus("");
           break;
         }
       }
@@ -749,7 +799,13 @@
           }
         });
         if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
+          const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
+          setConversationQueueStatus(
+            `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+          );
           await pollNextWorkConversationMessages(data.session_id, { onAssistantMessage });
+        } else {
+          setConversationQueueStatus("");
         }
         await loadWorkHistory(activeWorkId);
         if (airVoiceController) {
@@ -1454,12 +1510,12 @@
           speakButton: airSpeakButton,
           statusNode: airVoiceStatus,
           submitText: async (text, options = {}) => {
-            const { onAssistantDelta } = options;
+            const { onAssistantMessage } = options;
             appendChatMessage("user", text);
             const data = await submitWorkChatMessage(text, {
               onAssistantMessage: (content) => {
-                if (typeof onAssistantDelta === "function") {
-                  onAssistantDelta(content);
+                if (typeof onAssistantMessage === "function") {
+                  onAssistantMessage(content);
                 }
               },
             });
@@ -1471,6 +1527,13 @@
           },
         });
         airRefreshModelsButton.addEventListener("click", () => airVoiceController.fetchModels());
+        airPauseRepliesButton.addEventListener("click", async () => {
+          try {
+            await pauseConversationReplies();
+          } catch (error) {
+            setConversationQueueStatus(error instanceof Error ? error.message : String(error), true);
+          }
+        });
         airVoiceController.fetchModels();
         resetWorkView();
         await loadWorks();

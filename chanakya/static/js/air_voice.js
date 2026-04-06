@@ -24,7 +24,7 @@
     let audioQueue = [];
     let isPlayingQueue = false;
     let ttsInFlightCount = 0;
-    let streamingSpeechBuffer = "";
+    let spokenAssistantSegments = [];
 
     function setStatus(text, isError = false) {
       if (!statusNode) {
@@ -221,13 +221,13 @@
       });
     }
 
-    function startStreamingSpeech() {
+    function startAssistantSpeechQueue() {
       stopPlayback();
-      streamingSpeechBuffer = "";
       latestAssistantText = "";
+      spokenAssistantSegments = [];
     }
 
-    function queueStreamingSpeechChunk(text) {
+    function queueSpeechChunk(text) {
       const cleaned = text.replace(/[*_#`~]/g, "").trim();
       if (!cleaned || !selectedValue(ttsModelSelect)) {
         return;
@@ -240,29 +240,17 @@
       });
     }
 
-    function appendStreamingSpeechDelta(delta) {
-      if (!delta) {
+    function handleAssistantMessageForSpeech(messageText) {
+      const cleaned = String(messageText || "").trim();
+      if (!cleaned) {
         return;
       }
-      latestAssistantText += delta;
-      streamingSpeechBuffer += delta;
-      let match = streamingSpeechBuffer.match(/^(.*?[.!?](?:\s|$))/);
-      while (match) {
-        const sentence = match[1].trim();
-        streamingSpeechBuffer = streamingSpeechBuffer.slice(match[1].length);
-        queueStreamingSpeechChunk(sentence);
-        match = streamingSpeechBuffer.match(/^(.*?[.!?](?:\s|$))/);
-      }
+      spokenAssistantSegments.push(cleaned);
+      latestAssistantText = spokenAssistantSegments.join("\n\n");
+      splitIntoSpeechChunks(cleaned).forEach((chunk) => queueSpeechChunk(chunk));
     }
 
-    async function finishStreamingSpeech(finalText) {
-      if (finalText) {
-        latestAssistantText = finalText;
-      }
-      if (streamingSpeechBuffer.trim()) {
-        queueStreamingSpeechChunk(streamingSpeechBuffer.trim());
-        streamingSpeechBuffer = "";
-      }
+    async function waitForSpeechQueueToFinish() {
       await new Promise((resolve) => {
         const poll = () => {
           if (ttsInFlightCount === 0 && !isPlayingQueue && !activeAudio && audioQueue.length === 0) {
@@ -339,17 +327,16 @@
         onTranscript(transcript);
       }
       const llmModel = selectedValue(llmModelSelect);
-      startStreamingSpeech();
+      startAssistantSpeechQueue();
       const replyText = await submitText(transcript, {
         llmModel,
-        onAssistantDelta: (delta) => {
-          appendStreamingSpeechDelta(delta);
+        onAssistantMessage: (assistantMessage) => {
+          handleAssistantMessageForSpeech(assistantMessage);
         },
       });
       latestAssistantText = typeof replyText === "string" ? replyText : "";
-      const speechText = (typeof getLatestAssistantText === "function" && getLatestAssistantText()) || latestAssistantText;
-      if (speechText && selectedValue(ttsModelSelect)) {
-        await finishStreamingSpeech(speechText);
+      if (selectedValue(ttsModelSelect)) {
+        await waitForSpeechQueueToFinish();
       }
     }
 
