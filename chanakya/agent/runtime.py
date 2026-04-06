@@ -27,6 +27,20 @@ class ProfileAgentConfig:
     availability: list[dict[str, str]]
 
 
+def create_openai_chat_client(
+    *,
+    model_id: str | None = None,
+    env_file_path: str = ".env",
+) -> OpenAIChatClient:
+    cfg = get_openai_compatible_config()
+    return OpenAIChatClient(
+        model_id=model_id or cfg.get("model"),
+        api_key=cfg.get("api_key"),
+        base_url=cfg.get("base_url"),
+        env_file_path=env_file_path,
+    )
+
+
 def build_profile_agent_config(profile: AgentProfileModel) -> ProfileAgentConfig:
     return build_profile_agent_config_for_usage(
         profile,
@@ -83,7 +97,7 @@ def build_profile_agent(
             )
         ]
     agent = Agent(
-        client=client or OpenAIChatClient(env_file_path=env_file_path),
+        client=client or create_openai_chat_client(env_file_path=env_file_path),
         name=profile.name,
         instructions=config.system_prompt,
         tools=config.cached_tools or None,
@@ -156,9 +170,12 @@ class MAFRuntime:
         text: str,
         *,
         request_id: str,
+        model_id: str | None = None,
     ) -> RunResult:
         """Run the agent, bridging Sync Flask to Background Async Event Loop."""
-        return run_in_maf_loop(self._run_async_in_loop(session_id, text, request_id=request_id))
+        return run_in_maf_loop(
+            self._run_async_in_loop(session_id, text, request_id=request_id, model_id=model_id)
+        )
 
     async def _run_async_in_loop(
         self,
@@ -166,13 +183,15 @@ class MAFRuntime:
         text: str,
         *,
         request_id: str,
+        model_id: str | None = None,
     ) -> RunResult:
         tool_traces: list[ToolExecutionTrace] = []
 
+        run_client = self.client if not model_id else create_openai_chat_client(model_id=model_id)
         run_agent, _ = build_profile_agent(
             self.profile,
             self.session_factory,
-            client=self.client,
+            client=run_client,
             include_history=True,
             store_inputs=False,
             store_outputs=False,
@@ -240,10 +259,10 @@ class MAFRuntime:
         )
 
     @staticmethod
-    def runtime_metadata() -> dict[str, str | None]:
+    def runtime_metadata(model_id: str | None = None) -> dict[str, str | None]:
         cfg = get_openai_compatible_config()
         return {
-            "model": cfg.get("model"),
+            "model": model_id or cfg.get("model"),
             "endpoint": cfg.get("base_url"),
             "runtime": "maf_agent",
         }

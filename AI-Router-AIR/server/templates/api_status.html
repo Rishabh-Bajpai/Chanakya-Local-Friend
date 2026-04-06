@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Router | API Status</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .status-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+
+        .status-table th,
+        .status-table td {
+            text-align: left;
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .status-table th {
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+
+        .method-badge {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-family: monospace;
+            font-weight: 600;
+        }
+
+        .method-GET {
+            color: #61dafb;
+            border: 1px solid rgba(97, 218, 251, 0.3);
+        }
+
+        .method-POST {
+            color: #f0bd4e;
+            border: 1px solid rgba(240, 189, 78, 0.3);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .status-active {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .status-inactive {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-container">
+        <header class="main-header">
+            <div class="logo">
+                <span class="icon">⚡</span>
+                <h1>AI Router <span class="badge">API Status</span></h1>
+            </div>
+            <nav>
+                <a href="/" class="btn btn-sm">← Back to Dashboard</a>
+                <a href="http://localhost:5011" target="_blank" class="btn btn-primary">Open Test Client ↗</a>
+            </nav>
+        </header>
+
+        <main class="dashboard-content">
+            <section class="card wide">
+                <div class="card-header">
+                    <h2><span class="icon">📡</span> API Endpoints & Availability</h2>
+                </div>
+                <div class="card-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        This page lists all public API endpoints exposed by the AI Router and their current availability
+                        status based on configured providers.
+                    </p>
+
+                    <table class="status-table">
+                        <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th>Endpoint</th>
+                                <th>Description</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Models -->
+                            <tr>
+                                <td><span class="method-badge method-GET">GET</span></td>
+                                <td><code>/v1/models</code></td>
+                                <td>List all available models</td>
+                                <td>
+                                    <span class="status-badge status-active">
+                                        <span class="dot" style="background:currentColor"></span> Active
+                                    </span>
+                                </td>
+                            </tr>
+
+                            <!-- Chat -->
+                            <tr>
+                                <td><span class="method-badge method-POST">POST</span></td>
+                                <td><code>/v1/chat/completions</code></td>
+                                <td>Navigate chat requests (LLM)</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No LLM Provider)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- TTS -->
+                            <tr>
+                                <td><span class="method-badge method-POST">POST</span></td>
+                                <td><code>/v1/audio/speech</code></td>
+                                <td>Text-to-Speech generation</td>
+                                <td>
+                                    {% if status.tts %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No TTS Model)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- STT -->
+                            <tr>
+                                <td><span class="method-badge method-POST">POST</span></td>
+                                <td><code>/v1/audio/transcriptions</code></td>
+                                <td>Speech-to-Text transcription</td>
+                                <td>
+                                    {% if status.stt %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No STT Model)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- Embeddings -->
+                            <tr>
+                                <td><span class="method-badge method-POST">POST</span></td>
+                                <td><code>/v1/embeddings</code></td>
+                                <td>Get text embeddings</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+</body>
+
+</html>

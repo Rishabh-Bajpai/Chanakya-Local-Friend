@@ -1,0 +1,8 @@
+a2a-sdk
+agent-framework
+fastapi
+httpx
+jinja2
+python-multipart
+sse-starlette
+uvicorn

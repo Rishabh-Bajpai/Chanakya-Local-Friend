@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
+
+from agent_framework import Agent
+from agent_framework.openai import OpenAIChatClient
+
+
+class OrchestrationAgentError(RuntimeError):
+    pass
+
+
+@dataclass(slots=True)
+class MAFOrchestrationAgent:
+    model: str
+    base_url: str
+    api_key: str
+    env_file_path: str
+    debug: bool = False
+    runner: Callable[[str], Any] | None = None
+    _agent: Agent | None = field(init=False, default=None, repr=False)
+    _agent_by_model: dict[str, Agent] = field(
+        init=False, default_factory=dict, repr=False
+    )
+
+    def __post_init__(self) -> None:
+        if self.runner is None:
+            client = OpenAIChatClient(
+                model_id=self.model,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                env_file_path=self.env_file_path,
+            )
+            self._agent = Agent(
+                client=client,
+                name="ConversationLayerPlanner",
+                description="Structured orchestration planner for the conversation layer.",
+                instructions=(
+                    "You are a planning agent for a conversation orchestration layer. "
+                    "Return only valid JSON that matches the requested schema. "
+                    "Do not include markdown fences or prose outside the JSON object."
+                ),
+            )
+
+    def plan(
+        self, *, task: str, instructions: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        prompt = self._build_prompt(
+            task=task, instructions=instructions, payload=payload
+        )
+        raw_text = self._run(prompt)
+        return self._parse_result(raw_text)
+
+    def plan_with_model(
+        self,
+        *,
+        task: str,
+        instructions: str,
+        payload: dict[str, Any],
+        model_id: str | None,
+    ) -> dict[str, Any]:
+        prompt = self._build_prompt(
+            task=task, instructions=instructions, payload=payload
+        )
+        raw_text = self._run(prompt, model_override=model_id)
+        return self._parse_result(raw_text)
+
+    async def plan_async(
+        self, *, task: str, instructions: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        prompt = self._build_prompt(
+            task=task, instructions=instructions, payload=payload
+        )
+        raw_text = await self._run_async(prompt)
+        return self._parse_result(raw_text)
+
+    def _parse_result(self, raw_text: str) -> dict[str, Any]:
+        try:
+            result = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            raise OrchestrationAgentError(
+                f"Invalid JSON from orchestration agent: {exc}"
+            ) from exc
+        if not isinstance(result, dict):
+            raise OrchestrationAgentError(
+                "Orchestration agent must return a JSON object"
+            )
+        return result
+
+    def _run(self, prompt: str, *, model_override: str | None = None) -> str:
+        if self.runner is not None:
+            result = self.runner(prompt)
+        else:
+            agent = self._agent_for_model(model_override)
+            result = asyncio.run(agent.run(prompt))
+        return self._coerce_result_to_text(result)
+
+    async def _run_async(self, prompt: str) -> str:
+        if self.runner is not None:
+            result = self.runner(prompt)
+        else:
+            result = await self._agent.run(prompt)
+
+        return self._coerce_result_to_text(result)
+
+    def _coerce_result_to_text(self, result: Any) -> str:
+        if isinstance(result, dict):
+            return json.dumps(result)
+        text = getattr(result, "text", None)
+        if text is not None:
+            return str(text)
+        return str(result)
+
+    def _build_prompt(
+        self, *, task: str, instructions: str, payload: dict[str, Any]
+    ) -> str:
+        return (
+            f"Task: {task}\n"
+            f"Instructions:\n{instructions}\n\n"
+            "Return exactly one JSON object.\n"
+            f"Payload:\n{json.dumps(payload, ensure_ascii=True)}"
+        )
+
+    def _agent_for_model(self, model_override: str | None) -> Agent:
+        model_id = str(model_override or "").strip()
+        if not model_id or model_id == self.model:
+            if self._agent is None:
+                raise OrchestrationAgentError("Orchestration agent is not initialized")
+            return self._agent
+        cached = self._agent_by_model.get(model_id)
+        if cached is not None:
+            return cached
+        client = OpenAIChatClient(
+            model_id=model_id,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            env_file_path=self.env_file_path,
+        )
+        created = Agent(
+            client=client,
+            name=f"ConversationLayerPlanner[{model_id}]",
+            description="Structured orchestration planner for the conversation layer.",
+            instructions=(
+                "You are a planning agent for a conversation orchestration layer. "
+                "Return only valid JSON that matches the requested schema. "
+                "Do not include markdown fences or prose outside the JSON object."
+            ),
+        )
+        self._agent_by_model[model_id] = created
+        return created

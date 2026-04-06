@@ -1,0 +1,107 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic:
+      - banner
+    - generic [ref=e5]:
+      - generic:
+        - generic:
+          - generic:
+            - button "Skip to main content":
+              - generic: Skip to main content
+          - generic:
+            - button "Skip to navigation":
+              - generic: Skip to navigation
+      - generic [ref=e8]:
+        - banner:
+          - generic [ref=e10]:
+            - link "Site home Rishabh Bajpai" [ref=e12] [cursor=pointer]:
+              - /url: /home
+              - img "Site home" [ref=e13]
+              - generic [ref=e14]: Rishabh Bajpai
+            - navigation [ref=e15]:
+              - list [ref=e16]:
+                - listitem [ref=e17]:
+                  - link "Home" [ref=e20] [cursor=pointer]:
+                    - /url: /home
+                - listitem [ref=e22]:
+                  - link "About" [ref=e25] [cursor=pointer]:
+                    - /url: /about
+                - listitem [ref=e27]:
+                  - generic [ref=e29]:
+                    - link "Research" [ref=e30]
+                    - img [ref=e31] [cursor=pointer]
+                - listitem [ref=e37]:
+                  - link "Publications" [ref=e40] [cursor=pointer]:
+                    - /url: /publications
+                - listitem [ref=e42]:
+                  - link "Contact" [ref=e45] [cursor=pointer]:
+                    - /url: /contact
+            - button "Open search bar" [ref=e47] [cursor=pointer]:
+              - img [ref=e50]
+        - generic [ref=e54]:
+          - generic [ref=e57]:
+            - generic [ref=e60]:
+              - img [ref=e66]
+              - main [ref=e70]:
+                - heading "Brief introduction" [level=1]
+              - generic [ref=e74]:
+                - paragraph [ref=e75]:
+                  - text: Currently, I am a postdoctoral researcher at Aravamuthan Lab, WashU. I am working on developing intelligent systems for quantifying motor disorders in children with Dystonic Cerebral Palsy under the supervision of
+                  - link "Dr. Bhooma Aravamuthan" [ref=e76] [cursor=pointer]:
+                    - /url: https://aravamuthanlab.wustl.edu/
+                  - text: . I am interested in multi-disciplinary approaches to solving real-world problems. Before joining Aravamuthan Lab I worked at IIT Delhi and AIIMS Delhi as a Prime Minister’s Research Fellow (PMRF) under the supervision of
+                  - link "Dr. Deepak Joshi" [ref=e77] [cursor=pointer]:
+                    - /url: https://web.iitd.ac.in/~joshid/
+                  - text: for my PhD degree. There, I developed tools for gait kinematics measurement, automated gait assessment, and detecting abnormalities in different parts of the body such as knee joint abnormalities (osteoarthritis quantification), respiration abnormalities, and lower limb abnormalities while walking.
+                - paragraph [ref=e78]:
+                  - text: During the final year of my B.Tech, I worked at IISc, Bangalore with
+                  - link "Dr. Sridharan Devarajan" [ref=e79] [cursor=pointer]:
+                    - /url: https://cns.iisc.ac.in/sridhar/index.html
+                  - text: to understand how exogenous attention modulates visual working memory in humans. Working on understanding cognitive processes taught me new scientific methods of research. My interest in mechatronics developed at IIIT Jabalpur and IIT Kanpur where I developed various robotic systems under the supervision of
+                  - link "Dr. Bishakh Bhattacharya" [ref=e80] [cursor=pointer]:
+                    - /url: https://www.iitk.ac.in/smss/author/prof.-bishakh-bhattacharya/#:~:text=Bishakh%20Bhattacharya%20is%20a%20Professor,Engineering%20at%20IIT%20Kanpur%2C%20India.
+                  - text: and the faculties of
+                  - link "IIIT Jabalpur." [ref=e81] [cursor=pointer]:
+                    - /url: http://faculty.iiitdmj.ac.in/
+                - paragraph [ref=e82]: In my spare time, I enjoy doing outdoor activities, watching movies, and reading fitness blogs.
+            - iframe [ref=e124]:
+              - iframe [ref=f1e2]:
+                
+          - generic "Image carousel" [ref=e135]:
+            - img "Carousel image" [ref=e137]
+            - generic [ref=e140]: Automated gait assessment report for children having Spastic Cerebral Palsy
+        - contentinfo [ref=e157]:
+          - generic [ref=e160]:
+            - generic [ref=e168]: © copyright 2021-2026 Rishabh Bajpai. All rights reserved.
+            - generic [ref=e176]:
+              - link "LinkedIn" [ref=e177] [cursor=pointer]:
+                - /url: https://www.google.com/url?q=https%3A%2F%2Fwww.linkedin.com%2Fin%2Frishabh-bajpai%2F&sa=D&sntz=1&usg=AOvVaw253AE0yEGCHSJ7UbKcXG4b
+                - img "LinkedIn" [ref=e178]
+              - link "Email" [ref=e179] [cursor=pointer]:
+                - /url: mailto:rishabhbajpai2410@gmail.com
+                - img "Email" [ref=e180]
+              - link "Twitter" [ref=e181] [cursor=pointer]:
+                - /url: https://www.google.com/url?q=https%3A%2F%2Ftwitter.com%2FNeur0n__&sa=D&sntz=1&usg=AOvVaw2L-G_UxBQIer63BTNGTfFN
+                - img "Twitter" [ref=e182]
+              - link "Facebook" [ref=e183] [cursor=pointer]:
+                - /url: https://www.google.com/url?q=https%3A%2F%2Fwww.facebook.com%2Frishabh.bajpai.5030%2F&sa=D&sntz=1&usg=AOvVaw2RUPHivi6qS7NvQk8zeDxu
+                - img "Facebook" [ref=e184]
+              - link "GitHub" [ref=e185] [cursor=pointer]:
+                - /url: https://www.google.com/url?q=https%3A%2F%2Fgithub.com%2FRishabh-Bajpai&sa=D&sntz=1&usg=AOvVaw0SaBlR8-5563CBvD0z2-_P
+                - img "GitHub" [ref=e186]
+              - link "Link" [ref=e187] [cursor=pointer]:
+                - /url: https://www.google.com/url?q=https%3A%2F%2Fwww.researchgate.net%2Fprofile%2FRishabh-Bajpai-2&sa=D&sntz=1&usg=AOvVaw1SnTyTjIliyETBsovUGBPD
+                - img "Link" [ref=e188]
+              - link "Link" [ref=e189] [cursor=pointer]:
+                - /url: https://scholar.google.com/citations?user=R87Z5zAAAAAJ&hl=en
+                - img "Link" [ref=e190]
+              - link "Instagram" [ref=e191] [cursor=pointer]:
+                - /url: https://www.google.com/url?q=https%3A%2F%2Fwww.instagram.com%2Fneur0n_%2F&sa=D&sntz=1&usg=AOvVaw3V8KNMpVbJizLtv0Xqq4eH
+                - img "Instagram" [ref=e192]
+        - generic [ref=e193]:
+          - button [ref=e194] [cursor=pointer]:
+            - img [ref=e197]
+          - generic:
+            - button "Google Sites" [ref=e200] [cursor=pointer]
+            - button "Report abuse" [ref=e202] [cursor=pointer]
+  - region

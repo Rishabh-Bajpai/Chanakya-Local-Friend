@@ -1,0 +1,11 @@
+name: Blank Issue
+description: Create a blank issue with no template constraints
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Please describe your issue or request
+      placeholder: Describe the issue, feature request, or discussion topic here...
+    validations:
+      required: true

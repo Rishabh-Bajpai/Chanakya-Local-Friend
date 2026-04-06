@@ -439,7 +439,13 @@ class ChatService:
             input_prompt=None,
         )
 
-    def _chat_in_active_work(self, classic_session_id: str, message: str) -> ChatReply:
+    def _chat_in_active_work(
+        self,
+        classic_session_id: str,
+        message: str,
+        *,
+        model_id: str | None = None,
+    ) -> ChatReply:
         active_work = self.store.get_active_classic_work(classic_session_id)
         if active_work is None:
             active_work = self._ensure_classic_active_work(classic_session_id, message)
@@ -475,6 +481,7 @@ class ChatService:
             str(active_work["work_session_id"]),
             message,
             work_id=str(active_work["work_id"]),
+            model_id=model_id,
         )
         self.store.add_message(
             classic_session_id,
@@ -524,7 +531,14 @@ class ChatService:
             input_prompt=reply.input_prompt,
         )
 
-    def chat(self, session_id: str, message: str, *, work_id: str | None = None) -> ChatReply:
+    def chat(
+        self,
+        session_id: str,
+        message: str,
+        *,
+        work_id: str | None = None,
+        model_id: str | None = None,
+    ) -> ChatReply:
         if work_id is None:
             active_work = self.store.get_active_classic_work(session_id)
             active_work_session_id = (
@@ -612,14 +626,14 @@ class ChatService:
                     )
 
             if active_work is not None and self._is_related_to_active_work(message, active_work):
-                return self._chat_in_active_work(session_id, message)
+                return self._chat_in_active_work(session_id, message, model_id=model_id)
 
             if (
                 self.manager is not None
                 and self._triage_message(message, work_id=None) == "delegate"
             ):
                 active_work = self._replace_classic_active_work(session_id, message)
-                return self._chat_in_active_work(session_id, message)
+                return self._chat_in_active_work(session_id, message, model_id=model_id)
 
         resumable_task = self.store.find_waiting_input_task(session_id)
         if resumable_task is not None:
@@ -632,14 +646,19 @@ class ChatService:
                 )
             return self.submit_task_input(str(resumable_task["id"]), message)
 
-        return self._chat_internal(session_id, message, work_id=work_id)
+        return self._chat_internal(session_id, message, work_id=work_id, model_id=model_id)
 
     def _chat_internal(
-        self, session_id: str, message: str, *, work_id: str | None = None
+        self,
+        session_id: str,
+        message: str,
+        *,
+        work_id: str | None = None,
+        model_id: str | None = None,
     ) -> ChatReply:
         request_id = make_id("req")
         root_task_id = make_id("task")
-        runtime_meta = self.runtime.runtime_metadata()
+        runtime_meta = self.runtime.runtime_metadata(model_id=model_id)
         prior_messages = self.store.list_messages(session_id)[-8:]
         self.store.add_message(session_id, "user", message, request_id=request_id)
         self.store.create_request(
@@ -808,6 +827,7 @@ class ChatService:
                     session_id,
                     message,
                     request_id=request_id,
+                    model_id=model_id,
                 )
         except Exception as exc:
             finished_at = now_iso()

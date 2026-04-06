@@ -15,6 +15,9 @@ from chanakya.agent.runtime import MAFRuntime
 from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
 from chanakya.config import (
+    get_air_dashboard_url,
+    get_air_server_url,
+    get_air_status_url,
     force_subagents_enabled,
     get_data_dir,
     get_database_url,
@@ -166,6 +169,9 @@ def create_app() -> Flask:
     def index() -> str:
         return render_template(
             "index.html",
+            air_dashboard_url=get_air_dashboard_url(),
+            air_server_url=get_air_server_url(),
+            air_status_url=get_air_status_url(),
             force_subagents_enabled=force_subagents_enabled(),
         )
 
@@ -173,6 +179,9 @@ def create_app() -> Flask:
     def work() -> str:
         return render_template(
             "work.html",
+            air_dashboard_url=get_air_dashboard_url(),
+            air_server_url=get_air_server_url(),
+            air_status_url=get_air_status_url(),
             force_subagents_enabled=force_subagents_enabled(),
         )
 
@@ -199,11 +208,16 @@ def create_app() -> Flask:
         else:
             session_id = str(raw_session_id or make_id("session"))
         message = str(payload.get("message", "")).strip()
+        raw_model_id = payload.get("model_id")
+        model_id = str(raw_model_id).strip() if raw_model_id is not None else None
+        if model_id == "":
+            model_id = None
         debug_log(
             "api_chat_request",
             {
                 "session_id": session_id,
                 "work_id": work_id,
+                "model_id": model_id,
                 "message": message,
                 "has_existing_session": bool(payload.get("session_id")),
             },
@@ -212,7 +226,7 @@ def create_app() -> Flask:
             return jsonify({"error": "message is required"}), 400
         store.ensure_session(session_id, title=message[:60] or "New chat")
         try:
-            reply = chat_service.chat(session_id, message, work_id=work_id)
+            reply = chat_service.chat(session_id, message, work_id=work_id, model_id=model_id)
         except Exception as exc:
             debug_log(
                 "api_chat_error",
