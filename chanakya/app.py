@@ -4,6 +4,7 @@ import json
 import queue
 import re
 import threading
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -212,6 +213,7 @@ def create_app() -> Flask:
         model_id = str(raw_model_id).strip() if raw_model_id is not None else None
         if model_id == "":
             model_id = None
+        wants_stream = bool(payload.get("stream"))
         debug_log(
             "api_chat_request",
             {
@@ -237,6 +239,22 @@ def create_app() -> Flask:
                 },
             )
             return jsonify({"error": str(exc), "session_id": session_id}), 502
+
+        if wants_stream:
+            final_payload = asdict(reply)
+
+            def event_stream() -> Any:
+                words = re.findall(r"\S+\s*", reply.message or "")
+                yield f"data: {json.dumps({'type': 'start', 'session_id': reply.session_id, 'request_id': reply.request_id})}\n\n"
+                if not words and reply.message:
+                    yield f"data: {json.dumps({'type': 'delta', 'content': reply.message})}\n\n"
+                for word in words:
+                    yield f"data: {json.dumps({'type': 'delta', 'content': word})}\n\n"
+                    time.sleep(0.015)
+                yield f"data: {json.dumps({'type': 'done', 'reply': final_payload})}\n\n"
+
+            return Response(event_stream(), mimetype="text/event-stream")
+
         debug_log(
             "api_chat_response",
             {

@@ -21,6 +21,10 @@
     let isBusy = false;
     let activeAudio = null;
     let latestAssistantText = "";
+    let audioQueue = [];
+    let isPlayingQueue = false;
+    let ttsInFlightCount = 0;
+    let streamingSpeechBuffer = "";
 
     function setStatus(text, isError = false) {
       if (!statusNode) {
@@ -79,10 +83,108 @@
     }
 
     function stopPlayback() {
+      audioQueue = [];
+      isPlayingQueue = false;
       if (activeAudio) {
         activeAudio.pause();
         activeAudio.src = "";
         activeAudio = null;
+      }
+    }
+
+    function normalizeAudioContentType(contentType) {
+      if (!contentType) {
+        return "audio/mpeg";
+      }
+      return contentType.includes("audio/mp3") ? "audio/mpeg" : contentType;
+    }
+
+    function splitIntoSpeechChunks(text) {
+      const normalized = text.replace(/\s+/g, " ").trim();
+      if (!normalized) {
+        return [];
+      }
+      const chunks = normalized.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [normalized];
+      return chunks
+        .map((chunk) => chunk.replace(/[*_#`~]/g, "").trim())
+        .filter(Boolean);
+    }
+
+    function playNextAudioChunk() {
+      if (!audioQueue.length) {
+        isPlayingQueue = false;
+        activeAudio = null;
+        return;
+      }
+
+      const nextChunk = audioQueue[0];
+      if (nextChunk.status === "pending") {
+        isPlayingQueue = false;
+        return;
+      }
+      if (nextChunk.status === "error") {
+        audioQueue.shift();
+        playNextAudioChunk();
+        return;
+      }
+
+      isPlayingQueue = true;
+      const currentChunk = audioQueue.shift();
+      activeAudio = new Audio(currentChunk.url);
+      activeAudio.onended = () => {
+        URL.revokeObjectURL(currentChunk.url);
+        activeAudio = null;
+        playNextAudioChunk();
+      };
+      activeAudio.onerror = () => {
+        URL.revokeObjectURL(currentChunk.url);
+        activeAudio = null;
+        playNextAudioChunk();
+      };
+      activeAudio.play().catch(() => {
+        URL.revokeObjectURL(currentChunk.url);
+        activeAudio = null;
+        playNextAudioChunk();
+      });
+    }
+
+    async function synthesizeSpeechChunk(text, placeholder) {
+      const model = selectedValue(ttsModelSelect);
+      ttsInFlightCount += 1;
+      try {
+        const response = await fetch(`${baseUrl}/v1/audio/speech`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model,
+            input: text,
+            voice: "alloy",
+            response_format: "mp3",
+            stream: false,
+          }),
+        });
+        if (!response.ok) {
+          throw new Error(`TTS failed (${response.status})`);
+        }
+        const contentType = normalizeAudioContentType(response.headers.get("content-type") || "audio/mpeg");
+        const blob = await response.blob();
+        if (blob.size < 200) {
+          placeholder.status = "error";
+          return;
+        }
+        placeholder.url = URL.createObjectURL(new Blob([blob], { type: contentType }));
+        placeholder.status = "ready";
+        if (!isPlayingQueue) {
+          playNextAudioChunk();
+        }
+      } catch (error) {
+        placeholder.status = "error";
+        throw error;
+      } finally {
+        ttsInFlightCount -= 1;
+        if (!isPlayingQueue) {
+          playNextAudioChunk();
+        }
       }
     }
 
@@ -96,30 +198,80 @@
         setStatus("Select a TTS model first.", true);
         return;
       }
-      setStatus("Generating speech...");
-      const response = await fetch(`${baseUrl}/v1/audio/speech`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          input: text,
-          voice: "alloy",
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`TTS failed (${response.status})`);
-      }
-      const blob = await response.blob();
       stopPlayback();
-      activeAudio = new Audio(URL.createObjectURL(blob));
-      await activeAudio.play();
+      const chunks = splitIntoSpeechChunks(text);
+      if (!chunks.length) {
+        setStatus("No assistant reply available for playback.", true);
+        return;
+      }
+      setStatus(chunks.length > 1 ? "Streaming speech chunks..." : "Generating speech...");
+      const placeholders = chunks.map(() => ({ url: null, status: "pending" }));
+      audioQueue = placeholders;
+      const synthesisTasks = chunks.map((chunk, index) => synthesizeSpeechChunk(chunk, placeholders[index]));
+      await Promise.allSettled(synthesisTasks);
       await new Promise((resolve) => {
-        if (!activeAudio) {
-          resolve(null);
-          return;
-        }
-        activeAudio.onended = () => resolve(null);
-        activeAudio.onerror = () => resolve(null);
+        const poll = () => {
+          if (ttsInFlightCount === 0 && !isPlayingQueue && !activeAudio && audioQueue.length === 0) {
+            resolve(null);
+            return;
+          }
+          window.setTimeout(poll, 120);
+        };
+        poll();
+      });
+    }
+
+    function startStreamingSpeech() {
+      stopPlayback();
+      streamingSpeechBuffer = "";
+      latestAssistantText = "";
+    }
+
+    function queueStreamingSpeechChunk(text) {
+      const cleaned = text.replace(/[*_#`~]/g, "").trim();
+      if (!cleaned || !selectedValue(ttsModelSelect)) {
+        return;
+      }
+      const placeholder = { url: null, status: "pending" };
+      audioQueue.push(placeholder);
+      setStatus("Streaming speech chunks...");
+      void synthesizeSpeechChunk(cleaned, placeholder).catch((error) => {
+        setStatus(error instanceof Error ? error.message : String(error), true);
+      });
+    }
+
+    function appendStreamingSpeechDelta(delta) {
+      if (!delta) {
+        return;
+      }
+      latestAssistantText += delta;
+      streamingSpeechBuffer += delta;
+      let match = streamingSpeechBuffer.match(/^(.*?[.!?](?:\s|$))/);
+      while (match) {
+        const sentence = match[1].trim();
+        streamingSpeechBuffer = streamingSpeechBuffer.slice(match[1].length);
+        queueStreamingSpeechChunk(sentence);
+        match = streamingSpeechBuffer.match(/^(.*?[.!?](?:\s|$))/);
+      }
+    }
+
+    async function finishStreamingSpeech(finalText) {
+      if (finalText) {
+        latestAssistantText = finalText;
+      }
+      if (streamingSpeechBuffer.trim()) {
+        queueStreamingSpeechChunk(streamingSpeechBuffer.trim());
+        streamingSpeechBuffer = "";
+      }
+      await new Promise((resolve) => {
+        const poll = () => {
+          if (ttsInFlightCount === 0 && !isPlayingQueue && !activeAudio && audioQueue.length === 0) {
+            resolve(null);
+            return;
+          }
+          window.setTimeout(poll, 120);
+        };
+        poll();
       });
     }
 
@@ -187,11 +339,17 @@
         onTranscript(transcript);
       }
       const llmModel = selectedValue(llmModelSelect);
-      const replyText = await submitText(transcript, { llmModel });
+      startStreamingSpeech();
+      const replyText = await submitText(transcript, {
+        llmModel,
+        onAssistantDelta: (delta) => {
+          appendStreamingSpeechDelta(delta);
+        },
+      });
       latestAssistantText = typeof replyText === "string" ? replyText : "";
       const speechText = (typeof getLatestAssistantText === "function" && getLatestAssistantText()) || latestAssistantText;
       if (speechText && selectedValue(ttsModelSelect)) {
-        await speakText(speechText);
+        await finishStreamingSpeech(speechText);
       }
     }
 

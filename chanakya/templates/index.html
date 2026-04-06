@@ -1306,6 +1306,7 @@
       }
       chatLog.appendChild(node);
       chatLog.scrollTop = chatLog.scrollHeight;
+      return node;
     }
 
     function getLatestAssistantMessageText() {
@@ -1326,15 +1327,53 @@
       return clone.textContent || "";
     }
 
-    async function submitChatMessage(message) {
+    async function submitChatMessage(message, options = {}) {
+      const { onDelta } = options;
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, message, model_id: airLlmModel.value || null }),
+        body: JSON.stringify({
+          session_id: sessionId,
+          message,
+          model_id: airLlmModel.value || null,
+          stream: true,
+        }),
       });
-      const data = await response.json();
       if (!response.ok) {
+        const data = await response.json();
         throw new Error(data.error || "Request failed");
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let data = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() || "";
+        for (const block of blocks) {
+          const line = block.split("\n").find((entry) => entry.startsWith("data: "));
+          if (!line) {
+            continue;
+          }
+          const payload = JSON.parse(line.slice(6));
+          if (payload.type === "delta") {
+            if (typeof onDelta === "function") {
+              onDelta(payload.content || "");
+            }
+            continue;
+          }
+          if (payload.type === "done") {
+            data = payload.reply || null;
+          }
+        }
+      }
+      if (!data) {
+        throw new Error("Stream ended without a final reply.");
       }
       sessionId = data.session_id;
       storeSessionId(sessionId);
@@ -2176,11 +2215,17 @@
       if (!message) return;
       appendMessage("user", message);
       messageInput.value = "";
+      const assistantNode = appendMessage("assistant", "");
 
       try {
-        await submitChatMessage(message);
+        await submitChatMessage(message, {
+          onDelta: (content) => {
+            assistantNode.textContent += content;
+            chatLog.scrollTop = chatLog.scrollHeight;
+          },
+        });
       } catch (error) {
-        appendMessage("assistant", error instanceof Error ? error.message : String(error));
+        assistantNode.textContent = error instanceof Error ? error.message : String(error);
         return;
       }
     });
@@ -2225,9 +2270,19 @@
       continuousButton: airVoiceLoopButton,
       speakButton: airSpeakButton,
       statusNode: airVoiceStatus,
-      submitText: async (text) => {
+      submitText: async (text, options = {}) => {
+        const { onAssistantDelta } = options;
         appendMessage("user", text, "voice transcript");
-        const data = await submitChatMessage(text);
+        const assistantNode = appendMessage("assistant", "");
+        const data = await submitChatMessage(text, {
+          onDelta: (content) => {
+            assistantNode.textContent += content;
+            chatLog.scrollTop = chatLog.scrollHeight;
+            if (typeof onAssistantDelta === "function") {
+              onAssistantDelta(content);
+            }
+          },
+        });
         return data.message || "";
       },
       getLatestAssistantText: getLatestAssistantMessageText,
