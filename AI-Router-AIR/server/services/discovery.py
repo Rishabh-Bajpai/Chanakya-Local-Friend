@@ -29,18 +29,18 @@ DOCKER_SOCKET = "/var/run/docker.sock"
 # Used purely for display — discovery itself does NOT depend on this list.
 FRIENDLY_NAMES: Dict[Tuple[str, int], str] = {
     ("127.0.0.1", 11434): "Ollama",
-    ("127.0.0.1", 1234):  "LM Studio",
-    ("127.0.0.1", 8080):  "LocalAI / llama.cpp",
-    ("127.0.0.1", 8000):  "Speaches / vLLM",
-    ("127.0.0.1", 8969):  "Speaches",
-    ("127.0.0.1", 5000):  "text-generation-webui",
+    ("127.0.0.1", 1234): "LM Studio",
+    ("127.0.0.1", 8080): "LocalAI / llama.cpp",
+    ("127.0.0.1", 8000): "Speaches / vLLM",
+    ("127.0.0.1", 8969): "Speaches",
+    ("127.0.0.1", 5000): "text-generation-webui",
 }
 
 # Timeout for each probe (seconds)
 PROBE_TIMEOUT = 2.0
 
 # Ports to skip during localhost scanning (known non-AI services + AIR itself)
-_own_port = int(os.getenv("SERVER_PORT", "5012"))
+_own_port = int(os.getenv("SERVER_PORT", "5512"))
 SKIP_PORTS: Set[int] = {22, 53, 80, 443, 631, 3306, 5432, 5433, 6379, 27017, _own_port}
 
 
@@ -48,11 +48,13 @@ SKIP_PORTS: Set[int] = {22, 53, 80, 443, 631, 3306, 5432, 5433, 6379, 27017, _ow
 #  DiscoveredProvider
 # ===================================================================== #
 
+
 class DiscoveredProvider:
     """Represents a provider found during auto-discovery."""
 
-    def __init__(self, name: str, base_url: str, models: List[Dict[str, Any]],
-                 detected_types: List[str]):
+    def __init__(
+        self, name: str, base_url: str, models: List[Dict[str, Any]], detected_types: List[str]
+    ):
         self.name = name
         self.base_url = base_url
         self.models = models
@@ -64,15 +66,17 @@ class DiscoveredProvider:
             "base_url": self.base_url,
             "detected_types": self.detected_types,
             "model_count": len(self.models),
-            "models": [{"id": m.get("id", "unknown"),
-                        "type": m.get("_inferred_type", "llm")}
-                       for m in self.models],
+            "models": [
+                {"id": m.get("id", "unknown"), "type": m.get("_inferred_type", "llm")}
+                for m in self.models
+            ],
         }
 
 
 # ===================================================================== #
 #  DiscoveryService
 # ===================================================================== #
+
 
 class DiscoveryService:
     """
@@ -99,13 +103,13 @@ class DiscoveryService:
         Returns a sorted list of unique port numbers.
         """
         LISTEN_STATE = "0A"  # TCP_LISTEN in hex
-        
+
         # Valid IPv4 local bindings
         VALID_IPV4_HEX = {
             "0100007F",  # 127.0.0.1
             "00000000",  # 0.0.0.0
         }
-        
+
         # Valid IPv6 local bindings
         VALID_IPV6_HEX = {
             "00000000000000000000000001000000",  # ::1
@@ -154,7 +158,9 @@ class DiscoveryService:
         _parse_proc_file("/proc/net/tcp6", VALID_IPV6_HEX)
 
         if ports:
-            logger.debug(f"[Discovery] Local proc net scan found {len(ports)} listening port(s): {sorted(ports)}")
+            logger.debug(
+                f"[Discovery] Local proc net scan found {len(ports)} listening port(s): {sorted(ports)}"
+            )
 
         return sorted(ports)
 
@@ -223,9 +229,15 @@ class DiscoveryService:
     #  3. Probe an endpoint for /v1/models
     # ------------------------------------------------------------------ #
 
-    async def _probe_endpoint(self, client: httpx.AsyncClient, semaphore: asyncio.Semaphore,
-                               name: str, host: str, port: int,
-                               base_path: str) -> Optional[DiscoveredProvider]:
+    async def _probe_endpoint(
+        self,
+        client: httpx.AsyncClient,
+        semaphore: asyncio.Semaphore,
+        name: str,
+        host: str,
+        port: int,
+        base_path: str,
+    ) -> Optional[DiscoveredProvider]:
         """
         Probe a single endpoint using the shared client and semaphore.
         """
@@ -307,7 +319,9 @@ class DiscoveryService:
         try:
             docker_endpoints = await self._scan_docker_containers()
             candidates.extend(docker_endpoints)
-            logger.debug(f"[Discovery] Phase 2: {len(docker_endpoints)} Docker endpoint(s) to probe")
+            logger.debug(
+                f"[Discovery] Phase 2: {len(docker_endpoints)} Docker endpoint(s) to probe"
+            )
         except Exception as e:
             logger.warning(f"[Discovery] Docker scan failed (non-fatal): {e}")
 
@@ -328,7 +342,9 @@ class DiscoveryService:
                     host, port_str = host_port.rsplit(":", 1)
                     candidates.append(("Custom", host, int(port_str), path))
                 except ValueError:
-                    logger.warning(f"[Discovery] Ignoring malformed EXTRA_SCAN_PORTS entry: {entry}")
+                    logger.warning(
+                        f"[Discovery] Ignoring malformed EXTRA_SCAN_PORTS entry: {entry}"
+                    )
 
         # --- De-duplicate by (host, port, path) ---
         # Prefer Docker label over generic "localhost:PORT"
@@ -379,32 +395,31 @@ class DiscoveryService:
         url = url.replace("localhost", "127.0.0.1")
         return url.lower()
 
-    def filter_new(self, discovered: List[DiscoveredProvider],
-                   configured: List[ProviderConfig]) -> List[DiscoveredProvider]:
+    def filter_new(
+        self, discovered: List[DiscoveredProvider], configured: List[ProviderConfig]
+    ) -> List[DiscoveredProvider]:
         """
         Return discovered providers that have at least one type NOT already
         configured.  If a server is already configured as TTS but also
         offers STT, the STT capability is still surfaced.
         """
-        configured_pairs = {
-            (self._normalize_url(p.base_url), p.type)
-            for p in configured
-        }
+        configured_pairs = {(self._normalize_url(p.base_url), p.type) for p in configured}
 
         new_providers = []
         for dp in discovered:
             norm_url = self._normalize_url(dp.base_url)
             uncovered_types = [
-                t for t in dp.detected_types
-                if (norm_url, t) not in configured_pairs
+                t for t in dp.detected_types if (norm_url, t) not in configured_pairs
             ]
             if uncovered_types:
-                new_providers.append(DiscoveredProvider(
-                    name=dp.name,
-                    base_url=dp.base_url,
-                    models=dp.models,
-                    detected_types=uncovered_types,
-                ))
+                new_providers.append(
+                    DiscoveredProvider(
+                        name=dp.name,
+                        base_url=dp.base_url,
+                        models=dp.models,
+                        detected_types=uncovered_types,
+                    )
+                )
 
         return new_providers
 

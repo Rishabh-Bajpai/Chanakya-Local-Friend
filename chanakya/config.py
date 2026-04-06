@@ -58,7 +58,7 @@ def get_air_server_url() -> str:
     configured = os.getenv("AIR_SERVER_URL")
     if configured:
         return configured.rstrip("/")
-    port = os.getenv("AIR_SERVER_PORT", "5012").strip() or "5012"
+    port = os.getenv("AIR_SERVER_PORT", "5512").strip() or "5512"
     return f"http://localhost:{port}"
 
 

@@ -9,10 +9,10 @@ source /home/rishabh/miniconda3/etc/profile.d/conda.sh
 conda activate test
 cp .env.example .env
 cp mcp_config_file.example.json mcp_config_file.json
-python -m flask --app chanakya.app run --host 0.0.0.0 --port 5000
+./scripts/start_chanakya_air.sh
 ```
 
-Open `http://localhost:5000`.
+Open `http://localhost:5513` for Chanakya and `http://localhost:5512` for AIR.
 
 ## Core Paths
 

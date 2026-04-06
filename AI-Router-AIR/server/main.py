@@ -8,7 +8,9 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-app = FastAPI(title="AI Router (AIR)", description="Unified API for LLM, STT, and TTS", version="0.1.0")
+app = FastAPI(
+    title="AI Router (AIR)", description="Unified API for LLM, STT, and TTS", version="0.1.0"
+)
 
 # Templates
 templates = Jinja2Templates(directory="server/templates")
@@ -35,6 +37,7 @@ app.include_router(api_router.router)
 # Mount static files
 app.mount("/static", StaticFiles(directory="server/static"), name="static")
 
+
 @app.on_event("startup")
 async def startup_discovery():
     """Run provider discovery on startup as a background task."""
@@ -54,7 +57,9 @@ async def startup_discovery():
                 logging.info(f"✨ Discovered {len(new_providers)} new provider(s):")
                 for dp in new_providers:
                     types_str = ", ".join(dp.detected_types)
-                    logging.info(f"   • {dp.name} at {dp.base_url} [{types_str}] — {len(dp.models)} model(s)")
+                    logging.info(
+                        f"   • {dp.name} at {dp.base_url} [{types_str}] — {len(dp.models)} model(s)"
+                    )
                 logging.info("   Open the dashboard to add them.")
             else:
                 logging.info("No new providers discovered beyond what is already configured.")
@@ -66,32 +71,37 @@ async def startup_discovery():
 
     if not settings.DISCOVERY_ENABLED:
         logging.info("Auto-discovery is disabled (DISCOVERY_ENABLED=false)")
-        
+
         # Even if discovery is off, we still want to refresh configured models in background
         async def refresh_only():
             try:
                 await provider_manager.refresh_models()
             except Exception as e:
                 logging.warning(f"Background model refresh failed: {e}")
-        
+
         asyncio.create_task(refresh_only())
         return
 
     # Run everything in background
     asyncio.create_task(run_refresh())
 
+
 @app.get("/")
 async def root(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
+
 @app.get("/status")
 async def api_status_page(request: Request):
     from server.services.provider_manager import provider_manager
+
     status = provider_manager.get_service_status()
     return templates.TemplateResponse("api_status.html", {"request": request, "status": status})
 
+
 if __name__ == "__main__":
     import uvicorn
+
     # Use SERVER_PORT now
-    port = int(os.getenv("SERVER_PORT", 5012))
+    port = int(os.getenv("SERVER_PORT", 5512))
     uvicorn.run("server.main:app", host="0.0.0.0", port=port, reload=True)

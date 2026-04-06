@@ -13,11 +13,11 @@ This is the full implementation tracked in `task.md`.
 source /home/rishabh/miniconda3/etc/profile.d/conda.sh
 conda activate test
 
-# Run the Flask app
-python -m flask --app chanakya.app run --host 0.0.0.0 --port 5000
+# Run Chanakya and AIR together
+./scripts/start_chanakya_air.sh
 ```
 
-Open `http://localhost:5000` to access the GUI.
+Open `http://localhost:5513` to access the GUI. AIR runs at `http://localhost:5512`.
 
 ---
 
@@ -370,7 +370,13 @@ The app loads three seed agents on startup from `chanakya/seeds/agents.json`:
 
 ```bash
 conda activate test
-python -m flask --app chanakya.app run --host 0.0.0.0 --port 5000
+./scripts/start_chanakya_air.sh
+```
+
+Stop both services with:
+
+```bash
+./scripts/stop_chanakya_air.sh
 ```
 
 ### Database Utilities

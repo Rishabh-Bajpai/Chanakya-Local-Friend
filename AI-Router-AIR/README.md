@@ -30,10 +30,10 @@ The project is built on a highly modular API Gateway architecture using **FastAP
     *   **API Layer (`server/api/`)**: Defines OpenAI-compatible `/v1` routes (chat, audio, models) and admin configuration endpoints.
     *   **Core Infrastructure (`server/core/`)**: Handles dynamic dependency injection, secure `.env` management, and the `httpx` streaming proxy engine.
     *   **Service Layer (`server/services/`)**: The `ProviderManager` acts as the brain, caching available models and dynamically pairing incoming payloads with the correct upstream host (e.g., matching Kokoro requests to a Speaches-AI target).
-    *   Serves the Admin Dashboard (`http://localhost:5012`).
+    *   Serves the Admin Dashboard (`http://localhost:5512`).
 
 2.  **AIR Client (`client/`)**:
-    *   A separate testing workbench service running at `http://localhost:5011`.
+    *   A separate testing workbench service running at `http://localhost:5511`.
 
 ## 📦 Installation & Setup
 
@@ -52,8 +52,8 @@ pip install -e .
 Create a `.env` file in the root directory (or use `.env.example` as a template):
 ```ini
 # Server Configuration
-SERVER_PORT=5012
-CLIENT_PORT=5011
+SERVER_PORT=5512
+CLIENT_PORT=5511
 LOG_LEVEL=INFO
 
 # Default Providers (Optional - can be added via UI)
@@ -69,7 +69,7 @@ python run.py
 ## 🖥️ Usage
 
 ### 1. Server Dashboard (Admin)
-Manage your AI infrastructure at [http://localhost:5012](http://localhost:5012).
+Manage your AI infrastructure at [http://localhost:5512](http://localhost:5512).
 
 *   **Configuration**: Add and manage providers.
     ![Server Dashboard](resources/Server_dashboard_configuration.png)
@@ -81,7 +81,7 @@ Manage your AI infrastructure at [http://localhost:5012](http://localhost:5012).
     ![API Status](resources/Server_API.png)
 
 ### 2. Client Workbench (Testing)
-Test your integrations at [http://localhost:5011](http://localhost:5011).
+Test your integrations at [http://localhost:5511](http://localhost:5511).
 
 *   **Chat Interface**: Context-aware LLM testing with history.
     ![Client Chat](resources/Client_chat.png)
