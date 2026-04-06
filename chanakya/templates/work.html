@@ -689,8 +689,35 @@
         return last ? last.textContent || "" : "";
       }
 
+      async function pollNextWorkConversationMessages(targetSessionId, options = {}) {
+        const { onAssistantMessage } = options;
+        while (true) {
+          const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}/next-message`);
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || "Next message failed");
+          }
+          if (payload.status === "delivered" && payload.message) {
+            const text = payload.message.text || "";
+            if (text) {
+              appendChatMessage("assistant", text);
+              if (typeof onAssistantMessage === "function") {
+                onAssistantMessage(text);
+              }
+            }
+            continue;
+          }
+          if (payload.status === "waiting") {
+            const waitMs = Math.max(Number(payload.retry_after_ms || 500), 250);
+            await new Promise((resolve) => window.setTimeout(resolve, Math.min(waitMs, 1000)));
+            continue;
+          }
+          break;
+        }
+      }
+
       async function submitWorkChatMessage(message, options = {}) {
-        const { onDelta } = options;
+        const { onAssistantMessage } = options;
         if (!activeWorkId) {
           throw new Error("Select a work before starting voice mode.");
         }
@@ -701,48 +728,32 @@
             work_id: activeWorkId,
             message,
             model_id: airLlmModel.value || null,
-            stream: true,
           }),
         });
         if (!response.ok) {
           const data = await response.json();
           throw new Error(data.error || "Chat failed");
         }
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let data = null;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
+        const data = await response.json();
+        const messages = Array.isArray(data.messages) && data.messages.length
+          ? data.messages
+          : [{ text: data.message || "", delay_ms: 0 }];
+        messages.forEach((item) => {
+          const text = item.text || "";
+          if (!text) {
+            return;
           }
-          buffer += decoder.decode(value, { stream: true });
-          const blocks = buffer.split("\n\n");
-          buffer = blocks.pop() || "";
-          for (const block of blocks) {
-            const line = block.split("\n").find((entry) => entry.startsWith("data: "));
-            if (!line) {
-              continue;
-            }
-            const payload = JSON.parse(line.slice(6));
-            if (payload.type === "delta") {
-              if (typeof onDelta === "function") {
-                onDelta(payload.content || "");
-              }
-              continue;
-            }
-            if (payload.type === "done") {
-              data = payload.reply || null;
-            }
+          appendChatMessage("assistant", text);
+          if (typeof onAssistantMessage === "function") {
+            onAssistantMessage(text);
           }
-        }
-        if (!data) {
-          throw new Error("Stream ended without a final reply.");
+        });
+        if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
+          await pollNextWorkConversationMessages(data.session_id, { onAssistantMessage });
         }
         await loadWorkHistory(activeWorkId);
         if (airVoiceController) {
-          airVoiceController.setLatestAssistantText(data.message || "");
+          airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
         }
         return data;
       }
@@ -1414,20 +1425,14 @@
         const message = messageInput.value.trim();
         if (!message) return;
         appendChatMessage("user", message);
-        const assistantNode = appendChatMessage("assistant", "");
         messageInput.value = "";
         sendButton.disabled = true;
         slideshowState.followLatest = true;
         startLiveRefresh(900);
         try {
-          await submitWorkChatMessage(message, {
-            onDelta: (content) => {
-              assistantNode.textContent += content;
-              chatLog.scrollTop = chatLog.scrollHeight;
-            },
-          });
+          await submitWorkChatMessage(message);
         } catch (error) {
-          assistantNode.textContent = error instanceof Error ? error.message : String(error);
+          appendChatMessage("assistant", error instanceof Error ? error.message : String(error));
         } finally {
           startLiveRefresh(2400);
           sendButton.disabled = false;
@@ -1451,11 +1456,8 @@
           submitText: async (text, options = {}) => {
             const { onAssistantDelta } = options;
             appendChatMessage("user", text);
-            const assistantNode = appendChatMessage("assistant", "");
             const data = await submitWorkChatMessage(text, {
-              onDelta: (content) => {
-                assistantNode.textContent += content;
-                chatLog.scrollTop = chatLog.scrollHeight;
+              onAssistantMessage: (content) => {
                 if (typeof onAssistantDelta === "function") {
                   onAssistantDelta(content);
                 }

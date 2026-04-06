@@ -1327,8 +1327,35 @@
       return clone.textContent || "";
     }
 
+    async function pollNextConversationMessages(targetSessionId, options = {}) {
+      const { onAssistantMessage } = options;
+      while (true) {
+        const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}/next-message`);
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Next message failed");
+        }
+        if (payload.status === "delivered" && payload.message) {
+          const text = payload.message.text || "";
+          if (text) {
+            appendMessage("assistant", text);
+            if (typeof onAssistantMessage === "function") {
+              onAssistantMessage(text);
+            }
+          }
+          continue;
+        }
+        if (payload.status === "waiting") {
+          const waitMs = Math.max(Number(payload.retry_after_ms || 500), 250);
+          await new Promise((resolve) => window.setTimeout(resolve, Math.min(waitMs, 1000)));
+          continue;
+        }
+        break;
+      }
+    }
+
     async function submitChatMessage(message, options = {}) {
-      const { onDelta } = options;
+      const { onAssistantMessage } = options;
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1336,51 +1363,35 @@
           session_id: sessionId,
           message,
           model_id: airLlmModel.value || null,
-          stream: true,
         }),
       });
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || "Request failed");
       }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let data = null;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-        buffer += decoder.decode(value, { stream: true });
-        const blocks = buffer.split("\n\n");
-        buffer = blocks.pop() || "";
-        for (const block of blocks) {
-          const line = block.split("\n").find((entry) => entry.startsWith("data: "));
-          if (!line) {
-            continue;
-          }
-          const payload = JSON.parse(line.slice(6));
-          if (payload.type === "delta") {
-            if (typeof onDelta === "function") {
-              onDelta(payload.content || "");
-            }
-            continue;
-          }
-          if (payload.type === "done") {
-            data = payload.reply || null;
-          }
-        }
-      }
-      if (!data) {
-        throw new Error("Stream ended without a final reply.");
-      }
+      const data = await response.json();
       sessionId = data.session_id;
       storeSessionId(sessionId);
       renderTrace(data);
-      await loadSessionHistory();
+      const messages = Array.isArray(data.messages) && data.messages.length
+        ? data.messages
+        : [{ text: data.message || "", delay_ms: 0 }];
+      messages.forEach((item) => {
+        const text = item.text || "";
+        if (!text) {
+          return;
+        }
+        appendMessage("assistant", text);
+        if (typeof onAssistantMessage === "function") {
+          onAssistantMessage(text);
+        }
+      });
+      if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
+        await pollNextConversationMessages(data.session_id, { onAssistantMessage });
+      }
+      await refreshSidePanels();
       if (airVoiceController) {
-        airVoiceController.setLatestAssistantText(data.message || "");
+        airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
       }
       return data;
     }
@@ -2215,17 +2226,11 @@
       if (!message) return;
       appendMessage("user", message);
       messageInput.value = "";
-      const assistantNode = appendMessage("assistant", "");
 
       try {
-        await submitChatMessage(message, {
-          onDelta: (content) => {
-            assistantNode.textContent += content;
-            chatLog.scrollTop = chatLog.scrollHeight;
-          },
-        });
+        await submitChatMessage(message);
       } catch (error) {
-        assistantNode.textContent = error instanceof Error ? error.message : String(error);
+        appendMessage("assistant", error instanceof Error ? error.message : String(error));
         return;
       }
     });
@@ -2273,11 +2278,8 @@
       submitText: async (text, options = {}) => {
         const { onAssistantDelta } = options;
         appendMessage("user", text, "voice transcript");
-        const assistantNode = appendMessage("assistant", "");
         const data = await submitChatMessage(text, {
-          onDelta: (content) => {
-            assistantNode.textContent += content;
-            chatLog.scrollTop = chatLog.scrollHeight;
+          onAssistantMessage: (content) => {
             if (typeof onAssistantDelta === "function") {
               onAssistantDelta(content);
             }
@@ -2301,16 +2303,6 @@
       _sseRefreshTimer = setTimeout(async () => {
         _sseRefreshTimer = null;
         await refreshSidePanels();
-        // Also refresh chat messages for assistant responses
-        if (sessionId) {
-          try {
-            const res = await fetch(`/api/sessions/${sessionId}`);
-            if (res.ok) {
-              const data = await res.json();
-              renderChatHistory(data.messages || []);
-            }
-          } catch { }
-        }
       }, 400); // debounce: coalesce rapid events
     }
 

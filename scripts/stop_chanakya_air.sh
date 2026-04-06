@@ -24,5 +24,6 @@ stop_process() {
   rm -f "$pid_file"
 }
 
+stop_process "Chanakya conversation layer" "$RUNTIME_DIR/chanakya_conversation_layer.pid"
 stop_process "Chanakya" "$RUNTIME_DIR/chanakya.pid"
 stop_process "AIR server" "$RUNTIME_DIR/air_server.pid"

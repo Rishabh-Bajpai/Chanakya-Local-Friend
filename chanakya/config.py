@@ -53,6 +53,16 @@ def get_openai_compatible_config() -> dict[str, str | None]:
     }
 
 
+def get_conversation_openai_config() -> dict[str, str | None]:
+    load_local_env()
+    core = get_openai_compatible_config()
+    return {
+        "base_url": os.getenv("CONVERSATION_OPENAI_BASE_URL") or core.get("base_url"),
+        "api_key": os.getenv("CONVERSATION_OPENAI_API_KEY") or core.get("api_key"),
+        "model": os.getenv("CONVERSATION_OPENAI_CHAT_MODEL_ID") or core.get("model"),
+    }
+
+
 def get_air_server_url() -> str:
     load_local_env()
     configured = os.getenv("AIR_SERVER_URL")
