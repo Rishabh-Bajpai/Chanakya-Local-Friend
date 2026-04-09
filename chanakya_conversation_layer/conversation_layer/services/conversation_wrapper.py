@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import textwrap
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from conversation_layer.schemas import ChatRequest, ChatResponse, DeliveryMessage
@@ -17,7 +17,7 @@ from conversation_layer.services.working_memory import (
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 @dataclass(slots=True)
@@ -49,18 +49,12 @@ class ConversationWrapper:
         interrupt_type = str(wm_decision.get("interrupt_type") or "")
         same_topic = bool(wm_decision.get("same_topic", False))
         clear_working_memory = bool(wm_decision.get("clear_working_memory", False))
-        preserve_delivered = bool(
-            wm_decision.get("preserve_delivered_messages", same_topic)
-        )
+        preserve_delivered = bool(wm_decision.get("preserve_delivered_messages", same_topic))
         preserve_pending = bool(wm_decision.get("preserve_pending_messages", False))
-        cancelled_pending_count = (
-            0 if preserve_pending else len(prior_memory.pending_messages)
-        )
+        cancelled_pending_count = 0 if preserve_pending else len(prior_memory.pending_messages)
 
         if clear_working_memory:
-            prior_memory = ResponseScopedWorkingMemory(
-                session_id=chat_request.session_id
-            )
+            prior_memory = ResponseScopedWorkingMemory(session_id=chat_request.session_id)
             queue_was_active = False
             same_topic = False
 
@@ -91,9 +85,7 @@ class ConversationWrapper:
             planned_messages = self._coerce_planned_messages(
                 [item["text"] for item in prior_pending_messages],
                 fallback_text="",
-                delay_between_messages_ms=int(
-                    preferences.get("delay_between_messages_ms") or 5000
-                ),
+                delay_between_messages_ms=int(preferences.get("delay_between_messages_ms") or 5000),
             )
             immediate_messages = []
             queued_messages = list(prior_pending_messages)
@@ -109,9 +101,7 @@ class ConversationWrapper:
             planned_messages = self._coerce_planned_messages(
                 planner_result.get("messages") or [],
                 fallback_text=core_response_text,
-                delay_between_messages_ms=int(
-                    preferences.get("delay_between_messages_ms") or 5000
-                ),
+                delay_between_messages_ms=int(preferences.get("delay_between_messages_ms") or 5000),
             )
             planned_messages = self._restore_full_core_response_plan(
                 core_response_text,
@@ -133,32 +123,23 @@ class ConversationWrapper:
             )
             planned_messages = self._refine_planned_messages(
                 planned_messages,
-                delay_between_messages_ms=int(
-                    preferences.get("delay_between_messages_ms") or 5000
-                ),
+                delay_between_messages_ms=int(preferences.get("delay_between_messages_ms") or 5000),
             )
             planned_messages = self._stitch_dangling_numeric_markers(planned_messages)
-            immediate_messages, queued_messages = self._split_delivery_plan(
-                planned_messages
-            )
+            immediate_messages, queued_messages = self._split_delivery_plan(planned_messages)
 
-        delivered_base = (
-            list(prior_memory.delivered_messages) if preserve_delivered else []
-        )
+        delivered_base = list(prior_memory.delivered_messages) if preserve_delivered else []
         delivered_messages = [*delivered_base, *immediate_messages]
         current_turn_messages = list(immediate_messages)
         memory = ResponseScopedWorkingMemory(
             session_id=chat_request.session_id,
-            topic_state="active"
-            if same_topic or core_response_text.strip()
-            else "idle",
+            topic_state="active" if same_topic or core_response_text.strip() else "idle",
             topic_label=self._topic_label(chat_request.message, core_response_text),
             current_user_message=chat_request.message,
             latest_user_message=chat_request.message,
             latest_user_intent=interrupt_type,
             topic_continuity_confidence=float(
-                wm_decision.get("topic_continuity_confidence")
-                or (1.0 if same_topic else 0.0)
+                wm_decision.get("topic_continuity_confidence") or (1.0 if same_topic else 0.0)
             ),
             latest_core_response=core_response_text,
             planned_messages=planned_messages,
@@ -192,8 +173,7 @@ class ConversationWrapper:
             message.text for message in immediate_messages if message.text.strip()
         )
         selected_orchestration_model = str(
-            (chat_request.metadata or {}).get("conversation_orchestration_model_id")
-            or ""
+            (chat_request.metadata or {}).get("conversation_orchestration_model_id") or ""
         ).strip()
         return ChatResponse(
             session_id=chat_request.session_id,
@@ -214,9 +194,7 @@ class ConversationWrapper:
                 "wm_manager": wm_decision,
                 "conversation_planner": planner_result,
                 "conversation_preferences": preferences,
-                "conversation_orchestration_model_id": (
-                    selected_orchestration_model or None
-                ),
+                "conversation_orchestration_model_id": (selected_orchestration_model or None),
             },
         )
 
@@ -293,16 +271,13 @@ class ConversationWrapper:
             return [text]
 
         sentence_chunks = [
-            sentence.strip()
-            for sentence in text.replace("\n", " ").split(". ")
-            if sentence.strip()
+            sentence.strip() for sentence in text.replace("\n", " ").split(". ") if sentence.strip()
         ]
         if len(sentence_chunks) <= 1:
             return [text]
 
         normalized = [
-            chunk if chunk.endswith((".", "!", "?")) else f"{chunk}."
-            for chunk in sentence_chunks
+            chunk if chunk.endswith((".", "!", "?")) else f"{chunk}." for chunk in sentence_chunks
         ]
         if len(normalized) <= 3:
             return normalized
@@ -378,11 +353,7 @@ class ConversationWrapper:
             if re.match(r"^\d+\.\s+\S+", segment):
                 sentences.append(segment.strip())
                 continue
-            parts = [
-                part.strip()
-                for part in re.split(r"(?<=[.!?])\s+", segment)
-                if part.strip()
-            ]
+            parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", segment) if part.strip()]
             if parts:
                 sentences.extend(parts)
             else:
@@ -399,9 +370,7 @@ class ConversationWrapper:
         return len(non_empty_lines) >= 4
 
     def _split_preserving_layout(self, text: str) -> list[str]:
-        blocks = [
-            block.strip("\n") for block in re.split(r"\n{2,}", text) if block.strip()
-        ]
+        blocks = [block.strip("\n") for block in re.split(r"\n{2,}", text) if block.strip()]
         if not blocks:
             return [text]
 
@@ -511,11 +480,7 @@ class ConversationWrapper:
         user_message: str,
         core_agent_called: bool,
     ) -> list[DeliveryMessage]:
-        if (
-            not core_agent_called
-            or not core_response_text.strip()
-            or not planned_messages
-        ):
+        if not core_agent_called or not core_response_text.strip() or not planned_messages:
             return planned_messages
 
         normalized_core = self._normalize_comparison_text(core_response_text)
@@ -529,10 +494,7 @@ class ConversationWrapper:
         planned_numbered_count = self._numbered_item_count(
             " ".join(message.text for message in planned_messages)
         )
-        if (
-            core_numbered_count >= 4
-            and 0 < planned_numbered_count < core_numbered_count
-        ):
+        if core_numbered_count >= 4 and 0 < planned_numbered_count < core_numbered_count:
             return self._plan_delivery(core_response_text)
 
         coverage_ratio = len(normalized_planned) / len(normalized_core)
@@ -617,9 +579,7 @@ class ConversationWrapper:
             return planned_messages
 
         combined_planned = "\n".join(message.text for message in planned_messages)
-        source_text = (
-            combined_planned if combined_planned.strip() else core_response_text
-        )
+        source_text = combined_planned if combined_planned.strip() else core_response_text
         numbered_items = self._extract_numbered_items(source_text)
         if len(numbered_items) <= requested_more:
             return planned_messages
@@ -680,9 +640,7 @@ class ConversationWrapper:
                 carry_marker = marker
 
             if text:
-                stitched.append(
-                    DeliveryMessage(text=text, delay_ms=int(message.delay_ms))
-                )
+                stitched.append(DeliveryMessage(text=text, delay_ms=int(message.delay_ms)))
 
         if carry_marker and stitched:
             last = stitched[-1]
@@ -715,11 +673,7 @@ class ConversationWrapper:
         core_response_text: str,
         core_agent_called: bool,
     ) -> list[DeliveryMessage]:
-        if (
-            not core_agent_called
-            or not planned_messages
-            or not core_response_text.strip()
-        ):
+        if not core_agent_called or not planned_messages or not core_response_text.strip():
             return planned_messages
         if not self._is_detailed_request(user_message):
             return planned_messages
@@ -760,9 +714,7 @@ class ConversationWrapper:
         except ValueError:
             return 0
 
-    def _rewrite_history(
-        self, session_id: str, planned_messages: list[DeliveryMessage]
-    ) -> None:
+    def _rewrite_history(self, session_id: str, planned_messages: list[DeliveryMessage]) -> None:
         if self.history_provider is None or not hasattr(
             self.history_provider, "rewrite_latest_assistant_turn"
         ):
@@ -803,9 +755,7 @@ class ConversationWrapper:
             "delivery_style": "multi_step",
             "delay_between_messages_ms": 5000,
         }
-        preferences.update(
-            (chat_request.metadata or {}).get("conversation_preferences") or {}
-        )
+        preferences.update((chat_request.metadata or {}).get("conversation_preferences") or {})
         return preferences
 
     def _run_wm_manager(
@@ -853,9 +803,7 @@ class ConversationWrapper:
                 payload=payload,
             )
             return {
-                "interrupt_type": str(
-                    result.get("interrupt_type") or fallback["interrupt_type"]
-                ),
+                "interrupt_type": str(result.get("interrupt_type") or fallback["interrupt_type"]),
                 "same_topic": bool(result.get("same_topic", fallback["same_topic"])),
                 "topic_continuity_confidence": float(
                     result.get(
@@ -868,9 +816,7 @@ class ConversationWrapper:
                 "message_for_core_agent": str(
                     result.get("message_for_core_agent") or chat_request.message
                 ),
-                "queue_action": str(
-                    result.get("queue_action") or fallback["queue_action"]
-                ),
+                "queue_action": str(result.get("queue_action") or fallback["queue_action"]),
                 "clear_working_memory": bool(
                     result.get(
                         "clear_working_memory",
@@ -900,9 +846,7 @@ class ConversationWrapper:
         chat_request: ChatRequest,
         prior_memory: ResponseScopedWorkingMemory,
     ) -> dict[str, Any]:
-        if self._should_force_new_topic(
-            chat_request.message, prior_memory, wm_decision
-        ):
+        if self._should_force_new_topic(chat_request.message, prior_memory, wm_decision):
             return {
                 **wm_decision,
                 "interrupt_type": "reset_and_new_query",
@@ -925,10 +869,7 @@ class ConversationWrapper:
         preserve_pending = bool(wm_decision.get("preserve_pending_messages", False))
         if (
             interrupt_type == "ack_continue"
-            and (
-                preserve_pending
-                or not self._is_ack_continue_message(chat_request.message)
-            )
+            and (preserve_pending or not self._is_ack_continue_message(chat_request.message))
             and not has_pending
         ):
             return {
@@ -969,9 +910,7 @@ class ConversationWrapper:
         if self._contains_followup_cue(normalized):
             return False
 
-        prior_topic = str(
-            prior_memory.topic_label or prior_memory.latest_user_message or ""
-        )
+        prior_topic = str(prior_memory.topic_label or prior_memory.latest_user_message or "")
         if not prior_topic.strip():
             return False
 
@@ -1247,9 +1186,7 @@ class ConversationWrapper:
         core_response_text: str,
         core_agent_called: bool,
     ) -> dict[str, Any]:
-        fallback_messages = [
-            item.to_dict() for item in self._plan_delivery(core_response_text)
-        ]
+        fallback_messages = [item.to_dict() for item in self._plan_delivery(core_response_text)]
         fallback = {
             "reasoning": "Used the fallback delivery planner.",
             "messages": fallback_messages,
@@ -1319,9 +1256,7 @@ class ConversationWrapper:
         if self.orchestration_agent is None:
             raise RuntimeError("orchestration_agent_not_configured")
         metadata = chat_request.metadata or {}
-        model_id = str(
-            metadata.get("conversation_orchestration_model_id") or ""
-        ).strip()
+        model_id = str(metadata.get("conversation_orchestration_model_id") or "").strip()
         if model_id and hasattr(self.orchestration_agent, "plan_with_model"):
             return self.orchestration_agent.plan_with_model(
                 task=task,
@@ -1379,9 +1314,7 @@ class ConversationWrapper:
         return []
 
     def _summarize_messages(self, messages: list[DeliveryMessage]) -> str:
-        text = " ".join(
-            message.text.strip() for message in messages if message.text.strip()
-        )
+        text = " ".join(message.text.strip() for message in messages if message.text.strip())
         return text[:500]
 
     def _summarize_pending_messages(self, messages: list[dict[str, Any]]) -> str:
@@ -1415,9 +1348,7 @@ class ConversationWrapper:
                 {
                     "text": message.text,
                     "delay_ms": int(message.delay_ms),
-                    "available_at": (
-                        now + timedelta(milliseconds=cumulative_delay_ms)
-                    ).isoformat(),
+                    "available_at": (now + timedelta(milliseconds=cumulative_delay_ms)).isoformat(),
                 }
             )
         if not immediate_messages and queued_messages:
@@ -1434,9 +1365,7 @@ class ConversationWrapper:
         if isinstance(value, str) and value:
             try:
                 parsed = datetime.fromisoformat(value)
-                return (
-                    parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
-                )
+                return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
             except ValueError:
                 pass
         return _utc_now()

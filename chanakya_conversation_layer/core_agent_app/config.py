@@ -57,12 +57,8 @@ class Config:
     chanakya_debug: bool = _as_bool(os.getenv("CHANAKYA_DEBUG"), default=False)
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///chanakya.db")
     agent_database_url: str = os.getenv("AGENT_DATABASE_URL", "")
-    conversation_state_store_backend: str = os.getenv(
-        "CONVERSATION_STATE_STORE_BACKEND", "memory"
-    )
-    conversation_state_store_redis_url: str = os.getenv(
-        "CONVERSATION_STATE_STORE_REDIS_URL", ""
-    )
+    conversation_state_store_backend: str = os.getenv("CONVERSATION_STATE_STORE_BACKEND", "memory")
+    conversation_state_store_redis_url: str = os.getenv("CONVERSATION_STATE_STORE_REDIS_URL", "")
     conversation_state_store_redis_key_prefix: str = os.getenv(
         "CONVERSATION_STATE_STORE_REDIS_KEY_PREFIX",
         "conversation:working-memory:",
@@ -70,7 +66,7 @@ class Config:
     conversation_state_store_ttl_seconds: int = int(
         os.getenv("CONVERSATION_STATE_STORE_TTL_SECONDS", "86400")
     )
-    env_file_path: str = str(PROJECT_ROOT / ".env")
+    env_file_path: str = os.getenv("ENV_FILE_PATH", str(PROJECT_ROOT / ".env"))
 
     def to_flask_config(self) -> dict:
         shared_database_url = self.database_url

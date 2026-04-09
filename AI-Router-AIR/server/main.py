@@ -88,7 +88,7 @@ async def startup_discovery():
 
 @app.get("/")
 async def root(request: Request):
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse(request, "dashboard.html", {})
 
 
 @app.get("/status")
@@ -96,7 +96,7 @@ async def api_status_page(request: Request):
     from server.services.provider_manager import provider_manager
 
     status = provider_manager.get_service_status()
-    return templates.TemplateResponse("api_status.html", {"request": request, "status": status})
+    return templates.TemplateResponse(request, "api_status.html", {"status": status})
 
 
 if __name__ == "__main__":

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from conversation_layer.schemas import DeliveryMessage
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass(slots=True)
@@ -67,19 +67,11 @@ class ResponseScopedWorkingMemory:
             current_user_message=str(data.get("current_user_message") or ""),
             latest_user_message=str(data.get("latest_user_message") or ""),
             latest_user_intent=str(data.get("latest_user_intent") or ""),
-            topic_continuity_confidence=float(
-                data.get("topic_continuity_confidence") or 0.0
-            ),
+            topic_continuity_confidence=float(data.get("topic_continuity_confidence") or 0.0),
             latest_core_response=str(data.get("latest_core_response") or ""),
-            planned_messages=_coerce_delivery_messages(
-                data.get("planned_messages") or []
-            ),
-            delivered_messages=_coerce_delivery_messages(
-                data.get("delivered_messages") or []
-            ),
-            pending_messages=_coerce_pending_messages(
-                data.get("pending_messages") or []
-            ),
+            planned_messages=_coerce_delivery_messages(data.get("planned_messages") or []),
+            delivered_messages=_coerce_delivery_messages(data.get("delivered_messages") or []),
+            pending_messages=_coerce_pending_messages(data.get("pending_messages") or []),
             delivered_summary=str(data.get("delivered_summary") or ""),
             remaining_summary=str(data.get("remaining_summary") or ""),
             core_agent_called=bool(data.get("core_agent_called", False)),
@@ -102,9 +94,7 @@ def _coerce_delivery_messages(items: list[Any]) -> list[DeliveryMessage]:
         text = str(item.get("text") or "").strip()
         if not text:
             continue
-        messages.append(
-            DeliveryMessage(text=text, delay_ms=int(item.get("delay_ms") or 0))
-        )
+        messages.append(DeliveryMessage(text=text, delay_ms=int(item.get("delay_ms") or 0)))
     return messages
 
 
@@ -145,9 +135,7 @@ class InMemoryResponseStateStore:
         self._states: dict[str, ResponseScopedWorkingMemory] = {}
 
     def get(self, session_id: str) -> ResponseScopedWorkingMemory:
-        return self._states.get(session_id) or ResponseScopedWorkingMemory(
-            session_id=session_id
-        )
+        return self._states.get(session_id) or ResponseScopedWorkingMemory(session_id=session_id)
 
     def save(
         self, session_id: str, memory: ResponseScopedWorkingMemory
