@@ -29,3 +29,10 @@ htmlcov/
 # Project-generated artifacts
 chanakya_data/
 Agent-Framework-Samples/
+
+*.log
+*.pid
+.chanakya-app.log
+.chanakya-app.pid
+.*.log
+.*.pid
