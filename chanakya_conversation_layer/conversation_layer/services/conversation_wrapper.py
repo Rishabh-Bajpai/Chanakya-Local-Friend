@@ -1365,7 +1365,7 @@ class ConversationWrapper:
         if isinstance(value, str) and value:
             try:
                 parsed = datetime.fromisoformat(value)
-                return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+                return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
             except ValueError:
                 pass
         return _utc_now()
