@@ -83,7 +83,7 @@ start_app() {
     "chanakya app" \
     "$APP_PID_FILE" \
     "$APP_LOG" \
-    env FLASK_APP=app flask run --host "$APP_HOST" --port "$APP_PORT"
+    bash -lc "cd \"$ROOT_DIR\" && exec env FLASK_APP=app flask run --host \"$APP_HOST\" --port \"$APP_PORT\""
 }
 
 start_a2a_stack() {
