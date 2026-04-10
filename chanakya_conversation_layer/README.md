@@ -50,7 +50,7 @@ Required values:
 OPENAI_BASE_URL="http://192.168.1.51:1234/v1"
 OPENAI_CHAT_MODEL_ID="google/gemma-4-26b-a4b"
 OPENAI_API_KEY="lm-studio"
-DATABASE_URL="sqlite:////home/rishabh/github_projects/chanakya_conersation_layer/chanakya.db"
+DATABASE_URL="sqlite:////home/rishabh/github_projects/chanakya_conversation_layer/chanakya.db"
 CHANAKYA_DEBUG=true
 ```
 
