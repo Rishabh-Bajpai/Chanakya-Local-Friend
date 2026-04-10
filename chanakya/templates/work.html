@@ -210,39 +210,118 @@
         grid-template-columns: 1fr auto;
         gap: 8px;
       }
-      .air-panel {
+      .control-deck {
         margin-top: 14px;
-        padding: 12px;
-        border-radius: 14px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(216, 107, 74, 0.22);
+        border-radius: 18px;
+        background:
+          linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(58, 138, 135, 0.04)),
+          rgba(255, 255, 255, 0.02);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        overflow: hidden;
       }
-      .air-panel h3 {
-        margin: 0 0 6px;
-        font-size: 14px;
+      .control-deck summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 16px;
       }
-      .air-panel p {
-        margin: 0 0 10px;
+      .control-deck summary::-webkit-details-marker {
+        display: none;
+      }
+      .control-deck-titlebar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .control-deck-kicker {
+        margin: 0 0 4px;
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #d7b2a7;
+      }
+      .control-deck h3 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.1;
+      }
+      .control-deck p {
+        margin: 6px 0 0;
         color: var(--muted);
         font-size: 12px;
       }
+      .control-deck-toggle {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text);
+        font-size: 16px;
+      }
+      .control-deck[open] .control-deck-toggle::before {
+        content: "-";
+      }
+      .control-deck:not([open]) .control-deck-toggle::before {
+        content: "+";
+      }
+      .control-deck-body {
+        padding: 0 16px 16px;
+        display: grid;
+        gap: 14px;
+      }
+      .control-grid {
+        display: grid;
+        grid-template-columns: 1.15fr 1fr;
+        gap: 14px;
+      }
+      .control-group {
+        display: grid;
+        gap: 10px;
+        padding: 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(0, 0, 0, 0.12);
+      }
+      .control-group-title {
+        margin: 0;
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #d0cbc5;
+      }
+      .control-group-note {
+        margin: -4px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
       .air-links,
       .air-models,
-      .air-controls {
+      .air-controls,
+      .runtime-models {
         display: grid;
         gap: 8px;
       }
       .air-links,
+      .runtime-models,
       .air-controls {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
-      .air-models label {
+      .air-models label,
+      .runtime-models label {
         display: grid;
         gap: 4px;
         font-size: 12px;
         color: var(--muted);
       }
-      .air-models select {
+      .air-models select,
+      .runtime-models select {
         width: 100%;
         padding: 8px 10px;
         border-radius: 10px;
@@ -533,6 +612,50 @@
           top: auto;
         }
       }
+
+      .runtime-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        width: fit-content;
+        padding: 7px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #d5d0ca;
+      }
+      .runtime-chip::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--ink);
+        box-shadow: 0 0 10px rgba(58, 138, 135, 0.5);
+      }
+      .control-field-hint {
+        margin: -2px 0 0;
+        color: #8e8882;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .control-group.is-disabled {
+        opacity: 0.6;
+      }
+      @media (max-width: 900px) {
+        .control-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 640px) {
+        .air-links,
+        .runtime-models,
+        .air-controls {
+          grid-template-columns: 1fr;
+        }
+      }
     </style>
   </head>
   <body>
@@ -542,37 +665,92 @@
           <h1>Works</h1>
           <p>Create and reopen long-running work contexts.</p>
           <div class="link-row"><a href="/">Open classic chat</a></div>
-          <div class="air-panel">
-            <h3>AIR Voice Sidebar</h3>
-            <p>Use AIR models for speech input, speech output, and the AIR dashboard.</p>
-            <div class="air-links">
-              <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
-              <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
+          <details class="control-deck" open>
+            <summary>
+              <div class="control-deck-titlebar">
+                <div>
+                  <p class="control-deck-kicker">Control Deck</p>
+                  <h3>Voice, models, and runtime</h3>
+                  <p>Manage AIR voice and Chanakya chat routing from one compact workspace panel.</p>
+                </div>
+                <span class="control-deck-toggle" aria-hidden="true"></span>
+              </div>
+            </summary>
+            <div class="control-deck-body">
+              <div class="control-grid">
+                <section class="control-group">
+                  <p class="control-group-title">Chat Runtime</p>
+                  <div class="runtime-chip">Next message config</div>
+                  <div class="runtime-models">
+                    <label>
+                      Backend
+                      <select id="chatBackendSelect">
+                        <option value="local">Local OpenAI-compatible via AIR</option>
+                        <option value="a2a">A2A</option>
+                      </select>
+                    </label>
+                    <label>
+                      Chanakya Model
+                      <select id="airLlmModel"></select>
+                    </label>
+                    <label>
+                      A2A Endpoint
+                      <input id="a2aUrlInput" type="url" placeholder="http://127.0.0.1:18770" />
+                    </label>
+                    <label>
+                      A2A Agent
+                      <input id="a2aAgentInput" type="text" list="a2aAgentOptions" placeholder="build" />
+                      <datalist id="a2aAgentOptions"></datalist>
+                    </label>
+                    <label>
+                      A2A Model Provider
+                      <input id="a2aModelProviderInput" type="text" list="a2aModelProviderOptions" placeholder="lmstudio" />
+                      <datalist id="a2aModelProviderOptions">
+                        <option value="lmstudio"></option>
+                        <option value="openai"></option>
+                        <option value="ollama"></option>
+                        <option value="anthropic"></option>
+                        <option value="google"></option>
+                        <option value="openrouter"></option>
+                      </datalist>
+                    </label>
+                    <label>
+                      A2A Model
+                      <input id="a2aModelIdInput" type="text" list="a2aModelIdOptions" placeholder="qwen/qwen3.5-9b" />
+                      <datalist id="a2aModelIdOptions"></datalist>
+                    </label>
+                  </div>
+                  <p class="control-group-note">A2A sends the next work-chat turn through the remote agent endpoint. AIR model selection remains active only for local chat replies.</p>
+                </section>
+                <section class="control-group">
+                  <p class="control-group-title">AIR Voice</p>
+                  <div class="air-links">
+                    <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
+                    <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
+                  </div>
+                  <div class="air-models">
+                    <label>
+                      STT Model
+                      <select id="airSttModel"></select>
+                    </label>
+                    <label>
+                      TTS Model
+                      <select id="airTtsModel"></select>
+                    </label>
+                  </div>
+                </section>
+              </div>
+              <div class="air-controls">
+                <button id="airMicButton" class="air-button" type="button">Mic</button>
+                <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
+                <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
+                <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
+                <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
+              </div>
+              <div id="airVoiceStatus" class="air-status"></div>
+              <div id="conversationQueueStatus" class="air-status"></div>
             </div>
-            <div class="air-models">
-              <label>
-                Chanakya Model
-                <select id="airLlmModel"></select>
-              </label>
-              <label>
-                STT Model
-                <select id="airSttModel"></select>
-              </label>
-              <label>
-                TTS Model
-                <select id="airTtsModel"></select>
-              </label>
-            </div>
-            <div class="air-controls">
-              <button id="airMicButton" class="air-button" type="button">Mic</button>
-              <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
-              <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
-              <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
-              <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
-            </div>
-            <div id="airVoiceStatus" class="air-status"></div>
-            <div id="conversationQueueStatus" class="air-status"></div>
-          </div>
+          </details>
         </div>
         <div class="body">
           <form id="workForm" class="work-form">
@@ -631,12 +809,22 @@
       const airSpeakButton = document.getElementById("airSpeakButton");
       const airPauseRepliesButton = document.getElementById("airPauseRepliesButton");
       const airRefreshModelsButton = document.getElementById("airRefreshModelsButton");
+      const chatBackendSelect = document.getElementById("chatBackendSelect");
+      const a2aUrlInput = document.getElementById("a2aUrlInput");
+      const a2aAgentInput = document.getElementById("a2aAgentInput");
+      const a2aModelProviderInput = document.getElementById("a2aModelProviderInput");
+      const a2aModelIdInput = document.getElementById("a2aModelIdInput");
+      const a2aAgentOptions = document.getElementById("a2aAgentOptions");
+      const a2aModelIdOptions = document.getElementById("a2aModelIdOptions");
       const airVoiceStatus = document.getElementById("airVoiceStatus");
       const conversationQueueStatus = document.getElementById("conversationQueueStatus");
       const historyList = document.getElementById("historyList");
       const deleteWorkButton = document.getElementById("deleteWorkButton");
 
       const WORK_STORAGE_KEY = "chanakya-active-work";
+      const CHAT_BACKEND_STORAGE_KEY = "chanakya-chat-backend";
+      const A2A_SETTINGS_STORAGE_KEY = "chanakya-a2a-settings";
+      const DEFAULT_A2A_URL = {{ a2a_agent_url | tojson }};
       let activeWorkId = null;
       let works = [];
       let slideshowTimer = null;
@@ -657,6 +845,104 @@
         autoplay: false,
         open: true,
       };
+
+      function getSelectedChatBackend() {
+        const value = chatBackendSelect ? chatBackendSelect.value : "local";
+        return value === "a2a" ? "a2a" : "local";
+      }
+
+      function loadStoredChatBackend() {
+        try {
+          const value = window.localStorage.getItem(CHAT_BACKEND_STORAGE_KEY);
+          return value === "a2a" ? "a2a" : "local";
+        } catch {
+          return "local";
+        }
+      }
+
+      function storeChatBackend(value) {
+        try {
+          window.localStorage.setItem(CHAT_BACKEND_STORAGE_KEY, value === "a2a" ? "a2a" : "local");
+        } catch {
+        }
+      }
+
+      function loadStoredA2ASettings() {
+        try {
+          const raw = window.localStorage.getItem(A2A_SETTINGS_STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          return {
+            url: typeof parsed.url === "string" && parsed.url.trim() ? parsed.url.trim() : (DEFAULT_A2A_URL || ""),
+            agent: typeof parsed.agent === "string" ? parsed.agent.trim() : "",
+            modelProvider: typeof parsed.modelProvider === "string" ? parsed.modelProvider.trim() : "",
+            modelId: typeof parsed.modelId === "string" ? parsed.modelId.trim() : "",
+            recentAgents: Array.isArray(parsed.recentAgents) ? parsed.recentAgents.filter((item) => typeof item === "string") : [],
+            recentModels: Array.isArray(parsed.recentModels) ? parsed.recentModels.filter((item) => typeof item === "string") : [],
+          };
+        } catch {
+          return { url: DEFAULT_A2A_URL || "", agent: "", modelProvider: "", modelId: "", recentAgents: [], recentModels: [] };
+        }
+      }
+
+      function storeA2ASettings(settings) {
+        try {
+          window.localStorage.setItem(A2A_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+        } catch {
+        }
+      }
+
+      function getCurrentA2ASettings() {
+        const stored = loadStoredA2ASettings();
+        return {
+          url: a2aUrlInput ? a2aUrlInput.value.trim() : stored.url,
+          agent: a2aAgentInput ? a2aAgentInput.value.trim() : stored.agent,
+          modelProvider: a2aModelProviderInput ? a2aModelProviderInput.value.trim() : stored.modelProvider,
+          modelId: a2aModelIdInput ? a2aModelIdInput.value.trim() : stored.modelId,
+          recentAgents: stored.recentAgents || [],
+          recentModels: stored.recentModels || [],
+        };
+      }
+
+      function updateA2ADatalists(settings) {
+        if (a2aAgentOptions) {
+          a2aAgentOptions.replaceChildren(...(settings.recentAgents || []).map((item) => {
+            const option = document.createElement("option");
+            option.value = item;
+            return option;
+          }));
+        }
+        if (a2aModelIdOptions) {
+          a2aModelIdOptions.replaceChildren(...(settings.recentModels || []).map((item) => {
+            const option = document.createElement("option");
+            option.value = item;
+            return option;
+          }));
+        }
+      }
+
+      function persistCurrentA2ASettings() {
+        const settings = getCurrentA2ASettings();
+        if (settings.agent && !settings.recentAgents.includes(settings.agent)) {
+          settings.recentAgents = [settings.agent, ...settings.recentAgents].slice(0, 8);
+        }
+        if (settings.modelId && !settings.recentModels.includes(settings.modelId)) {
+          settings.recentModels = [settings.modelId, ...settings.recentModels].slice(0, 8);
+        }
+        storeA2ASettings(settings);
+        updateA2ADatalists(settings);
+      }
+
+      function updateRuntimeConfigState() {
+        const usingA2A = getSelectedChatBackend() === "a2a";
+        if (airLlmModel) {
+          airLlmModel.disabled = usingA2A;
+        }
+        [a2aUrlInput, a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((node) => {
+          if (node) {
+            node.disabled = !usingA2A;
+          }
+        });
+      }
 
       function setStatus(text, isError = false) {
         workStatus.textContent = text || "";
@@ -701,6 +987,18 @@
         conversationQueueStatus.dataset.state = isError ? "error" : "idle";
       }
 
+      async function readJsonResponse(response) {
+        const raw = await response.text();
+        if (!raw) {
+          return {};
+        }
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return { error: raw.trim() || `HTTP ${response.status}` };
+        }
+      }
+
       async function pauseConversationReplies() {
         if (!activeWorkId) {
           setConversationQueueStatus("No active work session to pause.", true);
@@ -715,7 +1013,7 @@
         const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}/pause`, {
           method: "POST",
         });
-        const payload = await response.json();
+        const payload = await readJsonResponse(response);
         if (!response.ok) {
           throw new Error(payload.error || "Pause failed");
         }
@@ -726,7 +1024,7 @@
         const { onAssistantMessage } = options;
         while (true) {
           const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}/next-message`);
-          const payload = await response.json();
+          const payload = await readJsonResponse(response);
           if (!response.ok) {
             throw new Error(payload.error || "Next message failed");
           }
@@ -777,14 +1075,22 @@
           body: JSON.stringify({
             work_id: activeWorkId,
             message,
-            model_id: airLlmModel.value || null,
+            model_id: getSelectedChatBackend() === "local" ? airLlmModel.value || null : null,
+            backend: getSelectedChatBackend(),
+            a2a_url: getSelectedChatBackend() === "a2a" ? (a2aUrlInput?.value || null) : null,
+            a2a_remote_agent: getSelectedChatBackend() === "a2a" ? (a2aAgentInput?.value || null) : null,
+            a2a_model_provider: getSelectedChatBackend() === "a2a" ? (a2aModelProviderInput?.value || null) : null,
+            a2a_model_id: getSelectedChatBackend() === "a2a" ? (a2aModelIdInput?.value || null) : null,
           }),
         });
+        const data = await readJsonResponse(response);
         if (!response.ok) {
-          const data = await response.json();
           throw new Error(data.error || "Chat failed");
         }
-        const data = await response.json();
+        if (chatBackendSelect) {
+          storeChatBackend(getSelectedChatBackend());
+        }
+        persistCurrentA2ASettings();
         const messages = Array.isArray(data.messages) && data.messages.length
           ? data.messages
           : [{ text: data.message || "", delay_ms: 0 }];
@@ -812,6 +1118,30 @@
           airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
         }
         return data;
+      }
+
+      if (chatBackendSelect) {
+        chatBackendSelect.value = loadStoredChatBackend();
+        chatBackendSelect.addEventListener("change", () => {
+          storeChatBackend(getSelectedChatBackend());
+          updateRuntimeConfigState();
+        });
+      }
+
+      {
+        const a2aSettings = loadStoredA2ASettings();
+        if (a2aUrlInput) a2aUrlInput.value = a2aSettings.url || "";
+        if (a2aAgentInput) a2aAgentInput.value = a2aSettings.agent || "";
+        if (a2aModelProviderInput) a2aModelProviderInput.value = a2aSettings.modelProvider || "";
+        if (a2aModelIdInput) a2aModelIdInput.value = a2aSettings.modelId || "";
+        updateA2ADatalists(a2aSettings);
+        [a2aUrlInput, a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((node) => {
+          if (node) {
+            node.addEventListener("change", persistCurrentA2ASettings);
+            node.addEventListener("blur", persistCurrentA2ASettings);
+          }
+        });
+        updateRuntimeConfigState();
       }
 
       function formatAsPrettyJSON(text) {

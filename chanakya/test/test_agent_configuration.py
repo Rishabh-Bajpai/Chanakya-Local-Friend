@@ -9,7 +9,7 @@ from pytest import MonkeyPatch
 import chanakya.app as app_module
 from chanakya.app import create_app
 from chanakya.db import build_engine, build_session_factory
-from chanakya.domain import TASK_STATUS_DONE, now_iso
+from chanakya.domain import ChatReply, TASK_STATUS_DONE, now_iso
 from chanakya.model import ChatMessageModel, TemporaryAgentModel, WorkAgentSessionModel
 from chanakya.services import tool_loader
 from chanakya.store import ChanakyaStore
@@ -91,6 +91,51 @@ def _build_test_app(tmp_path: Path, monkeypatch: MonkeyPatch) -> Flask:
     return create_app()
 
 
+class _ChatServiceCaptureStub:
+    def __init__(self, store, runtime, manager) -> None:
+        self.calls: list[dict[str, object | None]] = []
+
+    def chat(
+        self,
+        session_id: str,
+        message: str,
+        *,
+        work_id: str | None = None,
+        model_id: str | None = None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
+    ) -> ChatReply:
+        self.calls.append(
+            {
+                "session_id": session_id,
+                "message": message,
+                "work_id": work_id,
+                "model_id": model_id,
+                "backend": backend,
+                "a2a_url": a2a_url,
+                "a2a_remote_agent": a2a_remote_agent,
+                "a2a_model_provider": a2a_model_provider,
+                "a2a_model_id": a2a_model_id,
+            }
+        )
+        return ChatReply(
+            request_id="req_test",
+            session_id=session_id,
+            work_id=work_id,
+            route="direct_answer",
+            message="stub reply",
+            model=model_id,
+            endpoint="http://test",
+            runtime="maf_agent",
+            agent_name="Chanakya",
+            response_mode="direct_answer",
+            metadata={"core_agent_backend": backend or "local"},
+        )
+
+
 def test_agent_create_and_update_api_persists_configuration(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -145,6 +190,46 @@ def test_agent_create_and_update_api_persists_configuration(
     assert updated["workspace"] == "updated-workspace"
     assert updated["heartbeat_enabled"] is False
     assert updated["is_active"] is False
+
+
+def test_api_chat_passes_backend_choice_to_chat_service(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: list[_ChatServiceCaptureStub] = []
+
+    def _build_chat_service(store, runtime, manager):
+        stub = _ChatServiceCaptureStub(store, runtime, manager)
+        captured.append(stub)
+        return stub
+
+    monkeypatch.setattr(app_module, "ChatService", _build_chat_service)
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "session_id": "session_backend",
+            "message": "hello via a2a",
+            "backend": "a2a",
+            "model_id": "ignored-for-a2a",
+            "a2a_url": "http://127.0.0.1:18770",
+            "a2a_remote_agent": "build",
+            "a2a_model_provider": "lmstudio",
+            "a2a_model_id": "qwen/qwen3.5-9b",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured[0].calls[0]["backend"] == "a2a"
+    assert captured[0].calls[0]["model_id"] == "ignored-for-a2a"
+    assert captured[0].calls[0]["a2a_url"] == "http://127.0.0.1:18770"
+    assert captured[0].calls[0]["a2a_remote_agent"] == "build"
+    assert captured[0].calls[0]["a2a_model_provider"] == "lmstudio"
+    assert captured[0].calls[0]["a2a_model_id"] == "qwen/qwen3.5-9b"
+    payload = response.get_json()
+    assert payload["metadata"]["core_agent_backend"] == "a2a"
 
 
 def test_agent_create_api_uses_unique_ids_for_duplicate_names(

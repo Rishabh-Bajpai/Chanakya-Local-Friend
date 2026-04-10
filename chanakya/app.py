@@ -12,10 +12,11 @@ from typing import Any
 from flask import Flask, Response, jsonify, render_template, request
 
 from chanakya.agent.profile_files import default_heartbeat_relative_path, ensure_agent_profile_files
-from chanakya.agent.runtime import MAFRuntime
+from chanakya.agent.runtime import MAFRuntime, normalize_runtime_backend
 from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
 from chanakya.config import (
+    get_a2a_agent_url,
     get_air_dashboard_url,
     get_air_server_url,
     get_air_status_url,
@@ -173,6 +174,7 @@ def create_app() -> Flask:
             air_dashboard_url=get_air_dashboard_url(),
             air_server_url=get_air_server_url(),
             air_status_url=get_air_status_url(),
+            a2a_agent_url=get_a2a_agent_url(),
             force_subagents_enabled=force_subagents_enabled(),
         )
 
@@ -183,6 +185,7 @@ def create_app() -> Flask:
             air_dashboard_url=get_air_dashboard_url(),
             air_server_url=get_air_server_url(),
             air_status_url=get_air_status_url(),
+            a2a_agent_url=get_a2a_agent_url(),
             force_subagents_enabled=force_subagents_enabled(),
         )
 
@@ -213,12 +216,39 @@ def create_app() -> Flask:
         model_id = str(raw_model_id).strip() if raw_model_id is not None else None
         if model_id == "":
             model_id = None
+        raw_backend = payload.get("backend")
+        backend = normalize_runtime_backend(raw_backend)
+        raw_a2a_url = payload.get("a2a_url")
+        a2a_url = str(raw_a2a_url).strip() if raw_a2a_url is not None else None
+        if a2a_url == "":
+            a2a_url = None
+        raw_a2a_remote_agent = payload.get("a2a_remote_agent")
+        a2a_remote_agent = (
+            str(raw_a2a_remote_agent).strip() if raw_a2a_remote_agent is not None else None
+        )
+        if a2a_remote_agent == "":
+            a2a_remote_agent = None
+        raw_a2a_model_provider = payload.get("a2a_model_provider")
+        a2a_model_provider = (
+            str(raw_a2a_model_provider).strip() if raw_a2a_model_provider is not None else None
+        )
+        if a2a_model_provider == "":
+            a2a_model_provider = None
+        raw_a2a_model_id = payload.get("a2a_model_id")
+        a2a_model_id = str(raw_a2a_model_id).strip() if raw_a2a_model_id is not None else None
+        if a2a_model_id == "":
+            a2a_model_id = None
         debug_log(
             "api_chat_request",
             {
                 "session_id": session_id,
                 "work_id": work_id,
                 "model_id": model_id,
+                "backend": backend,
+                "a2a_url": a2a_url,
+                "a2a_remote_agent": a2a_remote_agent,
+                "a2a_model_provider": a2a_model_provider,
+                "a2a_model_id": a2a_model_id,
                 "message": message,
                 "has_existing_session": bool(payload.get("session_id")),
             },
@@ -227,7 +257,17 @@ def create_app() -> Flask:
             return jsonify({"error": "message is required"}), 400
         store.ensure_session(session_id, title=message[:60] or "New chat")
         try:
-            reply = chat_service.chat(session_id, message, work_id=work_id, model_id=model_id)
+            reply = chat_service.chat(
+                session_id,
+                message,
+                work_id=work_id,
+                model_id=model_id,
+                backend=backend,
+                a2a_url=a2a_url,
+                a2a_remote_agent=a2a_remote_agent,
+                a2a_model_provider=a2a_model_provider,
+                a2a_model_id=a2a_model_id,
+            )
         except Exception as exc:
             debug_log(
                 "api_chat_error",

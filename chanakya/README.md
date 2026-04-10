@@ -14,10 +14,14 @@ source /home/rishabh/miniconda3/etc/profile.d/conda.sh
 conda activate test
 
 # Run Chanakya and AIR together
-./scripts/start_chanakya_air.sh
+./scripts/start_chanakya_air.sh core
+
+# Run Chanakya, AIR, and the A2A stack together
+./scripts/start_chanakya_air.sh core+a2a
 ```
 
 Open `http://localhost:5513` to access the GUI. AIR runs at `http://localhost:5512`.
+When using `core+a2a`, the A2A bridge runs at `http://127.0.0.1:18770`.
 
 ---
 
@@ -223,6 +227,18 @@ MODEL=gpt-4
 ```
 
 The app reads `.env` automatically via `config.py`.
+
+Optional chat backend configuration:
+
+```bash
+# Default backend for new page loads: local or a2a
+CHANAKYA_CORE_AGENT_BACKEND=local
+
+# Required when using the A2A backend from the UI
+A2A_AGENT_URL=http://127.0.0.1:18770
+```
+
+The UI now includes a collapsible `Chat Runtime` panel in both chat screens. Changing the backend there applies on the next message without restarting the app.
 
 ### Data Directory
 

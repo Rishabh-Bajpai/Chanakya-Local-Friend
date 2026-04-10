@@ -52,10 +52,33 @@ class _RuntimeStub:
     def __init__(self, profile: AgentProfileModel) -> None:
         self.profile = profile
 
-    def runtime_metadata(self) -> dict[str, str | None]:
-        return {"model": "test-model", "endpoint": "http://test", "runtime": "maf_agent"}
+    def runtime_metadata(
+        self,
+        model_id: str | None = None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_model_id: str | None = None,
+    ) -> dict[str, str | None]:
+        return {
+            "model": model_id or "test-model",
+            "endpoint": "http://test",
+            "runtime": "maf_agent",
+            "backend": backend or "local",
+        }
 
-    def run(self, session_id: str, text: str, *, request_id: str) -> _RunResult:
+    def run(
+        self,
+        session_id: str,
+        text: str,
+        *,
+        request_id: str,
+        model_id: str | None = None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
+    ) -> _RunResult:
         return _RunResult(
             text=f"{self.profile.role}:{text}", response_mode="direct_answer", tool_traces=[]
         )
@@ -126,6 +149,7 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
         cast(MAFRuntime, _RuntimeStub(chanakya)),
         AgentManager(store, store.Session, manager_profile),
     )
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
     assert service.manager is not None
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
@@ -198,6 +222,7 @@ def test_normal_chat_prefers_direct_for_fast_non_trivial_request() -> None:
         cast(MAFRuntime, _RuntimeStub(chanakya)),
         AgentManager(store, store.Session, manager_profile),
     )
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
     assert service.manager is not None
 
     def _should_not_delegate(**kwargs: str) -> ManagerRunResult:
@@ -1118,14 +1143,17 @@ def test_manager_prefers_saved_active_agents_during_delegation() -> None:
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
     service.manager.specialist_runner = lambda profile, prompt, step: (
-        "{}" if step == "brief" else "reviewed"
+        '{"implementation_brief":"Implement milestone 5","assumptions":[],"risks":[],"testing_focus":["unit tests"]}'
+        if step == "brief"
+        else "reviewed"
     )
     service.manager.workflow_runner = (
         lambda session_id, request_id, workflow_type, message, participants: [
-            "developer output",
-            "tester output",
+            '```python\nprint("milestone 5")\n```\n\nValidation: implementation completed.\nRisks: low.',
+            '{"validation_summary":"Validated milestone 5","checks_performed":["unit tests"],"defects_or_risks":[],"pass_fail_recommendation":"pass"}',
         ]
     )
+    service.manager._repair_developer_output = lambda **kwargs: kwargs["invalid_output"]
     service.manager.summary_runner = lambda prompt: "Saved agents completed the delegated workflow."
 
     reply = service.chat("session_saved_agents", "Implement and test milestone 5")
@@ -1198,7 +1226,9 @@ def test_blocked_worker_dependency_is_persisted_before_completion() -> None:
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
     service.manager.specialist_runner = lambda profile, prompt, step: (
-        "{}" if step == "brief" else "reviewed"
+        '{"implementation_brief":"Implement dependency handling","assumptions":[],"risks":[],"testing_focus":["workflow assertions"]}'
+        if step == "brief"
+        else "reviewed"
     )
 
     def _workflow_runner(
@@ -1212,9 +1242,13 @@ def test_blocked_worker_dependency_is_persisted_before_completion() -> None:
         tester_task = next(task for task in tasks if task["task_type"] == "tester_execution")
         assert tester_task["status"] == TASK_STATUS_BLOCKED
         assert len(tester_task["dependencies"]) == 1
-        return ["developer output", "tester output"]
+        return [
+            '```python\nprint("dependency handled")\n```\n\nValidation: dependency flow implemented.\nRisks: low.',
+            '{"validation_summary":"Validated dependency handling","checks_performed":["workflow assertions"],"defects_or_risks":[],"pass_fail_recommendation":"pass"}',
+        ]
 
     service.manager.workflow_runner = _workflow_runner
+    service.manager._repair_developer_output = lambda **kwargs: kwargs["invalid_output"]
     service.manager.summary_runner = lambda prompt: "done"
 
     reply = service.chat("session_dependency", "Implement and test dependency handling")

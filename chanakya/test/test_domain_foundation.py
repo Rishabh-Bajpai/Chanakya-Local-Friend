@@ -58,8 +58,19 @@ class _RuntimeStub:
         )
         self.should_fail = should_fail
 
-    def runtime_metadata(self, model_id: str | None = None) -> dict[str, str | None]:
-        return {"model": "test-model", "endpoint": "http://test", "runtime": "maf_agent"}
+    def runtime_metadata(
+        self,
+        model_id: str | None = None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_model_id: str | None = None,
+    ) -> dict[str, str | None]:
+        return {
+            "model": "test-model",
+            "endpoint": "http://test",
+            "runtime": "maf_agent",
+            "backend": backend or "local",
+        }
 
     def run(
         self,
@@ -68,6 +79,11 @@ class _RuntimeStub:
         *,
         request_id: str,
         model_id: str | None = None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
     ) -> _RunResult:
         if self.should_fail:
             raise RuntimeError("runtime exploded")
