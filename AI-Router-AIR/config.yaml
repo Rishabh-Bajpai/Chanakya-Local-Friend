@@ -1,0 +1,6 @@
+model_list:
+  - model_name: qwen3-vl-30b-a3b-instruct
+    litellm_params:
+      model: qwen3-vl-30b-a3b-instruct
+      api_base: "http://localhost:1234/V1"
+      api_key: "os.environ/LMS_API_KEY"

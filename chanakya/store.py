@@ -102,6 +102,39 @@ class ChatRepository:
             for row in rows
         ]
 
+    def rewrite_latest_assistant_message(
+        self,
+        session_id: str,
+        *,
+        content: str,
+        request_id: str | None = None,
+        metadata_update: dict[str, Any] | None = None,
+    ) -> None:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ChatMessageModel)
+                .where(ChatMessageModel.session_id == session_id)
+                .where(ChatMessageModel.role == "assistant")
+                .order_by(ChatMessageModel.id.desc())
+            ).all()
+            target = None
+            if request_id is not None:
+                for row in rows:
+                    if row.request_id == request_id:
+                        target = row
+                        break
+            if target is None and rows:
+                target = rows[0]
+            if target is None:
+                return
+            target.content = content
+            if metadata_update:
+                target.metadata_json = {**(target.metadata_json or {}), **metadata_update}
+            chat_session = session.get(ChatSessionModel, session_id)
+            if chat_session is not None:
+                chat_session.updated_at = now_iso()
+            session.commit()
+
 
 class EventRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
@@ -1125,6 +1158,21 @@ class ChanakyaStore:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         self.chat.add_message(session_id, role, content, request_id, route, metadata)
+
+    def rewrite_latest_assistant_message(
+        self,
+        session_id: str,
+        *,
+        content: str,
+        request_id: str | None = None,
+        metadata_update: dict[str, Any] | None = None,
+    ) -> None:
+        self.chat.rewrite_latest_assistant_message(
+            session_id,
+            content=content,
+            request_id=request_id,
+            metadata_update=metadata_update,
+        )
 
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
         return self.chat.list_messages(session_id)

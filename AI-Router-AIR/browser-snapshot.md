@@ -1,0 +1,15 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]
+  - generic [ref=e13]:
+    - generic [ref=e14]
+    - generic [ref=e39]: I am Chanakya. I can answer questions directly, calculate expressions, and fetch web pages. Try asking me something!
+    - generic [ref=e40]
+  - generic [ref=e43]:
+    - generic [ref=e44]
+    - generic [ref=e53]
+    - generic [ref=e62]
+    - generic [ref=e100]
+    - generic [ref=e109]
+    - generic [ref=e118]
+    - generic [ref=e127]

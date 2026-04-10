@@ -37,16 +37,47 @@ def load_local_env(env_file: str = ".env") -> None:
 def get_openai_compatible_config() -> dict[str, str | None]:
     load_local_env()
     model = (
-        os.getenv("OPENAI_CHAT_MODEL_ID")
+        os.getenv("AIR_DEFAULT_LLM_MODEL")
+        or os.getenv("OPENAI_CHAT_MODEL_ID")
         or os.getenv("OPENAI_RESPONSES_MODEL_ID")
         or os.getenv("OPENAI_MODEL")
         or os.getenv("MODEL")
     )
+    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+    if not base_url and env_flag("AIR_ENABLED", default=True):
+        base_url = f"{get_air_server_url()}/v1"
     return {
-        "base_url": os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE"),
-        "api_key": os.getenv("OPENAI_API_KEY"),
+        "base_url": base_url,
+        "api_key": os.getenv("OPENAI_API_KEY") or os.getenv("AIR_API_KEY"),
         "model": model,
     }
+
+
+def get_conversation_openai_config() -> dict[str, str | None]:
+    load_local_env()
+    core = get_openai_compatible_config()
+    return {
+        "base_url": os.getenv("CONVERSATION_OPENAI_BASE_URL") or core.get("base_url"),
+        "api_key": os.getenv("CONVERSATION_OPENAI_API_KEY") or core.get("api_key"),
+        "model": os.getenv("CONVERSATION_OPENAI_CHAT_MODEL_ID") or core.get("model"),
+    }
+
+
+def get_air_server_url() -> str:
+    load_local_env()
+    configured = os.getenv("AIR_SERVER_URL")
+    if configured:
+        return configured.rstrip("/")
+    port = os.getenv("AIR_SERVER_PORT", "5512").strip() or "5512"
+    return f"http://localhost:{port}"
+
+
+def get_air_dashboard_url() -> str:
+    return get_air_server_url()
+
+
+def get_air_status_url() -> str:
+    return f"{get_air_server_url()}/status"
 
 
 def get_data_dir() -> Path:

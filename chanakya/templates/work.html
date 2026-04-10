@@ -80,6 +80,18 @@
         background: #2a2a2a;
         border: 1px solid #454545;
       }
+      .air-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 110px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #454545;
+        background: #242424;
+        color: var(--text);
+        text-decoration: none;
+      }
       .link-row {
         margin-top: 10px;
       }
@@ -197,6 +209,64 @@
         display: grid;
         grid-template-columns: 1fr auto;
         gap: 8px;
+      }
+      .air-panel {
+        margin-top: 14px;
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .air-panel h3 {
+        margin: 0 0 6px;
+        font-size: 14px;
+      }
+      .air-panel p {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .air-links,
+      .air-models,
+      .air-controls {
+        display: grid;
+        gap: 8px;
+      }
+      .air-links,
+      .air-controls {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .air-models label {
+        display: grid;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .air-models select {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid #454545;
+        background: #1a1a1a;
+        color: var(--text);
+        font: inherit;
+      }
+      .air-button {
+        border: 1px solid #454545;
+        background: #242424;
+      }
+      .air-button[data-state="recording"] {
+        background: #5a2d20;
+        border-color: #d86b4a;
+      }
+      .air-status {
+        min-height: 18px;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .air-status[data-state="error"] {
+        color: #e74c3c;
       }
       .agent-card {
         border: 1px solid #3a3a3a;
@@ -472,6 +542,37 @@
           <h1>Works</h1>
           <p>Create and reopen long-running work contexts.</p>
           <div class="link-row"><a href="/">Open classic chat</a></div>
+          <div class="air-panel">
+            <h3>AIR Voice Sidebar</h3>
+            <p>Use AIR models for speech input, speech output, and the AIR dashboard.</p>
+            <div class="air-links">
+              <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
+              <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
+            </div>
+            <div class="air-models">
+              <label>
+                Chanakya Model
+                <select id="airLlmModel"></select>
+              </label>
+              <label>
+                STT Model
+                <select id="airSttModel"></select>
+              </label>
+              <label>
+                TTS Model
+                <select id="airTtsModel"></select>
+              </label>
+            </div>
+            <div class="air-controls">
+              <button id="airMicButton" class="air-button" type="button">Mic</button>
+              <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
+              <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
+              <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
+              <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
+            </div>
+            <div id="airVoiceStatus" class="air-status"></div>
+            <div id="conversationQueueStatus" class="air-status"></div>
+          </div>
         </div>
         <div class="body">
           <form id="workForm" class="work-form">
@@ -508,7 +609,9 @@
       </section>
     </div>
 
+    <script src="{{ url_for('static', filename='js/air_voice.js') }}"></script>
     <script>
+      const AIR_SERVER_URL = {{ air_server_url | tojson }};
       const workForm = document.getElementById("workForm");
       const workTitle = document.getElementById("workTitle");
       const workDescription = document.getElementById("workDescription");
@@ -520,6 +623,16 @@
       const chatForm = document.getElementById("chatForm");
       const messageInput = document.getElementById("messageInput");
       const sendButton = document.getElementById("sendButton");
+      const airLlmModel = document.getElementById("airLlmModel");
+      const airSttModel = document.getElementById("airSttModel");
+      const airTtsModel = document.getElementById("airTtsModel");
+      const airMicButton = document.getElementById("airMicButton");
+      const airVoiceLoopButton = document.getElementById("airVoiceLoopButton");
+      const airSpeakButton = document.getElementById("airSpeakButton");
+      const airPauseRepliesButton = document.getElementById("airPauseRepliesButton");
+      const airRefreshModelsButton = document.getElementById("airRefreshModelsButton");
+      const airVoiceStatus = document.getElementById("airVoiceStatus");
+      const conversationQueueStatus = document.getElementById("conversationQueueStatus");
       const historyList = document.getElementById("historyList");
       const deleteWorkButton = document.getElementById("deleteWorkButton");
 
@@ -535,6 +648,7 @@
       let cachedTaskFlow = [];
       let cachedTasks = [];
       let cachedRequests = [];
+      let airVoiceController = null;
       const slideshowState = {
         requestId: null,
         followLatest: true,
@@ -570,6 +684,134 @@
         node.textContent = content;
         chatLog.appendChild(node);
         chatLog.scrollTop = chatLog.scrollHeight;
+        return node;
+      }
+
+      function getLatestAssistantMessageText() {
+        const nodes = Array.from(chatLog.querySelectorAll(".msg.assistant"));
+        const last = nodes[nodes.length - 1];
+        return last ? last.textContent || "" : "";
+      }
+
+      function setConversationQueueStatus(text, isError = false) {
+        if (!conversationQueueStatus) {
+          return;
+        }
+        conversationQueueStatus.textContent = text || "";
+        conversationQueueStatus.dataset.state = isError ? "error" : "idle";
+      }
+
+      async function pauseConversationReplies() {
+        if (!activeWorkId) {
+          setConversationQueueStatus("No active work session to pause.", true);
+          return;
+        }
+        const work = works.find((item) => item.id === activeWorkId);
+        const targetSessionId = work && work.session_id ? work.session_id : null;
+        if (!targetSessionId) {
+          setConversationQueueStatus("No active direct chat session to pause.", true);
+          return;
+        }
+        const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}/pause`, {
+          method: "POST",
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Pause failed");
+        }
+        setConversationQueueStatus("Paused queued assistant replies.");
+      }
+
+      async function pollNextWorkConversationMessages(targetSessionId, options = {}) {
+        const { onAssistantMessage } = options;
+        while (true) {
+          const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}/next-message`);
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || "Next message failed");
+          }
+          if (payload.status === "delivered" && payload.message) {
+            const text = payload.message.text || "";
+            if (text) {
+              appendChatMessage("assistant", text);
+              if (typeof onAssistantMessage === "function") {
+                onAssistantMessage(text);
+              }
+            }
+            const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+            setConversationQueueStatus(
+              pendingCount > 0
+                ? `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+                : "Assistant finished replying."
+            );
+            continue;
+          }
+          if (payload.status === "waiting") {
+            const waitMs = Math.max(Number(payload.retry_after_ms || 500), 250);
+            const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+            setConversationQueueStatus(
+              pendingCount > 0
+                ? `Assistant is pacing ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+                : "Assistant is thinking..."
+            );
+            await new Promise((resolve) => window.setTimeout(resolve, Math.min(waitMs, 1000)));
+            continue;
+          }
+          if (payload.status === "paused") {
+            setConversationQueueStatus("Queued assistant replies paused.");
+            break;
+          }
+          setConversationQueueStatus("");
+          break;
+        }
+      }
+
+      async function submitWorkChatMessage(message, options = {}) {
+        const { onAssistantMessage } = options;
+        if (!activeWorkId) {
+          throw new Error("Select a work before starting voice mode.");
+        }
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            work_id: activeWorkId,
+            message,
+            model_id: airLlmModel.value || null,
+          }),
+        });
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "Chat failed");
+        }
+        const data = await response.json();
+        const messages = Array.isArray(data.messages) && data.messages.length
+          ? data.messages
+          : [{ text: data.message || "", delay_ms: 0 }];
+        messages.forEach((item) => {
+          const text = item.text || "";
+          if (!text) {
+            return;
+          }
+          appendChatMessage("assistant", text);
+          if (typeof onAssistantMessage === "function") {
+            onAssistantMessage(text);
+          }
+        });
+        if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
+          const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
+          setConversationQueueStatus(
+            `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+          );
+          await pollNextWorkConversationMessages(data.session_id, { onAssistantMessage });
+        } else {
+          setConversationQueueStatus("");
+        }
+        await loadWorkHistory(activeWorkId);
+        if (airVoiceController) {
+          airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
+        }
+        return data;
       }
 
       function formatAsPrettyJSON(text) {
@@ -1244,15 +1486,7 @@
         slideshowState.followLatest = true;
         startLiveRefresh(900);
         try {
-          const response = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ work_id: activeWorkId, message }),
-          });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || "Chat failed");
-          appendChatMessage("assistant", data.message || "");
-          await loadWorkHistory(activeWorkId);
+          await submitWorkChatMessage(message);
         } catch (error) {
           appendChatMessage("assistant", error instanceof Error ? error.message : String(error));
         } finally {
@@ -1266,6 +1500,41 @@
       });
 
       async function bootstrap() {
+        airVoiceController = window.createAirVoiceController({
+          baseUrl: AIR_SERVER_URL,
+          llmModelSelect: airLlmModel,
+          sttModelSelect: airSttModel,
+          ttsModelSelect: airTtsModel,
+          recordButton: airMicButton,
+          continuousButton: airVoiceLoopButton,
+          speakButton: airSpeakButton,
+          statusNode: airVoiceStatus,
+          submitText: async (text, options = {}) => {
+            const { onAssistantMessage } = options;
+            appendChatMessage("user", text);
+            const data = await submitWorkChatMessage(text, {
+              onAssistantMessage: (content) => {
+                if (typeof onAssistantMessage === "function") {
+                  onAssistantMessage(content);
+                }
+              },
+            });
+            return data.message || "";
+          },
+          getLatestAssistantText: getLatestAssistantMessageText,
+          onTranscript: (text) => {
+            messageInput.value = text;
+          },
+        });
+        airRefreshModelsButton.addEventListener("click", () => airVoiceController.fetchModels());
+        airPauseRepliesButton.addEventListener("click", async () => {
+          try {
+            await pauseConversationReplies();
+          } catch (error) {
+            setConversationQueueStatus(error instanceof Error ? error.message : String(error), true);
+          }
+        });
+        airVoiceController.fetchModels();
         resetWorkView();
         await loadWorks();
         const saved = loadSavedWork();

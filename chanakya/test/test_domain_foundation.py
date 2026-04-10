@@ -58,10 +58,17 @@ class _RuntimeStub:
         )
         self.should_fail = should_fail
 
-    def runtime_metadata(self) -> dict[str, str | None]:
+    def runtime_metadata(self, model_id: str | None = None) -> dict[str, str | None]:
         return {"model": "test-model", "endpoint": "http://test", "runtime": "maf_agent"}
 
-    def run(self, session_id: str, text: str, *, request_id: str) -> _RunResult:
+    def run(
+        self,
+        session_id: str,
+        text: str,
+        *,
+        request_id: str,
+        model_id: str | None = None,
+    ) -> _RunResult:
         if self.should_fail:
             raise RuntimeError("runtime exploded")
         return _RunResult(
@@ -109,6 +116,41 @@ def test_chat_persists_request_root_task_and_timeline() -> None:
     messages = store.list_messages("session_1")
     assert [message["role"] for message in messages] == ["user", "assistant"]
     assert messages[1]["metadata"]["root_task_id"] == reply.root_task_id
+
+
+def test_chat_post_processes_visible_assistant_message() -> None:
+    class _PostProcessorStub:
+        enabled = True
+
+        def wrap_reply(
+            self,
+            *,
+            session_id: str,
+            user_message: str,
+            assistant_message: str,
+            model_id: str | None = None,
+            metadata: dict[str, str] | None = None,
+        ):
+            return type(
+                "Wrapped",
+                (),
+                {
+                    "response": f"layered:{assistant_message}",
+                    "messages": [{"text": f"layered:{assistant_message}", "delay_ms": 0}],
+                    "metadata": {"pending_delivery_count": 0, "source": "conversation_layer"},
+                },
+            )()
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub()))
+    service._conversation_layer = _PostProcessorStub()  # type: ignore[attr-defined]
+
+    reply = service.chat("session_layered", "Explain recursion")
+
+    messages = store.list_messages("session_layered")
+    assert messages[1]["content"] == "layered:reply:Explain recursion"
+    assert messages[1]["metadata"]["conversation_layer_applied"] is True
+    assert reply.message == "layered:reply:Explain recursion"
 
 
 def test_chat_failure_marks_request_and_task_failed() -> None:

@@ -209,6 +209,87 @@
       min-height: 0;
     }
 
+    .air-panel {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .air-panel h3 {
+      margin: 0 0 6px;
+      font-size: 14px;
+    }
+
+    .air-panel p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .air-links,
+    .air-controls,
+    .air-models {
+      display: grid;
+      gap: 8px;
+    }
+
+    .air-controls {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .air-links {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-bottom: 10px;
+    }
+
+    .air-models label {
+      display: grid;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .air-models select {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #454545;
+      background: #1a1a1a;
+      color: var(--text);
+      padding: 8px 10px;
+      font: inherit;
+    }
+
+    .air-button,
+    .air-link {
+      border: 1px solid #494949;
+      border-radius: 10px;
+      padding: 9px 12px;
+      background: #242424;
+      color: var(--text);
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      font: inherit;
+    }
+
+    .air-button[data-state="recording"] {
+      background: #5a2d20;
+      border-color: #d86b4a;
+    }
+
+    .air-status {
+      min-height: 18px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .air-status[data-state="error"] {
+      color: var(--red);
+    }
+
     .hero {
       padding: 18px 20px 8px;
     }
@@ -856,6 +937,37 @@
           Chanakya uses external MCP tools (calculator, fetch) when needed.
           Tool selections, inputs, outputs, and errors are traced in the panel on the right.
         </p>
+        <div class="air-panel">
+          <h3>AIR Voice Sidebar</h3>
+          <p>Chanakya stays the UI. AIR provides model routing, STT, and TTS.</p>
+          <div class="air-links">
+            <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
+            <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
+          </div>
+          <div class="air-models">
+            <label>
+              Chanakya Model
+              <select id="airLlmModel"></select>
+            </label>
+            <label>
+              STT Model
+              <select id="airSttModel"></select>
+            </label>
+            <label>
+              TTS Model
+              <select id="airTtsModel"></select>
+            </label>
+          </div>
+          <div class="air-controls">
+            <button id="airMicButton" class="air-button" type="button">Mic</button>
+            <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
+            <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
+            <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
+            <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
+          </div>
+          <div id="airVoiceStatus" class="air-status"></div>
+          <div id="conversationQueueStatus" class="air-status"></div>
+        </div>
       </div>
       <div id="chatLog" class="chat-log"></div>
       <form id="chatForm" class="composer">
@@ -1039,10 +1151,22 @@
     </section>
   </div>
 
+  <script src="{{ url_for('static', filename='js/air_voice.js') }}"></script>
   <script>
+    const AIR_SERVER_URL = {{ air_server_url | tojson }};
     const chatForm = document.getElementById("chatForm");
     const messageInput = document.getElementById("messageInput");
     const chatLog = document.getElementById("chatLog");
+    const airLlmModel = document.getElementById("airLlmModel");
+    const airSttModel = document.getElementById("airSttModel");
+    const airTtsModel = document.getElementById("airTtsModel");
+    const airMicButton = document.getElementById("airMicButton");
+    const airVoiceLoopButton = document.getElementById("airVoiceLoopButton");
+    const airSpeakButton = document.getElementById("airSpeakButton");
+    const airPauseRepliesButton = document.getElementById("airPauseRepliesButton");
+    const airRefreshModelsButton = document.getElementById("airRefreshModelsButton");
+    const airVoiceStatus = document.getElementById("airVoiceStatus");
+    const conversationQueueStatus = document.getElementById("conversationQueueStatus");
     const requestTrace = document.getElementById("requestTrace");
     const toolTraceList = document.getElementById("toolTraceList");
     const taskList = document.getElementById("taskList");
@@ -1079,6 +1203,7 @@
 
     let sessionId = null;
     let selectedAgentId = null;
+    let airVoiceController = null;
     let availableTools = [];
     const STORAGE_KEY = "chanakya-active-session";
 
@@ -1185,6 +1310,140 @@
       }
       chatLog.appendChild(node);
       chatLog.scrollTop = chatLog.scrollHeight;
+      return node;
+    }
+
+    function getLatestAssistantMessageText() {
+      const nodes = Array.from(chatLog.querySelectorAll(".message.assistant"));
+      const last = nodes[nodes.length - 1];
+      if (!last) {
+        return "";
+      }
+      const metaNode = last.querySelector(".meta");
+      if (!metaNode) {
+        return last.textContent || "";
+      }
+      const clone = last.cloneNode(true);
+      const cloneMeta = clone.querySelector(".meta");
+      if (cloneMeta) {
+        cloneMeta.remove();
+      }
+      return clone.textContent || "";
+    }
+
+    function setConversationQueueStatus(text, isError = false) {
+      if (!conversationQueueStatus) {
+        return;
+      }
+      conversationQueueStatus.textContent = text || "";
+      conversationQueueStatus.dataset.state = isError ? "error" : "idle";
+    }
+
+    async function pauseConversationReplies() {
+      if (!sessionId) {
+        setConversationQueueStatus("No active session to pause.", true);
+        return;
+      }
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/pause`, {
+        method: "POST",
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "Pause failed");
+      }
+      setConversationQueueStatus("Paused queued assistant replies.");
+    }
+
+    async function pollNextConversationMessages(targetSessionId, options = {}) {
+      const { onAssistantMessage } = options;
+      while (true) {
+        const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}/next-message`);
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Next message failed");
+        }
+        if (payload.status === "delivered" && payload.message) {
+          const text = payload.message.text || "";
+          if (text) {
+            appendMessage("assistant", text);
+            if (typeof onAssistantMessage === "function") {
+              onAssistantMessage(text);
+            }
+          }
+          const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+          setConversationQueueStatus(
+            pendingCount > 0
+              ? `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+              : "Assistant finished replying."
+          );
+          continue;
+        }
+        if (payload.status === "waiting") {
+          const waitMs = Math.max(Number(payload.retry_after_ms || 500), 250);
+          const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+          setConversationQueueStatus(
+            pendingCount > 0
+              ? `Assistant is pacing ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+              : "Assistant is thinking..."
+          );
+          await new Promise((resolve) => window.setTimeout(resolve, Math.min(waitMs, 1000)));
+          continue;
+        }
+        if (payload.status === "paused") {
+          setConversationQueueStatus("Queued assistant replies paused.");
+          break;
+        }
+        setConversationQueueStatus("");
+        break;
+      }
+    }
+
+    async function submitChatMessage(message, options = {}) {
+      const { onAssistantMessage } = options;
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          message,
+          model_id: airLlmModel.value || null,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Request failed");
+      }
+      const data = await response.json();
+      sessionId = data.session_id;
+      storeSessionId(sessionId);
+      renderTrace(data);
+      const messages = Array.isArray(data.messages) && data.messages.length
+        ? data.messages
+        : [{ text: data.message || "", delay_ms: 0 }];
+      messages.forEach((item) => {
+        const text = item.text || "";
+        if (!text) {
+          return;
+        }
+        appendMessage("assistant", text);
+        if (typeof onAssistantMessage === "function") {
+          onAssistantMessage(text);
+        }
+      });
+      if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
+        const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
+        setConversationQueueStatus(
+          `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+        );
+        await pollNextConversationMessages(data.session_id, { onAssistantMessage });
+      } else {
+        setConversationQueueStatus("");
+      }
+      await refreshSidePanels();
+      if (airVoiceController) {
+        airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
+      }
+      return data;
     }
 
     function loadStoredSessionId() {
@@ -2018,20 +2277,12 @@
       appendMessage("user", message);
       messageInput.value = "";
 
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, message }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        appendMessage("assistant", data.error || "Request failed");
+      try {
+        await submitChatMessage(message);
+      } catch (error) {
+        appendMessage("assistant", error instanceof Error ? error.message : String(error));
         return;
       }
-      sessionId = data.session_id;
-      storeSessionId(sessionId);
-      renderTrace(data);
-      await loadSessionHistory();
     });
 
     agentForm.addEventListener("submit", async (event) => {
@@ -2065,6 +2316,41 @@
     setupCollapseButtons();
     setupDetachButtons();
     resetAgentForm();
+    airVoiceController = window.createAirVoiceController({
+      baseUrl: AIR_SERVER_URL,
+      llmModelSelect: airLlmModel,
+      sttModelSelect: airSttModel,
+      ttsModelSelect: airTtsModel,
+      recordButton: airMicButton,
+      continuousButton: airVoiceLoopButton,
+      speakButton: airSpeakButton,
+      statusNode: airVoiceStatus,
+      submitText: async (text, options = {}) => {
+        const { onAssistantMessage } = options;
+        appendMessage("user", text, "voice transcript");
+        const data = await submitChatMessage(text, {
+          onAssistantMessage: (content) => {
+            if (typeof onAssistantMessage === "function") {
+              onAssistantMessage(content);
+            }
+          },
+        });
+        return data.message || "";
+      },
+      getLatestAssistantText: getLatestAssistantMessageText,
+      onTranscript: (text) => {
+        messageInput.value = text;
+      },
+    });
+    airRefreshModelsButton.addEventListener("click", () => airVoiceController.fetchModels());
+    airPauseRepliesButton.addEventListener("click", async () => {
+      try {
+        await pauseConversationReplies();
+      } catch (error) {
+        setConversationQueueStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    });
+    airVoiceController.fetchModels();
     loadSessionHistory();
 
     // ---------- SSE-driven auto-refresh ----------
@@ -2074,16 +2360,6 @@
       _sseRefreshTimer = setTimeout(async () => {
         _sseRefreshTimer = null;
         await refreshSidePanels();
-        // Also refresh chat messages for assistant responses
-        if (sessionId) {
-          try {
-            const res = await fetch(`/api/sessions/${sessionId}`);
-            if (res.ok) {
-              const data = await res.json();
-              renderChatHistory(data.messages || []);
-            }
-          } catch { }
-        }
       }, 400); // debounce: coalesce rapid events
     }
 
