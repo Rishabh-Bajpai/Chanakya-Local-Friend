@@ -1,7 +1,0 @@
-[      28ms] [ERROR] Executing inline script violates the following Content Security Policy directive 'script-src 'self' 'wasm-unsafe-eval''. Either the 'unsafe-inline' keyword, a hash ('sha256-QI23YWMJrD/tljM6/82tpL8EwqdBoptwZfycFHA9IiQ='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked. @ http://127.0.0.1:18496/:15
-[  312247ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://127.0.0.1:18496/global/event:0
-[  312248ms] [ERROR] [global-sdk] event stream error {url: http://127.0.0.1:18496, fetch: webview, error: TypeError: network error} @ http://127.0.0.1:18496/assets/index-8qpgec1H.js:2338
-[  460406ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://127.0.0.1:18496/global/event:0
-[  460407ms] [ERROR] [global-sdk] event stream error {url: http://127.0.0.1:18496, fetch: webview, error: TypeError: network error} @ http://127.0.0.1:18496/assets/index-8qpgec1H.js:2338
-[  591997ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://127.0.0.1:18496/global/event:0
-[  591998ms] [ERROR] [global-sdk] event stream error {url: http://127.0.0.1:18496, fetch: webview, error: TypeError: network error} @ http://127.0.0.1:18496/assets/index-8qpgec1H.js:2338
