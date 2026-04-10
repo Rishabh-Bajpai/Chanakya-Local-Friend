@@ -229,6 +229,9 @@ class ChatService:
             )
         return payload
 
+    def request_manual_pause(self, session_id: str) -> dict[str, Any]:
+        return self._conversation_layer.request_manual_pause(session_id)
+
     def _triage_message(self, message: str, *, work_id: str | None = None) -> str:
         """Classify a message as 'direct' or 'delegate'."""
         if self._should_handle_directly(message, work_id=work_id):

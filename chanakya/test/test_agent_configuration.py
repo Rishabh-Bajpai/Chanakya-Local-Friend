@@ -381,6 +381,34 @@ def test_tools_availability_api_returns_payload(
     assert "tools" in response.get_json()
 
 
+def test_session_pause_api_uses_chat_service_public_method(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    class _ChatServiceStub:
+        paused_session_ids: list[str] = []
+
+        def __init__(self, store: object, runtime: object, manager: object | None = None) -> None:
+            self._conversation_layer = None
+
+        def request_manual_pause(self, session_id: str) -> dict[str, object]:
+            self.paused_session_ids.append(session_id)
+            return {"session_id": session_id, "status": "paused"}
+
+    monkeypatch.setattr(app_module, "ChatService", _ChatServiceStub)
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.post("/api/sessions/session_123/pause")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "session_id": "session_123",
+        "working_memory": {"session_id": "session_123", "status": "paused"},
+    }
+    assert _ChatServiceStub.paused_session_ids == ["session_123"]
+
+
 def test_startup_sync_adds_default_tools_to_seeded_agents(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

@@ -262,7 +262,7 @@ def create_app() -> Flask:
 
     @app.post("/api/sessions/<session_id>/pause")
     def api_session_pause(session_id: str) -> Any:
-        payload = chat_service._conversation_layer.request_manual_pause(session_id)
+        payload = chat_service.request_manual_pause(session_id)
         return jsonify({"session_id": session_id, "working_memory": payload})
 
     @app.get("/api/sessions/<session_id>")
