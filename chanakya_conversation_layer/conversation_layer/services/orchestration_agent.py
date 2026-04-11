@@ -20,38 +20,51 @@ class MAFOrchestrationAgent:
     base_url: str
     api_key: str
     env_file_path: str
+    backend: str = "openai_compatible"
     debug: bool = False
     runner: Callable[[str], Any] | None = None
+    remote_agent_url: str = ""
+    default_remote_agent: str | None = None
+    default_model_provider: str | None = None
+    default_model_id: str | None = None
+    a2a_agent_factory: Any | None = None
     _agent: Agent | None = field(init=False, default=None, repr=False)
-    _agent_by_model: dict[str, Agent] = field(
-        init=False, default_factory=dict, repr=False
-    )
+    _agent_by_model: dict[str, Agent] = field(init=False, default_factory=dict, repr=False)
+    _a2a_agent: Any | None = field(init=False, default=None, repr=False)
+    _a2a_sessions: dict[str, Any] = field(init=False, default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         if self.runner is None:
-            client = OpenAIChatClient(
-                model_id=self.model,
-                api_key=self.api_key,
-                base_url=self.base_url,
-                env_file_path=self.env_file_path,
-            )
-            self._agent = Agent(
-                client=client,
-                name="ConversationLayerPlanner",
-                description="Structured orchestration planner for the conversation layer.",
-                instructions=(
-                    "You are a planning agent for a conversation orchestration layer. "
-                    "Return only valid JSON that matches the requested schema. "
-                    "Do not include markdown fences or prose outside the JSON object."
-                ),
-            )
+            if self.backend == "a2a":
+                if self.a2a_agent_factory is None:
+                    from agent_framework_a2a import A2AAgent
 
-    def plan(
-        self, *, task: str, instructions: str, payload: dict[str, Any]
-    ) -> dict[str, Any]:
-        prompt = self._build_prompt(
-            task=task, instructions=instructions, payload=payload
-        )
+                    self.a2a_agent_factory = A2AAgent
+                self._a2a_agent = self.a2a_agent_factory(
+                    name="ConversationLayerPlanner",
+                    description="Structured orchestration planner for the conversation layer.",
+                    url=self.remote_agent_url,
+                )
+            else:
+                client = OpenAIChatClient(
+                    model_id=self.model,
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    env_file_path=self.env_file_path,
+                )
+                self._agent = Agent(
+                    client=client,
+                    name="ConversationLayerPlanner",
+                    description="Structured orchestration planner for the conversation layer.",
+                    instructions=(
+                        "You are a planning agent for a conversation orchestration layer. "
+                        "Return only valid JSON that matches the requested schema. "
+                        "Do not include markdown fences or prose outside the JSON object."
+                    ),
+                )
+
+    def plan(self, *, task: str, instructions: str, payload: dict[str, Any]) -> dict[str, Any]:
+        prompt = self._build_prompt(task=task, instructions=instructions, payload=payload)
         raw_text = self._run(prompt)
         return self._parse_result(raw_text)
 
@@ -63,18 +76,14 @@ class MAFOrchestrationAgent:
         payload: dict[str, Any],
         model_id: str | None,
     ) -> dict[str, Any]:
-        prompt = self._build_prompt(
-            task=task, instructions=instructions, payload=payload
-        )
+        prompt = self._build_prompt(task=task, instructions=instructions, payload=payload)
         raw_text = self._run(prompt, model_override=model_id)
         return self._parse_result(raw_text)
 
     async def plan_async(
         self, *, task: str, instructions: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        prompt = self._build_prompt(
-            task=task, instructions=instructions, payload=payload
-        )
+        prompt = self._build_prompt(task=task, instructions=instructions, payload=payload)
         raw_text = await self._run_async(prompt)
         return self._parse_result(raw_text)
 
@@ -82,18 +91,16 @@ class MAFOrchestrationAgent:
         try:
             result = json.loads(raw_text)
         except json.JSONDecodeError as exc:
-            raise OrchestrationAgentError(
-                f"Invalid JSON from orchestration agent: {exc}"
-            ) from exc
+            raise OrchestrationAgentError(f"Invalid JSON from orchestration agent: {exc}") from exc
         if not isinstance(result, dict):
-            raise OrchestrationAgentError(
-                "Orchestration agent must return a JSON object"
-            )
+            raise OrchestrationAgentError("Orchestration agent must return a JSON object")
         return result
 
     def _run(self, prompt: str, *, model_override: str | None = None) -> str:
         if self.runner is not None:
             result = self.runner(prompt)
+        elif self.backend == "a2a":
+            result = asyncio.run(self._run_a2a(prompt, model_override=model_override))
         else:
             agent = self._agent_for_model(model_override)
             result = asyncio.run(agent.run(prompt))
@@ -102,10 +109,21 @@ class MAFOrchestrationAgent:
     async def _run_async(self, prompt: str) -> str:
         if self.runner is not None:
             result = self.runner(prompt)
+        elif self.backend == "a2a":
+            result = await self._run_a2a(prompt)
         else:
             result = await self._agent.run(prompt)
 
         return self._coerce_result_to_text(result)
+
+    async def _run_a2a(self, prompt: str, *, model_override: str | None = None) -> Any:
+        if self._a2a_agent is None:
+            raise OrchestrationAgentError("A2A orchestration agent is not initialized")
+        session = self._a2a_session_for_model(model_override)
+        message = self._build_a2a_prompt(prompt, model_override=model_override)
+        from agent_framework import Message
+
+        return await self._a2a_agent.run([Message("user", [message])], session=session)
 
     def _coerce_result_to_text(self, result: Any) -> str:
         if isinstance(result, dict):
@@ -115,9 +133,7 @@ class MAFOrchestrationAgent:
             return str(text)
         return str(result)
 
-    def _build_prompt(
-        self, *, task: str, instructions: str, payload: dict[str, Any]
-    ) -> str:
+    def _build_prompt(self, *, task: str, instructions: str, payload: dict[str, Any]) -> str:
         return (
             f"Task: {task}\n"
             f"Instructions:\n{instructions}\n\n"
@@ -152,3 +168,31 @@ class MAFOrchestrationAgent:
         )
         self._agent_by_model[model_id] = created
         return created
+
+    def _a2a_session_for_model(self, model_override: str | None):
+        model_id = str(model_override or "").strip() or str(self.default_model_id or "").strip()
+        session_key = model_id or "default"
+        session = self._a2a_sessions.get(session_key)
+        if session is not None:
+            return session
+        if self._a2a_agent is None:
+            raise OrchestrationAgentError("A2A orchestration agent is not initialized")
+        created = self._a2a_agent.create_session(
+            session_id=f"conversation-layer-planner:{session_key}"
+        )
+        self._a2a_sessions[session_key] = created
+        return created
+
+    def _build_a2a_prompt(self, prompt: str, *, model_override: str | None) -> str:
+        header_parts: list[str] = []
+        remote_agent = str(self.default_remote_agent or "").strip()
+        model_provider = str(self.default_model_provider or "").strip()
+        model_id = str(model_override or self.default_model_id or "").strip()
+        if remote_agent:
+            header_parts.append(f"agent={remote_agent}")
+        if model_provider and model_id:
+            header_parts.append(f"model_provider={model_provider}")
+            header_parts.append(f"model_id={model_id}")
+        if not header_parts:
+            return prompt
+        return f"[[opencode-options:{';'.join(header_parts)}]]\n{prompt}"

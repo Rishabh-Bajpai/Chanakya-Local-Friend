@@ -246,6 +246,83 @@ def test_api_chat_passes_backend_choice_to_chat_service(
     assert payload["metadata"]["core_agent_backend"] == "a2a"
 
 
+def test_api_runtime_config_persists_shared_settings(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    update_response = client.post(
+        "/api/runtime-config",
+        json={
+            "backend": "a2a",
+            "model_id": "ignored-local-model",
+            "a2a_remote_agent": "build",
+            "a2a_model_provider": "lmstudio",
+            "a2a_model_id": "qwen/qwen3.5-9b",
+        },
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.get_json()
+    assert updated["backend"] == "a2a"
+    assert updated["a2a_remote_agent"] == "build"
+    assert updated["a2a_model_provider"] == "lmstudio"
+    assert updated["a2a_model_id"] == "qwen/qwen3.5-9b"
+    assert updated["a2a_url"] == app_module.get_a2a_agent_url()
+
+    get_response = client.get("/api/runtime-config")
+    assert get_response.status_code == 200
+    fetched = get_response.get_json()
+    assert fetched["backend"] == "a2a"
+    assert fetched["a2a_remote_agent"] == "build"
+
+
+def test_api_chat_uses_applied_runtime_config_when_request_omits_it(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: list[_ChatServiceCaptureStub] = []
+
+    def _build_chat_service(store, runtime, manager):
+        stub = _ChatServiceCaptureStub(store, runtime, manager)
+        captured.append(stub)
+        return stub
+
+    monkeypatch.setattr(app_module, "ChatService", _build_chat_service)
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    config_response = client.post(
+        "/api/runtime-config",
+        json={
+            "backend": "a2a",
+            "model_id": "local-model",
+            "a2a_remote_agent": "planner",
+            "a2a_model_provider": "lmstudio",
+            "a2a_model_id": "qwen/qwen3.5-9b",
+        },
+    )
+    assert config_response.status_code == 200
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "session_id": "session_runtime_default",
+            "message": "use shared config",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured[0].calls[0]["backend"] == "a2a"
+    assert captured[0].calls[0]["model_id"] == "local-model"
+    assert captured[0].calls[0]["a2a_url"] is None
+    assert captured[0].calls[0]["a2a_remote_agent"] == "planner"
+    assert captured[0].calls[0]["a2a_model_provider"] == "lmstudio"
+    assert captured[0].calls[0]["a2a_model_id"] == "qwen/qwen3.5-9b"
+
+
 def test_api_a2a_options_returns_discovered_agents_and_models(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

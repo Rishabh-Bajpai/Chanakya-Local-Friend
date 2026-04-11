@@ -15,6 +15,7 @@ from chanakya.model import (
     ChatSessionModel,
     ClassicActiveWorkModel,
     RequestModel,
+    RuntimeConfigModel,
     TaskEventModel,
     TaskModel,
     TemporaryAgentModel,
@@ -223,6 +224,75 @@ class EventRepository:
         ]
         records.reverse()
         return records
+
+
+class RuntimeConfigRepository:
+    _ROW_ID = "global"
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def get(self) -> dict[str, Any] | None:
+        with session_scope(self.Session) as session:
+            row = session.get(RuntimeConfigModel, self._ROW_ID)
+            if row is None:
+                return None
+            return {
+                "backend": row.backend,
+                "model_id": row.model_id,
+                "a2a_url": row.a2a_url,
+                "a2a_remote_agent": row.a2a_remote_agent,
+                "a2a_model_provider": row.a2a_model_provider,
+                "a2a_model_id": row.a2a_model_id,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+
+    def set(
+        self,
+        *,
+        backend: str,
+        model_id: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
+    ) -> dict[str, Any]:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            row = session.get(RuntimeConfigModel, self._ROW_ID)
+            if row is None:
+                row = RuntimeConfigModel(
+                    id=self._ROW_ID,
+                    backend=backend,
+                    model_id=model_id,
+                    a2a_url=a2a_url,
+                    a2a_remote_agent=a2a_remote_agent,
+                    a2a_model_provider=a2a_model_provider,
+                    a2a_model_id=a2a_model_id,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+                session.add(row)
+            else:
+                row.backend = backend
+                row.model_id = model_id
+                row.a2a_url = a2a_url
+                row.a2a_remote_agent = a2a_remote_agent
+                row.a2a_model_provider = a2a_model_provider
+                row.a2a_model_id = a2a_model_id
+                row.updated_at = timestamp
+            session.commit()
+            return {
+                "backend": row.backend,
+                "model_id": row.model_id,
+                "a2a_url": row.a2a_url,
+                "a2a_remote_agent": row.a2a_remote_agent,
+                "a2a_model_provider": row.a2a_model_provider,
+                "a2a_model_id": row.a2a_model_id,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
 
 
 class AgentSessionContextRepository:
@@ -1093,6 +1163,7 @@ class ChanakyaStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
         self.chat = ChatRepository(session_factory)
+        self.runtime_config = RuntimeConfigRepository(session_factory)
         self.works = WorkRepository(session_factory)
         self.work_agent_sessions = WorkAgentSessionRepository(session_factory)
         self.classic_active_works = ClassicActiveWorkRepository(session_factory)
@@ -1186,6 +1257,28 @@ class ChanakyaStore:
         self, session_id: str, *, target_key: str | None = None
     ) -> dict[str, Any]:
         return self.session_contexts.get(session_id, target_key=target_key)
+
+    def get_runtime_config(self) -> dict[str, Any] | None:
+        return self.runtime_config.get()
+
+    def set_runtime_config(
+        self,
+        *,
+        backend: str,
+        model_id: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
+    ) -> dict[str, Any]:
+        return self.runtime_config.set(
+            backend=backend,
+            model_id=model_id,
+            a2a_url=a2a_url,
+            a2a_remote_agent=a2a_remote_agent,
+            a2a_model_provider=a2a_model_provider,
+            a2a_model_id=a2a_model_id,
+        )
 
     def save_agent_session_context(
         self,

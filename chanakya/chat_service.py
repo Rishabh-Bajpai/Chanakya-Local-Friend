@@ -134,18 +134,48 @@ class ChatService:
         assistant_message: str,
         model_id: str | None,
         request_id: str | None,
+        runtime_metadata: dict[str, Any] | None = None,
     ) -> ConversationLayerResult | None:
         if not assistant_message.strip():
             return None
         if not self._conversation_layer.enabled:
             return None
+        conversation_runtime = dict(runtime_metadata or {})
+        selected_backend = normalize_runtime_backend(
+            conversation_runtime.get("core_agent_backend") or conversation_runtime.get("backend")
+        )
+        selected_model_id = model_id
+        if selected_backend == "a2a":
+            selected_model_id = (
+                str(
+                    conversation_runtime.get("a2a_model_id")
+                    or conversation_runtime.get("model")
+                    or ""
+                ).strip()
+                or None
+            )
         try:
             result = self._conversation_layer.wrap_reply(
                 session_id=session_id,
                 user_message=user_message,
                 assistant_message=assistant_message,
-                model_id=model_id,
-                metadata={"source": "chanakya_conversation_layer"},
+                model_id=selected_model_id,
+                backend=selected_backend,
+                a2a_url=str(
+                    conversation_runtime.get("a2a_remote_url")
+                    or conversation_runtime.get("endpoint")
+                    or ""
+                ).strip()
+                or None,
+                a2a_remote_agent=str(conversation_runtime.get("a2a_remote_agent") or "").strip()
+                or None,
+                a2a_model_provider=str(conversation_runtime.get("a2a_model_provider") or "").strip()
+                or None,
+                a2a_model_id=str(conversation_runtime.get("a2a_model_id") or "").strip() or None,
+                metadata={
+                    **conversation_runtime,
+                    "source": "chanakya_conversation_layer",
+                },
             )
         except Exception as exc:
             debug_log(
@@ -641,6 +671,7 @@ class ChatService:
                     ),
                     model_id=model_id,
                     request_id=reply.request_id,
+                    runtime_metadata=classic_reply_metadata,
                 )
                 if classic_conversation_result is not None:
                     classic_reply_messages = (
@@ -1210,6 +1241,7 @@ class ChatService:
                     assistant_message=final_message,
                     model_id=model_id,
                     request_id=request_id,
+                    runtime_metadata=response_metadata,
                 )
             if conversation_result is not None:
                 response_metadata = {**response_metadata, **conversation_result.metadata}

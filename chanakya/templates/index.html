@@ -1527,28 +1527,29 @@
       select.value = selectedValue && items.includes(selectedValue) ? selectedValue : "";
     }
 
-    function syncA2AModelOptions() {
-      const settings = collectPendingRuntimeConfig();
+    function syncA2AModelOptions(sourceConfig = null) {
+      const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
       const provider = settings.a2a_model_provider;
       const modelItems = (a2aDiscoveredOptions.models || []).filter((item) => !provider || item.provider === provider);
       const labels = Object.fromEntries(modelItems.map((item) => [item.id, `${item.label} (${item.provider})`]));
       setSelectOptions(a2aModelIdInput, modelItems.map((item) => item.id), settings.a2a_model_id, "Select A2A model", labels);
     }
 
-    function applyA2ADiscoveryOptions() {
-      const settings = collectPendingRuntimeConfig();
+    function applyA2ADiscoveryOptions(sourceConfig = null) {
+      const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
       const providers = a2aDiscoveredOptions.providers || [];
       setSelectOptions(a2aAgentInput, a2aDiscoveredOptions.remote_agents || [], settings.a2a_remote_agent, "Select A2A agent");
       setSelectOptions(a2aModelProviderInput, providers, settings.a2a_model_provider, "Select model provider");
-      syncA2AModelOptions();
+      syncA2AModelOptions(settings);
       updateRuntimeConfigDirtyState();
     }
 
-    async function refreshA2AOptions() {
+    async function refreshA2AOptions(sourceConfig = null) {
+      const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
       const url = String(DEFAULT_A2A_URL || "").trim();
       if (!url) {
         a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
-        applyA2ADiscoveryOptions();
+        applyA2ADiscoveryOptions(settings);
         setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
         return;
       }
@@ -1565,13 +1566,13 @@
           providers: Array.isArray(payload.providers) ? payload.providers : [],
           models: Array.isArray(payload.models) ? payload.models : [],
         };
-        applyA2ADiscoveryOptions();
+        applyA2ADiscoveryOptions(settings);
         setA2ADiscoveryStatus(
           `Loaded ${a2aDiscoveredOptions.remote_agents.length} agent${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
         );
       } catch (error) {
         a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
-        applyA2ADiscoveryOptions();
+        applyA2ADiscoveryOptions(settings);
         setA2ADiscoveryStatus(String(error && error.message ? error.message : error), true);
       }
     }
@@ -1589,7 +1590,7 @@
       appliedRuntimeConfig = normalizeRuntimeConfig(payload);
       applyRuntimeConfigToControls(appliedRuntimeConfig);
       if (appliedRuntimeConfig.backend === "a2a") {
-        await refreshA2AOptions();
+        await refreshA2AOptions(appliedRuntimeConfig);
       }
       updateRuntimeConfigDirtyState();
       return appliedRuntimeConfig;
@@ -1618,7 +1619,7 @@
       appliedRuntimeConfig = normalizeRuntimeConfig(payload);
       applyRuntimeConfigToControls(appliedRuntimeConfig);
       if (appliedRuntimeConfig.backend === "a2a") {
-        await refreshA2AOptions();
+        await refreshA2AOptions(appliedRuntimeConfig);
       }
       try {
         window.localStorage.setItem(RUNTIME_CONFIG_SYNC_KEY, JSON.stringify({ updatedAt: Date.now() }));
@@ -1849,14 +1850,7 @@
 
     async function submitChatMessage(message, options = {}) {
       const { onAssistantMessage } = options;
-      // Always use current UI selections so dropdown changes take effect
-      // immediately without requiring "Apply Changes" first.
-      const runtimeConfig = collectPendingRuntimeConfig();
-      if (!runtimeConfigsEqual(appliedRuntimeConfig, runtimeConfig)) {
-        appliedRuntimeConfig = runtimeConfig;
-        applyRuntimeConfigChanges().catch(() => {});
-        updateRuntimeConfigDirtyState();
-      }
+      const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1929,7 +1923,7 @@
       chatBackendSelect.addEventListener("change", async () => {
         updateRuntimeConfigState();
         if (getSelectedChatBackend() === "a2a") {
-          await refreshA2AOptions();
+          await refreshA2AOptions(collectPendingRuntimeConfig());
         }
         updateRuntimeConfigDirtyState();
       });
@@ -1944,11 +1938,11 @@
       });
       if (a2aModelProviderInput) {
         a2aModelProviderInput.addEventListener("change", () => {
-          syncA2AModelOptions();
+          syncA2AModelOptions(collectPendingRuntimeConfig());
         });
       }
       if (a2aRefreshOptionsButton) {
-        a2aRefreshOptionsButton.addEventListener("click", refreshA2AOptions);
+        a2aRefreshOptionsButton.addEventListener("click", () => refreshA2AOptions(collectPendingRuntimeConfig()));
       }
       if (runtimeConfigApplyButton) {
         runtimeConfigApplyButton.addEventListener("click", async () => {
@@ -1963,9 +1957,9 @@
         airLlmModel.addEventListener("change", updateRuntimeConfigDirtyState);
       }
       updateRuntimeConfigState();
-      applyA2ADiscoveryOptions();
+      applyA2ADiscoveryOptions(appliedRuntimeConfig);
       if (String(DEFAULT_A2A_URL || "").trim()) {
-        refreshA2AOptions();
+        refreshA2AOptions(appliedRuntimeConfig);
       } else {
         setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
       }
@@ -2098,8 +2092,13 @@
         root_task_id: data.root_task_id,
         root_task_status: data.root_task_status,
         runtime: data.runtime,
+        core_agent_backend: data.metadata?.core_agent_backend || null,
+        conversation_layer_backend: data.metadata?.conversation_layer_backend || null,
         model: data.model,
         endpoint: data.endpoint,
+        a2a_remote_agent: data.metadata?.a2a_remote_agent || null,
+        a2a_model_provider: data.metadata?.a2a_model_provider || null,
+        a2a_model_id: data.metadata?.a2a_model_id || null,
         tool_calls_used: data.tool_calls_used,
       }, null, 2);
       card.appendChild(pre);
