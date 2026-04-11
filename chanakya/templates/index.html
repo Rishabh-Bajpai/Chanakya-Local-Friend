@@ -1110,10 +1110,6 @@
                     Chanakya Model
                     <select id="airLlmModel"></select>
                   </label>
-                  <label>
-                    A2A Endpoint
-                    <input id="a2aUrlInput" type="url" placeholder="http://127.0.0.1:18770" />
-                  </label>
                   <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
                   <label>
                     A2A Agent
@@ -1358,7 +1354,6 @@
     const airPauseRepliesButton = document.getElementById("airPauseRepliesButton");
     const airRefreshModelsButton = document.getElementById("airRefreshModelsButton");
     const chatBackendSelect = document.getElementById("chatBackendSelect");
-    const a2aUrlInput = document.getElementById("a2aUrlInput");
     const a2aRefreshOptionsButton = document.getElementById("a2aRefreshOptionsButton");
     const a2aAgentInput = document.getElementById("a2aAgentInput");
     const a2aModelProviderInput = document.getElementById("a2aModelProviderInput");
@@ -1436,13 +1431,12 @@
         const raw = window.localStorage.getItem(A2A_SETTINGS_STORAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : {};
         return {
-          url: typeof parsed.url === "string" && parsed.url.trim() ? parsed.url.trim() : (DEFAULT_A2A_URL || ""),
           agent: typeof parsed.agent === "string" ? parsed.agent.trim() : "",
           modelProvider: typeof parsed.modelProvider === "string" ? parsed.modelProvider.trim() : "",
           modelId: typeof parsed.modelId === "string" ? parsed.modelId.trim() : "",
         };
       } catch {
-        return { url: DEFAULT_A2A_URL || "", agent: "", modelProvider: "", modelId: "" };
+        return { agent: "", modelProvider: "", modelId: "" };
       }
     }
 
@@ -1456,10 +1450,9 @@
     function getCurrentA2ASettings() {
       const stored = loadStoredA2ASettings();
       return {
-        url: a2aUrlInput ? a2aUrlInput.value.trim() : stored.url,
-        agent: a2aAgentInput ? a2aAgentInput.value.trim() : stored.agent,
-        modelProvider: a2aModelProviderInput ? a2aModelProviderInput.value.trim() : stored.modelProvider,
-        modelId: a2aModelIdInput ? a2aModelIdInput.value.trim() : stored.modelId,
+        agent: a2aAgentInput && a2aAgentInput.value.trim() ? a2aAgentInput.value.trim() : stored.agent,
+        modelProvider: a2aModelProviderInput && a2aModelProviderInput.value.trim() ? a2aModelProviderInput.value.trim() : stored.modelProvider,
+        modelId: a2aModelIdInput && a2aModelIdInput.value.trim() ? a2aModelIdInput.value.trim() : stored.modelId,
       };
     }
 
@@ -1529,28 +1522,12 @@
       storeA2ASettings(getCurrentA2ASettings());
     }
 
-    function ensureDefaultA2AUrl() {
-      if (!a2aUrlInput) {
-        return "";
-      }
-      const current = a2aUrlInput.value.trim();
-      if (current) {
-        return current;
-      }
-      const fallback = String(DEFAULT_A2A_URL || "").trim();
-      if (fallback) {
-        a2aUrlInput.value = fallback;
-        persistCurrentA2ASettings();
-      }
-      return fallback;
-    }
-
     async function refreshA2AOptions() {
-      const url = ensureDefaultA2AUrl();
+      const url = String(DEFAULT_A2A_URL || "").trim();
       if (!url) {
         a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
         applyA2ADiscoveryOptions();
-        setA2ADiscoveryStatus("Enter an A2A endpoint to load agent and model options.");
+        setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
         return;
       }
       setA2ASelectLoading(true);
@@ -1584,7 +1561,7 @@
       if (airLlmModel) {
         airLlmModel.disabled = usingA2A;
       }
-      [a2aUrlInput, a2aAgentInput, a2aModelProviderInput, a2aModelIdInput, a2aRefreshOptionsButton].forEach((node) => {
+      [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput, a2aRefreshOptionsButton].forEach((node) => {
         if (node) {
           node.disabled = !usingA2A;
         }
@@ -1807,7 +1784,7 @@
           message,
           model_id: getSelectedChatBackend() === "local" ? airLlmModel.value || null : null,
           backend: getSelectedChatBackend(),
-          a2a_url: getSelectedChatBackend() === "a2a" ? (a2aUrlInput?.value || null) : null,
+          a2a_url: getSelectedChatBackend() === "a2a" ? (DEFAULT_A2A_URL || null) : null,
           a2a_remote_agent: getSelectedChatBackend() === "a2a" ? (a2aAgentInput?.value || null) : null,
           a2a_model_provider: getSelectedChatBackend() === "a2a" ? (a2aModelProviderInput?.value || null) : null,
           a2a_model_id: getSelectedChatBackend() === "a2a" ? (a2aModelIdInput?.value || null) : null,
@@ -1877,25 +1854,19 @@
         storeChatBackend(getSelectedChatBackend());
         updateRuntimeConfigState();
         if (getSelectedChatBackend() === "a2a") {
-          ensureDefaultA2AUrl();
           await refreshA2AOptions();
         }
       });
     }
 
     {
-      const a2aSettings = loadStoredA2ASettings();
-      if (a2aUrlInput) a2aUrlInput.value = a2aSettings.url || "";
-      [a2aUrlInput, a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((node) => {
+      loadStoredA2ASettings();
+      [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((node) => {
         if (node) {
           node.addEventListener("change", persistCurrentA2ASettings);
           node.addEventListener("blur", persistCurrentA2ASettings);
         }
       });
-      if (a2aUrlInput) {
-        a2aUrlInput.addEventListener("change", refreshA2AOptions);
-        a2aUrlInput.addEventListener("blur", refreshA2AOptions);
-      }
       if (a2aModelProviderInput) {
         a2aModelProviderInput.addEventListener("change", () => {
           syncA2AModelOptions();
@@ -1907,13 +1878,10 @@
       }
       updateRuntimeConfigState();
       applyA2ADiscoveryOptions();
-      if (getSelectedChatBackend() === "a2a") {
-        ensureDefaultA2AUrl();
-      }
-      if (ensureDefaultA2AUrl()) {
+      if (String(DEFAULT_A2A_URL || "").trim()) {
         refreshA2AOptions();
       } else {
-        setA2ADiscoveryStatus("Enter an A2A endpoint to load agent and model options.");
+        setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
       }
     }
 
