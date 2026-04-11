@@ -58,6 +58,8 @@ class _RuntimeStub:
         model_id: str | None = None,
         backend: str | None = None,
         a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
     ) -> dict[str, str | None]:
         return {

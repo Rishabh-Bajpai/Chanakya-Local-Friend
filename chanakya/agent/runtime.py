@@ -613,6 +613,8 @@ class MAFRuntime:
         model_id: str | None = None,
         backend: str | None = None,
         a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
     ) -> dict[str, str | None]:
         selected_backend = normalize_runtime_backend(backend or get_core_agent_backend())
@@ -623,6 +625,8 @@ class MAFRuntime:
                 "endpoint": str(a2a_url or get_a2a_agent_url() or "").strip() or None,
                 "runtime": "maf_agent",
                 "backend": "a2a",
+                "a2a_remote_agent": str(a2a_remote_agent or "").strip() or None,
+                "a2a_model_provider": str(a2a_model_provider or "").strip() or None,
             }
         return {
             "model": model_id or cfg.get("model"),

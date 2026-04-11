@@ -862,6 +862,8 @@ class ChatService:
             model_id=model_id,
             backend=backend,
             a2a_url=a2a_url,
+            a2a_remote_agent=a2a_remote_agent,
+            a2a_model_provider=a2a_model_provider,
             a2a_model_id=a2a_model_id,
         )
         prior_messages = self.store.list_messages(session_id)[-8:]

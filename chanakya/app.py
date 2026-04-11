@@ -39,6 +39,55 @@ from chanakya.store import ChanakyaStore
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 
+def _default_runtime_config() -> dict[str, Any]:
+    return {
+        "backend": "local",
+        "model_id": None,
+        "a2a_url": get_a2a_agent_url(),
+        "a2a_remote_agent": None,
+        "a2a_model_provider": None,
+        "a2a_model_id": None,
+    }
+
+
+def _normalize_runtime_config(record: dict[str, Any] | None) -> dict[str, Any]:
+    config = {**_default_runtime_config(), **(record or {})}
+    config["backend"] = normalize_runtime_backend(config.get("backend"))
+    for key in (
+        "model_id",
+        "a2a_url",
+        "a2a_remote_agent",
+        "a2a_model_provider",
+        "a2a_model_id",
+    ):
+        value = config.get(key)
+        if value is None:
+            config[key] = None
+            continue
+        normalized = str(value).strip()
+        config[key] = normalized or None
+    if config["a2a_url"] is None:
+        config["a2a_url"] = get_a2a_agent_url()
+    return config
+
+
+def _parse_runtime_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    backend = normalize_runtime_backend(payload.get("backend"))
+    model_id = _parse_optional_string(payload, "model_id") or None
+    a2a_url = _parse_optional_string(payload, "a2a_url") or get_a2a_agent_url()
+    a2a_remote_agent = _parse_optional_string(payload, "a2a_remote_agent") or None
+    a2a_model_provider = _parse_optional_string(payload, "a2a_model_provider") or None
+    a2a_model_id = _parse_optional_string(payload, "a2a_model_id") or None
+    return {
+        "backend": backend,
+        "model_id": model_id,
+        "a2a_url": a2a_url,
+        "a2a_remote_agent": a2a_remote_agent,
+        "a2a_model_provider": a2a_model_provider,
+        "a2a_model_id": a2a_model_id,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Lightweight in-process event bus for SSE push
 # ---------------------------------------------------------------------------
@@ -119,6 +168,9 @@ def create_app() -> Flask:
     runtime = MAFRuntime(chanakya_profile, session_factory)
     manager = AgentManager(store, session_factory, manager_profile)
     chat_service = ChatService(store, runtime, manager)
+
+    def get_runtime_config() -> dict[str, Any]:
+        return _normalize_runtime_config(store.get_runtime_config())
 
     # --- Monkey-patch the store to publish SSE events on mutations ----------
     _original_create_task_event = store.create_task_event
@@ -220,30 +272,45 @@ def create_app() -> Flask:
         else:
             session_id = str(raw_session_id or make_id("session"))
         message = str(payload.get("message", "")).strip()
+        runtime_config = get_runtime_config()
         raw_model_id = payload.get("model_id")
-        model_id = str(raw_model_id).strip() if raw_model_id is not None else None
+        model_id = (
+            str(raw_model_id).strip() if raw_model_id is not None else runtime_config["model_id"]
+        )
         if model_id == "":
             model_id = None
         raw_backend = payload.get("backend")
-        backend = normalize_runtime_backend(raw_backend)
+        backend = (
+            normalize_runtime_backend(raw_backend)
+            if raw_backend is not None
+            else str(runtime_config["backend"])
+        )
         raw_a2a_url = payload.get("a2a_url")
-        a2a_url = str(raw_a2a_url).strip() if raw_a2a_url is not None else None
+        a2a_url = str(raw_a2a_url).strip() if raw_a2a_url is not None else runtime_config["a2a_url"]
         if a2a_url == "":
             a2a_url = None
         raw_a2a_remote_agent = payload.get("a2a_remote_agent")
         a2a_remote_agent = (
-            str(raw_a2a_remote_agent).strip() if raw_a2a_remote_agent is not None else None
+            str(raw_a2a_remote_agent).strip()
+            if raw_a2a_remote_agent is not None
+            else runtime_config["a2a_remote_agent"]
         )
         if a2a_remote_agent == "":
             a2a_remote_agent = None
         raw_a2a_model_provider = payload.get("a2a_model_provider")
         a2a_model_provider = (
-            str(raw_a2a_model_provider).strip() if raw_a2a_model_provider is not None else None
+            str(raw_a2a_model_provider).strip()
+            if raw_a2a_model_provider is not None
+            else runtime_config["a2a_model_provider"]
         )
         if a2a_model_provider == "":
             a2a_model_provider = None
         raw_a2a_model_id = payload.get("a2a_model_id")
-        a2a_model_id = str(raw_a2a_model_id).strip() if raw_a2a_model_id is not None else None
+        a2a_model_id = (
+            str(raw_a2a_model_id).strip()
+            if raw_a2a_model_id is not None
+            else runtime_config["a2a_model_id"]
+        )
         if a2a_model_id == "":
             a2a_model_id = None
         debug_log(
@@ -302,6 +369,29 @@ def create_app() -> Flask:
             },
         )
         return jsonify(asdict(reply))
+
+    @app.get("/api/runtime-config")
+    def api_runtime_config() -> Any:
+        return jsonify(get_runtime_config())
+
+    @app.post("/api/runtime-config")
+    def api_set_runtime_config() -> Any:
+        payload = request.get_json(silent=True) or {}
+        try:
+            config = _parse_runtime_config_payload(payload)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        persisted = store.set_runtime_config(**config)
+        normalized = _normalize_runtime_config(persisted)
+        event_bus.publish(
+            "runtime_config_updated",
+            {
+                "backend": normalized["backend"],
+                "model_id": normalized["model_id"],
+                "a2a_model_id": normalized["a2a_model_id"],
+            },
+        )
+        return jsonify(normalized)
 
     @app.get("/api/sessions/<session_id>/next-message")
     def api_session_next_message(session_id: str) -> Any:
