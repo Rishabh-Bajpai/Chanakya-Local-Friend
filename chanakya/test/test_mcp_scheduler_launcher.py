@@ -138,3 +138,44 @@ def test_patch_executor_shell_support_makes_sound_optional(
     assert "optional_sound_cmd" in patched
     assert "command -v paplay" in patched
     assert "command = f'{notify_cmd}; {optional_sound_cmd}'" in patched
+
+
+def test_bootstrap_scheduler_server_checks_out_pinned_commit(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    data_root = tmp_path / "scheduler_mcp"
+    checkout_dir = data_root / "checkout"
+    venv_dir = data_root / ".venv"
+    python_path = venv_dir / "bin" / "python"
+    revision_file = data_root / ".upstream_commit"
+    commands: list[tuple[list[str], Path | None]] = []
+
+    def _fake_run(command: list[str], *, cwd: Path | None = None) -> None:
+        commands.append((command, cwd))
+        if command[:2] == ["git", "clone"]:
+            checkout_dir.mkdir(parents=True, exist_ok=True)
+        if command[:3] == ["/usr/bin/python3", "-m", "venv"]:
+            python_path.parent.mkdir(parents=True, exist_ok=True)
+            python_path.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(launcher, "DATA_ROOT", data_root)
+    monkeypatch.setattr(launcher, "CHECKOUT_DIR", checkout_dir)
+    monkeypatch.setattr(launcher, "VENV_DIR", venv_dir)
+    monkeypatch.setattr(launcher, "LOCK_PATH", data_root / ".bootstrap.lock")
+    monkeypatch.setattr(launcher, "REVISION_FILE", revision_file)
+    monkeypatch.setattr(launcher, "UPSTREAM_COMMIT", "abc123pinned")
+    monkeypatch.setattr(launcher, "SERVER_FILE", checkout_dir / "mcp_scheduler" / "server.py")
+    monkeypatch.setattr(launcher, "SCHEDULER_FILE", checkout_dir / "mcp_scheduler" / "scheduler.py")
+    monkeypatch.setattr(launcher, "EXECUTOR_FILE", checkout_dir / "mcp_scheduler" / "executor.py")
+    monkeypatch.setattr(launcher, "_patch_fastmcp_compatibility", lambda: None)
+    monkeypatch.setattr(launcher, "_patch_relative_schedule_support", lambda: None)
+    monkeypatch.setattr(launcher, "_patch_executor_shell_support", lambda: None)
+    monkeypatch.setattr(launcher, "_run", _fake_run)
+    monkeypatch.setattr(launcher.sys, "executable", "/usr/bin/python3")
+
+    launcher._bootstrap_scheduler_server()
+
+    assert (["git", "fetch", "--depth", "1", "origin", "abc123pinned"], checkout_dir) in commands
+    assert (["git", "checkout", "--detach", "abc123pinned"], checkout_dir) in commands
+    assert revision_file.read_text(encoding="utf-8").strip() == "abc123pinned"

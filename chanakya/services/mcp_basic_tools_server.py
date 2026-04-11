@@ -15,7 +15,7 @@ MAX_TEXT_CHARS = 20000
 MAX_HTTP_BODY_CHARS = 50000
 MAX_WEATHER_BODY_CHARS = 12000
 MAX_MAP_BODY_CHARS = 12000
-DEFAULT_USER_AGENT = "Chanakya-MAF-Demo/0.1 (+https://github.com/)"
+DEFAULT_USER_AGENT = "Chanakya-MAF-Demo/0.1 (+https://github.com/Rishabh-Bajpai/MAF-demo)"
 SAFE_SHELL_COMMANDS = {
     "date": ["date"],
     "pwd": ["pwd"],
@@ -133,7 +133,11 @@ def _http_get_json(
     try:
         return {"ok": True, "payload": json.loads(body), "raw": _trim(body, MAX_MAP_BODY_CHARS)}
     except Exception as exc:
-        return {"ok": False, "error": f"Failed to decode JSON response: {exc}", "raw": _trim(body)}
+        return {
+            "ok": False,
+            "error": f"Failed to decode JSON response: {exc}",
+            "raw": _trim(body, MAX_MAP_BODY_CHARS),
+        }
 
 
 def _build_nominatim_url(endpoint: str, **params: object) -> str:
@@ -142,7 +146,8 @@ def _build_nominatim_url(endpoint: str, **params: object) -> str:
 
 
 def _nominatim_headers() -> dict[str, str]:
-    return {"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/json"}
+    user_agent = os.getenv("NOMINATIM_USER_AGENT", DEFAULT_USER_AGENT)
+    return {"User-Agent": user_agent, "Accept": "application/json"}
 
 
 def _normalize_place(item: dict[str, Any]) -> dict[str, Any]:

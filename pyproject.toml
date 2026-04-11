@@ -12,6 +12,7 @@ dependencies = [
   "agent-framework>=1.0.0rc5",
   "flask>=3.0.0",
   "filelock>=3.12.0",
+  "segno>=1.6.0",
   "sqlalchemy>=2.0.0",
 ]
 

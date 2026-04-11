@@ -215,6 +215,21 @@ def test_ntfy_test_endpoint_publishes_message(tmp_path: Path, monkeypatch: Monke
     assert "working" in published[0]["message"]
 
 
+def test_ntfy_qr_endpoint_renders_local_svg(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.get(
+        "/api/notifications/ntfy/qr.svg?server_url=https://ntfy.sh&topic=chanakya-123abc456def"
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "image/svg+xml"
+    body = response.get_data(as_text=True)
+    assert "<svg" in body
+    assert "qrserver" not in body
+
+
 def test_chat_request_sends_ntfy_notification_with_summary(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

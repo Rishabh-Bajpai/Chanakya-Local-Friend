@@ -31,7 +31,12 @@ from chanakya.domain import make_id, now_iso
 from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
-from chanakya.services.ntfy import NtfyClient, NtfyNotificationDispatcher, is_valid_ntfy_topic
+from chanakya.services.ntfy import (
+    NtfyClient,
+    NtfyNotificationDispatcher,
+    build_ntfy_qr_svg,
+    is_valid_ntfy_topic,
+)
 from chanakya.services.sandbox_workspace import get_shared_workspace_root
 from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
@@ -447,6 +452,25 @@ def create_app() -> Flask:
                 502,
             )
         return jsonify({"ok": True, "status": result.status})
+
+    @app.get("/api/notifications/ntfy/qr.svg")
+    def api_ntfy_qr_svg() -> Response:
+        server_url = (request.args.get("server_url") or get_ntfy_default_server_url()).strip()
+        topic = (request.args.get("topic") or "").strip()
+        if not server_url.startswith("https://"):
+            return Response(
+                "server_url must start with https://", status=400, mimetype="text/plain"
+            )
+        if not is_valid_ntfy_topic(topic):
+            return Response(
+                "topic must be 6-128 chars and use only letters, numbers, dot, underscore, or dash",
+                status=400,
+                mimetype="text/plain",
+            )
+        return Response(
+            build_ntfy_qr_svg(server_url=server_url, topic=topic),
+            mimetype="image/svg+xml",
+        )
 
     @app.get("/api/subagents")
     def api_subagents() -> Any:

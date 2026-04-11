@@ -14,9 +14,14 @@ CHECKOUT_DIR = DATA_ROOT / "checkout"
 VENV_DIR = DATA_ROOT / ".venv"
 LOCK_PATH = DATA_ROOT / ".bootstrap.lock"
 UPSTREAM_REPO = "https://github.com/PhialsBasement/scheduler-mcp.git"
+UPSTREAM_COMMIT = os.getenv(
+    "CHANAKYA_SCHEDULER_MCP_COMMIT",
+    "5a2015a6cd9ebbef0feb1a382e762b2c5783a904",
+)
 SERVER_FILE = CHECKOUT_DIR / "mcp_scheduler" / "server.py"
 SCHEDULER_FILE = CHECKOUT_DIR / "mcp_scheduler" / "scheduler.py"
 EXECUTOR_FILE = CHECKOUT_DIR / "mcp_scheduler" / "executor.py"
+REVISION_FILE = DATA_ROOT / ".upstream_commit"
 
 
 def _python_in_venv() -> Path:
@@ -27,6 +32,26 @@ def _python_in_venv() -> Path:
 
 def _run(command: list[str], *, cwd: Path | None = None) -> None:
     subprocess.run(command, cwd=str(cwd) if cwd else None, check=True)
+
+
+def _read_bootstrapped_revision() -> str:
+    if not REVISION_FILE.exists():
+        return ""
+    return REVISION_FILE.read_text(encoding="utf-8").strip()
+
+
+def _write_bootstrapped_revision(commit: str) -> None:
+    REVISION_FILE.write_text(f"{commit}\n", encoding="utf-8")
+
+
+def _ensure_checkout_at_pinned_commit() -> bool:
+    checkout_existed = CHECKOUT_DIR.exists()
+    if not checkout_existed:
+        print("Bootstrapping scheduler-mcp checkout...", file=sys.stderr)
+        _run(["git", "clone", "--depth", "1", UPSTREAM_REPO, str(CHECKOUT_DIR)])
+    _run(["git", "fetch", "--depth", "1", "origin", UPSTREAM_COMMIT], cwd=CHECKOUT_DIR)
+    _run(["git", "checkout", "--detach", UPSTREAM_COMMIT], cwd=CHECKOUT_DIR)
+    return (not checkout_existed) or _read_bootstrapped_revision() != UPSTREAM_COMMIT
 
 
 def _patch_fastmcp_compatibility() -> None:
@@ -130,20 +155,24 @@ def _patch_executor_shell_support() -> None:
 def _bootstrap_scheduler_server() -> tuple[Path, Path]:
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     with FileLock(str(LOCK_PATH)):
-        if not CHECKOUT_DIR.exists():
-            print("Bootstrapping scheduler-mcp checkout...", file=sys.stderr)
-            _run(["git", "clone", "--depth", "1", UPSTREAM_REPO, str(CHECKOUT_DIR)])
+        checkout_changed = _ensure_checkout_at_pinned_commit()
         _patch_fastmcp_compatibility()
         _patch_relative_schedule_support()
         _patch_executor_shell_support()
         python_path = _python_in_venv()
-        if not python_path.exists():
+        if checkout_changed and VENV_DIR.exists():
+            _run(
+                [str(python_path), "-m", "pip", "install", "-r", "requirements.txt"],
+                cwd=CHECKOUT_DIR,
+            )
+        elif not python_path.exists():
             print("Creating scheduler-mcp virtualenv...", file=sys.stderr)
             _run([sys.executable, "-m", "venv", str(VENV_DIR)])
             _run(
                 [str(python_path), "-m", "pip", "install", "-r", "requirements.txt"],
                 cwd=CHECKOUT_DIR,
             )
+        _write_bootstrapped_revision(UPSTREAM_COMMIT)
     return CHECKOUT_DIR / "main.py", python_path
 
 

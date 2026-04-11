@@ -6,6 +6,29 @@ import pytest
 from chanakya.services import mcp_basic_tools_server as server
 
 
+def test_http_get_json_failure_trims_with_map_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    oversized = "x" * (server.MAX_MAP_BODY_CHARS + 50)
+
+    def _fake_http_request(**_: object) -> dict[str, object]:
+        return {"ok": True, "body": oversized}
+
+    monkeypatch.setattr(server, "_http_request", _fake_http_request)
+
+    result = server._http_get_json("https://example.com/test")
+
+    assert result["ok"] is False
+    assert len(str(result["raw"])) <= server.MAX_MAP_BODY_CHARS + len("\n...[truncated]")
+
+
+def test_nominatim_headers_allow_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NOMINATIM_USER_AGENT", "Custom-Agent/1.0")
+
+    headers = server._nominatim_headers()
+
+    assert headers["User-Agent"] == "Custom-Agent/1.0"
+    assert headers["Accept"] == "application/json"
+
+
 def test_geocode_place_normalizes_results(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fake_http_get_json(url: str, **_: object) -> dict[str, object]:
         assert "nominatim.openstreetmap.org/search" in url

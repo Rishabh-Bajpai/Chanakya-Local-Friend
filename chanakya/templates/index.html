@@ -1569,10 +1569,6 @@
       return `chanakya-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
     }
 
-    function buildQrCodeUrl(text) {
-      return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(text)}`;
-    }
-
     function buildNotificationDeepLink(serverUrl, topic) {
       try {
         const parsed = new URL(serverUrl || "https://ntfy.sh");
@@ -1580,6 +1576,17 @@
       } catch {
         return "";
       }
+    }
+
+    function buildNotificationQrUrl(serverUrl, topic) {
+      if (!topic) {
+        return "";
+      }
+      const params = new URLSearchParams({
+        server_url: serverUrl || "https://ntfy.sh",
+        topic,
+      });
+      return `/api/notifications/ntfy/qr.svg?${params.toString()}`;
     }
 
     function renderNotificationQr(settings) {
@@ -1592,7 +1599,10 @@
         return;
       }
       notificationQrCard.hidden = false;
-      notificationQrImage.src = buildQrCodeUrl(deepLink);
+      notificationQrImage.src = buildNotificationQrUrl(
+        notificationServerUrl.value.trim() || settings.server_url || "https://ntfy.sh",
+        notificationTopic.value.trim() || settings.topic || "",
+      );
       notificationDeepLink.href = deepLink;
       notificationDeepLink.textContent = deepLink;
     }

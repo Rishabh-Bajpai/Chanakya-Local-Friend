@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import io
 import re
 from dataclasses import dataclass
 from typing import Any
 from urllib import error, parse, request
+
+import segno
 
 from chanakya.config import get_ntfy_default_server_url, get_ntfy_timeout_seconds
 from chanakya.domain import TASK_STATUS_DONE, TASK_STATUS_FAILED, TASK_STATUS_WAITING_INPUT
@@ -43,6 +46,14 @@ def build_ntfy_deep_link(*, server_url: str, topic: str) -> str:
             "topic must be 6-128 chars and use only letters, numbers, dot, underscore, or dash"
         )
     return f"ntfy://{host}/{parse.quote(normalized_topic, safe='')}"
+
+
+def build_ntfy_qr_svg(*, server_url: str, topic: str) -> str:
+    deep_link = build_ntfy_deep_link(server_url=server_url, topic=topic)
+    qr = segno.make(deep_link)
+    buffer = io.BytesIO()
+    qr.save(buffer, kind="svg", scale=4, border=1)
+    return buffer.getvalue().decode("utf-8")
 
 
 @dataclass(slots=True)
