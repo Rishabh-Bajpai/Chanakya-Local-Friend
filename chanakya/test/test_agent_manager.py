@@ -51,6 +51,7 @@ class _RunResult:
 class _RuntimeStub:
     def __init__(self, profile: AgentProfileModel) -> None:
         self.profile = profile
+        self.cleared_session_ids: list[str] = []
 
     def runtime_metadata(
         self,
@@ -82,6 +83,9 @@ class _RuntimeStub:
         return _RunResult(
             text=f"{self.profile.role}:{text}", response_mode="direct_answer", tool_traces=[]
         )
+
+    def clear_session_state(self, session_id: str) -> None:
+        self.cleared_session_ids.append(session_id)
 
 
 def _build_store() -> ChanakyaStore:
@@ -2285,6 +2289,70 @@ def test_classic_unrelated_complex_request_replaces_active_work() -> None:
     assert (
         store.get_active_classic_work("session_replace_active")["work_id"] == second_reply.work_id
     )
+
+
+def test_classic_unrelated_request_replacement_cleans_workspace_and_runtime_state(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from chanakya import chat_service as chat_service_module
+    from chanakya.services import sandbox_workspace
+
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        chat_service_module, "delete_shared_workspace", sandbox_workspace.delete_shared_workspace
+    )
+
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    runtime = _RuntimeStub(chanakya)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, runtime),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "cto",
+            "brief",
+        ): '{"implementation_brief":"Implement requested software","assumptions":[],"risks":[],"testing_focus":[]}',
+        ("cto", "review"): "Reviewed software delivery.",
+    }[(profile.role, step)]
+
+    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
+        if profile.role == "developer":
+            return "Implemented requested change."
+        if profile.role == "tester":
+            return '{"validation_summary":"Looks good","checks_performed":[],"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
+        raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
+
+    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.manager.clarification_runner = lambda profile, prompt: (
+        '{"needs_input":false,"question":"","reason":""}'
+    )
+
+    first_reply = service.chat("session_replace_cleanup", "Implement a login API")
+    first_active_work = store.get_active_classic_work("session_replace_cleanup")
+    assert first_active_work is not None
+    first_work_id = str(first_active_work["work_id"])
+    first_workspace = sandbox_workspace.resolve_shared_workspace(first_work_id)
+    (first_workspace / "artifact.txt").write_text("artifact", encoding="utf-8")
+
+    second_reply = service.chat("session_replace_cleanup", "Build a database migration tool")
+
+    assert second_reply.work_id is not None and second_reply.work_id != first_reply.work_id
+    with raises(KeyError):
+        store.get_work(first_work_id)
+    assert (
+        store.get_active_classic_work("session_replace_cleanup")["work_id"] == second_reply.work_id
+    )
+    assert not first_workspace.exists()
+    assert runtime.cleared_session_ids
+    assert str(first_active_work["work_session_id"]) in runtime.cleared_session_ids
 
 
 def test_clarification_warning_logged_when_output_is_unparsable() -> None:

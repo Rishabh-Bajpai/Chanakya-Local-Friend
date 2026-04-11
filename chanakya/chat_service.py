@@ -30,6 +30,7 @@ from chanakya.domain import (
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.agent_manager import AgentManager
 from chanakya.services.async_loop import run_in_maf_loop
+from chanakya.services.sandbox_workspace import delete_shared_workspace
 from chanakya.store import ChanakyaStore
 
 
@@ -448,7 +449,10 @@ class ChatService:
     def _replace_classic_active_work(self, session_id: str, message: str) -> dict[str, str | None]:
         existing = self.store.get_active_classic_work(session_id)
         if existing is not None:
-            self.store.delete_work(str(existing["work_id"]))
+            deleted_session_ids = self.store.delete_work(str(existing["work_id"]))
+            for deleted_session_id in deleted_session_ids:
+                self.runtime.clear_session_state(deleted_session_id)
+            delete_shared_workspace(str(existing["work_id"]))
             self.store.log_event(
                 "classic_active_work_replaced",
                 {"session_id": session_id, "replaced_work_id": existing["work_id"]},

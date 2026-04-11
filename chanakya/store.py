@@ -1170,12 +1170,12 @@ class ChanakyaStore:
                 session.execute(
                     delete(ChatSessionModel).where(ChatSessionModel.id.in_(session_ids))
                 )
-                session.execute(
-                    delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
-                )
-                session.execute(
-                    delete(ClassicActiveWorkModel).where(ClassicActiveWorkModel.work_id == work_id)
-                )
+            session.execute(
+                delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
+            )
+            session.execute(
+                delete(ClassicActiveWorkModel).where(ClassicActiveWorkModel.work_id == work_id)
+            )
             session.execute(delete(WorkModel).where(WorkModel.id == work_id))
             session.commit()
         for session_id in session_ids:

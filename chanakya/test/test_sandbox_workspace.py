@@ -20,6 +20,19 @@ def test_resolve_shared_workspace_uses_temp_for_empty_work_id(
     assert oct(workspace.stat().st_mode & 0o777) == "0o775"
 
 
+def test_delete_shared_workspace_removes_work_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    workspace = sandbox_workspace.resolve_shared_workspace("cwork_123")
+    (workspace / "artifact.txt").write_text("hello", encoding="utf-8")
+
+    sandbox_workspace.delete_shared_workspace("cwork_123")
+
+    assert not workspace.exists()
+
+
 @pytest.mark.parametrize("work_id", ["../escape", "..", "bad/value", "bad\\value"])
 def test_normalize_work_id_rejects_invalid_values(work_id: str) -> None:
     with pytest.raises(ValueError):

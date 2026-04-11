@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 from chanakya.config import get_data_dir
@@ -37,3 +38,13 @@ def resolve_shared_workspace(work_id: str | None) -> Path:
     target.mkdir(parents=True, exist_ok=True)
     target.chmod(0o775)
     return target
+
+
+def delete_shared_workspace(work_id: str | None) -> None:
+    root = get_shared_workspace_root().resolve()
+    safe_work_id = normalize_work_id(work_id)
+    target = (root / safe_work_id).resolve()
+    if target == root or root not in target.parents:
+        raise PermissionError("Resolved sandbox workspace escapes shared root")
+    if target.exists():
+        shutil.rmtree(target)

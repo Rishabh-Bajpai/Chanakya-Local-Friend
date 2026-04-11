@@ -31,7 +31,7 @@ from chanakya.domain import make_id, now_iso
 from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
-from chanakya.services.sandbox_workspace import get_shared_workspace_root
+from chanakya.services.sandbox_workspace import delete_shared_workspace, get_shared_workspace_root
 from chanakya.services.a2a_discovery import discover_a2a_options
 from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
@@ -522,6 +522,7 @@ def create_app() -> Flask:
             return jsonify({"error": message}), 404
         for session_id in deleted_session_ids:
             runtime.clear_session_state(session_id)
+        delete_shared_workspace(work_id)
         store.log_event(
             "work_deleted",
             {
