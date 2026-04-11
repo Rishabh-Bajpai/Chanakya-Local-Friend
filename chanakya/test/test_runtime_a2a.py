@@ -15,6 +15,22 @@ class _FakeA2AResponse:
         self.raw_representation = SimpleNamespace(context_id=context_id)
 
 
+class _FakeA2APartsOnlyResponse:
+    def __init__(self, text: str, context_id: str | None = None) -> None:
+        self.text = ""
+        self.value = ""
+        self.raw_representation = {
+            "artifacts": [
+                {
+                    "parts": [
+                        {"type": "text", "text": text},
+                    ]
+                }
+            ],
+            "context_id": context_id,
+        }
+
+
 class _FakeA2AAgent:
     def __init__(self, *args, **kwargs) -> None:
         self.calls: list[dict[str, object]] = []
@@ -32,6 +48,19 @@ class _FakeA2AAgent:
             }
         )
         return _FakeA2AResponse("remote reply", context_id="ctx-123")
+
+
+class _FakeA2APartsOnlyAgent(_FakeA2AAgent):
+    async def run(self, messages, session=None):
+        message = messages[0]
+        self.calls.append(
+            {
+                "text": message.text,
+                "additional_properties": dict(getattr(message, "additional_properties", {}) or {}),
+                "session_id": getattr(session, "session_id", None),
+            }
+        )
+        return _FakeA2APartsOnlyResponse("reply from nested parts", context_id="ctx-parts")
 
 
 class _FakeLocalResponse:
@@ -149,6 +178,29 @@ def test_runtime_metadata_prefers_request_scoped_a2a_config() -> None:
 
     assert metadata["endpoint"] == "http://a2a.example.test"
     assert metadata["model"] == "demo-model"
+
+
+def test_runtime_extracts_a2a_text_from_nested_parts_payload(monkeypatch) -> None:
+    monkeypatch.setenv("A2A_AGENT_URL", "http://127.0.0.1:18770")
+    engine = build_engine("sqlite:///:memory:")
+    init_database(engine)
+    session_factory = build_session_factory(engine)
+    runtime = MAFRuntime(
+        _build_profile(),
+        session_factory,
+        a2a_agent_factory=_FakeA2APartsOnlyAgent,
+    )
+
+    result = runtime.run(
+        "session-a2a-parts",
+        "hello",
+        request_id="req-parts",
+        backend="a2a",
+        a2a_url="http://127.0.0.1:18770",
+    )
+
+    assert result.text == "reply from nested parts"
+    assert result.metadata["remote_context_id"] == "ctx-parts"
 
 
 def test_runtime_a2a_seeds_shared_history_when_no_remote_context_exists(monkeypatch) -> None:

@@ -580,7 +580,47 @@ class MAFRuntime:
         value = str(getattr(response, "value", "") or "").strip()
         if value:
             return value
+        raw = getattr(response, "raw_representation", None)
+        extracted = MAFRuntime._extract_text_from_a2a_payload(raw)
+        if extracted:
+            return extracted
         return str(response).strip()
+
+    @staticmethod
+    def _extract_text_from_a2a_payload(payload: Any) -> str:
+        texts: list[str] = []
+
+        def collect(value: Any) -> None:
+            if value is None:
+                return
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    texts.append(stripped)
+                return
+            if isinstance(value, dict):
+                part_type = str(value.get("type") or "").strip().lower()
+                if part_type == "text":
+                    collect(value.get("text"))
+                    return
+                if "text" in value and len(value) == 1:
+                    collect(value.get("text"))
+                    return
+                for key in ("parts", "artifacts", "root", "content", "message", "messages"):
+                    if key in value:
+                        collect(value.get(key))
+                return
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    collect(item)
+                return
+            for attr in ("parts", "artifacts", "root", "content", "message", "messages", "text"):
+                nested = getattr(value, attr, None)
+                if nested is not None and nested is not value:
+                    collect(nested)
+
+        collect(payload)
+        return "\n".join(dict.fromkeys(texts)).strip()
 
     @staticmethod
     def _extract_a2a_context_id(response: Any) -> str | None:
@@ -590,6 +630,10 @@ class MAFRuntime:
                 context_id = getattr(item, "context_id", None)
                 if context_id:
                     return str(context_id)
+        if isinstance(raw, dict):
+            context_id = raw.get("context_id")
+            if context_id:
+                return str(context_id)
         context_id = getattr(raw, "context_id", None)
         if context_id:
             return str(context_id)
