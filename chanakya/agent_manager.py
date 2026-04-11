@@ -6,14 +6,16 @@ import re
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from pathlib import Path
 from typing import Any
 
-from agent_framework import Message
+from agent_framework import Agent, Message
 from agent_framework.openai import OpenAIChatClient
 from agent_framework.orchestrations import SequentialBuilder
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.agent.runtime import build_profile_agent
+from chanakya.agent.profile_files import load_agent_prompt
 from chanakya.config import (
     force_subagents_enabled,
     get_agent_request_timeout_seconds,
@@ -1096,6 +1098,14 @@ class AgentManager:
                     participants=[developer_profile, tester_profile],
                 )
                 developer_output = worker_outputs[0]
+                if not developer_output.strip():
+                    # Tool-path blank response workaround: retry the
+                    # developer prompt without tools before the full
+                    # repair path.
+                    developer_output = self._run_profile_prompt_without_tools(
+                        developer_profile,
+                        developer_prompt,
+                    ).strip()
                 if self._is_invalid_developer_output(developer_output):
                     developer_output = self._repair_developer_output(
                         developer_profile=developer_profile,
@@ -1324,33 +1334,58 @@ class AgentManager:
         except Exception as exc:
             error_text = self._describe_exception(exc)
             finished_at = now_iso()
+            persisted_developer_task = self.store.get_task(developer_task_id)
+            persisted_tester_task = self.store.get_task(tester_task_id)
+            developer_completed = developer_completed or (
+                persisted_developer_task.status == TASK_STATUS_DONE
+            )
+            tester_started = tester_started or (
+                persisted_tester_task.status in {TASK_STATUS_IN_PROGRESS, TASK_STATUS_DONE}
+            )
+            tester_completed = tester_completed or (
+                persisted_tester_task.status == TASK_STATUS_DONE
+            )
             if not developer_completed:
-                self._transition_task(
-                    session_id=session_id,
-                    request_id=request_id,
-                    task_id=developer_task_id,
-                    from_status=TASK_STATUS_IN_PROGRESS,
-                    to_status=TASK_STATUS_FAILED,
-                    error_text=error_text,
-                    finished_at=finished_at,
-                    event_type="worker_failed",
-                )
+                if persisted_developer_task.status == TASK_STATUS_IN_PROGRESS:
+                    self._transition_task(
+                        session_id=session_id,
+                        request_id=request_id,
+                        task_id=developer_task_id,
+                        from_status=TASK_STATUS_IN_PROGRESS,
+                        to_status=TASK_STATUS_FAILED,
+                        error_text=error_text,
+                        finished_at=finished_at,
+                        event_type="worker_failed",
+                    )
+                else:
+                    self.store.update_task(
+                        developer_task_id,
+                        error_text=error_text,
+                        finished_at=finished_at,
+                    )
                 self.store.update_task(
                     tester_task_id,
                     error_text=error_text,
                     finished_at=finished_at,
                 )
             elif tester_started and not tester_completed:
-                self._transition_task(
-                    session_id=session_id,
-                    request_id=request_id,
-                    task_id=tester_task_id,
-                    from_status=TASK_STATUS_IN_PROGRESS,
-                    to_status=TASK_STATUS_FAILED,
-                    error_text=error_text,
-                    finished_at=finished_at,
-                    event_type="worker_failed",
-                )
+                if persisted_tester_task.status in {TASK_STATUS_IN_PROGRESS, TASK_STATUS_BLOCKED}:
+                    self._transition_task(
+                        session_id=session_id,
+                        request_id=request_id,
+                        task_id=tester_task_id,
+                        from_status=persisted_tester_task.status,
+                        to_status=TASK_STATUS_FAILED,
+                        error_text=error_text,
+                        finished_at=finished_at,
+                        event_type="worker_failed",
+                    )
+                else:
+                    self.store.update_task(
+                        tester_task_id,
+                        error_text=error_text,
+                        finished_at=finished_at,
+                    )
             else:
                 self.store.update_task(
                     tester_task_id,
@@ -2060,13 +2095,19 @@ class AgentManager:
             sandbox_workspace=sandbox_workspace,
             sandbox_work_id=sandbox_work_id,
         )
-        return self._run_profile_prompt_with_options(
+        repaired = self._run_profile_prompt_with_options(
             developer_profile,
             repair_prompt,
             include_history=False,
             store=False,
             use_work_session=False,
         ).strip()
+        if self._is_invalid_developer_output(repaired):
+            repaired = self._run_profile_prompt_without_tools(
+                developer_profile,
+                repair_prompt,
+            ).strip()
+        return repaired
 
     def _resolve_current_shared_workspace(self) -> str:
         work_id = _ACTIVE_WORK_ID.get()
@@ -2581,7 +2622,50 @@ class AgentManager:
                 store=False,
                 use_work_session=False,
             )
+        if step == "review":
+            response_text = self._run_profile_prompt_with_options(
+                profile,
+                prompt,
+                include_history=False,
+                store=False,
+                use_work_session=False,
+            )
+            self._persist_specialist_review_exchange(
+                profile=profile,
+                prompt=prompt,
+                response_text=response_text,
+            )
+            return response_text
         return self._run_profile_prompt(profile, prompt)
+
+    def _persist_specialist_review_exchange(
+        self,
+        *,
+        profile: AgentProfileModel,
+        prompt: str,
+        response_text: str,
+    ) -> None:
+        profile_session_id = self._resolve_profile_session_id(profile)
+        if not profile_session_id:
+            return
+        request_id = make_id("req")
+        self.store.add_message(
+            profile_session_id,
+            "user",
+            prompt,
+            request_id=request_id,
+            route="specialist_review_prompt",
+            metadata={"specialist_review": True, "agent_id": profile.id},
+        )
+        if response_text.strip():
+            self.store.add_message(
+                profile_session_id,
+                "assistant",
+                response_text,
+                request_id=request_id,
+                route="specialist_review_response",
+                metadata={"specialist_review": True, "agent_id": profile.id},
+            )
 
     def _normalize_implementation_brief(self, message: str, raw: str) -> str:
         text = str(raw or "").strip()
@@ -2717,6 +2801,11 @@ class AgentManager:
                 clarification_answer=clarification_answer,
             )
             recovered = self._run_profile_prompt(tester_profile, repair_prompt).strip()
+            if self._is_invalid_tester_output(recovered, developer_output):
+                recovered = self._run_profile_prompt_without_tools(
+                    tester_profile,
+                    repair_prompt,
+                ).strip()
         if self._is_invalid_tester_output(
             recovered, developer_output
         ) and self._request_looks_like_site_clone(
@@ -2757,6 +2846,13 @@ class AgentManager:
                 use_work_session=use_work_session,
             )
         )
+
+    def _run_profile_prompt_without_tools(
+        self,
+        profile: AgentProfileModel,
+        prompt: str,
+    ) -> str:
+        return run_in_maf_loop(self._run_profile_prompt_without_tools_async(profile, prompt))
 
     def _run_subagent_plan_prompt(
         self,
@@ -3088,6 +3184,7 @@ class AgentManager:
             include_history = bool(_ACTIVE_WORK_ID.get()) and use_work_session
         if store is None:
             store = include_history
+        profile_request_id = make_id("req")
         agent, _ = build_profile_agent(
             profile,
             self.session_factory,
@@ -3106,17 +3203,115 @@ class AgentManager:
             else agent.create_session(session_id=profile_session_id)
         )
         if session is not None:
-            session.state["request_id"] = make_id("req")
+            session.state["request_id"] = profile_request_id
             session.state["history_query_text"] = prompt
+        try:
+            response = await asyncio.wait_for(
+                agent.run(
+                    Message(role="user", text=prompt),
+                    session=session,
+                    options={"store": store},
+                ),
+                timeout=self._resolve_request_timeout_seconds(prompt),
+            )
+            return self._extract_profile_response_text(response)
+        except Exception as exc:
+            if not include_history or not self._is_missing_user_query_error(exc):
+                raise
+            seeded_prompt = self._build_seeded_history_prompt_for_session(
+                session_id=profile_session_id,
+                user_text=prompt,
+            )
+            fallback_agent, _ = build_profile_agent(
+                profile,
+                self.session_factory,
+                client=self.client,
+                usage_text=seeded_prompt,
+                include_history=False,
+            )
+            fallback_session = (
+                None
+                if profile_session_id is None
+                else fallback_agent.create_session(session_id=profile_session_id)
+            )
+            if fallback_session is not None:
+                fallback_session.state["request_id"] = profile_request_id
+                fallback_session.state["history_query_text"] = seeded_prompt
+            response = await asyncio.wait_for(
+                fallback_agent.run(
+                    Message(role="user", text=seeded_prompt),
+                    session=fallback_session,
+                    options={"store": False},
+                ),
+                timeout=self._resolve_request_timeout_seconds(seeded_prompt),
+            )
+            response_text = self._extract_profile_response_text(response)
+            if store and profile_session_id:
+                self.store.add_message(
+                    profile_session_id,
+                    "user",
+                    prompt,
+                    request_id=profile_request_id,
+                )
+                if response_text:
+                    self.store.add_message(
+                        profile_session_id,
+                        "assistant",
+                        response_text,
+                        request_id=profile_request_id,
+                    )
+            return response_text
+
+    @staticmethod
+    def _is_missing_user_query_error(exc: Exception) -> bool:
+        return "no user query found in messages" in str(exc).lower()
+
+    def _build_seeded_history_prompt_for_session(
+        self, *, session_id: str | None, user_text: str
+    ) -> str:
+        history = [] if not session_id else self.store.list_messages(session_id)
+        chunks = [
+            "Continue this conversation using the transcript excerpt below.",
+            "Resolve shorthand or referential follow-ups from the transcript when the meaning is reasonably clear, and only ask for clarification if the reference is genuinely ambiguous.",
+        ]
+        for item in history[-12:]:
+            role = "User" if str(item.get("role") or "") == "user" else "Assistant"
+            chunks.append(f"{role}: {str(item.get('content') or '')}")
+        chunks.append(f"User: {user_text}")
+        return "\n".join(chunks)
+
+    def _extract_profile_response_text(self, response: Any) -> str:
+        flattened = self._flatten_output_text(response)
+        if flattened:
+            return flattened
+        raw = getattr(response, "raw_representation", None)
+        flattened = self._flatten_output_text(raw)
+        if flattened:
+            return flattened
+        return str(response).strip()
+
+    async def _run_profile_prompt_without_tools_async(
+        self,
+        profile: AgentProfileModel,
+        prompt: str,
+    ) -> str:
+        repo_root = Path(__file__).resolve().parents[1]
+        agent = Agent(
+            client=self.client,
+            name=profile.name,
+            instructions=load_agent_prompt(profile, repo_root=repo_root, usage_text=prompt),
+            tools=None,
+            context_providers=None,
+        )
         response = await asyncio.wait_for(
             agent.run(
                 Message(role="user", text=prompt),
-                session=session,
-                options={"store": store},
+                session=None,
+                options={"store": False},
             ),
             timeout=self._resolve_request_timeout_seconds(prompt),
         )
-        return str(response).strip()
+        return self._extract_profile_response_text(response)
 
     def _run_sequential_workflow(
         self,
@@ -3232,6 +3427,21 @@ class AgentManager:
         if isinstance(value, str):
             return value.strip()
         if isinstance(value, dict):
+            for key in (
+                "text",
+                "message",
+                "content",
+                "output",
+                "value",
+                "parts",
+                "artifacts",
+                "root",
+                "messages",
+            ):
+                if key in value:
+                    flattened = self._flatten_output_text(value.get(key))
+                    if flattened:
+                        return flattened
             try:
                 return json.dumps(value)
             except TypeError:
@@ -3252,6 +3462,14 @@ class AgentManager:
         output = getattr(value, "output", None)
         if isinstance(output, str) and output.strip():
             return output.strip()
+        result_value = getattr(value, "value", None)
+        if isinstance(result_value, str) and result_value.strip():
+            return result_value.strip()
+        for attr in ("parts", "artifacts", "root", "messages"):
+            nested = getattr(value, attr, None)
+            flattened = self._flatten_output_text(nested)
+            if flattened:
+                return flattened
         return ""
 
     def _is_invalid_worker_output(self, text: str) -> bool:
@@ -3332,6 +3550,12 @@ class AgentManager:
             "awaiting `developer::",
             "in progress",
             "i will now",
+            "i will implement",
+            "i'll implement",
+            "i will create",
+            "i'll create",
+            "i will write",
+            "i'll write",
             "expected output",
             "to `developer::",
             "status: awaiting",
@@ -3339,6 +3563,8 @@ class AgentManager:
         if any(marker in lowered for marker in invalid_developer_markers):
             return True
         if "status" in lowered and "awaiting" in lowered:
+            return True
+        if lowered.startswith("i'll ") or lowered.startswith("i will "):
             return True
         return False
 

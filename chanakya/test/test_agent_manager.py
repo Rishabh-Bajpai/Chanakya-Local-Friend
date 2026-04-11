@@ -22,9 +22,11 @@ from chanakya.domain import (
     TASK_STATUS_BLOCKED,
     TASK_STATUS_CANCELLED,
     TASK_STATUS_DONE,
+    TASK_STATUS_FAILED,
     TASK_STATUS_IN_PROGRESS,
     TASK_STATUS_WAITING_INPUT,
 )
+from chanakya.maf_workflows import SoftwareWorkerWorkflowResult
 from chanakya.model import AgentProfileModel
 from chanakya.store import ChanakyaStore
 from chanakya.subagents import WorkerSubagentOrchestrator, can_create_temporary_subagents
@@ -217,6 +219,144 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
     assert "specialist_workflow_completed" in event_types
     assert "workflow_completed" in event_types
     assert "manager_summary_completed" in event_types
+
+
+def test_manager_profile_prompt_fallback_persists_cto_review_messages(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    cto_profile = store.get_agent_profile("agent_cto")
+
+    store.create_work(work_id="work_cto_review", title="CTO Review", description="")
+
+    class _FakeResponse:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def __str__(self) -> str:
+            return self.text
+
+    class _FakeAgent:
+        def __init__(self, *, include_history: bool) -> None:
+            self.include_history = include_history
+
+        def create_session(self, *, session_id: str | None = None):
+            return type("Session", (), {"session_id": session_id, "state": {}})()
+
+        async def run(self, message, session=None, options=None):
+            if self.include_history:
+                raise RuntimeError(
+                    "Error code: 400 - {'error': 'Error rendering prompt with jinja template: \"No user query found in messages.\".'}"
+                )
+            return _FakeResponse("CTO final review")
+
+    def _fake_build_profile_agent(*args, include_history=False, **kwargs):
+        return _FakeAgent(include_history=bool(include_history)), object()
+
+    monkeypatch.setattr("chanakya.agent_manager.build_profile_agent", _fake_build_profile_agent)
+
+    tokens = manager.bind_execution_context(session_id="session_root", work_id="work_cto_review")
+    try:
+        result = manager._run_profile_prompt_with_options(cto_profile, "Review the worker outputs.")
+    finally:
+        manager.reset_execution_context(tokens)
+
+    assert result == "CTO final review"
+    sessions = store.list_work_agent_sessions("work_cto_review")
+    cto_session_id = next(
+        str(item["session_id"]) for item in sessions if item.get("agent_id") == "agent_cto"
+    )
+    messages = store.list_messages(cto_session_id)
+    assert messages[-2]["role"] == "user"
+    assert messages[-2]["content"] == "Review the worker outputs."
+    assert messages[-1]["role"] == "assistant"
+    assert messages[-1]["content"] == "CTO final review"
+
+
+def test_specialist_review_persists_cto_exchange_without_history_runtime() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    cto_profile = store.get_agent_profile("agent_cto")
+
+    store.create_work(work_id="work_cto_visible", title="CTO Visible", description="")
+    tokens = manager.bind_execution_context(session_id="session_root", work_id="work_cto_visible")
+    original = manager._run_profile_prompt_with_options
+    manager._run_profile_prompt_with_options = lambda *args, **kwargs: "Final CTO answer"  # type: ignore[method-assign]
+    try:
+        result = manager._run_specialist_prompt(
+            cto_profile, "Review implementation.", step="review"
+        )
+    finally:
+        manager._run_profile_prompt_with_options = original  # type: ignore[method-assign]
+        manager.reset_execution_context(tokens)
+
+    assert result == "Final CTO answer"
+    sessions = store.list_work_agent_sessions("work_cto_visible")
+    cto_session_id = next(
+        str(item["session_id"]) for item in sessions if item.get("agent_id") == "agent_cto"
+    )
+    messages = store.list_messages(cto_session_id)
+    assert messages[-2]["route"] == "specialist_review_prompt"
+    assert messages[-1]["route"] == "specialist_review_response"
+    assert messages[-1]["content"] == "Final CTO answer"
+
+
+def test_manager_profile_prompt_extracts_text_from_structured_response(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    developer_profile = store.get_agent_profile("agent_developer")
+
+    class _FakeStructuredResponse:
+        text = ""
+        content = ""
+        output = ""
+        value = ""
+
+        def __str__(self) -> str:
+            return ""
+
+    class _FakeAgent:
+        def create_session(self, *, session_id: str | None = None):
+            return type("Session", (), {"session_id": session_id, "state": {}})()
+
+        async def run(self, message, session=None, options=None):
+            response = _FakeStructuredResponse()
+            response.raw_representation = {
+                "message": {
+                    "artifacts": [
+                        {
+                            "parts": [
+                                {"type": "text", "text": "# Implementation Handoff\n\nprint('hi')"}
+                            ]
+                        }
+                    ]
+                }
+            }
+            return response
+
+    def _fake_build_profile_agent(*args, **kwargs):
+        return _FakeAgent(), object()
+
+    monkeypatch.setattr("chanakya.agent_manager.build_profile_agent", _fake_build_profile_agent)
+
+    result = manager._run_profile_prompt_with_options(
+        developer_profile,
+        "Implement hello world",
+        include_history=False,
+        store=False,
+        use_work_session=False,
+    )
+
+    assert "# Implementation Handoff" in result
 
 
 def test_normal_chat_prefers_direct_for_fast_non_trivial_request() -> None:
@@ -784,6 +924,148 @@ def test_cto_tester_recovers_when_output_echoes_developer_handoff() -> None:
     assert "Implementation Handoff" not in validation_report
     assert "validation_summary" in validation_report
     assert "```python" in reply.message
+
+
+def test_developer_future_tense_plan_output_is_rejected_and_repaired() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: (
+        '{"implementation_brief":"Build hello world","assumptions":[],"risks":[],"testing_focus":["stdout"]}'
+        if step == "brief"
+        else '```python\nprint("Hello World")\n```\n\nValidation: output matches expected text.\nRisks: minimal.'
+    )
+
+    prompts: list[tuple[str, str]] = []
+
+    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
+        prompts.append((profile.role, prompt))
+        if profile.role == "developer":
+            if sum(1 for role, _ in prompts if role == "developer") == 1:
+                return "I'll implement a Python script to print Hello World."
+            return '# Implementation Handoff\n\n```python\nprint("Hello World")\n```'
+        return (
+            '{"validation_summary":"Output matches Hello World","checks_performed":["stdout check"],'
+            '"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
+        )
+
+    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+
+    reply = service.chat(
+        "session_developer_plan_repair", "Write a python program to print hello world"
+    )
+
+    developer_task = next(
+        task
+        for task in store.list_tasks(session_id="session_developer_plan_repair", limit=20)
+        if task["task_type"] == "developer_execution"
+    )
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert developer_task["status"] == TASK_STATUS_DONE
+    assert "print(" in developer_task["result"]["handoff"]
+    assert "I'll implement" not in developer_task["result"]["handoff"]
+
+
+def test_developer_blank_repair_falls_back_to_no_tools_prompt(monkeypatch: MonkeyPatch) -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    developer_profile = store.get_agent_profile("agent_developer")
+
+    manager._run_profile_prompt_with_options = lambda *args, **kwargs: ""  # type: ignore[method-assign]
+    manager._run_profile_prompt_without_tools = (
+        lambda *args, **kwargs: '# Implementation Handoff\n\n```python\nprint("ok")\n```'
+    )  # type: ignore[method-assign]
+
+    repaired = manager._repair_developer_output(
+        developer_profile=developer_profile,
+        message="Write a python program to print hello world",
+        implementation_brief="Build hello world",
+        invalid_output="",
+    )
+
+    assert repaired.startswith("# Implementation Handoff")
+
+
+def test_software_workflow_failure_keeps_completed_developer_done_and_fails_tester() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: (
+        '{"implementation_brief":"Build the script","assumptions":[],"risks":[],"testing_focus":["prime output"]}'
+        if step == "brief"
+        else "unused review"
+    )
+
+    def _fake_failed_workflow(**kwargs):
+        manager = kwargs["manager"]
+        session_id = kwargs["session_id"]
+        request_id = kwargs["request_id"]
+        developer_task_id = kwargs["developer_task_id"]
+        tester_task_id = kwargs["tester_task_id"]
+        manager._transition_task(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=developer_task_id,
+            from_status=TASK_STATUS_IN_PROGRESS,
+            to_status=TASK_STATUS_DONE,
+            finished_at="2026-04-11T20:00:00+00:00",
+            result_json={"handoff": "# Implementation Handoff\n\nprint('hello')"},
+            event_type="worker_handoff_ready",
+            event_payload={"handoff_for_role": "tester"},
+        )
+        manager._transition_task(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=tester_task_id,
+            from_status=TASK_STATUS_BLOCKED,
+            to_status=TASK_STATUS_IN_PROGRESS,
+            started_at="2026-04-11T20:00:01+00:00",
+            event_type="worker_unblocked",
+            event_payload={"dependency_task_id": developer_task_id},
+        )
+        return SoftwareWorkerWorkflowResult(
+            status=TASK_STATUS_FAILED,
+            developer_output="# Implementation Handoff\n\nprint('hello')",
+            error_text="Tester produced invalid or echoed output instead of a validation report",
+        )
+
+    service.manager.workflow_runtime.start_software_workflow = _fake_failed_workflow  # type: ignore[method-assign]
+
+    reply = service.chat(
+        "session_runtime_failed",
+        "write a Python script for finding the prime number between 74 and 534.",
+    )
+
+    tasks = store.list_tasks(session_id="session_runtime_failed", limit=20)
+    specialist_task = next(task for task in tasks if task["task_type"] == "cto_supervision")
+    developer_task = next(task for task in tasks if task["task_type"] == "developer_execution")
+    tester_task = next(task for task in tasks if task["task_type"] == "tester_execution")
+
+    assert reply.root_task_status == TASK_STATUS_FAILED
+    assert developer_task["status"] == TASK_STATUS_DONE
+    assert tester_task["status"] == TASK_STATUS_FAILED
+    assert specialist_task["status"] == TASK_STATUS_FAILED
 
 
 def test_agent_manager_retries_invalid_route_then_falls_back() -> None:
