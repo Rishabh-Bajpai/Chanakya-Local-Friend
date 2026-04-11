@@ -275,19 +275,6 @@ class MAFRuntime:
         tool_traces: list[ToolExecutionTrace] = []
 
         run_client = self.client if not model_id else create_openai_chat_client(model_id=model_id)
-        run_agent, _ = build_profile_agent(
-            self.profile,
-            self.session_factory,
-            client=run_client,
-            include_history=True,
-            store_inputs=False,
-            store_outputs=False,
-            usage_text=text,
-            repo_root=self.repo_root,
-        )
-        session = run_agent.create_session(session_id=session_id)
-        session.state["request_id"] = request_id
-        session.state["history_query_text"] = text
 
         debug_log(
             "maf_runtime_before_run",
@@ -299,18 +286,32 @@ class MAFRuntime:
             },
         )
 
-        response: AgentResponse[Any] = await asyncio.wait_for(
-            run_agent.run(
-                Message(
-                    role="user",
-                    text=text,
-                    additional_properties={"request_id": request_id},
-                ),
-                session=session,
-                options={"store": True},
-            ),
-            timeout=get_agent_request_timeout_seconds(),
-        )
+        try:
+            response = await self._run_local_agent(
+                session_id=session_id,
+                request_id=request_id,
+                prompt_text=text,
+                client=run_client,
+                include_history=True,
+                history_query_text=text,
+            )
+            local_fallback_used = False
+        except Exception as exc:
+            if not self._is_missing_user_query_error(exc):
+                raise
+            seeded_prompt = await self._build_seeded_history_prompt(
+                session_id=session_id,
+                user_text=text,
+            )
+            response = await self._run_local_agent(
+                session_id=session_id,
+                request_id=request_id,
+                prompt_text=seeded_prompt,
+                client=run_client,
+                include_history=False,
+                history_query_text=text,
+            )
+            local_fallback_used = True
 
         # Mock up specs format to satisfy legacy extractor
         class _MockSpec:
@@ -343,7 +344,46 @@ class MAFRuntime:
             tool_traces=tool_traces,
             availability=self.availability,
             response_mode=response_mode,
-            metadata={"core_agent_backend": "local"},
+            metadata={
+                "core_agent_backend": "local",
+                "local_seeded_history_fallback": local_fallback_used,
+            },
+        )
+
+    async def _run_local_agent(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        prompt_text: str,
+        client: OpenAIChatClient,
+        include_history: bool,
+        history_query_text: str,
+    ) -> AgentResponse[Any]:
+        run_agent, _ = build_profile_agent(
+            self.profile,
+            self.session_factory,
+            client=client,
+            include_history=include_history,
+            store_inputs=False,
+            store_outputs=False,
+            usage_text=prompt_text,
+            repo_root=self.repo_root,
+        )
+        session = run_agent.create_session(session_id=session_id)
+        session.state["request_id"] = request_id
+        session.state["history_query_text"] = history_query_text
+        return await asyncio.wait_for(
+            run_agent.run(
+                Message(
+                    role="user",
+                    text=prompt_text,
+                    additional_properties={"request_id": request_id},
+                ),
+                session=session,
+                options={"store": True},
+            ),
+            timeout=get_agent_request_timeout_seconds(),
         )
 
     async def _run_async_a2a_in_loop(
@@ -399,7 +439,7 @@ class MAFRuntime:
             fallback_used = False
         except Exception:
             option_header, clean_prompt = self._split_a2a_option_header(prompt)
-            seeded_prompt = await self._build_seeded_a2a_prompt(
+            seeded_prompt = await self._build_seeded_history_prompt(
                 session_id=session_id,
                 user_text=clean_prompt,
             )
@@ -530,7 +570,7 @@ class MAFRuntime:
         header, remainder = normalized.split("]]", 1)
         return f"{header}]]", remainder.lstrip("\n")
 
-    async def _build_seeded_a2a_prompt(self, *, session_id: str, user_text: str) -> str:
+    async def _build_seeded_history_prompt(self, *, session_id: str, user_text: str) -> str:
         history = await self.history_provider.get_messages(session_id)
         chunks = [
             "Continue this conversation using the transcript excerpt below.",
@@ -540,6 +580,10 @@ class MAFRuntime:
             chunks.append(f"{role}: {item.text}")
         chunks.append(f"User: {user_text}")
         return "\n".join(chunks)
+
+    @staticmethod
+    def _is_missing_user_query_error(exc: Exception) -> bool:
+        return "no user query found in messages" in str(exc).lower()
 
     @staticmethod
     def _extract_a2a_response_text(response: Any) -> str:

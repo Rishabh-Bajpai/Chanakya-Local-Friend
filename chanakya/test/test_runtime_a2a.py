@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from agent_framework import Message
+
+import chanakya.agent.runtime as runtime_module
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.db import build_engine, build_session_factory, init_database
-from chanakya.model import AgentProfileModel
+from chanakya.model import AgentProfileModel, ChatMessageModel, ChatSessionModel
 
 
 class _FakeA2AResponse:
@@ -31,6 +34,14 @@ class _FakeA2AAgent:
             }
         )
         return _FakeA2AResponse("remote reply", context_id="ctx-123")
+
+
+class _FakeLocalResponse:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def __str__(self) -> str:
+        return self.text
 
 
 def _build_profile() -> AgentProfileModel:
@@ -198,3 +209,94 @@ def test_runtime_clear_session_state_removes_persisted_context(monkeypatch) -> N
         target_key=runtime._a2a_target_key("http://127.0.0.1:18770"),
     )
     assert context["remote_context_id"] is None
+
+
+def test_runtime_local_retries_with_seeded_history_when_air_rejects_history_messages(
+    monkeypatch,
+) -> None:
+    engine = build_engine("sqlite:///:memory:")
+    init_database(engine)
+    session_factory = build_session_factory(engine)
+    runtime = MAFRuntime(_build_profile(), session_factory)
+
+    with session_factory() as session:
+        session.add(
+            ChatSessionModel(
+                id="session-local-fallback",
+                title="New chat",
+                created_at="2026-04-10T00:00:00+00:00",
+                updated_at="2026-04-10T00:00:00+00:00",
+            )
+        )
+        session.add_all(
+            [
+                ChatMessageModel(
+                    session_id="session-local-fallback",
+                    role="user",
+                    content="How do I deploy this?",
+                    request_id="req-old-1",
+                    route=None,
+                    metadata_json={},
+                    created_at="2026-04-10T00:00:00+00:00",
+                ),
+                ChatMessageModel(
+                    session_id="session-local-fallback",
+                    role="assistant",
+                    content="Use the deploy script in scripts/.",
+                    request_id="req-old-2",
+                    route=None,
+                    metadata_json={},
+                    created_at="2026-04-10T00:00:01+00:00",
+                ),
+            ]
+        )
+        session.commit()
+
+    calls: list[dict[str, object]] = []
+
+    class _FakeLocalAgent:
+        def __init__(self, *, include_history: bool) -> None:
+            self.include_history = include_history
+
+        def create_session(self, *, session_id: str | None = None):
+            return SimpleNamespace(session_id=session_id, state={})
+
+        async def run(self, message, session=None, options=None):
+            calls.append(
+                {
+                    "include_history": self.include_history,
+                    "text": message.text,
+                    "session_id": getattr(session, "session_id", None),
+                    "request_id": getattr(session, "state", {}).get("request_id"),
+                }
+            )
+            if self.include_history:
+                raise RuntimeError(
+                    "Error code: 400 - {'error': 'Error rendering prompt with jinja template: \"No user query found in messages.\".'}"
+                )
+            return _FakeLocalResponse("local reply")
+
+    def _fake_build_profile_agent(*args, include_history=False, **kwargs):
+        return _FakeLocalAgent(include_history=bool(include_history)), SimpleNamespace(
+            availability=[]
+        )
+
+    monkeypatch.setattr(runtime_module, "build_profile_agent", _fake_build_profile_agent)
+    monkeypatch.setattr(runtime_module, "extract_tool_execution_traces", lambda response, specs: [])
+
+    result = runtime.run(
+        "session-local-fallback",
+        "Can you turn that into exact steps?",
+        request_id="req-local-1",
+        backend="local",
+    )
+
+    assert result.text == "local reply"
+    assert result.metadata["local_seeded_history_fallback"] is True
+    assert [call["include_history"] for call in calls] == [True, False]
+    assert str(calls[1]["text"]).startswith(
+        "Continue this conversation using the transcript excerpt below."
+    )
+    assert "User: How do I deploy this?" in str(calls[1]["text"])
+    assert "Assistant: Use the deploy script in scripts/." in str(calls[1]["text"])
+    assert "User: Can you turn that into exact steps?" in str(calls[1]["text"])
