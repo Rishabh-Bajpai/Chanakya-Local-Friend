@@ -16,6 +16,7 @@ LOCK_PATH = DATA_ROOT / ".bootstrap.lock"
 UPSTREAM_REPO = "https://github.com/PhialsBasement/scheduler-mcp.git"
 SERVER_FILE = CHECKOUT_DIR / "mcp_scheduler" / "server.py"
 SCHEDULER_FILE = CHECKOUT_DIR / "mcp_scheduler" / "scheduler.py"
+EXECUTOR_FILE = CHECKOUT_DIR / "mcp_scheduler" / "executor.py"
 
 
 def _python_in_venv() -> Path:
@@ -59,11 +60,14 @@ def _patch_relative_schedule_support() -> None:
     marker = "logger = logging.getLogger(__name__)\n\n\nclass Scheduler:"
     old_helper = """logger = logging.getLogger(__name__)\n\n\ndef _normalize_relative_schedule(task: Task, now: datetime) -> None:\n    match = re.fullmatch(r"P(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?)", task.schedule.strip().upper())\n    if not match:\n        return\n    hours = int(match.group(1) or 0)\n    minutes = int(match.group(2) or 0)\n    seconds = int(match.group(3) or 0)\n    if hours == 0 and minutes == 0 and seconds == 0:\n        raise ValueError("Relative reminder duration must be greater than zero")\n    due = now + timedelta(hours=hours, minutes=minutes, seconds=seconds)\n    if due.second or due.microsecond:\n        due = due.replace(second=0, microsecond=0) + timedelta(minutes=1)\n    task.schedule = f"{due.minute} {due.hour} {due.day} {due.month} *"\n    task.do_only_once = True\n\n\nclass Scheduler:"""
     current_helper = """logger = logging.getLogger(__name__)\n\n\ndef _normalize_relative_schedule(task: Task, now: datetime) -> None:\n    schedule_text = task.schedule.strip()\n    match = re.fullmatch(r"P(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?)", schedule_text.upper())\n    if match:\n        hours = int(match.group(1) or 0)\n        minutes = int(match.group(2) or 0)\n        seconds = int(match.group(3) or 0)\n        if hours == 0 and minutes == 0 and seconds == 0:\n            raise ValueError("Relative reminder duration must be greater than zero")\n        due = now + timedelta(hours=hours, minutes=minutes, seconds=seconds)\n        if due.second or due.microsecond:\n            due = due.replace(second=0, microsecond=0) + timedelta(minutes=1)\n        task.schedule = f"{due.minute} {due.hour} {due.day} {due.month} *"\n        task.do_only_once = True\n        return\n    parts = schedule_text.split()\n    if len(parts) == 5 and re.fullmatch(r"\\d{1,2}:\\d{2}", parts[1]):\n        hour_text, minute_text = parts[1].split(":", 1)\n        task.schedule = f"{parts[0]} {minute_text} {hour_text} {parts[2]} {parts[3]} {parts[4]}"\n\n\nclass Scheduler:"""
-    helper = """logger = logging.getLogger(__name__)\n\n\ndef _schedule_for_due_time(due: datetime) -> str:\n    if due.second or due.microsecond:\n        due = due.replace(second=0, microsecond=0) + timedelta(minutes=1)\n    return f"{due.minute} {due.hour} {due.day} {due.month} *"\n\n\ndef _normalize_relative_schedule(task: Task, now: datetime) -> None:\n    schedule_text = task.schedule.strip()\n    match = re.fullmatch(r"P(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?)", schedule_text.upper())\n    if match:\n        hours = int(match.group(1) or 0)\n        minutes = int(match.group(2) or 0)\n        seconds = int(match.group(3) or 0)\n        if hours == 0 and minutes == 0 and seconds == 0:\n            raise ValueError("Relative reminder duration must be greater than zero")\n        due = now + timedelta(hours=hours, minutes=minutes, seconds=seconds)\n        task.schedule = _schedule_for_due_time(due)\n        task.do_only_once = True\n        return\n    natural_match = re.fullmatch(r"in\\s+(\\d+)\\s+(second|seconds|minute|minutes|hour|hours|day|days)", schedule_text.lower())\n    if natural_match:\n        amount = int(natural_match.group(1))\n        unit = natural_match.group(2)\n        if amount <= 0:\n            raise ValueError("Relative reminder duration must be greater than zero")\n        if unit.startswith("second"):\n            due = now + timedelta(seconds=amount)\n        elif unit.startswith("minute"):\n            due = now + timedelta(minutes=amount)\n        elif unit.startswith("hour"):\n            due = now + timedelta(hours=amount)\n        else:\n            due = now + timedelta(days=amount)\n        task.schedule = _schedule_for_due_time(due)\n        task.do_only_once = True\n        return\n    parts = schedule_text.split()\n    if len(parts) == 5 and re.fullmatch(r"\\d{1,2}:\\d{2}", parts[1]):\n        hour_text, minute_text = parts[1].split(":", 1)\n        task.schedule = f"{parts[0]} {minute_text} {hour_text} {parts[2]} {parts[3]} {parts[4]}"\n        return\n    if len(parts) in {6, 7} and "?" in parts:\n        task.schedule = " ".join("*" if part == "?" else part for part in parts)\n\n\nclass Scheduler:"""
+    upgraded_helper = """logger = logging.getLogger(__name__)\n\n\ndef _schedule_for_due_time(due: datetime) -> str:\n    if due.second or due.microsecond:\n        due = due.replace(second=0, microsecond=0) + timedelta(minutes=1)\n    return f"{due.minute} {due.hour} {due.day} {due.month} *"\n\n\ndef _normalize_relative_schedule(task: Task, now: datetime) -> None:\n    schedule_text = task.schedule.strip()\n    match = re.fullmatch(r"P(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?)", schedule_text.upper())\n    if match:\n        hours = int(match.group(1) or 0)\n        minutes = int(match.group(2) or 0)\n        seconds = int(match.group(3) or 0)\n        if hours == 0 and minutes == 0 and seconds == 0:\n            raise ValueError("Relative reminder duration must be greater than zero")\n        due = now + timedelta(hours=hours, minutes=minutes, seconds=seconds)\n        task.schedule = _schedule_for_due_time(due)\n        task.do_only_once = True\n        return\n    natural_match = re.fullmatch(r"in\\s+(\\d+)\\s+(second|seconds|minute|minutes|hour|hours|day|days)", schedule_text.lower())\n    if natural_match:\n        amount = int(natural_match.group(1))\n        unit = natural_match.group(2)\n        if amount <= 0:\n            raise ValueError("Relative reminder duration must be greater than zero")\n        if unit.startswith("second"):\n            due = now + timedelta(seconds=amount)\n        elif unit.startswith("minute"):\n            due = now + timedelta(minutes=amount)\n        elif unit.startswith("hour"):\n            due = now + timedelta(hours=amount)\n        else:\n            due = now + timedelta(days=amount)\n        task.schedule = _schedule_for_due_time(due)\n        task.do_only_once = True\n        return\n    parts = schedule_text.split()\n    if len(parts) == 5 and re.fullmatch(r"\\d{1,2}:\\d{2}", parts[1]):\n        hour_text, minute_text = parts[1].split(":", 1)\n        task.schedule = f"{parts[0]} {minute_text} {hour_text} {parts[2]} {parts[3]} {parts[4]}"\n        return\n    if len(parts) in {6, 7} and "?" in parts:\n        task.schedule = " ".join("*" if part == "?" else part for part in parts)\n\n\nclass Scheduler:"""
+    helper = """logger = logging.getLogger(__name__)\n\n\ndef _schedule_for_due_time(due: datetime) -> str:\n    if due.second or due.microsecond:\n        due = due.replace(second=0, microsecond=0) + timedelta(minutes=1)\n    return f"{due.minute} {due.hour} {due.day} {due.month} *"\n\n\ndef _relative_due_time(amount: int, unit: str, now: datetime) -> datetime:\n    if amount <= 0:\n        raise ValueError("Relative reminder duration must be greater than zero")\n    if unit.startswith("second"):\n        return now + timedelta(seconds=amount)\n    if unit.startswith("minute"):\n        return now + timedelta(minutes=amount)\n    if unit.startswith("hour"):\n        return now + timedelta(hours=amount)\n    return now + timedelta(days=amount)\n\n\ndef _normalize_relative_schedule(task: Task, now: datetime) -> None:\n    schedule_text = task.schedule.strip()\n    match = re.fullmatch(r"P(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?)", schedule_text.upper())\n    if match:\n        hours = int(match.group(1) or 0)\n        minutes = int(match.group(2) or 0)\n        seconds = int(match.group(3) or 0)\n        if hours == 0 and minutes == 0 and seconds == 0:\n            raise ValueError("Relative reminder duration must be greater than zero")\n        due = now + timedelta(hours=hours, minutes=minutes, seconds=seconds)\n        task.schedule = _schedule_for_due_time(due)\n        task.do_only_once = True\n        return\n    lowered = schedule_text.lower()\n    natural_match = re.fullmatch(r"in\\s+(\\d+)\\s+(second|seconds|minute|minutes|hour|hours|day|days)", lowered)\n    if natural_match:\n        amount = int(natural_match.group(1))\n        unit = natural_match.group(2)\n        due = _relative_due_time(amount, unit, now)\n        task.schedule = _schedule_for_due_time(due)\n        task.do_only_once = True\n        return\n    from_now_match = re.fullmatch(r"(\\d+)\\s+(second|seconds|minute|minutes|hour|hours|day|days)\\s+from\\s+now", lowered)\n    if from_now_match:\n        amount = int(from_now_match.group(1))\n        unit = from_now_match.group(2)\n        due = _relative_due_time(amount, unit, now)\n        task.schedule = _schedule_for_due_time(due)\n        task.do_only_once = True\n        return\n    parts = schedule_text.split()\n    if len(parts) == 5 and re.fullmatch(r"\\d{1,2}:\\d{2}", parts[1]):\n        hour_text, minute_text = parts[1].split(":", 1)\n        task.schedule = f"{parts[0]} {minute_text} {hour_text} {parts[2]} {parts[3]} {parts[4]}"\n        return\n    if len(parts) in {6, 7} and "?" in parts:\n        task.schedule = " ".join("*" if part == "?" else part for part in parts)\n\n\nclass Scheduler:"""
     if old_helper in patched:
         patched = patched.replace(old_helper, helper, 1)
     if current_helper in patched:
         patched = patched.replace(current_helper, helper, 1)
+    if upgraded_helper in patched:
+        patched = patched.replace(upgraded_helper, helper, 1)
     if "_schedule_for_due_time" not in patched:
         helper_start = patched.find("logger = logging.getLogger(__name__)")
         helper_end = patched.find("\n\nclass Scheduler:")
@@ -89,6 +93,40 @@ def _patch_relative_schedule_support() -> None:
         SCHEDULER_FILE.write_text(patched, encoding="utf-8")
 
 
+def _patch_executor_shell_support() -> None:
+    if not EXECUTOR_FILE.exists():
+        return
+    original = EXECUTOR_FILE.read_text(encoding="utf-8")
+    patched = original
+    old_block = """        # If pipe or redirect is in command, use shell mode
+        if '|' in command or '>' in command or '<' in command:
+            use_shell = True
+"""
+    new_block = """        # If shell metacharacters are in command
+        if (
+            '|' in command
+            or '>' in command
+            or '<' in command
+            or '&&' in command
+            or '||' in command
+            or ';' in command
+            or '&' in command
+        ):
+            use_shell = True
+"""
+    if old_block in patched:
+        patched = patched.replace(old_block, new_block, 1)
+    elif "'&&' in command" not in patched:
+        legacy_line = "        if '|' in command or '>' in command or '<' in command:\n            use_shell = True\n"
+        patched = patched.replace(legacy_line, new_block, 1)
+    old_sound_line = """                sound_cmd = 'paplay /usr/share/sounds/freedesktop/stereo/message.oga'\n                \n                # Chain commands together\n                command = f'{notify_cmd} && {sound_cmd}'\n"""
+    new_sound_line = """                sound_cmd = 'paplay /usr/share/sounds/freedesktop/stereo/message.oga'\n                optional_sound_cmd = (\n                    'if command -v paplay >/dev/null 2>&1; '\n                    f'then {sound_cmd}; '\n                    'fi'\n                )\n                \n                # Show the notification even when optional sound support is unavailable\n                command = f'{notify_cmd}; {optional_sound_cmd}'\n"""
+    if old_sound_line in patched:
+        patched = patched.replace(old_sound_line, new_sound_line, 1)
+    if patched != original:
+        EXECUTOR_FILE.write_text(patched, encoding="utf-8")
+
+
 def _bootstrap_scheduler_server() -> tuple[Path, Path]:
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     with FileLock(str(LOCK_PATH)):
@@ -97,6 +135,7 @@ def _bootstrap_scheduler_server() -> tuple[Path, Path]:
             _run(["git", "clone", "--depth", "1", UPSTREAM_REPO, str(CHECKOUT_DIR)])
         _patch_fastmcp_compatibility()
         _patch_relative_schedule_support()
+        _patch_executor_shell_support()
         python_path = _python_in_venv()
         if not python_path.exists():
             print("Creating scheduler-mcp virtualenv...", file=sys.stderr)
