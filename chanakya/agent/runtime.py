@@ -168,6 +168,7 @@ class MAFRuntime:
         self._a2a_agent: Any | None = None
         self._a2a_sessions: dict[str, Any] = {}
         self._a2a_remote_context_by_session: dict[str, str] = {}
+        self._a2a_session_sequence = 0
         self.agent, config = build_profile_agent(
             profile,
             session_factory,
@@ -399,19 +400,22 @@ class MAFRuntime:
     ) -> RunResult:
         selected_url = str(a2a_url or self.a2a_agent_url or "").strip()
         agent = self._get_a2a_agent(selected_url)
-        session = self._get_a2a_session(session_id, selected_url)
+        session = self._create_a2a_ephemeral_session(session_id, selected_url)
         target_key = self._a2a_target_key(selected_url)
-        stored_context = self.session_context_store.get(session_id, target_key=target_key)
-        remote_context_id = str(stored_context.get("remote_context_id") or "").strip() or None
-        if remote_context_id is None:
-            context_key = self._a2a_context_key(session_id, selected_url)
-            remote_context_id = self._a2a_remote_context_by_session.get(context_key)
         prompt = self._build_a2a_prompt(
             text=text,
             remote_agent=a2a_remote_agent,
             model_provider=a2a_model_provider,
             model_id=a2a_model_id,
+            ephemeral_session=True,
         )
+        option_header, clean_prompt = self._split_a2a_option_header(prompt)
+        prompt_for_run = await self._build_seeded_history_prompt(
+            session_id=session_id,
+            user_text=clean_prompt,
+        )
+        if option_header:
+            prompt_for_run = f"{option_header}\n{prompt_for_run}"
 
         debug_log(
             "maf_runtime_before_a2a_run",
@@ -419,51 +423,31 @@ class MAFRuntime:
                 "session_id": session_id,
                 "request_id": request_id,
                 "input": text,
-                "has_remote_context": bool(remote_context_id),
+                "has_remote_context": False,
                 "a2a_url": selected_url,
                 "a2a_remote_agent": a2a_remote_agent,
                 "a2a_model_provider": a2a_model_provider,
                 "a2a_model_id": a2a_model_id,
+                "a2a_session_id": getattr(session, "session_id", None),
             },
         )
 
-        try:
-            response = await asyncio.wait_for(
-                agent.run(
-                    self._build_a2a_messages(text=prompt, remote_context_id=remote_context_id),
-                    session=session,
-                ),
-                timeout=get_agent_request_timeout_seconds(),
-            )
-            continuity_mode = "remote_context" if remote_context_id else "direct"
-            fallback_used = False
-        except Exception:
-            option_header, clean_prompt = self._split_a2a_option_header(prompt)
-            seeded_prompt = await self._build_seeded_history_prompt(
-                session_id=session_id,
-                user_text=clean_prompt,
-            )
-            if option_header:
-                seeded_prompt = f"{option_header}\n{seeded_prompt}"
-            response = await asyncio.wait_for(
-                agent.run(
-                    self._build_a2a_messages(text=seeded_prompt, remote_context_id=None),
-                    session=session,
-                ),
-                timeout=get_agent_request_timeout_seconds(),
-            )
-            continuity_mode = "seeded_history"
-            fallback_used = True
+        response = await asyncio.wait_for(
+            agent.run(
+                self._build_a2a_messages(text=prompt_for_run, remote_context_id=None),
+                session=session,
+            ),
+            timeout=get_agent_request_timeout_seconds(),
+        )
+        continuity_mode = "seeded_history"
+        fallback_used = False
 
         reply_text = self._extract_a2a_response_text(response)
         new_context_id = self._extract_a2a_context_id(response)
-        context_key = self._a2a_context_key(session_id, selected_url)
-        if new_context_id:
-            self._a2a_remote_context_by_session[context_key] = new_context_id
         self.session_context_store.save(
             session_id,
             backend="a2a",
-            remote_context_id=new_context_id or remote_context_id,
+            remote_context_id=None,
             remote_agent_url=selected_url,
             target_key=target_key,
         )
@@ -474,10 +458,11 @@ class MAFRuntime:
                 "session_id": session_id,
                 "request_id": request_id,
                 "raw_result": reply_text,
-                "remote_context_id": new_context_id or remote_context_id,
+                "remote_context_id": new_context_id,
                 "continuity_mode": continuity_mode,
                 "fallback_used": fallback_used,
                 "a2a_url": selected_url,
+                "a2a_session_id": getattr(session, "session_id", None),
             },
         )
 
@@ -488,13 +473,14 @@ class MAFRuntime:
             response_mode="direct_answer",
             metadata={
                 "core_agent_backend": "a2a",
-                "remote_context_id": new_context_id or remote_context_id,
+                "remote_context_id": new_context_id,
                 "a2a_continuity_mode": continuity_mode,
                 "a2a_fallback_used": fallback_used,
                 "a2a_url": selected_url,
                 "a2a_remote_agent": str(a2a_remote_agent or "").strip() or None,
                 "a2a_model_provider": str(a2a_model_provider or "").strip() or None,
                 "a2a_model_id": str(a2a_model_id or "").strip() or None,
+                "a2a_session_id": getattr(session, "session_id", None),
             },
         )
 
@@ -518,13 +504,10 @@ class MAFRuntime:
         )
         return self._a2a_agent[selected_url]
 
-    def _get_a2a_session(self, session_id: str, selected_url: str) -> Any:
-        scoped_session_id = f"a2a:{selected_url}:{session_id}"
-        if scoped_session_id not in self._a2a_sessions:
-            self._a2a_sessions[scoped_session_id] = self._get_a2a_agent(
-                selected_url
-            ).create_session(session_id=scoped_session_id)
-        return self._a2a_sessions[scoped_session_id]
+    def _create_a2a_ephemeral_session(self, session_id: str, selected_url: str) -> Any:
+        self._a2a_session_sequence += 1
+        scoped_session_id = f"a2a:{selected_url}:{session_id}:seeded:{self._a2a_session_sequence}"
+        return self._get_a2a_agent(selected_url).create_session(session_id=scoped_session_id)
 
     @staticmethod
     def _a2a_context_key(session_id: str, selected_url: str) -> str:
@@ -548,6 +531,7 @@ class MAFRuntime:
         remote_agent: str | None,
         model_provider: str | None,
         model_id: str | None,
+        ephemeral_session: bool = False,
     ) -> str:
         selected_remote_agent = str(remote_agent or "").strip()
         selected_model_provider = str(model_provider or "").strip()
@@ -558,6 +542,8 @@ class MAFRuntime:
         if selected_model_provider and selected_model_id:
             header_parts.append(f"model_provider={selected_model_provider}")
             header_parts.append(f"model_id={selected_model_id}")
+        if ephemeral_session:
+            header_parts.append("ephemeral_session=true")
         if not header_parts:
             return text
         return f"[[opencode-options:{';'.join(header_parts)}]]\n{text}"
@@ -574,6 +560,7 @@ class MAFRuntime:
         history = await self.history_provider.get_messages(session_id)
         chunks = [
             "Continue this conversation using the transcript excerpt below.",
+            "Resolve shorthand or referential follow-ups from the transcript when the meaning is reasonably clear, and only ask for clarification if the reference is genuinely ambiguous.",
         ]
         for item in history[-12:]:
             role = "User" if item.role == "user" else "Assistant"

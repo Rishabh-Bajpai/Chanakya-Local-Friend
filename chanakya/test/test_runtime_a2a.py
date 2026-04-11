@@ -90,9 +90,14 @@ def test_runtime_reuses_a2a_remote_context_across_turns(monkeypatch) -> None:
     assert second.text == "remote reply"
     agent = runtime._a2a_agent["http://127.0.0.1:18770"]
     assert agent.calls[0]["additional_properties"] == {}
-    assert agent.calls[1]["additional_properties"] == {"context_id": "ctx-123"}
+    assert agent.calls[1]["additional_properties"] == {}
+    assert agent.calls[0]["session_id"] != agent.calls[1]["session_id"]
+    assert "Continue this conversation using the transcript excerpt below." in str(
+        agent.calls[1]["text"]
+    )
     assert first.metadata["core_agent_backend"] == "a2a"
     assert second.metadata["remote_context_id"] == "ctx-123"
+    assert second.metadata["a2a_continuity_mode"] == "seeded_history"
 
 
 def test_runtime_metadata_reports_a2a_endpoint(monkeypatch) -> None:
@@ -131,7 +136,7 @@ def test_runtime_includes_opencode_a2a_header_when_agent_and_model_are_selected(
 
     sent_text = runtime._a2a_agent["http://127.0.0.1:18770"].calls[0]["text"]
     assert str(sent_text).startswith(
-        "[[opencode-options:agent=build;model_provider=lmstudio;model_id=qwen/qwen3.5-9b]]"
+        "[[opencode-options:agent=build;model_provider=lmstudio;model_id=qwen/qwen3.5-9b;ephemeral_session=true]]"
     )
 
 
@@ -144,6 +149,67 @@ def test_runtime_metadata_prefers_request_scoped_a2a_config() -> None:
 
     assert metadata["endpoint"] == "http://a2a.example.test"
     assert metadata["model"] == "demo-model"
+
+
+def test_runtime_a2a_seeds_shared_history_when_no_remote_context_exists(monkeypatch) -> None:
+    monkeypatch.setenv("A2A_AGENT_URL", "http://127.0.0.1:18770")
+    engine = build_engine("sqlite:///:memory:")
+    init_database(engine)
+    session_factory = build_session_factory(engine)
+    runtime = MAFRuntime(
+        _build_profile(),
+        session_factory,
+        a2a_agent_factory=_FakeA2AAgent,
+    )
+
+    with session_factory() as session:
+        session.add(
+            ChatSessionModel(
+                id="session-a2a-seeded",
+                title="New chat",
+                created_at="2026-04-10T00:00:00+00:00",
+                updated_at="2026-04-10T00:00:00+00:00",
+            )
+        )
+        session.add_all(
+            [
+                ChatMessageModel(
+                    session_id="session-a2a-seeded",
+                    role="user",
+                    content="What is 5+6?",
+                    request_id="req-old-1",
+                    route=None,
+                    metadata_json={},
+                    created_at="2026-04-10T00:00:00+00:00",
+                ),
+                ChatMessageModel(
+                    session_id="session-a2a-seeded",
+                    role="assistant",
+                    content="5 + 6 equals 11.",
+                    request_id="req-old-2",
+                    route=None,
+                    metadata_json={},
+                    created_at="2026-04-10T00:00:01+00:00",
+                ),
+            ]
+        )
+        session.commit()
+
+    result = runtime.run(
+        "session-a2a-seeded",
+        "+6?",
+        request_id="req-seeded",
+        backend="a2a",
+        a2a_url="http://127.0.0.1:18770",
+    )
+
+    sent_text = str(runtime._a2a_agent["http://127.0.0.1:18770"].calls[0]["text"])
+    assert "Continue this conversation using the transcript excerpt below." in sent_text
+    assert "Resolve shorthand or referential follow-ups from the transcript" in sent_text
+    assert "User: What is 5+6?" in sent_text
+    assert "Assistant: 5 + 6 equals 11." in sent_text
+    assert "User: +6?" in sent_text
+    assert result.metadata["a2a_continuity_mode"] == "seeded_history"
 
 
 def test_runtime_restores_persisted_remote_context_after_recreation(monkeypatch) -> None:
@@ -179,7 +245,81 @@ def test_runtime_restores_persisted_remote_context_after_recreation(monkeypatch)
     )
 
     second_agent = second_runtime._a2a_agent["http://127.0.0.1:18770"]
-    assert second_agent.calls[0]["additional_properties"] == {"context_id": "ctx-123"}
+    assert second_agent.calls[0]["additional_properties"] == {}
+    assert "Continue this conversation using the transcript excerpt below." in str(
+        second_agent.calls[0]["text"]
+    )
+
+
+def test_runtime_a2a_uses_seeded_history_for_referential_followup_even_with_remote_context(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("A2A_AGENT_URL", "http://127.0.0.1:18770")
+    engine = build_engine("sqlite:///:memory:")
+    init_database(engine)
+    session_factory = build_session_factory(engine)
+    runtime = MAFRuntime(
+        _build_profile(),
+        session_factory,
+        a2a_agent_factory=_FakeA2AAgent,
+    )
+
+    with session_factory() as session:
+        session.add(
+            ChatSessionModel(
+                id="session-a2a-followup",
+                title="New chat",
+                created_at="2026-04-10T00:00:00+00:00",
+                updated_at="2026-04-10T00:00:00+00:00",
+            )
+        )
+        session.add_all(
+            [
+                ChatMessageModel(
+                    session_id="session-a2a-followup",
+                    role="user",
+                    content="5+9?",
+                    request_id="req-old-1",
+                    route=None,
+                    metadata_json={},
+                    created_at="2026-04-10T00:00:00+00:00",
+                ),
+                ChatMessageModel(
+                    session_id="session-a2a-followup",
+                    role="assistant",
+                    content="14",
+                    request_id="req-old-2",
+                    route=None,
+                    metadata_json={},
+                    created_at="2026-04-10T00:00:01+00:00",
+                ),
+            ]
+        )
+        session.commit()
+
+    runtime.session_context_store.save(
+        "session-a2a-followup",
+        backend="a2a",
+        remote_context_id="ctx-123",
+        remote_agent_url="http://127.0.0.1:18770",
+        target_key=runtime._a2a_target_key("http://127.0.0.1:18770"),
+    )
+
+    result = runtime.run(
+        "session-a2a-followup",
+        "add 5 to it",
+        request_id="req-followup",
+        backend="a2a",
+        a2a_url="http://127.0.0.1:18770",
+    )
+
+    call = runtime._a2a_agent["http://127.0.0.1:18770"].calls[0]
+    assert call["additional_properties"] == {}
+    assert "Resolve shorthand or referential follow-ups from the transcript" in str(call["text"])
+    assert "User: 5+9?" in str(call["text"])
+    assert "Assistant: 14" in str(call["text"])
+    assert "User: add 5 to it" in str(call["text"])
+    assert result.metadata["a2a_continuity_mode"] == "seeded_history"
 
 
 def test_runtime_clear_session_state_removes_persisted_context(monkeypatch) -> None:
@@ -207,6 +347,80 @@ def test_runtime_clear_session_state_removes_persisted_context(monkeypatch) -> N
         target_key=runtime._a2a_target_key("http://127.0.0.1:18770"),
     )
     assert context["remote_context_id"] is None
+
+
+def test_runtime_a2a_creates_fresh_ephemeral_session_per_request_with_seeded_history(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("A2A_AGENT_URL", "http://127.0.0.1:18770")
+    engine = build_engine("sqlite:///:memory:")
+    init_database(engine)
+    session_factory = build_session_factory(engine)
+    runtime = MAFRuntime(
+        _build_profile(),
+        session_factory,
+        a2a_agent_factory=_FakeA2AAgent,
+    )
+
+    with session_factory() as session:
+        session.add(
+            ChatSessionModel(
+                id="session-a2a-math",
+                title="New chat",
+                created_at="2026-04-10T00:00:00+00:00",
+                updated_at="2026-04-10T00:00:00+00:00",
+            )
+        )
+        session.add_all(
+            [
+                ChatMessageModel(
+                    session_id="session-a2a-math",
+                    role="user",
+                    content="5+9?",
+                    request_id="req-old-1",
+                    route=None,
+                    metadata_json={},
+                    created_at="2026-04-10T00:00:00+00:00",
+                ),
+                ChatMessageModel(
+                    session_id="session-a2a-math",
+                    role="assistant",
+                    content="14 + 5 = 19",
+                    request_id="req-old-2",
+                    route=None,
+                    metadata_json={},
+                    created_at="2026-04-10T00:00:01+00:00",
+                ),
+            ]
+        )
+        session.commit()
+
+    first = runtime.run(
+        "session-a2a-math",
+        "add 4 to it",
+        request_id="req-math-1",
+        backend="a2a",
+        a2a_url="http://127.0.0.1:18770",
+    )
+    second = runtime.run(
+        "session-a2a-math",
+        "and subtract 2",
+        request_id="req-math-2",
+        backend="a2a",
+        a2a_url="http://127.0.0.1:18770",
+    )
+
+    calls = runtime._a2a_agent["http://127.0.0.1:18770"].calls
+    assert calls[0]["session_id"] != calls[1]["session_id"]
+    assert calls[0]["additional_properties"] == {}
+    assert calls[1]["additional_properties"] == {}
+    assert "ephemeral_session=true" in str(calls[0]["text"])
+    assert "User: 5+9?" in str(calls[0]["text"])
+    assert "Assistant: 14 + 5 = 19" in str(calls[0]["text"])
+    assert "User: add 4 to it" in str(calls[0]["text"])
+    assert "User: and subtract 2" in str(calls[1]["text"])
+    assert first.metadata["a2a_continuity_mode"] == "seeded_history"
+    assert second.metadata["a2a_continuity_mode"] == "seeded_history"
 
 
 def test_runtime_local_retries_with_seeded_history_when_air_rejects_history_messages(

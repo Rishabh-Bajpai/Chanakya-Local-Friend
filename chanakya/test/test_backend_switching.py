@@ -265,9 +265,7 @@ def test_normalize_runtime_config_preserves_a2a_backend() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_api_chat_switches_from_local_to_a2a(
-    tmp_path: Path, monkeypatch: MonkeyPatch
-) -> None:
+def test_api_chat_switches_from_local_to_a2a(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     captured: list[_ChatServiceCaptureStub] = []
 
     def _build(store, runtime, manager):
@@ -308,9 +306,7 @@ def test_api_chat_switches_from_local_to_a2a(
     assert captured[0].calls[1]["a2a_remote_agent"] == "build"
 
 
-def test_api_chat_switches_from_a2a_to_local(
-    tmp_path: Path, monkeypatch: MonkeyPatch
-) -> None:
+def test_api_chat_switches_from_a2a_to_local(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     captured: list[_ChatServiceCaptureStub] = []
 
     def _build(store, runtime, manager):
@@ -347,9 +343,7 @@ def test_api_chat_switches_from_a2a_to_local(
     assert captured[0].calls[1]["model_id"] == "gpt-4"
 
 
-def test_api_chat_with_work_id_passes_backend(
-    tmp_path: Path, monkeypatch: MonkeyPatch
-) -> None:
+def test_api_chat_with_work_id_passes_backend(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     captured: list[_ChatServiceCaptureStub] = []
 
     def _build(store, runtime, manager):
@@ -483,9 +477,7 @@ class _FakeA2AAgent:
         self.calls.append(
             {
                 "text": message.text,
-                "additional_properties": dict(
-                    getattr(message, "additional_properties", {}) or {}
-                ),
+                "additional_properties": dict(getattr(message, "additional_properties", {}) or {}),
                 "session_id": getattr(session, "session_id", None),
             }
         )
@@ -543,9 +535,7 @@ def test_runtime_switches_from_a2a_to_local_backend(monkeypatch: MonkeyPatch) ->
         return fake_local, SimpleNamespace(availability=[], cached_tools=[])
 
     monkeypatch.setattr(runtime_module, "build_profile_agent", _fake_build_profile_agent)
-    monkeypatch.setattr(
-        runtime_module, "extract_tool_execution_traces", lambda response, specs: []
-    )
+    monkeypatch.setattr(runtime_module, "extract_tool_execution_traces", lambda response, specs: [])
 
     runtime = MAFRuntime(
         _build_profile(),
@@ -604,9 +594,7 @@ def test_runtime_a2a_context_persists_across_switches(monkeypatch: MonkeyPatch) 
         return _FakeLocalAgent(), SimpleNamespace(availability=[], cached_tools=[])
 
     monkeypatch.setattr(runtime_module, "build_profile_agent", _fake_build_profile_agent)
-    monkeypatch.setattr(
-        runtime_module, "extract_tool_execution_traces", lambda response, specs: []
-    )
+    monkeypatch.setattr(runtime_module, "extract_tool_execution_traces", lambda response, specs: [])
 
     runtime = MAFRuntime(
         _build_profile(),
@@ -620,8 +608,13 @@ def test_runtime_a2a_context_persists_across_switches(monkeypatch: MonkeyPatch) 
     r3 = runtime.run("sess-ctx", "a2a turn 2", request_id="r3", backend="a2a", a2a_url=a2a_url)
 
     agent = runtime._a2a_agent[a2a_url]
-    assert agent.calls[1]["additional_properties"] == {"context_id": "ctx-abc"}
+    assert agent.calls[1]["additional_properties"] == {}
+    assert agent.calls[0]["session_id"] != agent.calls[1]["session_id"]
+    assert "Continue this conversation using the transcript excerpt below." in str(
+        agent.calls[1]["text"]
+    )
     assert r3.metadata["core_agent_backend"] == "a2a"
+    assert r3.metadata["a2a_continuity_mode"] == "seeded_history"
 
 
 # ---------------------------------------------------------------------------
@@ -688,9 +681,7 @@ def test_runtime_config_round_trip_preserves_all_fields(
     assert fetched["a2a_model_id"] == "qwen/qwen3.5-9b"
 
 
-def test_runtime_config_switch_back_to_local(
-    tmp_path: Path, monkeypatch: MonkeyPatch
-) -> None:
+def test_runtime_config_switch_back_to_local(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     app = _build_test_app(tmp_path, monkeypatch)
     client = app.test_client()
 
