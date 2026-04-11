@@ -18,6 +18,7 @@ from chanakya.agent_manager import (
 from chanakya.chat_service import ChatService
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.domain import (
+    REQUEST_STATUS_IN_PROGRESS,
     REQUEST_STATUS_CANCELLED,
     TASK_STATUS_BLOCKED,
     TASK_STATUS_CANCELLED,
@@ -304,6 +305,183 @@ def test_specialist_review_persists_cto_exchange_without_history_runtime() -> No
     assert messages[-2]["route"] == "specialist_review_prompt"
     assert messages[-1]["route"] == "specialist_review_response"
     assert messages[-1]["content"] == "Final CTO answer"
+
+
+def test_profile_prompt_uses_a2a_runner_when_backend_active() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    developer_profile = store.get_agent_profile("agent_developer")
+    calls: list[tuple[str, str]] = []
+
+    async def _fake_run_profile_prompt_a2a_async(profile, prompt, **kwargs):
+        calls.append((profile.id, prompt))
+        return "a2a worker output"
+
+    manager._run_profile_prompt_a2a_async = _fake_run_profile_prompt_a2a_async  # type: ignore[method-assign]
+    tokens = manager.bind_execution_context(
+        session_id="session_a2a_profile",
+        work_id=None,
+        backend="a2a",
+        a2a_url="http://a2a.test:8000",
+    )
+    try:
+        result = manager._run_profile_prompt(developer_profile, "Implement the change")
+    finally:
+        manager.reset_execution_context(tokens)
+
+    assert result == "a2a worker output"
+    assert calls == [("agent_developer", "Implement the change")]
+
+
+def test_delegated_chat_binds_a2a_backend_into_manager_context() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service._triage_message = lambda message, work_id=None: "delegate"  # type: ignore[method-assign]
+    service.runtime.runtime_metadata = lambda **kwargs: {  # type: ignore[method-assign]
+        "model": kwargs.get("a2a_model_id") or kwargs.get("model_id") or "test-model",
+        "endpoint": kwargs.get("a2a_url") or "http://test",
+        "runtime": "maf_agent",
+        "backend": kwargs.get("backend") or "local",
+        "a2a_remote_agent": kwargs.get("a2a_remote_agent"),
+        "a2a_model_provider": kwargs.get("a2a_model_provider"),
+        "a2a_model_id": kwargs.get("a2a_model_id"),
+    }
+
+    def _fake_execute(**kwargs):
+        assert service.manager is not None
+        runtime = service.manager._active_runtime_selection()
+        assert runtime.backend == "a2a"
+        assert runtime.a2a_url == "http://a2a.test:8000"
+        assert runtime.a2a_remote_agent == "builder"
+        assert runtime.a2a_model_provider == "lmstudio"
+        assert runtime.a2a_model_id == "qwen3"
+        return ManagerRunResult(
+            text="delegated via a2a",
+            workflow_type=WORKFLOW_INFORMATION,
+            child_task_ids=[kwargs["root_task_id"]],
+            manager_agent_id=service.manager.manager_profile.id,
+            worker_agent_ids=[],
+            task_status=TASK_STATUS_DONE,
+            result_json={"ok": True},
+        )
+
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_informer","selected_role":"informer","reason":"research task","execution_mode":"information_delivery"}'
+    )
+    service.manager.execute = _fake_execute  # type: ignore[method-assign]
+
+    reply = service.chat(
+        "session_delegate_a2a",
+        "Research this topic",
+        backend="a2a",
+        a2a_url="http://a2a.test:8000",
+        a2a_remote_agent="builder",
+        a2a_model_provider="lmstudio",
+        a2a_model_id="qwen3",
+    )
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    messages = store.list_messages("session_delegate_a2a")
+    assert messages[-1]["metadata"]["core_agent_backend"] == "a2a"
+
+
+def test_submit_task_input_reuses_stored_runtime_snapshot() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.runtime.runtime_metadata = lambda **kwargs: {  # type: ignore[method-assign]
+        "model": kwargs.get("a2a_model_id") or kwargs.get("model_id") or "test-model",
+        "endpoint": kwargs.get("a2a_url") or "http://test",
+        "runtime": "maf_agent",
+        "backend": kwargs.get("backend") or "local",
+        "a2a_remote_agent": kwargs.get("a2a_remote_agent"),
+        "a2a_model_provider": kwargs.get("a2a_model_provider"),
+        "a2a_model_id": kwargs.get("a2a_model_id"),
+    }
+    store.set_runtime_config(
+        backend="local",
+        model_id="gpt-4",
+        a2a_url=None,
+        a2a_remote_agent=None,
+        a2a_model_provider=None,
+        a2a_model_id=None,
+    )
+    store.ensure_session("session_resume_backend", title="Resume backend")
+    store.create_request(
+        request_id="req_resume_backend",
+        session_id="session_resume_backend",
+        user_message="Need more info",
+        status=REQUEST_STATUS_IN_PROGRESS,
+        root_task_id="task_root_resume_backend",
+    )
+    store.create_task(
+        task_id="task_root_resume_backend",
+        request_id="req_resume_backend",
+        parent_task_id=None,
+        title="Root",
+        summary="Root task",
+        status=TASK_STATUS_WAITING_INPUT,
+        owner_agent_id="agent_chanakya",
+        task_type="chat_request",
+        input_json={
+            "message": "Need more info",
+            "runtime_config": {
+                "backend": "a2a",
+                "model_id": None,
+                "a2a_url": "http://a2a.snapshot:8000",
+                "a2a_remote_agent": "planner",
+                "a2a_model_provider": "lmstudio",
+                "a2a_model_id": "qwen3",
+            },
+        },
+    )
+    store.create_task(
+        task_id="task_waiting_resume_backend",
+        request_id="req_resume_backend",
+        parent_task_id="task_root_resume_backend",
+        title="Waiting task",
+        summary="Need input",
+        status=TASK_STATUS_WAITING_INPUT,
+        owner_agent_id="agent_developer",
+        task_type="developer_execution",
+        input_json={"maf_pending_request_id": "req_resume_backend"},
+    )
+
+    def _fake_resume_waiting_input(**kwargs):
+        assert service.manager is not None
+        runtime = service.manager._active_runtime_selection()
+        assert runtime.backend == "a2a"
+        assert runtime.a2a_url == "http://a2a.snapshot:8000"
+        assert runtime.a2a_remote_agent == "planner"
+        return ManagerRunResult(
+            text="resumed with original backend",
+            workflow_type=WORKFLOW_SOFTWARE,
+            child_task_ids=["task_waiting_resume_backend"],
+            manager_agent_id=service.manager.manager_profile.id,
+            worker_agent_ids=["agent_developer"],
+            task_status=TASK_STATUS_DONE,
+            result_json={"ok": True},
+        )
+
+    service.manager.resume_waiting_input = _fake_resume_waiting_input  # type: ignore[method-assign]
+
+    reply = service.submit_task_input("task_waiting_resume_backend", "Use A2A backend")
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert reply.endpoint == "http://a2a.snapshot:8000"
 
 
 def test_manager_profile_prompt_extracts_text_from_structured_response(

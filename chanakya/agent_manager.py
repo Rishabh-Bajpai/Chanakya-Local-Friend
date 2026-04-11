@@ -14,10 +14,17 @@ from agent_framework.openai import OpenAIChatClient
 from agent_framework.orchestrations import SequentialBuilder
 from sqlalchemy.orm import Session, sessionmaker
 
-from chanakya.agent.runtime import build_profile_agent, create_openai_chat_client
+from chanakya.agent.runtime import (
+    MAFRuntime,
+    build_profile_agent,
+    build_profile_agent_config_for_usage,
+    create_openai_chat_client,
+    normalize_runtime_backend,
+)
 from chanakya.agent.profile_files import load_agent_prompt
 from chanakya.config import (
     force_subagents_enabled,
+    get_a2a_agent_url,
     get_agent_request_timeout_seconds,
     get_data_dir,
     get_long_running_agent_request_timeout_seconds,
@@ -59,6 +66,15 @@ MAX_UNTRUSTED_ARTIFACT_CHARS = 12000
 _ACTIVE_WORK_ID: ContextVar[str | None] = ContextVar("active_work_id", default=None)
 _ACTIVE_SESSION_ID: ContextVar[str | None] = ContextVar("active_session_id", default=None)
 _ACTIVE_MODEL_ID: ContextVar[str | None] = ContextVar("active_model_id", default=None)
+_ACTIVE_BACKEND: ContextVar[str | None] = ContextVar("active_backend", default=None)
+_ACTIVE_A2A_URL: ContextVar[str | None] = ContextVar("active_a2a_url", default=None)
+_ACTIVE_A2A_REMOTE_AGENT: ContextVar[str | None] = ContextVar(
+    "active_a2a_remote_agent", default=None
+)
+_ACTIVE_A2A_MODEL_PROVIDER: ContextVar[str | None] = ContextVar(
+    "active_a2a_model_provider", default=None
+)
+_ACTIVE_A2A_MODEL_ID: ContextVar[str | None] = ContextVar("active_a2a_model_id", default=None)
 
 
 @dataclass(slots=True)
@@ -100,6 +116,16 @@ class WorkerExecutionResult:
     temporary_agent_ids: list[str]
 
 
+@dataclass(slots=True)
+class RuntimeSelection:
+    backend: str
+    model_id: str | None
+    a2a_url: str | None
+    a2a_remote_agent: str | None
+    a2a_model_provider: str | None
+    a2a_model_id: str | None
+
+
 class AgentManager:
     def __init__(
         self,
@@ -122,10 +148,14 @@ class AgentManager:
             store=store,
             checkpoint_dir=get_data_dir() / "workflow_checkpoints",
         )
+        self._a2a_agents: dict[str, Any] = {}
+        self._a2a_session_sequence = 0
         self.subagent_orchestrator = WorkerSubagentOrchestrator(
             store=store,
             session_factory=session_factory,
             client_factory=self._resolve_client,
+            backend_getter=self._active_backend,
+            profile_runner_async=self._run_profile_prompt_async,
         )
 
     def should_delegate(self, message: str) -> bool:
@@ -137,21 +167,45 @@ class AgentManager:
         session_id: str,
         work_id: str | None,
         model_id: str | None = None,
-    ) -> tuple[Token, Token, Token]:
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
+    ) -> tuple[Token, Token, Token, Token, Token, Token, Token, Token]:
         return (
             _ACTIVE_WORK_ID.set(work_id),
             _ACTIVE_SESSION_ID.set(session_id),
             _ACTIVE_MODEL_ID.set(model_id),
+            _ACTIVE_BACKEND.set(backend),
+            _ACTIVE_A2A_URL.set(a2a_url),
+            _ACTIVE_A2A_REMOTE_AGENT.set(a2a_remote_agent),
+            _ACTIVE_A2A_MODEL_PROVIDER.set(a2a_model_provider),
+            _ACTIVE_A2A_MODEL_ID.set(a2a_model_id),
         )
 
     def reset_execution_context(
         self,
-        tokens: tuple[Token, Token, Token],
+        tokens: tuple[Token, Token, Token, Token, Token, Token, Token, Token],
     ) -> None:
-        work_token, session_token, model_token = tokens
+        (
+            work_token,
+            session_token,
+            model_token,
+            backend_token,
+            a2a_url_token,
+            a2a_remote_agent_token,
+            a2a_model_provider_token,
+            a2a_model_id_token,
+        ) = tokens
         _ACTIVE_WORK_ID.reset(work_token)
         _ACTIVE_SESSION_ID.reset(session_token)
         _ACTIVE_MODEL_ID.reset(model_token)
+        _ACTIVE_BACKEND.reset(backend_token)
+        _ACTIVE_A2A_URL.reset(a2a_url_token)
+        _ACTIVE_A2A_REMOTE_AGENT.reset(a2a_remote_agent_token)
+        _ACTIVE_A2A_MODEL_PROVIDER.reset(a2a_model_provider_token)
+        _ACTIVE_A2A_MODEL_ID.reset(a2a_model_id_token)
 
     def _resolve_client(self) -> OpenAIChatClient:
         """Return an ``OpenAIChatClient`` honouring the user-selected model.
@@ -165,6 +219,30 @@ class AgentManager:
         if active_model:
             return create_openai_chat_client(model_id=active_model)
         return self.client
+
+    def _active_runtime_selection(self) -> RuntimeSelection:
+        return RuntimeSelection(
+            backend=normalize_runtime_backend(_ACTIVE_BACKEND.get()),
+            model_id=_ACTIVE_MODEL_ID.get(),
+            a2a_url=str(_ACTIVE_A2A_URL.get() or "").strip() or None,
+            a2a_remote_agent=str(_ACTIVE_A2A_REMOTE_AGENT.get() or "").strip() or None,
+            a2a_model_provider=str(_ACTIVE_A2A_MODEL_PROVIDER.get() or "").strip() or None,
+            a2a_model_id=str(_ACTIVE_A2A_MODEL_ID.get() or "").strip() or None,
+        )
+
+    def _active_backend(self) -> str:
+        return self._active_runtime_selection().backend
+
+    def _active_runtime_metadata(self) -> dict[str, Any]:
+        selection = self._active_runtime_selection()
+        return MAFRuntime.runtime_metadata(
+            model_id=selection.model_id,
+            backend=selection.backend,
+            a2a_url=selection.a2a_url,
+            a2a_remote_agent=selection.a2a_remote_agent,
+            a2a_model_provider=selection.a2a_model_provider,
+            a2a_model_id=selection.a2a_model_id,
+        )
 
     def select_workflow(self, message: str) -> str:
         return self._fallback_route(message).execution_mode
@@ -3201,6 +3279,15 @@ class AgentManager:
             include_history = bool(_ACTIVE_WORK_ID.get()) and use_work_session
         if store is None:
             store = include_history
+        if self._active_backend() == "a2a":
+            return await self._run_profile_prompt_a2a_async(
+                profile,
+                prompt,
+                include_history=include_history,
+                store=store,
+                use_work_session=use_work_session,
+                tools_enabled=True,
+            )
         profile_request_id = make_id("req")
         agent, _ = build_profile_agent(
             profile,
@@ -3303,6 +3390,110 @@ class AgentManager:
         chunks.append(f"User: {user_text}")
         return "\n".join(chunks)
 
+    def _get_a2a_agent(self, selected_url: str) -> Any:
+        if not selected_url:
+            raise RuntimeError("A2A backend selected but A2A agent URL is not configured")
+        cached = self._a2a_agents.get(selected_url)
+        if cached is not None:
+            return cached
+        from agent_framework_a2a import A2AAgent
+
+        self._a2a_agents[selected_url] = A2AAgent(
+            name=f"{self.manager_profile.name} Delegated A2A",
+            description="Remote A2A-backed delegated Chanakya specialist.",
+            url=selected_url,
+        )
+        return self._a2a_agents[selected_url]
+
+    def _create_a2a_ephemeral_session(self, session_scope: str, selected_url: str) -> Any:
+        self._a2a_session_sequence += 1
+        current_session_id = _ACTIVE_SESSION_ID.get() or make_id("session")
+        scoped_session_id = (
+            f"a2a:{selected_url}:{current_session_id}:{session_scope}:{self._a2a_session_sequence}"
+        )
+        return self._get_a2a_agent(selected_url).create_session(session_id=scoped_session_id)
+
+    @staticmethod
+    def _build_a2a_user_prompt(*, system_prompt: str, prompt: str) -> str:
+        return (
+            "Follow the agent instructions below exactly.\n\n"
+            f"Agent instructions:\n{system_prompt}\n\n"
+            f"User task:\n{prompt}"
+        )
+
+    async def _run_profile_prompt_a2a_async(
+        self,
+        profile: AgentProfileModel,
+        prompt: str,
+        *,
+        include_history: bool,
+        store: bool,
+        use_work_session: bool,
+        tools_enabled: bool,
+    ) -> str:
+        selection = self._active_runtime_selection()
+        selected_url = selection.a2a_url or get_a2a_agent_url()
+        if not selected_url:
+            raise RuntimeError("A2A backend selected but A2A agent URL is not configured")
+        profile_request_id = make_id("req")
+        profile_session_id = (
+            self._resolve_profile_session_id(profile)
+            if include_history and use_work_session
+            else None
+        )
+        if tools_enabled:
+            system_prompt = build_profile_agent_config_for_usage(
+                profile,
+                usage_text=prompt,
+                repo_root=Path(__file__).resolve().parents[1],
+            ).system_prompt
+        else:
+            system_prompt = load_agent_prompt(
+                profile,
+                repo_root=Path(__file__).resolve().parents[1],
+                usage_text=prompt,
+            )
+        user_prompt = self._build_a2a_user_prompt(system_prompt=system_prompt, prompt=prompt)
+        if include_history:
+            user_prompt = self._build_seeded_history_prompt_for_session(
+                session_id=profile_session_id,
+                user_text=user_prompt,
+            )
+        a2a_prompt = MAFRuntime._build_a2a_prompt(
+            text=user_prompt,
+            remote_agent=selection.a2a_remote_agent,
+            model_provider=selection.a2a_model_provider,
+            model_id=selection.a2a_model_id,
+            ephemeral_session=True,
+        )
+        session = self._create_a2a_ephemeral_session(profile.id, selected_url)
+        response = await with_transient_retry(
+            lambda: asyncio.wait_for(
+                self._get_a2a_agent(selected_url).run(
+                    MAFRuntime._build_a2a_messages(text=a2a_prompt, remote_context_id=None),
+                    session=session,
+                ),
+                timeout=self._resolve_request_timeout_seconds(prompt),
+            ),
+            label=f"profile_a2a:{profile.id}",
+        )
+        response_text = MAFRuntime._extract_a2a_response_text(response)
+        if store and profile_session_id:
+            self.store.add_message(
+                profile_session_id,
+                "user",
+                prompt,
+                request_id=profile_request_id,
+            )
+            if response_text:
+                self.store.add_message(
+                    profile_session_id,
+                    "assistant",
+                    response_text,
+                    request_id=profile_request_id,
+                )
+        return response_text
+
     def _extract_profile_response_text(self, response: Any) -> str:
         flattened = self._flatten_output_text(response)
         if flattened:
@@ -3318,6 +3509,15 @@ class AgentManager:
         profile: AgentProfileModel,
         prompt: str,
     ) -> str:
+        if self._active_backend() == "a2a":
+            return await self._run_profile_prompt_a2a_async(
+                profile,
+                prompt,
+                include_history=False,
+                store=False,
+                use_work_session=False,
+                tools_enabled=False,
+            )
         repo_root = Path(__file__).resolve().parents[1]
         agent = Agent(
             client=self._resolve_client(),
@@ -3380,6 +3580,32 @@ class AgentManager:
                 "participant_ids": [profile.id for profile in participants],
             },
         )
+        if self._active_backend() == "a2a":
+            outputs: list[str] = []
+            prior_chunks: list[str] = []
+            for index, profile in enumerate(participants):
+                stage_prompt = message
+                if index > 0:
+                    stage_prompt = "\n\n".join(
+                        [
+                            f"Workflow type: {workflow_type}",
+                            f"Original workflow prompt:\n{message}",
+                            "Previous stage outputs:",
+                            *prior_chunks,
+                            "Produce your stage output only.",
+                        ]
+                    )
+                output = await self._run_profile_prompt_a2a_async(
+                    profile,
+                    stage_prompt,
+                    include_history=False,
+                    store=False,
+                    use_work_session=False,
+                    tools_enabled=True,
+                )
+                outputs.append(output)
+                prior_chunks.append(f"{profile.name}:\n{output}")
+            return outputs
         participant_agents = [
             build_profile_agent(
                 profile,

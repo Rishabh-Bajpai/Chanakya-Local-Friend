@@ -126,6 +126,35 @@ class ChatService:
         self._triage_client = OpenAIChatClient(env_file_path=".env")
         self._conversation_layer = ConversationLayerSupport()
 
+    @staticmethod
+    def _runtime_snapshot_from_metadata(runtime_meta: dict[str, object]) -> dict[str, str | None]:
+        backend = normalize_runtime_backend(runtime_meta.get("backend"))
+        return {
+            "backend": backend,
+            "model_id": str(runtime_meta.get("model") or "").strip() or None,
+            "a2a_url": str(runtime_meta.get("endpoint") or "").strip() or None
+            if backend == "a2a"
+            else None,
+            "a2a_remote_agent": str(runtime_meta.get("a2a_remote_agent") or "").strip() or None,
+            "a2a_model_provider": str(runtime_meta.get("a2a_model_provider") or "").strip() or None,
+            "a2a_model_id": str(runtime_meta.get("a2a_model_id") or "").strip() or None,
+        }
+
+    @staticmethod
+    def _runtime_snapshot_from_task_input(
+        input_json: dict[str, object] | None,
+    ) -> dict[str, str | None]:
+        payload = dict((input_json or {}).get("runtime_config") or {})
+        backend = normalize_runtime_backend(payload.get("backend"))
+        return {
+            "backend": backend,
+            "model_id": str(payload.get("model_id") or "").strip() or None,
+            "a2a_url": str(payload.get("a2a_url") or "").strip() or None,
+            "a2a_remote_agent": str(payload.get("a2a_remote_agent") or "").strip() or None,
+            "a2a_model_provider": str(payload.get("a2a_model_provider") or "").strip() or None,
+            "a2a_model_id": str(payload.get("a2a_model_id") or "").strip() or None,
+        }
+
     def _build_conversation_layer_result(
         self,
         *,
@@ -897,6 +926,7 @@ class ChatService:
             a2a_model_provider=a2a_model_provider,
             a2a_model_id=a2a_model_id,
         )
+        runtime_snapshot = self._runtime_snapshot_from_metadata(runtime_meta)
         prior_messages = self.store.list_messages(session_id)[-8:]
         self.store.add_message(session_id, "user", message, request_id=request_id)
         self.store.create_request(
@@ -915,7 +945,7 @@ class ChatService:
             status=TASK_STATUS_CREATED,
             owner_agent_id=self.runtime.profile.id,
             task_type="chat_request",
-            input_json={"message": message},
+            input_json={"message": message, "runtime_config": runtime_snapshot},
         )
 
         debug_log(
@@ -1022,6 +1052,11 @@ class ChatService:
                     session_id=session_id,
                     work_id=work_id,
                     model_id=model_id,
+                    backend=runtime_snapshot["backend"],
+                    a2a_url=runtime_snapshot["a2a_url"],
+                    a2a_remote_agent=runtime_snapshot["a2a_remote_agent"],
+                    a2a_model_provider=runtime_snapshot["a2a_model_provider"],
+                    a2a_model_id=runtime_snapshot["a2a_model_id"],
                 )
                 try:
                     followup_artifacts = self._resolve_targeted_writer_followup_artifacts(
@@ -1214,9 +1249,21 @@ class ChatService:
                 },
             )
         elif task_status != TASK_STATUS_WAITING_INPUT:
+            actual_runtime_meta = (
+                runtime_meta
+                if manager_result is None
+                else self.runtime.runtime_metadata(
+                    model_id=runtime_snapshot["model_id"],
+                    backend=runtime_snapshot["backend"],
+                    a2a_url=runtime_snapshot["a2a_url"],
+                    a2a_remote_agent=runtime_snapshot["a2a_remote_agent"],
+                    a2a_model_provider=runtime_snapshot["a2a_model_provider"],
+                    a2a_model_id=runtime_snapshot["a2a_model_id"],
+                )
+            )
             response_metadata = {
-                "runtime": str(runtime_meta.get("runtime") or "maf_agent"),
-                "core_agent_backend": str(runtime_meta.get("backend") or backend or "local"),
+                "runtime": str(actual_runtime_meta.get("runtime") or "maf_agent"),
+                "core_agent_backend": str(actual_runtime_meta.get("backend") or "local"),
                 "response_mode": response_mode,
                 "tool_calls_used": direct_tool_calls_used,
                 "root_task_id": root_task_id,
@@ -1231,6 +1278,16 @@ class ChatService:
                 "waiting_task_id": waiting_task_id,
                 "input_prompt": input_prompt,
             }
+            if manager_result is not None:
+                for key in (
+                    "model",
+                    "endpoint",
+                    "a2a_remote_agent",
+                    "a2a_model_provider",
+                    "a2a_model_id",
+                ):
+                    if key in actual_runtime_meta:
+                        response_metadata[key] = actual_runtime_meta.get(key)
             run_metadata = getattr(run_result, "metadata", None) if run_result is not None else None
             if isinstance(run_metadata, dict):
                 response_metadata.update(run_metadata)
@@ -1465,11 +1522,19 @@ class ChatService:
             agent_id=self.runtime.profile.id,
             session_id=session_id,
         )
-        runtime_meta = self.runtime.runtime_metadata()
         root_task_id = request.root_task_id
         if root_task_id is None:
             raise RuntimeError("Waiting task request is missing a root task")
         root_task = self.store.get_task(root_task_id)
+        runtime_snapshot = self._runtime_snapshot_from_task_input(root_task.input_json)
+        runtime_meta = self.runtime.runtime_metadata(
+            model_id=runtime_snapshot["model_id"],
+            backend=runtime_snapshot["backend"],
+            a2a_url=runtime_snapshot["a2a_url"],
+            a2a_remote_agent=runtime_snapshot["a2a_remote_agent"],
+            a2a_model_provider=runtime_snapshot["a2a_model_provider"],
+            a2a_model_id=runtime_snapshot["a2a_model_id"],
+        )
         if root_task.status == TASK_STATUS_WAITING_INPUT:
             resumed_at = now_iso()
             self.store.update_task(root_task_id, status=TASK_STATUS_IN_PROGRESS, finished_at=None)
@@ -1506,7 +1571,12 @@ class ChatService:
         context_tokens = self.manager.bind_execution_context(
             session_id=session_id,
             work_id=work_id,
-            model_id=(self.store.get_runtime_config() or {}).get("model_id"),
+            model_id=runtime_snapshot["model_id"],
+            backend=runtime_snapshot["backend"],
+            a2a_url=runtime_snapshot["a2a_url"],
+            a2a_remote_agent=runtime_snapshot["a2a_remote_agent"],
+            a2a_model_provider=runtime_snapshot["a2a_model_provider"],
+            a2a_model_id=runtime_snapshot["a2a_model_id"],
         )
         try:
             result = self.manager.resume_waiting_input(
@@ -1527,6 +1597,7 @@ class ChatService:
                 route=_WAITING_INPUT_ROUTE,
                 metadata={
                     "runtime": "maf_agent",
+                    "core_agent_backend": str(runtime_meta.get("backend") or "local"),
                     "response_mode": result.workflow_type,
                     "tool_calls_used": 0,
                     "root_task_id": root_task_id,
@@ -1548,6 +1619,7 @@ class ChatService:
                 route="delegated_manager",
                 metadata={
                     "runtime": "maf_agent",
+                    "core_agent_backend": str(runtime_meta.get("backend") or "local"),
                     "response_mode": result.workflow_type,
                     "tool_calls_used": 0,
                     "root_task_id": root_task_id,
