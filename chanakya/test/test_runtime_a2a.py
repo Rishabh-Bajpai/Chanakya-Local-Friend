@@ -135,3 +135,66 @@ def test_runtime_metadata_prefers_request_scoped_a2a_config() -> None:
 
     assert metadata["endpoint"] == "http://a2a.example.test"
     assert metadata["model"] == "demo-model"
+
+
+def test_runtime_restores_persisted_remote_context_after_recreation(monkeypatch) -> None:
+    monkeypatch.setenv("A2A_AGENT_URL", "http://127.0.0.1:18770")
+    engine = build_engine("sqlite:///:memory:")
+    init_database(engine)
+    session_factory = build_session_factory(engine)
+
+    first_runtime = MAFRuntime(
+        _build_profile(),
+        session_factory,
+        a2a_agent_factory=_FakeA2AAgent,
+    )
+    first_runtime.run(
+        "session-persisted",
+        "hello",
+        request_id="req-4",
+        backend="a2a",
+        a2a_url="http://127.0.0.1:18770",
+    )
+
+    second_runtime = MAFRuntime(
+        _build_profile(),
+        session_factory,
+        a2a_agent_factory=_FakeA2AAgent,
+    )
+    second_runtime.run(
+        "session-persisted",
+        "follow up",
+        request_id="req-5",
+        backend="a2a",
+        a2a_url="http://127.0.0.1:18770",
+    )
+
+    second_agent = second_runtime._a2a_agent["http://127.0.0.1:18770"]
+    assert second_agent.calls[0]["additional_properties"] == {"context_id": "ctx-123"}
+
+
+def test_runtime_clear_session_state_removes_persisted_context(monkeypatch) -> None:
+    monkeypatch.setenv("A2A_AGENT_URL", "http://127.0.0.1:18770")
+    engine = build_engine("sqlite:///:memory:")
+    init_database(engine)
+    session_factory = build_session_factory(engine)
+    runtime = MAFRuntime(
+        _build_profile(),
+        session_factory,
+        a2a_agent_factory=_FakeA2AAgent,
+    )
+
+    runtime.run(
+        "session-clear",
+        "hello",
+        request_id="req-6",
+        backend="a2a",
+        a2a_url="http://127.0.0.1:18770",
+    )
+    runtime.clear_session_state("session-clear")
+
+    context = runtime.session_context_store.get(
+        "session-clear",
+        target_key=runtime._a2a_target_key("http://127.0.0.1:18770"),
+    )
+    assert context["remote_context_id"] is None

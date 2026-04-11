@@ -20,7 +20,17 @@ class _ManagerStub:
         return False
 
 
-def _build_test_app(tmp_path: Path, monkeypatch: MonkeyPatch) -> Flask:
+class _RuntimeAppStub:
+    def clear_session_state(self, session_id: str) -> None:
+        return None
+
+
+def _build_test_app(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    *,
+    runtime_factory=None,
+) -> Flask:
     seed_dir = tmp_path / "chanakya" / "seeds"
     seed_dir.mkdir(parents=True, exist_ok=True)
     (seed_dir / "agents.json").write_text(
@@ -84,7 +94,11 @@ def _build_test_app(tmp_path: Path, monkeypatch: MonkeyPatch) -> Flask:
             }
         ],
     )
-    monkeypatch.setattr(app_module, "MAFRuntime", lambda profile, session_factory: object())
+    monkeypatch.setattr(
+        app_module,
+        "MAFRuntime",
+        runtime_factory or (lambda profile, session_factory: _RuntimeAppStub()),
+    )
     monkeypatch.setattr(
         app_module, "AgentManager", lambda store, session_factory, manager_profile: _ManagerStub()
     )
@@ -230,6 +244,38 @@ def test_api_chat_passes_backend_choice_to_chat_service(
     assert captured[0].calls[0]["a2a_model_id"] == "qwen/qwen3.5-9b"
     payload = response.get_json()
     assert payload["metadata"]["core_agent_backend"] == "a2a"
+
+
+def test_api_a2a_options_returns_discovered_agents_and_models(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        app_module,
+        "discover_a2a_options",
+        lambda url: {
+            "opencode_url": "http://127.0.0.1:18496",
+            "remote_agents": ["build", "planner"],
+            "providers": ["lmstudio"],
+            "models": [
+                {
+                    "provider": "lmstudio",
+                    "id": "qwen/qwen3.5-9b",
+                    "label": "Qwen 3.5 9B",
+                }
+            ],
+        },
+    )
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.get("/api/a2a/options?url=http://127.0.0.1:18770")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["remote_agents"] == ["build", "planner"]
+    assert payload["providers"] == ["lmstudio"]
+    assert payload["models"][0]["id"] == "qwen/qwen3.5-9b"
 
 
 def test_agent_create_api_uses_unique_ids_for_duplicate_names(
@@ -638,3 +684,32 @@ def test_work_delete_api_removes_work_history(
 
     history_response = client.get(f"/api/works/{work_id}/history")
     assert history_response.status_code == 404
+
+
+def test_work_delete_clears_runtime_session_state(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    cleared: list[str] = []
+
+    class _RuntimeCaptureStub:
+        def clear_session_state(self, session_id: str) -> None:
+            cleared.append(session_id)
+
+    app = _build_test_app(
+        tmp_path,
+        monkeypatch,
+        runtime_factory=lambda profile, session_factory: _RuntimeCaptureStub(),
+    )
+    client = app.test_client()
+
+    created = client.post(
+        "/api/works",
+        json={"title": "Disposable Work", "description": "delete me"},
+    )
+    work_id = created.get_json()["id"]
+
+    deleted = client.delete(f"/api/works/{work_id}")
+
+    assert deleted.status_code == 200
+    assert len(cleared) == 2

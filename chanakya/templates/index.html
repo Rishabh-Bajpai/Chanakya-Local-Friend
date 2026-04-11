@@ -1114,30 +1114,22 @@
                     A2A Endpoint
                     <input id="a2aUrlInput" type="url" placeholder="http://127.0.0.1:18770" />
                   </label>
+                  <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
                   <label>
                     A2A Agent
-                    <input id="a2aAgentInput" type="text" list="a2aAgentOptions" placeholder="build" />
-                    <datalist id="a2aAgentOptions"></datalist>
+                    <select id="a2aAgentInput"></select>
                   </label>
                   <label>
                     A2A Model Provider
-                    <input id="a2aModelProviderInput" type="text" list="a2aModelProviderOptions" placeholder="lmstudio" />
-                    <datalist id="a2aModelProviderOptions">
-                      <option value="lmstudio"></option>
-                      <option value="openai"></option>
-                      <option value="ollama"></option>
-                      <option value="anthropic"></option>
-                      <option value="google"></option>
-                      <option value="openrouter"></option>
-                    </datalist>
+                    <select id="a2aModelProviderInput"></select>
                   </label>
                   <label>
                     A2A Model
-                    <input id="a2aModelIdInput" type="text" list="a2aModelIdOptions" placeholder="qwen/qwen3.5-9b" />
-                    <datalist id="a2aModelIdOptions"></datalist>
+                    <select id="a2aModelIdInput"></select>
                   </label>
                 </div>
                 <p class="control-group-note">In A2A mode, Chanakya sends the next chat turn through the configured endpoint and can include remote agent and model overrides.</p>
+                <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
               </section>
               <section class="control-group">
                 <p class="control-group-title">AIR Voice</p>
@@ -1367,11 +1359,11 @@
     const airRefreshModelsButton = document.getElementById("airRefreshModelsButton");
     const chatBackendSelect = document.getElementById("chatBackendSelect");
     const a2aUrlInput = document.getElementById("a2aUrlInput");
+    const a2aRefreshOptionsButton = document.getElementById("a2aRefreshOptionsButton");
     const a2aAgentInput = document.getElementById("a2aAgentInput");
     const a2aModelProviderInput = document.getElementById("a2aModelProviderInput");
     const a2aModelIdInput = document.getElementById("a2aModelIdInput");
-    const a2aAgentOptions = document.getElementById("a2aAgentOptions");
-    const a2aModelIdOptions = document.getElementById("a2aModelIdOptions");
+    const a2aDiscoveryStatus = document.getElementById("a2aDiscoveryStatus");
     const airVoiceStatus = document.getElementById("airVoiceStatus");
     const conversationQueueStatus = document.getElementById("conversationQueueStatus");
     const requestTrace = document.getElementById("requestTrace");
@@ -1412,6 +1404,7 @@
     let selectedAgentId = null;
     let airVoiceController = null;
     let availableTools = [];
+    let a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
     const STORAGE_KEY = "chanakya-active-session";
     const CHAT_BACKEND_STORAGE_KEY = "chanakya-chat-backend";
     const A2A_SETTINGS_STORAGE_KEY = "chanakya-a2a-settings";
@@ -1447,11 +1440,9 @@
           agent: typeof parsed.agent === "string" ? parsed.agent.trim() : "",
           modelProvider: typeof parsed.modelProvider === "string" ? parsed.modelProvider.trim() : "",
           modelId: typeof parsed.modelId === "string" ? parsed.modelId.trim() : "",
-          recentAgents: Array.isArray(parsed.recentAgents) ? parsed.recentAgents.filter((item) => typeof item === "string") : [],
-          recentModels: Array.isArray(parsed.recentModels) ? parsed.recentModels.filter((item) => typeof item === "string") : [],
         };
       } catch {
-        return { url: DEFAULT_A2A_URL || "", agent: "", modelProvider: "", modelId: "", recentAgents: [], recentModels: [] };
+        return { url: DEFAULT_A2A_URL || "", agent: "", modelProvider: "", modelId: "" };
       }
     }
 
@@ -1469,38 +1460,122 @@
         agent: a2aAgentInput ? a2aAgentInput.value.trim() : stored.agent,
         modelProvider: a2aModelProviderInput ? a2aModelProviderInput.value.trim() : stored.modelProvider,
         modelId: a2aModelIdInput ? a2aModelIdInput.value.trim() : stored.modelId,
-        recentAgents: stored.recentAgents || [],
-        recentModels: stored.recentModels || [],
       };
     }
 
-    function updateA2ADatalists(settings) {
-      if (a2aAgentOptions) {
-        a2aAgentOptions.replaceChildren(...(settings.recentAgents || []).map((item) => {
-          const option = document.createElement("option");
-          option.value = item;
-          return option;
-        }));
+    function setA2ADiscoveryStatus(text, isError = false) {
+      if (!a2aDiscoveryStatus) {
+        return;
       }
-      if (a2aModelIdOptions) {
-        a2aModelIdOptions.replaceChildren(...(settings.recentModels || []).map((item) => {
+      a2aDiscoveryStatus.textContent = text || "";
+      a2aDiscoveryStatus.style.color = isError ? "#e74c3c" : "#8e8882";
+    }
+
+    function setA2ASelectLoading(isLoading) {
+      [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((select) => {
+        if (!select) {
+          return;
+        }
+        if (isLoading) {
+          select.replaceChildren();
           const option = document.createElement("option");
-          option.value = item;
-          return option;
-        }));
+          option.value = "";
+          option.textContent = "Loading...";
+          select.appendChild(option);
+          select.value = "";
+        }
+      });
+    }
+
+    function setSelectOptions(select, values, selectedValue, placeholder, labels = {}) {
+      if (!select) {
+        return;
       }
+      const items = Array.from(new Set((values || []).filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim())));
+      if (selectedValue && !items.includes(selectedValue)) {
+        items.unshift(selectedValue);
+      }
+      select.replaceChildren();
+      const placeholderOption = document.createElement("option");
+      placeholderOption.value = "";
+      placeholderOption.textContent = placeholder;
+      select.appendChild(placeholderOption);
+      items.forEach((item) => {
+        const option = document.createElement("option");
+        option.value = item;
+        option.textContent = labels[item] || item;
+        select.appendChild(option);
+      });
+      select.value = selectedValue && items.includes(selectedValue) ? selectedValue : "";
+    }
+
+    function syncA2AModelOptions() {
+      const settings = getCurrentA2ASettings();
+      const provider = settings.modelProvider;
+      const modelItems = (a2aDiscoveredOptions.models || []).filter((item) => !provider || item.provider === provider);
+      const labels = Object.fromEntries(modelItems.map((item) => [item.id, `${item.label} (${item.provider})`]));
+      setSelectOptions(a2aModelIdInput, modelItems.map((item) => item.id), settings.modelId, "Select A2A model", labels);
+    }
+
+    function applyA2ADiscoveryOptions() {
+      const settings = getCurrentA2ASettings();
+      const providers = a2aDiscoveredOptions.providers || [];
+      setSelectOptions(a2aAgentInput, a2aDiscoveredOptions.remote_agents || [], settings.agent, "Select A2A agent");
+      setSelectOptions(a2aModelProviderInput, providers, settings.modelProvider, "Select model provider");
+      syncA2AModelOptions();
     }
 
     function persistCurrentA2ASettings() {
-      const settings = getCurrentA2ASettings();
-      if (settings.agent && !settings.recentAgents.includes(settings.agent)) {
-        settings.recentAgents = [settings.agent, ...settings.recentAgents].slice(0, 8);
+      storeA2ASettings(getCurrentA2ASettings());
+    }
+
+    function ensureDefaultA2AUrl() {
+      if (!a2aUrlInput) {
+        return "";
       }
-      if (settings.modelId && !settings.recentModels.includes(settings.modelId)) {
-        settings.recentModels = [settings.modelId, ...settings.recentModels].slice(0, 8);
+      const current = a2aUrlInput.value.trim();
+      if (current) {
+        return current;
       }
-      storeA2ASettings(settings);
-      updateA2ADatalists(settings);
+      const fallback = String(DEFAULT_A2A_URL || "").trim();
+      if (fallback) {
+        a2aUrlInput.value = fallback;
+        persistCurrentA2ASettings();
+      }
+      return fallback;
+    }
+
+    async function refreshA2AOptions() {
+      const url = ensureDefaultA2AUrl();
+      if (!url) {
+        a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+        applyA2ADiscoveryOptions();
+        setA2ADiscoveryStatus("Enter an A2A endpoint to load agent and model options.");
+        return;
+      }
+      setA2ASelectLoading(true);
+      setA2ADiscoveryStatus("Loading A2A agents and models...");
+      try {
+        const response = await fetch(`/api/a2a/options?url=${encodeURIComponent(url)}`);
+        const payload = await readJsonResponse(response);
+        if (!response.ok) {
+          throw new Error(payload.error || "Failed to load A2A options");
+        }
+        a2aDiscoveredOptions = {
+          remote_agents: Array.isArray(payload.remote_agents) ? payload.remote_agents : [],
+          providers: Array.isArray(payload.providers) ? payload.providers : [],
+          models: Array.isArray(payload.models) ? payload.models : [],
+        };
+        applyA2ADiscoveryOptions();
+        persistCurrentA2ASettings();
+        setA2ADiscoveryStatus(
+          `Loaded ${a2aDiscoveredOptions.remote_agents.length} agent${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
+        );
+      } catch (error) {
+        a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+        applyA2ADiscoveryOptions();
+        setA2ADiscoveryStatus(String(error && error.message ? error.message : error), true);
+      }
     }
 
     function updateRuntimeConfigState() {
@@ -1509,7 +1584,7 @@
       if (airLlmModel) {
         airLlmModel.disabled = usingA2A;
       }
-      [a2aUrlInput, a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((node) => {
+      [a2aUrlInput, a2aAgentInput, a2aModelProviderInput, a2aModelIdInput, a2aRefreshOptionsButton].forEach((node) => {
         if (node) {
           node.disabled = !usingA2A;
         }
@@ -1798,26 +1873,48 @@
 
     if (chatBackendSelect) {
       chatBackendSelect.value = loadStoredChatBackend();
-      chatBackendSelect.addEventListener("change", () => {
+      chatBackendSelect.addEventListener("change", async () => {
         storeChatBackend(getSelectedChatBackend());
         updateRuntimeConfigState();
+        if (getSelectedChatBackend() === "a2a") {
+          ensureDefaultA2AUrl();
+          await refreshA2AOptions();
+        }
       });
     }
 
     {
       const a2aSettings = loadStoredA2ASettings();
       if (a2aUrlInput) a2aUrlInput.value = a2aSettings.url || "";
-      if (a2aAgentInput) a2aAgentInput.value = a2aSettings.agent || "";
-      if (a2aModelProviderInput) a2aModelProviderInput.value = a2aSettings.modelProvider || "";
-      if (a2aModelIdInput) a2aModelIdInput.value = a2aSettings.modelId || "";
-      updateA2ADatalists(a2aSettings);
       [a2aUrlInput, a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((node) => {
         if (node) {
           node.addEventListener("change", persistCurrentA2ASettings);
           node.addEventListener("blur", persistCurrentA2ASettings);
         }
       });
+      if (a2aUrlInput) {
+        a2aUrlInput.addEventListener("change", refreshA2AOptions);
+        a2aUrlInput.addEventListener("blur", refreshA2AOptions);
+      }
+      if (a2aModelProviderInput) {
+        a2aModelProviderInput.addEventListener("change", () => {
+          syncA2AModelOptions();
+          persistCurrentA2ASettings();
+        });
+      }
+      if (a2aRefreshOptionsButton) {
+        a2aRefreshOptionsButton.addEventListener("click", refreshA2AOptions);
+      }
       updateRuntimeConfigState();
+      applyA2ADiscoveryOptions();
+      if (getSelectedChatBackend() === "a2a") {
+        ensureDefaultA2AUrl();
+      }
+      if (ensureDefaultA2AUrl()) {
+        refreshA2AOptions();
+      } else {
+        setA2ADiscoveryStatus("Enter an A2A endpoint to load agent and model options.");
+      }
     }
 
     function replaceChildren(node, children) {

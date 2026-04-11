@@ -32,6 +32,7 @@ from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
 from chanakya.services.sandbox_workspace import get_shared_workspace_root
+from chanakya.services.a2a_discovery import discover_a2a_options
 from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
 
@@ -519,6 +520,8 @@ def create_app() -> Flask:
         except KeyError as exc:
             message = str(exc.args[0]) if exc.args else str(exc)
             return jsonify({"error": message}), 404
+        for session_id in deleted_session_ids:
+            runtime.clear_session_state(session_id)
         store.log_event(
             "work_deleted",
             {
@@ -529,6 +532,17 @@ def create_app() -> Flask:
         return jsonify(
             {"deleted": True, "work_id": work_id, "session_count": len(deleted_session_ids)}
         )
+
+    @app.get("/api/a2a/options")
+    def api_a2a_options() -> Any:
+        a2a_url = str(request.args.get("url") or "").strip()
+        if not a2a_url:
+            return jsonify({"error": "Missing required query parameter: url"}), 400
+        try:
+            options = discover_a2a_options(a2a_url)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 502
+        return jsonify(options)
 
     @app.get("/api/works/<work_id>/sessions")
     def api_work_sessions(work_id: str) -> Any:

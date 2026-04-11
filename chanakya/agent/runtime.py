@@ -22,6 +22,7 @@ from chanakya.history_provider import SQLAlchemyHistoryProvider
 from chanakya.mcp_runtime import ToolExecutionTrace, extract_tool_execution_traces
 from chanakya.model import AgentProfileModel
 from chanakya.services.async_loop import run_in_maf_loop
+from chanakya.store import AgentSessionContextRepository
 from chanakya.services.tool_loader import get_cached_tools, get_tools_availability
 
 
@@ -160,6 +161,7 @@ class MAFRuntime:
             store_inputs=False,
             store_outputs=False,
         )
+        self.session_context_store = AgentSessionContextRepository(session_factory)
         self.default_backend = get_core_agent_backend()
         self.a2a_agent_url = get_a2a_agent_url()
         self.a2a_agent_factory = a2a_agent_factory
@@ -220,6 +222,15 @@ class MAFRuntime:
                 a2a_model_id=a2a_model_id,
             )
         )
+
+    def clear_session_state(self, session_id: str) -> None:
+        self.session_context_store.delete(session_id)
+        for key in list(self._a2a_remote_context_by_session.keys()):
+            if key.endswith(f":{session_id}"):
+                self._a2a_remote_context_by_session.pop(key, None)
+        for key in list(self._a2a_sessions.keys()):
+            if key.endswith(f":{session_id}"):
+                self._a2a_sessions.pop(key, None)
 
     async def _run_async_in_loop(
         self,
@@ -349,8 +360,12 @@ class MAFRuntime:
         selected_url = str(a2a_url or self.a2a_agent_url or "").strip()
         agent = self._get_a2a_agent(selected_url)
         session = self._get_a2a_session(session_id, selected_url)
-        context_key = self._a2a_context_key(session_id, selected_url)
-        remote_context_id = self._a2a_remote_context_by_session.get(context_key)
+        target_key = self._a2a_target_key(selected_url)
+        stored_context = self.session_context_store.get(session_id, target_key=target_key)
+        remote_context_id = str(stored_context.get("remote_context_id") or "").strip() or None
+        if remote_context_id is None:
+            context_key = self._a2a_context_key(session_id, selected_url)
+            remote_context_id = self._a2a_remote_context_by_session.get(context_key)
         prompt = self._build_a2a_prompt(
             text=text,
             remote_agent=a2a_remote_agent,
@@ -402,8 +417,16 @@ class MAFRuntime:
 
         reply_text = self._extract_a2a_response_text(response)
         new_context_id = self._extract_a2a_context_id(response)
+        context_key = self._a2a_context_key(session_id, selected_url)
         if new_context_id:
             self._a2a_remote_context_by_session[context_key] = new_context_id
+        self.session_context_store.save(
+            session_id,
+            backend="a2a",
+            remote_context_id=new_context_id or remote_context_id,
+            remote_agent_url=selected_url,
+            target_key=target_key,
+        )
 
         debug_log(
             "maf_runtime_after_a2a_run",
@@ -466,6 +489,10 @@ class MAFRuntime:
     @staticmethod
     def _a2a_context_key(session_id: str, selected_url: str) -> str:
         return f"{selected_url}:{session_id}"
+
+    @staticmethod
+    def _a2a_target_key(selected_url: str) -> str:
+        return f"a2a::{selected_url}"
 
     @staticmethod
     def _build_a2a_messages(*, text: str, remote_context_id: str | None) -> list[Message]:
