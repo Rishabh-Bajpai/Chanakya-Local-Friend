@@ -19,6 +19,7 @@ from chanakya.config import (
     get_air_dashboard_url,
     get_air_server_url,
     get_air_status_url,
+    get_ntfy_default_server_url,
     force_subagents_enabled,
     get_data_dir,
     get_database_url,
@@ -30,6 +31,12 @@ from chanakya.domain import make_id, now_iso
 from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
+from chanakya.services.ntfy import (
+    NtfyClient,
+    NtfyNotificationDispatcher,
+    build_ntfy_qr_svg,
+    is_valid_ntfy_topic,
+)
 from chanakya.services.sandbox_workspace import get_shared_workspace_root
 from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
@@ -116,7 +123,18 @@ def create_app() -> Flask:
     manager_profile = store.get_agent_profile("agent_manager")
     runtime = MAFRuntime(chanakya_profile, session_factory)
     manager = AgentManager(store, session_factory, manager_profile)
-    chat_service = ChatService(store, runtime, manager)
+    ntfy_dispatcher = NtfyNotificationDispatcher(store, NtfyClient())
+    try:
+        chat_service = ChatService(
+            store,
+            runtime,
+            manager,
+            notification_dispatcher=ntfy_dispatcher,
+        )
+    except TypeError:
+        chat_service = ChatService(store, runtime, manager)
+    app.extensions["chanakya_store"] = store
+    app.extensions["ntfy_dispatcher"] = ntfy_dispatcher
 
     # --- Monkey-patch the store to publish SSE events on mutations ----------
     _original_create_task_event = store.create_task_event
@@ -398,6 +416,61 @@ def create_app() -> Flask:
     def api_tools_availability() -> Any:
         tools = get_tools_availability()
         return jsonify({"tools": tools})
+
+    @app.get("/api/notifications/ntfy")
+    def api_get_ntfy_settings() -> Any:
+        return jsonify(ntfy_dispatcher.get_settings_payload())
+
+    @app.put("/api/notifications/ntfy")
+    def api_put_ntfy_settings() -> Any:
+        payload = request.get_json(silent=True) or {}
+        try:
+            settings = _parse_ntfy_settings_payload(payload)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(ntfy_dispatcher.save_settings(**settings))
+
+    @app.delete("/api/notifications/ntfy")
+    def api_delete_ntfy_settings() -> Any:
+        return jsonify(ntfy_dispatcher.delete_settings())
+
+    @app.post("/api/notifications/ntfy/test")
+    def api_test_ntfy_settings() -> Any:
+        try:
+            result = ntfy_dispatcher.send_test_notification()
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        if not result.ok:
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "status": result.status,
+                        "error": result.error or "Notification publish failed",
+                    }
+                ),
+                502,
+            )
+        return jsonify({"ok": True, "status": result.status})
+
+    @app.get("/api/notifications/ntfy/qr.svg")
+    def api_ntfy_qr_svg() -> Response:
+        server_url = (request.args.get("server_url") or get_ntfy_default_server_url()).strip()
+        topic = (request.args.get("topic") or "").strip()
+        if not server_url.startswith("https://"):
+            return Response(
+                "server_url must start with https://", status=400, mimetype="text/plain"
+            )
+        if not is_valid_ntfy_topic(topic):
+            return Response(
+                "topic must be 6-128 chars and use only letters, numbers, dot, underscore, or dash",
+                status=400,
+                mimetype="text/plain",
+            )
+        return Response(
+            build_ntfy_qr_svg(server_url=server_url, topic=topic),
+            mimetype="image/svg+xml",
+        )
 
     @app.get("/api/subagents")
     def api_subagents() -> Any:
@@ -901,6 +974,31 @@ def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "heartbeat_file_path": heartbeat_file_path,
         "is_active": _parse_required_bool(payload, "is_active", default=True),
         "timestamp": now_iso(),
+    }
+
+
+def _parse_ntfy_settings_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    server_url = _parse_optional_string(payload, "server_url") or get_ntfy_default_server_url()
+    if not server_url.startswith("https://"):
+        raise ValueError("server_url must start with https://")
+    topic = _parse_optional_string(payload, "topic")
+    enabled = _parse_required_bool(payload, "enabled", default=False)
+    include_message_preview = _parse_required_bool(
+        payload,
+        "include_message_preview",
+        default=True,
+    )
+    if enabled and not topic:
+        raise ValueError("topic is required when notifications are enabled")
+    if topic and not is_valid_ntfy_topic(topic):
+        raise ValueError(
+            "topic must be 6-128 chars and use only letters, numbers, dot, underscore, or dash"
+        )
+    return {
+        "server_url": server_url.rstrip("/"),
+        "topic": topic,
+        "enabled": enabled,
+        "include_message_preview": include_message_preview,
     }
 
 
