@@ -62,9 +62,34 @@
         padding: 16px;
         border-bottom: 1px solid var(--line);
       }
+      .left .header {
+        padding: 20px 20px 18px;
+        background:
+          linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(216, 107, 74, 0.02) 55%, transparent),
+          rgba(255, 255, 255, 0.01);
+      }
       .header h1,
       .header h2 {
         margin: 0;
+      }
+      .chat .header {
+        padding: 18px 18px 16px;
+        background:
+          linear-gradient(180deg, rgba(58, 138, 135, 0.08), rgba(58, 138, 135, 0.015) 60%, transparent),
+          rgba(255, 255, 255, 0.01);
+      }
+      .history .header {
+        padding: 18px 18px 16px;
+        background:
+          linear-gradient(180deg, rgba(84, 105, 163, 0.14), rgba(84, 105, 163, 0.02) 60%, transparent),
+          rgba(255, 255, 255, 0.01);
+      }
+      .workspace-kicker {
+        margin: 0 0 8px;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #d7b2a7;
       }
       .header p {
         margin: 6px 0 0;
@@ -119,12 +144,36 @@
         border-radius: 999px;
         border: 2px solid rgba(0, 0, 0, 0.25);
       }
+      .left .body {
+        padding: 18px;
+        display: grid;
+        gap: 16px;
+        align-content: start;
+      }
+      .sidebar-block {
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.02);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+      }
+      .sidebar-block-header {
+        padding: 14px 14px 0;
+      }
+      .sidebar-block-header h3 {
+        margin: 0;
+        font-size: 14px;
+      }
+      .sidebar-block-header p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
       .work-form {
         display: grid;
         gap: 8px;
-        margin-bottom: 14px;
-        padding-bottom: 14px;
-        border-bottom: 1px solid var(--line);
+        margin: 0;
+        padding: 14px;
       }
       input,
       textarea,
@@ -161,16 +210,23 @@
         color: var(--muted);
       }
       .work-item {
-        border: 1px solid #3a3a3a;
+        border: 1px solid rgba(255, 255, 255, 0.06);
         border-left: 4px solid var(--ink);
-        border-radius: 12px;
-        padding: 10px;
+        border-radius: 14px;
+        padding: 12px 12px 11px;
         margin-bottom: 10px;
         cursor: pointer;
+        background: rgba(255, 255, 255, 0.02);
+        transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+      }
+      .work-item:hover {
+        transform: translateY(-1px);
+        border-color: rgba(216, 107, 74, 0.28);
+        background: rgba(255, 255, 255, 0.035);
       }
       .work-item.active {
         border-color: var(--accent);
-        box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.3);
+        box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.24), 0 10px 24px rgba(0, 0, 0, 0.18);
       }
       .work-item h3 {
         margin: 0 0 6px;
@@ -184,34 +240,46 @@
       .chat-log {
         flex: 1;
         overflow: auto;
-        padding: 14px;
+        padding: 18px;
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 12px;
+        background:
+          radial-gradient(circle at top right, rgba(58, 138, 135, 0.08), transparent 28%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
       }
       .msg {
         max-width: 86%;
-        border-radius: 14px;
-        padding: 10px 12px;
+        border-radius: 16px;
+        padding: 12px 14px;
+        line-height: 1.5;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
       }
       .msg.user {
         align-self: flex-end;
-        background: #3d2a20;
+        background: linear-gradient(180deg, #4b3024, #3b271e);
+        border: 1px solid rgba(216, 107, 74, 0.2);
       }
       .msg.assistant {
         align-self: flex-start;
-        background: #252525;
-        border: 1px solid #383838;
+        background: linear-gradient(180deg, #262a2d, #1f2225);
+        border: 1px solid rgba(97, 120, 129, 0.24);
       }
       .composer {
         border-top: 1px solid var(--line);
-        padding: 12px;
+        padding: 14px;
         display: grid;
         grid-template-columns: 1fr auto;
         gap: 8px;
+        background: rgba(255, 255, 255, 0.015);
+      }
+      .composer input {
+        min-height: 48px;
+        border-radius: 14px;
+        background: rgba(0, 0, 0, 0.2);
       }
       .control-deck {
-        margin-top: 14px;
+        margin-top: 0;
         border: 1px solid rgba(216, 107, 74, 0.22);
         border-radius: 18px;
         background:
@@ -277,7 +345,7 @@
       }
       .control-grid {
         display: grid;
-        grid-template-columns: 1.15fr 1fr;
+        grid-template-columns: 1fr;
         gap: 14px;
       }
       .control-group {
@@ -313,6 +381,9 @@
       .air-controls {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+      .runtime-models .air-button {
+        grid-column: 1 / -1;
+      }
       .air-models label,
       .runtime-models label {
         display: grid;
@@ -346,6 +417,18 @@
       }
       .air-status[data-state="error"] {
         color: #e74c3c;
+      }
+      .work-list {
+        display: grid;
+        gap: 10px;
+      }
+      .work-list-empty {
+        padding: 14px;
+        border: 1px dashed rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        color: var(--muted);
+        font-size: 12px;
+        background: rgba(255, 255, 255, 0.015);
       }
       .agent-card {
         border: 1px solid #3a3a3a;
@@ -389,15 +472,21 @@
         border-top: 1px solid var(--line);
         padding-top: 12px;
       }
+      .history .body {
+        padding: 18px;
+        background:
+          radial-gradient(circle at top left, rgba(84, 105, 163, 0.08), transparent 25%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+      }
       details.section-toggle {
         margin-top: 14px;
-        border: 1px solid #3a3a3a;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.024);
       }
       details.section-toggle > summary {
         cursor: pointer;
-        padding: 10px 12px;
+        padding: 11px 13px;
         font-weight: 700;
         color: var(--text);
       }
@@ -406,20 +495,21 @@
       }
       details.agent-toggle {
         margin-bottom: 10px;
-        border: 1px solid #343434;
-        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.015);
       }
       details.agent-toggle > summary {
         cursor: pointer;
-        padding: 8px 10px;
+        padding: 10px 12px;
         color: var(--text);
       }
       .flow-item {
-        border: 1px solid #343434;
-        border-radius: 10px;
-        padding: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        padding: 10px;
         margin-bottom: 8px;
-        background: #161616;
+        background: rgba(17, 18, 21, 0.76);
       }
       .flow-meta {
         color: var(--muted);
@@ -599,6 +689,10 @@
       .empty {
         color: var(--muted);
         font-style: italic;
+        padding: 18px;
+        border: 1px dashed rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.018);
       }
       @media (max-width: 1200px) {
         .shell { grid-template-columns: 1fr; }
@@ -662,16 +756,31 @@
     <div class="shell">
       <section class="panel left">
         <div class="header">
+          <p class="workspace-kicker">Workspace Mode</p>
           <h1>Works</h1>
-          <p>Create and reopen long-running work contexts.</p>
+          <p>Create and reopen long-running work contexts without crowding the main chat pane.</p>
           <div class="link-row"><a href="/">Open classic chat</a></div>
+        </div>
+        <div class="body">
+          <section class="sidebar-block">
+            <div class="sidebar-block-header">
+              <h3>New Work</h3>
+              <p>Start a dedicated work context for a report, implementation track, or multi-agent task.</p>
+            </div>
+            <form id="workForm" class="work-form">
+              <input id="workTitle" type="text" placeholder="Work title" required />
+              <textarea id="workDescription" placeholder="Describe the objective (optional)"></textarea>
+              <button id="createWorkButton" type="submit">Create Work</button>
+              <div id="workStatus" class="status"></div>
+            </form>
+          </section>
           <details class="control-deck" open>
             <summary>
               <div class="control-deck-titlebar">
                 <div>
                   <p class="control-deck-kicker">Control Deck</p>
                   <h3>Voice, models, and runtime</h3>
-                  <p>Manage AIR voice and Chanakya chat routing from one compact workspace panel.</p>
+                  <p>Keep workspace chat controls nearby without letting them dominate the sidebar.</p>
                 </div>
                 <span class="control-deck-toggle" aria-hidden="true"></span>
               </div>
@@ -707,7 +816,7 @@
                       <select id="a2aModelIdInput"></select>
                     </label>
                   </div>
-                  <p class="control-group-note">A2A sends the next work-chat turn through the remote agent endpoint. AIR model selection remains active only for local chat replies.</p>
+                  <p class="control-group-note">A2A sends the next work-chat turn through the app-managed bridge. AIR model selection stays active only for local replies.</p>
                   <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
                 </section>
                 <section class="control-group">
@@ -739,15 +848,13 @@
               <div id="conversationQueueStatus" class="air-status"></div>
             </div>
           </details>
-        </div>
-        <div class="body">
-          <form id="workForm" class="work-form">
-            <input id="workTitle" type="text" placeholder="Work title" required />
-            <textarea id="workDescription" placeholder="Describe the objective (optional)"></textarea>
-            <button id="createWorkButton" type="submit">Create Work</button>
-            <div id="workStatus" class="status"></div>
-          </form>
-          <div id="workList"></div>
+          <section class="sidebar-block">
+            <div class="sidebar-block-header">
+              <h3>Saved Workspaces</h3>
+              <p>Reopen an existing context and continue where the workstream left off.</p>
+            </div>
+            <div id="workList" class="work-list"></div>
+          </section>
         </div>
       </section>
 
