@@ -1,0 +1,50 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - paragraph [ref=e5]: Workspace Mode
+      - heading "Works" [level=1] [ref=e6]
+      - paragraph [ref=e7]: Create and reopen long-running work contexts without crowding the main chat pane.
+      - link "Open classic chat" [ref=e9] [cursor=pointer]:
+        - /url: /
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - heading "New Work" [level=3] [ref=e13]
+          - paragraph [ref=e14]: Start a dedicated work context for a report, implementation track, or multi-agent task.
+        - generic [ref=e15]:
+          - textbox "Work title" [ref=e16]
+          - textbox "Describe the objective (optional)" [ref=e17]
+          - button "Create Work" [ref=e18] [cursor=pointer]
+      - group [ref=e20]:
+        - generic "Control Deck Voice, models, and runtime Keep AIR voice controls and chat routing in one place. Any change here applies on the next message." [ref=e21] [cursor=pointer]:
+          - generic [ref=e22]
+        - generic [ref=e28]:
+          - generic [ref=e29]
+          - generic [ref=e57]
+          - generic [ref=e63]: AIR models loaded.
+      - generic [ref=e65]:
+        - generic [ref=e66]:
+          - heading "Saved Workspaces" [level=3] [ref=e67]
+          - paragraph [ref=e68]: Reopen an existing context and continue where the workstream left off.
+        - generic [ref=e69]:
+          - generic [ref=e70] [cursor=pointer]
+          - generic [ref=e74] [cursor=pointer]
+          - generic [ref=e78] [cursor=pointer]
+          - generic [ref=e82] [cursor=pointer]
+          - generic [ref=e86] [cursor=pointer]
+          - generic [ref=e90] [cursor=pointer]
+          - generic [ref=e94] [cursor=pointer]
+  - generic [ref=e98]:
+    - generic [ref=e99]:
+      - heading "Select a work" [level=2] [ref=e100]
+      - paragraph [ref=e101]: Work-scoped chat with Chanakya.
+      - button "Delete Work" [disabled] [ref=e103]
+    - generic [ref=e105]: No work selected.
+    - generic [ref=e106]:
+      - textbox "Send update request for this work..." [disabled] [ref=e107]
+      - button "Send" [disabled] [ref=e108]
+  - generic [ref=e109]:
+    - generic [ref=e110]:
+      - heading "Agent Histories" [level=2] [ref=e111]
+      - paragraph [ref=e112]: All work-scoped sessions across agents.
+    - generic [ref=e114]: No histories yet.

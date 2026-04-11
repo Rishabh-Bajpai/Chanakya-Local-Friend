@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from agent_framework import Message
-
 import chanakya.agent.runtime as runtime_module
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.db import build_engine, build_session_factory, init_database

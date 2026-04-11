@@ -179,8 +179,7 @@ def create_app() -> Flask:
             force_subagents_enabled=force_subagents_enabled(),
         )
 
-    @app.get("/work")
-    def work() -> str:
+    def render_work_page() -> str:
         return render_template(
             "work.html",
             air_dashboard_url=get_air_dashboard_url(),
@@ -189,6 +188,14 @@ def create_app() -> Flask:
             a2a_agent_url=get_a2a_agent_url(),
             force_subagents_enabled=force_subagents_enabled(),
         )
+
+    @app.get("/work")
+    def work() -> str:
+        return render_work_page()
+
+    @app.get("/agent")
+    def agent() -> str:
+        return render_work_page()
 
     @app.post("/api/chat")
     def api_chat() -> Any:

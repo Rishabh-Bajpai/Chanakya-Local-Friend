@@ -774,80 +774,82 @@
               <div id="workStatus" class="status"></div>
             </form>
           </section>
-          <details class="control-deck" open>
-            <summary>
-              <div class="control-deck-titlebar">
-                <div>
-                  <p class="control-deck-kicker">Control Deck</p>
-                  <h3>Voice, models, and runtime</h3>
-                  <p>Keep workspace chat controls nearby without letting them dominate the sidebar.</p>
+          <section class="sidebar-block">
+            <details class="control-deck" open>
+              <summary>
+                <div class="control-deck-titlebar">
+                  <div>
+                    <p class="control-deck-kicker">Control Deck</p>
+                    <h3>Voice, models, and runtime</h3>
+                    <p>Keep AIR voice controls and chat routing in one place. Any change here applies on the next message.</p>
+                  </div>
+                  <span class="control-deck-toggle" aria-hidden="true"></span>
                 </div>
-                <span class="control-deck-toggle" aria-hidden="true"></span>
+              </summary>
+              <div class="control-deck-body">
+                <div class="control-grid">
+                  <section class="control-group">
+                    <p class="control-group-title">Chat Runtime</p>
+                    <div class="runtime-chip">Active work chat path</div>
+                    <div class="runtime-models">
+                      <label>
+                        Backend
+                        <select id="chatBackendSelect">
+                          <option value="local">Local OpenAI-compatible via AIR</option>
+                          <option value="a2a">A2A</option>
+                        </select>
+                      </label>
+                      <label>
+                        Chanakya Model
+                        <select id="airLlmModel"></select>
+                      </label>
+                      <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
+                      <label>
+                        A2A Agent
+                        <select id="a2aAgentInput"></select>
+                      </label>
+                      <label>
+                        A2A Model Provider
+                        <select id="a2aModelProviderInput"></select>
+                      </label>
+                      <label>
+                        A2A Model
+                        <select id="a2aModelIdInput"></select>
+                      </label>
+                    </div>
+                    <p class="control-group-note">A2A sends the next work-chat turn through the app-managed bridge. AIR model selection stays active only for local replies.</p>
+                    <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
+                  </section>
+                  <section class="control-group">
+                    <p class="control-group-title">AIR Voice</p>
+                    <div class="air-links">
+                      <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
+                      <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
+                    </div>
+                    <div class="air-models">
+                      <label>
+                        STT Model
+                        <select id="airSttModel"></select>
+                      </label>
+                      <label>
+                        TTS Model
+                        <select id="airTtsModel"></select>
+                      </label>
+                    </div>
+                  </section>
+                </div>
+                <div class="air-controls">
+                  <button id="airMicButton" class="air-button" type="button">Mic</button>
+                  <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
+                  <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
+                  <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
+                  <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
+                </div>
+                <div id="airVoiceStatus" class="air-status"></div>
+                <div id="conversationQueueStatus" class="air-status"></div>
               </div>
-            </summary>
-            <div class="control-deck-body">
-              <div class="control-grid">
-                <section class="control-group">
-                  <p class="control-group-title">Chat Runtime</p>
-                  <div class="runtime-chip">Next message config</div>
-                  <div class="runtime-models">
-                    <label>
-                      Backend
-                      <select id="chatBackendSelect">
-                        <option value="local">Local OpenAI-compatible via AIR</option>
-                        <option value="a2a">A2A</option>
-                      </select>
-                    </label>
-                    <label>
-                      Chanakya Model
-                      <select id="airLlmModel"></select>
-                    </label>
-                    <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
-                    <label>
-                      A2A Agent
-                      <select id="a2aAgentInput"></select>
-                    </label>
-                    <label>
-                      A2A Model Provider
-                      <select id="a2aModelProviderInput"></select>
-                    </label>
-                    <label>
-                      A2A Model
-                      <select id="a2aModelIdInput"></select>
-                    </label>
-                  </div>
-                  <p class="control-group-note">A2A sends the next work-chat turn through the app-managed bridge. AIR model selection stays active only for local replies.</p>
-                  <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
-                </section>
-                <section class="control-group">
-                  <p class="control-group-title">AIR Voice</p>
-                  <div class="air-links">
-                    <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
-                    <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
-                  </div>
-                  <div class="air-models">
-                    <label>
-                      STT Model
-                      <select id="airSttModel"></select>
-                    </label>
-                    <label>
-                      TTS Model
-                      <select id="airTtsModel"></select>
-                    </label>
-                  </div>
-                </section>
-              </div>
-              <div class="air-controls">
-                <button id="airMicButton" class="air-button" type="button">Mic</button>
-                <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
-                <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
-                <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
-                <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
-              </div>
-              <div id="airVoiceStatus" class="air-status"></div>
-              <div id="conversationQueueStatus" class="air-status"></div>
-            </div>
-          </details>
+            </details>
+          </section>
           <section class="sidebar-block">
             <div class="sidebar-block-header">
               <h3>Saved Workspaces</h3>
