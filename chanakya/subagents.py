@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 
 from agent_framework import Message
@@ -17,7 +18,7 @@ from chanakya.config import (
     get_long_running_agent_request_timeout_seconds,
     get_subagent_group_chat_round_multiplier,
 )
-from chanakya.debug import debug_log
+from chanakya.debug import debug_log, with_transient_retry
 from chanakya.domain import make_id, now_iso
 from chanakya.model import AgentProfileModel, TemporaryAgentModel
 from chanakya.services.async_loop import run_in_maf_loop
@@ -202,11 +203,21 @@ class WorkerSubagentOrchestrator:
         *,
         store: ChanakyaStore,
         session_factory: sessionmaker[Session],
-        client: OpenAIChatClient,
+        client: OpenAIChatClient | None = None,
+        client_factory: Callable[[], OpenAIChatClient] | None = None,
     ) -> None:
         self.store = store
         self.session_factory = session_factory
-        self.client = client
+        self._client = client
+        self._client_factory = client_factory
+
+    @property
+    def client(self) -> OpenAIChatClient:
+        """Return the active client, preferring the factory when available."""
+        if self._client_factory is not None:
+            return self._client_factory()
+        assert self._client is not None, "Either client or client_factory must be provided"
+        return self._client
 
     def execute(
         self,
@@ -490,12 +501,15 @@ class WorkerSubagentOrchestrator:
             "- No one should ask clarifying questions in this workflow.\n"
         )
         timeout_seconds = self._resolve_worker_timeout_seconds(message, effective_prompt)
-        result = await asyncio.wait_for(
-            workflow.run(
-                message=Message(role="user", text=kickoff),
-                include_status_events=True,
+        result = await with_transient_retry(
+            lambda: asyncio.wait_for(
+                workflow.run(
+                    message=Message(role="user", text=kickoff),
+                    include_status_events=True,
+                ),
+                timeout=timeout_seconds,
             ),
-            timeout=timeout_seconds,
+            label=f"subagent_group_chat:{worker_profile.id}",
         )
         outputs = self._extract_stage_outputs(result)
         if not outputs:

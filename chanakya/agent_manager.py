@@ -14,7 +14,7 @@ from agent_framework.openai import OpenAIChatClient
 from agent_framework.orchestrations import SequentialBuilder
 from sqlalchemy.orm import Session, sessionmaker
 
-from chanakya.agent.runtime import build_profile_agent
+from chanakya.agent.runtime import build_profile_agent, create_openai_chat_client
 from chanakya.agent.profile_files import load_agent_prompt
 from chanakya.config import (
     force_subagents_enabled,
@@ -22,7 +22,7 @@ from chanakya.config import (
     get_data_dir,
     get_long_running_agent_request_timeout_seconds,
 )
-from chanakya.debug import debug_log
+from chanakya.debug import debug_log, with_transient_retry
 from chanakya.domain import (
     TASK_STATUS_BLOCKED,
     TASK_STATUS_CREATED,
@@ -58,6 +58,7 @@ MAX_UNTRUSTED_ARTIFACT_CHARS = 12000
 
 _ACTIVE_WORK_ID: ContextVar[str | None] = ContextVar("active_work_id", default=None)
 _ACTIVE_SESSION_ID: ContextVar[str | None] = ContextVar("active_session_id", default=None)
+_ACTIVE_MODEL_ID: ContextVar[str | None] = ContextVar("active_model_id", default=None)
 
 
 @dataclass(slots=True)
@@ -124,7 +125,7 @@ class AgentManager:
         self.subagent_orchestrator = WorkerSubagentOrchestrator(
             store=store,
             session_factory=session_factory,
-            client=self.client,
+            client_factory=self._resolve_client,
         )
 
     def should_delegate(self, message: str) -> bool:
@@ -135,19 +136,35 @@ class AgentManager:
         *,
         session_id: str,
         work_id: str | None,
-    ) -> tuple[Token, Token]:
+        model_id: str | None = None,
+    ) -> tuple[Token, Token, Token]:
         return (
             _ACTIVE_WORK_ID.set(work_id),
             _ACTIVE_SESSION_ID.set(session_id),
+            _ACTIVE_MODEL_ID.set(model_id),
         )
 
     def reset_execution_context(
         self,
-        tokens: tuple[Token, Token],
+        tokens: tuple[Token, Token, Token],
     ) -> None:
-        work_token, session_token = tokens
+        work_token, session_token, model_token = tokens
         _ACTIVE_WORK_ID.reset(work_token)
         _ACTIVE_SESSION_ID.reset(session_token)
+        _ACTIVE_MODEL_ID.reset(model_token)
+
+    def _resolve_client(self) -> OpenAIChatClient:
+        """Return an ``OpenAIChatClient`` honouring the user-selected model.
+
+        If a ``model_id`` was set via :meth:`bind_execution_context` (i.e. the
+        user chose a specific model in the runtime-config UI), create a fresh
+        client that targets that model.  Otherwise fall back to the default
+        ``self.client`` created from ``.env`` at init time.
+        """
+        active_model = _ACTIVE_MODEL_ID.get()
+        if active_model:
+            return create_openai_chat_client(model_id=active_model)
+        return self.client
 
     def select_workflow(self, message: str) -> str:
         return self._fallback_route(message).execution_mode
@@ -3188,7 +3205,7 @@ class AgentManager:
         agent, _ = build_profile_agent(
             profile,
             self.session_factory,
-            client=self.client,
+            client=self._resolve_client(),
             usage_text=prompt,
             include_history=include_history,
         )
@@ -3206,13 +3223,16 @@ class AgentManager:
             session.state["request_id"] = profile_request_id
             session.state["history_query_text"] = prompt
         try:
-            response = await asyncio.wait_for(
-                agent.run(
-                    Message(role="user", text=prompt),
-                    session=session,
-                    options={"store": store},
+            response = await with_transient_retry(
+                lambda: asyncio.wait_for(
+                    agent.run(
+                        Message(role="user", text=prompt),
+                        session=session,
+                        options={"store": store},
+                    ),
+                    timeout=self._resolve_request_timeout_seconds(prompt),
                 ),
-                timeout=self._resolve_request_timeout_seconds(prompt),
+                label=f"profile_prompt:{profile.id}",
             )
             return self._extract_profile_response_text(response)
         except Exception as exc:
@@ -3225,7 +3245,7 @@ class AgentManager:
             fallback_agent, _ = build_profile_agent(
                 profile,
                 self.session_factory,
-                client=self.client,
+                client=self._resolve_client(),
                 usage_text=seeded_prompt,
                 include_history=False,
             )
@@ -3237,13 +3257,16 @@ class AgentManager:
             if fallback_session is not None:
                 fallback_session.state["request_id"] = profile_request_id
                 fallback_session.state["history_query_text"] = seeded_prompt
-            response = await asyncio.wait_for(
-                fallback_agent.run(
-                    Message(role="user", text=seeded_prompt),
-                    session=fallback_session,
-                    options={"store": False},
+            response = await with_transient_retry(
+                lambda: asyncio.wait_for(
+                    fallback_agent.run(
+                        Message(role="user", text=seeded_prompt),
+                        session=fallback_session,
+                        options={"store": False},
+                    ),
+                    timeout=self._resolve_request_timeout_seconds(seeded_prompt),
                 ),
-                timeout=self._resolve_request_timeout_seconds(seeded_prompt),
+                label=f"profile_prompt_fallback:{profile.id}",
             )
             response_text = self._extract_profile_response_text(response)
             if store and profile_session_id:
@@ -3297,19 +3320,22 @@ class AgentManager:
     ) -> str:
         repo_root = Path(__file__).resolve().parents[1]
         agent = Agent(
-            client=self.client,
+            client=self._resolve_client(),
             name=profile.name,
             instructions=load_agent_prompt(profile, repo_root=repo_root, usage_text=prompt),
             tools=None,
             context_providers=None,
         )
-        response = await asyncio.wait_for(
-            agent.run(
-                Message(role="user", text=prompt),
-                session=None,
-                options={"store": False},
+        response = await with_transient_retry(
+            lambda: asyncio.wait_for(
+                agent.run(
+                    Message(role="user", text=prompt),
+                    session=None,
+                    options={"store": False},
+                ),
+                timeout=self._resolve_request_timeout_seconds(prompt),
             ),
-            timeout=self._resolve_request_timeout_seconds(prompt),
+            label=f"profile_no_tools:{profile.id}",
         )
         return self._extract_profile_response_text(response)
 
@@ -3358,7 +3384,7 @@ class AgentManager:
             build_profile_agent(
                 profile,
                 self.session_factory,
-                client=self.client,
+                client=self._resolve_client(),
                 include_history=False,
                 usage_text=message,
             )[0]
@@ -3368,14 +3394,17 @@ class AgentManager:
             participants=participant_agents,
             intermediate_outputs=True,
         ).build()
-        result = await asyncio.wait_for(
-            workflow.run(
-                message=Message(
-                    role="user", text=message, additional_properties={"request_id": request_id}
+        result = await with_transient_retry(
+            lambda: asyncio.wait_for(
+                workflow.run(
+                    message=Message(
+                        role="user", text=message, additional_properties={"request_id": request_id}
+                    ),
+                    include_status_events=True,
                 ),
-                include_status_events=True,
+                timeout=self._resolve_request_timeout_seconds(message),
             ),
-            timeout=self._resolve_request_timeout_seconds(message),
+            label=f"sequential_workflow:{workflow_type}",
         )
         texts = self._extract_stage_outputs(result)
         if len(texts) < len(participants):

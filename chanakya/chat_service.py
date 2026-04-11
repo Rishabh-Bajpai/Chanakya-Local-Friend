@@ -1021,6 +1021,7 @@ class ChatService:
                 context_tokens = self.manager.bind_execution_context(
                     session_id=session_id,
                     work_id=work_id,
+                    model_id=model_id,
                 )
                 try:
                     followup_artifacts = self._resolve_targeted_writer_followup_artifacts(
@@ -1505,6 +1506,7 @@ class ChatService:
         context_tokens = self.manager.bind_execution_context(
             session_id=session_id,
             work_id=work_id,
+            model_id=(self.store.get_runtime_config() or {}).get("model_id"),
         )
         try:
             result = self.manager.resume_waiting_input(
