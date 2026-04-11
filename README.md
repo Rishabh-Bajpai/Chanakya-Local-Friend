@@ -37,6 +37,9 @@ Default MCP servers now include:
 - `mcp_websearch` (free DuckDuckGo web search)
 - `mcp_fetch` (webpage fetching)
 - `mcp_calculator` (calculator)
+- `mcp_weather` (free weather via `wttr.in`)
+- `mcp_map` (free OpenStreetMap geocoding and routing)
+- `mcp_timer` (scheduler-backed reminders and scheduled tasks)
 - `mcp_code_execution` (sandboxed code execution for developer/tester only)
 
 Sandboxed code execution uses a shared persistent workspace under:

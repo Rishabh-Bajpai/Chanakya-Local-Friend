@@ -95,6 +95,11 @@ _FAST_DIRECT_PATTERNS = (
     "polish this",
 )
 
+_LIGHT_ENTERTAINMENT_PATTERNS = (
+    "joke",
+    "jokes",
+)
+
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
 _WAITING_INPUT_ROUTE = "waiting_input_prompt"
 _CLASSIC_ACTIVE_WORK_PREFIX = "cwork"
@@ -323,6 +328,8 @@ class ChatService:
     def _is_fast_direct_request(cls, message: str) -> bool:
         text = message.strip().lower()
         if cls._is_simple_direct_request(message):
+            return True
+        if len(text) <= 160 and any(pattern in text for pattern in _LIGHT_ENTERTAINMENT_PATTERNS):
             return True
         if cls._is_complex_request(message):
             return False
