@@ -13,6 +13,7 @@ from chanakya.model import (
     ChatMessageModel,
     ChatSessionModel,
     ClassicActiveWorkModel,
+    NotificationSettingsModel,
     RequestModel,
     TaskEventModel,
     TaskModel,
@@ -222,6 +223,57 @@ class EventRepository:
         ]
         records.reverse()
         return records
+
+
+class NotificationSettingsRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def get_settings(self, channel_type: str) -> NotificationSettingsModel | None:
+        with session_scope(self.Session) as session:
+            row = session.get(NotificationSettingsModel, channel_type)
+        return row
+
+    def upsert_settings(
+        self,
+        *,
+        channel_type: str,
+        server_url: str,
+        topic: str,
+        enabled: bool,
+        include_message_preview: bool,
+    ) -> NotificationSettingsModel:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            row = session.get(NotificationSettingsModel, channel_type)
+            if row is None:
+                row = NotificationSettingsModel(
+                    channel_type=channel_type,
+                    server_url=server_url,
+                    topic=topic,
+                    enabled=enabled,
+                    include_message_preview=include_message_preview,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+                session.add(row)
+            else:
+                row.server_url = server_url
+                row.topic = topic
+                row.enabled = enabled
+                row.include_message_preview = include_message_preview
+                row.updated_at = timestamp
+            session.commit()
+            session.refresh(row)
+        return row
+
+    def delete_settings(self, channel_type: str) -> None:
+        with session_scope(self.Session) as session:
+            row = session.get(NotificationSettingsModel, channel_type)
+            if row is None:
+                return
+            session.delete(row)
+            session.commit()
 
 
 class RequestRepository:
@@ -1003,6 +1055,7 @@ class ChanakyaStore:
         self.requests = RequestRepository(session_factory)
         self.tasks = TaskRepository(session_factory)
         self.events = EventRepository(session_factory)
+        self.notification_settings = NotificationSettingsRepository(session_factory)
         self.tools = ToolInvocationRepository(session_factory)
         self.agents = AgentProfileRepository(session_factory)
         self.temporary_agents = TemporaryAgentRepository(session_factory)
@@ -1182,6 +1235,29 @@ class ChanakyaStore:
 
     def list_events(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.events.list_events(limit)
+
+    def get_notification_settings(self, channel_type: str) -> NotificationSettingsModel | None:
+        return self.notification_settings.get_settings(channel_type)
+
+    def upsert_notification_settings(
+        self,
+        *,
+        channel_type: str,
+        server_url: str,
+        topic: str,
+        enabled: bool,
+        include_message_preview: bool,
+    ) -> NotificationSettingsModel:
+        return self.notification_settings.upsert_settings(
+            channel_type=channel_type,
+            server_url=server_url,
+            topic=topic,
+            enabled=enabled,
+            include_message_preview=include_message_preview,
+        )
+
+    def delete_notification_settings(self, channel_type: str) -> None:
+        self.notification_settings.delete_settings(channel_type)
 
     def create_task_event(
         self,
