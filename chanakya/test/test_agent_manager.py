@@ -224,6 +224,71 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
     assert "manager_summary_completed" in event_types
 
 
+def test_work_followup_keeps_software_route_for_referential_request() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_id = "work_followup_continuity"
+    store.create_work(work_id=work_id, title="Continuity", description="")
+    session_id = store.ensure_work_agent_session(
+        work_id=work_id,
+        agent_id="agent_chanakya",
+        session_id="session_followup_continuity",
+        session_title="Continuity - Chanakya",
+    )
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.summary_runner = lambda prompt: "summary"
+    route_calls: list[str] = []
+
+    def _route_runner(prompt: str) -> str:
+        route_calls.append(prompt)
+        if len(route_calls) == 1:
+            return '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+        return '{"selected_agent_id":"agent_informer","selected_role":"informer","reason":"info work","execution_mode":"information_delivery"}'
+
+    service.manager.route_runner = _route_runner
+    service.manager.specialist_runner = lambda profile, prompt, step: (
+        '{"implementation_brief":"Build a prime finder script","assumptions":[],"risks":[],"testing_focus":["stdout"]}'
+        if step == "brief"
+        else "Reviewed software delivery."
+    )
+    service.manager._run_profile_prompt = (  # type: ignore[method-assign]
+        lambda profile, prompt: (
+            '# Implementation Handoff\n\n```python\nprint("ok")\n```'
+            if profile.role == "developer"
+            else '{"validation_summary":"ok","checks_performed":[],"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
+        )
+    )
+
+    first_reply = service.chat(
+        session_id,
+        "write a Python script for finding prime numbers between 74 and 534",
+        work_id=work_id,
+    )
+    second_reply = service.chat(
+        session_id,
+        "good! can you now do it for between 2 and 300?",
+        work_id=work_id,
+    )
+
+    second_request = store.list_requests(session_id=session_id, limit=10)[-1]
+    second_tasks = store.list_tasks(request_id=str(second_request["id"]), limit=20)
+    second_task_types = {str(task["task_type"]) for task in second_tasks}
+
+    assert first_reply.response_mode == WORKFLOW_SOFTWARE
+    assert second_reply.response_mode == WORKFLOW_SOFTWARE
+    assert "developer_execution" in second_task_types
+    assert "tester_execution" in second_task_types
+    assert "researcher_execution" not in second_task_types
+    assert "writer_execution" not in second_task_types
+    assert len(route_calls) == 1
+
+
 def test_manager_profile_prompt_fallback_persists_cto_review_messages(
     monkeypatch: MonkeyPatch,
 ) -> None:

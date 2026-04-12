@@ -9,6 +9,7 @@ from typing import Any
 from urllib import error, parse, request
 
 from mcp.server.fastmcp import FastMCP
+from chanakya.config import get_data_dir
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MAX_TEXT_CHARS = 20000
@@ -22,10 +23,18 @@ SAFE_SHELL_COMMANDS = {
 }
 
 
+def get_classic_chat_workspace_root() -> Path:
+    root = (get_data_dir() / "classic_chat_workspace").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    root.chmod(0o775)
+    return root
+
+
 def _resolve_path(path: str) -> Path:
     raw = (path or ".").strip()
-    candidate = (REPO_ROOT / raw).resolve()
-    candidate.relative_to(REPO_ROOT)
+    workspace_root = get_classic_chat_workspace_root()
+    candidate = (workspace_root / raw).resolve()
+    candidate.relative_to(workspace_root)
     return candidate
 
 
@@ -53,9 +62,10 @@ def _lookup_json_path(payload: Any, path: str) -> Any:
 
 
 def _run_git(args: list[str]) -> dict[str, Any]:
+    workspace_root = get_classic_chat_workspace_root()
     result = subprocess.run(
         ["git", *args],
-        cwd=REPO_ROOT,
+        cwd=workspace_root,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -66,7 +76,7 @@ def _run_git(args: list[str]) -> dict[str, Any]:
         "ok": result.returncode == 0,
         "returncode": result.returncode,
         "output": _trim(output),
-        "repo_root": str(REPO_ROOT),
+        "workspace_root": str(workspace_root),
     }
 
 
@@ -118,37 +128,49 @@ def _build_filesystem_server() -> FastMCP:
 
     @mcp.tool()
     def list_directory(path: str = ".") -> dict[str, Any]:
-        """List files and directories under a repo-relative path."""
+        """List files and directories under the classic-chat workspace."""
         resolved = _resolve_path(path)
+        workspace_root = get_classic_chat_workspace_root()
         entries = []
         for item in sorted(resolved.iterdir(), key=lambda child: child.name.lower()):
             entries.append(
                 {
                     "name": item.name,
-                    "path": str(item.relative_to(REPO_ROOT)),
+                    "path": str(item.relative_to(workspace_root)),
                     "is_dir": item.is_dir(),
                     "size": item.stat().st_size if item.is_file() else None,
                 }
             )
-        return {"path": str(resolved.relative_to(REPO_ROOT)), "entries": entries}
+        return {
+            "path": str(resolved.relative_to(workspace_root)),
+            "workspace_root": str(workspace_root),
+            "entries": entries,
+        }
 
     @mcp.tool()
     def read_text_file(path: str, max_chars: int = MAX_TEXT_CHARS) -> dict[str, Any]:
-        """Read a UTF-8 text file from a repo-relative path."""
+        """Read a UTF-8 text file from the classic-chat workspace."""
         resolved = _resolve_path(path)
+        workspace_root = get_classic_chat_workspace_root()
         content = resolved.read_text(encoding="utf-8")
         trimmed = _trim(content, max(1, min(max_chars, MAX_TEXT_CHARS)))
-        return {"path": str(resolved.relative_to(REPO_ROOT)), "content": trimmed}
+        return {
+            "path": str(resolved.relative_to(workspace_root)),
+            "workspace_root": str(workspace_root),
+            "content": trimmed,
+        }
 
     @mcp.tool()
     def write_text_file(path: str, content: str) -> dict[str, Any]:
-        """Write a UTF-8 text file at a repo-relative path."""
+        """Write a UTF-8 text file inside the classic-chat workspace."""
         resolved = _resolve_path(path)
+        workspace_root = get_classic_chat_workspace_root()
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
         return {
             "ok": True,
-            "path": str(resolved.relative_to(REPO_ROOT)),
+            "path": str(resolved.relative_to(workspace_root)),
+            "workspace_root": str(workspace_root),
             "bytes_written": len(content.encode("utf-8")),
         }
 
@@ -235,8 +257,9 @@ def _build_shell_utils_server() -> FastMCP:
     @mcp.tool()
     def shell_info() -> dict[str, Any]:
         """Return a few basic host environment details."""
+        workspace_root = get_classic_chat_workspace_root()
         return {
-            "repo_root": str(REPO_ROOT),
+            "workspace_root": str(workspace_root),
             "cwd": os.getcwd(),
             "python_executable": os.sys.executable,
             "platform": os.uname().sysname if hasattr(os, "uname") else os.name,
@@ -248,9 +271,10 @@ def _build_shell_utils_server() -> FastMCP:
         command = SAFE_SHELL_COMMANDS.get(command_name.strip())
         if command is None:
             raise ValueError(f"Unsupported command_name: {command_name}")
+        workspace_root = get_classic_chat_workspace_root()
         result = subprocess.run(
             command,
-            cwd=REPO_ROOT,
+            cwd=workspace_root,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -261,6 +285,7 @@ def _build_shell_utils_server() -> FastMCP:
             "ok": result.returncode == 0,
             "returncode": result.returncode,
             "command": command,
+            "workspace_root": str(workspace_root),
             "output": _trim(output),
         }
 
