@@ -43,9 +43,13 @@ Core mode launches three services:
 
 Stop the stack with:
 
-```bash
-./scripts/stop_chanakya_air.sh
-```
+- `mcp_websearch` (free DuckDuckGo web search)
+- `mcp_fetch` (webpage fetching)
+- `mcp_calculator` (calculator)
+- `mcp_weather` (free weather via `wttr.in`)
+- `mcp_map` (free OpenStreetMap geocoding and routing)
+- `mcp_timer` (scheduler-backed reminders and scheduled tasks)
+- `mcp_code_execution` (sandboxed code execution for developer/tester only)
 
 Logs and PID files are written to `build/runtime/`.
 

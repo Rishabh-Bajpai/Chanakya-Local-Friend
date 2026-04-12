@@ -927,6 +927,35 @@
       color: var(--muted);
     }
 
+    .notification-qr {
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.02);
+      display: grid;
+      gap: 10px;
+    }
+
+    .notification-qr[hidden] {
+      display: none;
+    }
+
+    .notification-qr img {
+      width: 180px;
+      height: 180px;
+      border-radius: 10px;
+      background: #ffffff;
+      padding: 8px;
+    }
+
+    .notification-link {
+      color: var(--accent);
+      text-decoration: none;
+      overflow-wrap: anywhere;
+      font-size: 12px;
+    }
+
     .sandbox-guide {
       display: grid;
       gap: 12px;
@@ -1278,6 +1307,49 @@
         </div>
       </div>
 
+      <div class="panel section" data-panel="phone-notifications">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Phone Notifications</h2>
+            <p>Send request completion, failure, and input-needed updates to your phone via ntfy.</p>
+          </div>
+          <button type="button" class="detach-button" data-detach-panel="phone-notifications" title="Open in new tab"
+            aria-label="Open Phone Notifications in new tab">&#x2197;</button>
+        </div>
+        <div class="section-body">
+          <form id="notificationForm" class="agent-editor">
+            <div class="agent-flags">
+              <label><input id="notificationEnabled" type="checkbox" /> Enable phone notifications</label>
+              <label><input id="notificationIncludePreview" type="checkbox" checked /> Include short result summary</label>
+            </div>
+            <label>
+              Server URL
+              <input id="notificationServerUrl" type="text" placeholder="https://ntfy.sh" />
+            </label>
+            <label>
+              Topic
+              <input id="notificationTopic" type="text" placeholder="chanakya-..." />
+            </label>
+            <p class="status-text">Install the ntfy app, subscribe to this topic once on your phone, then send a test notification.</p>
+            <div class="form-actions">
+              <button id="notificationSaveButton" type="submit">Save Settings</button>
+              <button id="notificationGenerateButton" type="button" class="button-secondary">Generate Topic</button>
+              <button id="notificationDeleteButton" type="button" class="button-secondary">Delete Topic</button>
+              <button id="notificationTestButton" type="button" class="button-secondary">Send Test</button>
+              <span id="notificationStatus" class="status-text"></span>
+            </div>
+            <div id="notificationQrCard" class="notification-qr" hidden>
+              <div>
+                <strong>Android onboarding QR</strong>
+                <p class="status-text">Scan this with the ntfy app installed to open and subscribe to the topic directly.</p>
+              </div>
+              <img id="notificationQrImage" alt="ntfy topic QR code" />
+              <a id="notificationDeepLink" class="notification-link" href="#"></a>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <div class="panel section" data-panel="persistent-agents">
         <div class="section-header">
           <div class="section-copy">
@@ -1374,6 +1446,18 @@
     const taskProgress = document.getElementById("taskProgress");
     const taskProgressSummary = document.getElementById("taskProgressSummary");
     const subagentList = document.getElementById("subagentList");
+    const notificationForm = document.getElementById("notificationForm");
+    const notificationEnabled = document.getElementById("notificationEnabled");
+    const notificationIncludePreview = document.getElementById("notificationIncludePreview");
+    const notificationServerUrl = document.getElementById("notificationServerUrl");
+    const notificationTopic = document.getElementById("notificationTopic");
+    const notificationGenerateButton = document.getElementById("notificationGenerateButton");
+    const notificationDeleteButton = document.getElementById("notificationDeleteButton");
+    const notificationTestButton = document.getElementById("notificationTestButton");
+    const notificationStatus = document.getElementById("notificationStatus");
+    const notificationQrCard = document.getElementById("notificationQrCard");
+    const notificationQrImage = document.getElementById("notificationQrImage");
+    const notificationDeepLink = document.getElementById("notificationDeepLink");
     const agentList = document.getElementById("agentList");
     const agentForm = document.getElementById("agentForm");
     const agentName = document.getElementById("agentName");
@@ -1398,6 +1482,7 @@
       "tasks": "Tasks",
       "task-timeline": "Task Timeline",
       "temporary-subagents": "Temporary Subagents",
+      "phone-notifications": "Phone Notifications",
       "persistent-agents": "Persistent Agents",
     };
 
@@ -2004,6 +2089,111 @@
     function setAgentFormStatus(text, isError = false) {
       agentFormStatus.textContent = text || "";
       agentFormStatus.style.color = isError ? "var(--red)" : "var(--muted)";
+    }
+
+    function setNotificationStatus(text, isError = false) {
+      notificationStatus.textContent = text || "";
+      notificationStatus.style.color = isError ? "var(--red)" : "var(--muted)";
+    }
+
+    function generateTopic() {
+      const bytes = new Uint8Array(12);
+      window.crypto.getRandomValues(bytes);
+      return `chanakya-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+    }
+
+    function buildNotificationDeepLink(serverUrl, topic) {
+      try {
+        const parsed = new URL(serverUrl || "https://ntfy.sh");
+        return topic ? `ntfy://${parsed.host}/${encodeURIComponent(topic)}` : "";
+      } catch {
+        return "";
+      }
+    }
+
+    function buildNotificationQrUrl(serverUrl, topic) {
+      if (!topic) {
+        return "";
+      }
+      const params = new URLSearchParams({
+        server_url: serverUrl || "https://ntfy.sh",
+        topic,
+      });
+      return `/api/notifications/ntfy/qr.svg?${params.toString()}`;
+    }
+
+    function renderNotificationQr(settings) {
+      const deepLink = settings.deep_link || "";
+      if (!deepLink) {
+        notificationQrCard.hidden = true;
+        notificationQrImage.removeAttribute("src");
+        notificationDeepLink.textContent = "";
+        notificationDeepLink.href = "#";
+        return;
+      }
+      notificationQrCard.hidden = false;
+      notificationQrImage.src = buildNotificationQrUrl(
+        notificationServerUrl.value.trim() || settings.server_url || "https://ntfy.sh",
+        notificationTopic.value.trim() || settings.topic || "",
+      );
+      notificationDeepLink.href = deepLink;
+      notificationDeepLink.textContent = deepLink;
+    }
+
+    function applyNotificationSettings(settings) {
+      notificationEnabled.checked = Boolean(settings.enabled);
+      notificationIncludePreview.checked = settings.include_message_preview !== false;
+      notificationServerUrl.value = settings.server_url || "https://ntfy.sh";
+      notificationTopic.value = settings.topic || "";
+      renderNotificationQr(settings);
+    }
+
+    async function loadNotificationSettings() {
+      const response = await fetch("/api/notifications/ntfy");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to load notification settings");
+      }
+      applyNotificationSettings(data);
+    }
+
+    async function saveNotificationSettings() {
+      const payload = {
+        enabled: notificationEnabled.checked,
+        include_message_preview: notificationIncludePreview.checked,
+        server_url: notificationServerUrl.value.trim(),
+        topic: notificationTopic.value.trim(),
+      };
+      const response = await fetch("/api/notifications/ntfy", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to save notification settings");
+      }
+      applyNotificationSettings(data);
+      return data;
+    }
+
+    async function sendTestNotification() {
+      const response = await fetch("/api/notifications/ntfy/test", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to send test notification");
+      }
+      return data;
+    }
+
+    async function deleteNotificationTopic() {
+      const response = await fetch("/api/notifications/ntfy", { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to delete topic");
+      }
+      applyNotificationSettings(data);
+      return data;
     }
 
     function getSelectedToolIds() {
@@ -2851,6 +3041,57 @@
       resetAgentForm();
     });
 
+    notificationForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setNotificationStatus("Saving notification settings...");
+      try {
+        await saveNotificationSettings();
+        setNotificationStatus("Saved phone notification settings.");
+      } catch (error) {
+        setNotificationStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    });
+
+    notificationGenerateButton.addEventListener("click", () => {
+      notificationTopic.value = generateTopic();
+      renderNotificationQr({
+        deep_link: buildNotificationDeepLink(notificationServerUrl.value.trim(), notificationTopic.value),
+      });
+      setNotificationStatus("Generated a new random topic. Save it, then scan the QR code or subscribe in the ntfy app before testing.");
+    });
+
+    notificationDeleteButton.addEventListener("click", async () => {
+      setNotificationStatus("Deleting saved topic...");
+      try {
+        await deleteNotificationTopic();
+        setNotificationStatus("Deleted the saved ntfy topic.");
+      } catch (error) {
+        setNotificationStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    });
+
+    notificationServerUrl.addEventListener("input", () => {
+      renderNotificationQr({
+        deep_link: buildNotificationDeepLink(notificationServerUrl.value.trim(), notificationTopic.value.trim()),
+      });
+    });
+
+    notificationTopic.addEventListener("input", () => {
+      renderNotificationQr({
+        deep_link: buildNotificationDeepLink(notificationServerUrl.value.trim(), notificationTopic.value.trim()),
+      });
+    });
+
+    notificationTestButton.addEventListener("click", async () => {
+      setNotificationStatus("Sending test notification...");
+      try {
+        await sendTestNotification();
+        setNotificationStatus("Test notification sent.");
+      } catch (error) {
+        setNotificationStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    });
+
     applyDetachedView();
     setupCollapseButtons();
     setupDetachButtons();
@@ -2894,6 +3135,10 @@
       .catch((error) => {
         setRuntimeConfigStatus(error instanceof Error ? error.message : String(error), true);
       });
+    airVoiceController.fetchModels();
+    loadNotificationSettings().catch((error) => {
+      setNotificationStatus(error instanceof Error ? error.message : String(error), true);
+    });
     loadSessionHistory();
 
     // ---------- SSE-driven auto-refresh ----------

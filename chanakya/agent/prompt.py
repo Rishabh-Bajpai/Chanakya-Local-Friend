@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from agent_framework import MCPStdioTool
 
 from chanakya.domain import now_iso
@@ -5,11 +7,14 @@ from chanakya.model import AgentProfileModel
 
 
 def _build_runtime_prompt_prelude() -> str:
-    current_time = now_iso()
+    current_utc_time = now_iso()
+    local_now = datetime.now().astimezone()
+    local_label = local_now.tzname() or str(local_now.tzinfo or "local")
     return (
         "# Runtime Context\n"
-        f"Current UTC time: {current_time}\n"
-        "Use this as the current system time unless the user or a tool provides more specific time context."
+        f"Current local time: {local_now.isoformat()} ({local_label})\n"
+        f"Current UTC time: {current_utc_time}\n"
+        "For user-facing scheduling and time references, prefer the local time shown above unless the user explicitly asks for UTC or another timezone."
     )
 
 

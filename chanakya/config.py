@@ -181,5 +181,17 @@ def get_history_max_message_chars() -> int:
     return _get_positive_int_env("CHANAKYA_HISTORY_MAX_MESSAGE_CHARS", 3000)
 
 
+def get_ntfy_default_server_url() -> str:
+    load_local_env()
+    configured = os.getenv("CHANAKYA_NTFY_DEFAULT_SERVER")
+    if configured:
+        return configured.rstrip("/")
+    return "https://ntfy.sh"
+
+
+def get_ntfy_timeout_seconds() -> int:
+    return _get_positive_int_env("CHANAKYA_NTFY_TIMEOUT_SECONDS", 10)
+
+
 def force_subagents_enabled() -> bool:
     return env_flag("CHANAKYA_FORCE_SUBAGENTS", default=False)

@@ -115,6 +115,18 @@ class AppEventModel(Base):
     created_at: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class NotificationSettingsModel(Base):
+    __tablename__ = "notification_settings"
+
+    channel_type: Mapped[str] = mapped_column(String, primary_key=True)
+    server_url: Mapped[str] = mapped_column(String, nullable=False)
+    topic: Mapped[str] = mapped_column(String, nullable=False, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    include_message_preview: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class RequestModel(Base):
     __tablename__ = "requests"
 

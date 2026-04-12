@@ -15,6 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 MAX_TEXT_CHARS = 20000
 MAX_HTTP_BODY_CHARS = 50000
 MAX_WEATHER_BODY_CHARS = 12000
+MAX_MAP_BODY_CHARS = 12000
+DEFAULT_USER_AGENT = "Chanakya-MAF-Demo/0.1 (+https://github.com/Rishabh-Bajpai/MAF-demo)"
 SAFE_SHELL_COMMANDS = {
     "date": ["date"],
     "pwd": ["pwd"],
@@ -121,6 +123,187 @@ def _http_request(
             "body": "",
             "error": str(exc),
         }
+
+
+def _http_get_json(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout_seconds: int = 20,
+) -> dict[str, Any]:
+    result = _http_request(
+        method="GET",
+        url=url,
+        headers=headers,
+        timeout_seconds=timeout_seconds,
+    )
+    if not result.get("ok"):
+        return result
+    body = str(result.get("body") or "")
+    try:
+        return {"ok": True, "payload": json.loads(body), "raw": _trim(body, MAX_MAP_BODY_CHARS)}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": f"Failed to decode JSON response: {exc}",
+            "raw": _trim(body, MAX_MAP_BODY_CHARS),
+        }
+
+
+def _build_nominatim_url(endpoint: str, **params: object) -> str:
+    query = parse.urlencode({key: value for key, value in params.items() if value is not None})
+    return f"https://nominatim.openstreetmap.org/{endpoint}?{query}"
+
+
+def _nominatim_headers() -> dict[str, str]:
+    user_agent = os.getenv("NOMINATIM_USER_AGENT", DEFAULT_USER_AGENT)
+    return {"User-Agent": user_agent, "Accept": "application/json"}
+
+
+def _normalize_place(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "display_name": item.get("display_name"),
+        "latitude": item.get("lat"),
+        "longitude": item.get("lon"),
+        "class": item.get("class"),
+        "type": item.get("type"),
+        "importance": item.get("importance"),
+    }
+
+
+def _geocode_place(query: str, *, limit: int = 1) -> dict[str, Any]:
+    bounded_limit = max(1, min(limit, 10))
+    url = _build_nominatim_url(
+        "search",
+        q=(query or "").strip(),
+        format="jsonv2",
+        addressdetails=1,
+        limit=bounded_limit,
+    )
+    response = _http_get_json(url, headers=_nominatim_headers(), timeout_seconds=20)
+    if not response.get("ok"):
+        return response
+    payload = response.get("payload")
+    if not isinstance(payload, list):
+        return {
+            "ok": False,
+            "error": "Unexpected Nominatim response",
+            "raw": response.get("raw", ""),
+        }
+    places = [_normalize_place(item) for item in payload if isinstance(item, dict)]
+    return {"ok": True, "places": places, "raw": response.get("raw", "")}
+
+
+def _parse_coordinate(value: object, name: str) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a number") from exc
+    if name == "latitude" and not (-90 <= numeric <= 90):
+        raise ValueError("latitude must be between -90 and 90")
+    if name == "longitude" and not (-180 <= numeric <= 180):
+        raise ValueError("longitude must be between -180 and 180")
+    return numeric
+
+
+def _reverse_geocode_lookup(latitude: float, longitude: float) -> dict[str, Any]:
+    lat = _parse_coordinate(latitude, "latitude")
+    lon = _parse_coordinate(longitude, "longitude")
+    url = _build_nominatim_url(
+        "reverse",
+        lat=f"{lat:.6f}",
+        lon=f"{lon:.6f}",
+        format="jsonv2",
+        addressdetails=1,
+    )
+    response = _http_get_json(url, headers=_nominatim_headers(), timeout_seconds=20)
+    if not response.get("ok"):
+        return response
+    payload = response.get("payload")
+    if not isinstance(payload, dict):
+        return {
+            "ok": False,
+            "error": "Unexpected Nominatim response",
+            "raw": response.get("raw", ""),
+        }
+    address = payload.get("address") if isinstance(payload.get("address"), dict) else {}
+    return {
+        "ok": True,
+        "result": {
+            "display_name": payload.get("display_name"),
+            "latitude": payload.get("lat"),
+            "longitude": payload.get("lon"),
+            "address": address,
+            "osm_type": payload.get("osm_type"),
+            "osm_id": payload.get("osm_id"),
+        },
+    }
+
+
+def _route_places(origin: str, destination: str, profile: str = "driving") -> dict[str, Any]:
+    normalized_profile = profile.strip().lower() or "driving"
+    if normalized_profile not in {"driving", "walking", "cycling"}:
+        raise ValueError("profile must be one of: driving, walking, cycling")
+    origin_result = _geocode_place(origin, limit=1)
+    if not origin_result.get("ok"):
+        return {
+            "ok": False,
+            "error": f"origin lookup failed: {origin_result.get('error', 'unknown error')}",
+        }
+    destination_result = _geocode_place(destination, limit=1)
+    if not destination_result.get("ok"):
+        return {
+            "ok": False,
+            "error": f"destination lookup failed: {destination_result.get('error', 'unknown error')}",
+        }
+    origin_places = origin_result.get("places") or []
+    destination_places = destination_result.get("places") or []
+    if not origin_places:
+        return {"ok": False, "error": f"No route origin found for: {origin}"}
+    if not destination_places:
+        return {"ok": False, "error": f"No route destination found for: {destination}"}
+    origin_place = origin_places[0]
+    destination_place = destination_places[0]
+    coordinates = (
+        f"{origin_place['longitude']},{origin_place['latitude']};"
+        f"{destination_place['longitude']},{destination_place['latitude']}"
+    )
+    route_url = (
+        f"https://router.project-osrm.org/route/v1/{normalized_profile}/{coordinates}"
+        "?overview=false&steps=false"
+    )
+    route_response = _http_get_json(route_url, timeout_seconds=20)
+    if not route_response.get("ok"):
+        return route_response
+    payload = route_response.get("payload")
+    if not isinstance(payload, dict):
+        return {
+            "ok": False,
+            "error": "Unexpected OSRM response",
+            "raw": route_response.get("raw", ""),
+        }
+    routes = payload.get("routes")
+    if not isinstance(routes, list) or not routes or not isinstance(routes[0], dict):
+        return {"ok": False, "error": "No route returned", "raw": route_response.get("raw", "")}
+    route = routes[0]
+    distance_meters = route.get("distance")
+    duration_seconds = route.get("duration")
+    return {
+        "ok": True,
+        "profile": normalized_profile,
+        "origin": origin_place,
+        "destination": destination_place,
+        "route": {
+            "distance_meters": distance_meters,
+            "distance_km": round(float(distance_meters) / 1000, 2)
+            if isinstance(distance_meters, (int, float))
+            else None,
+            "duration_seconds": duration_seconds,
+            "duration_minutes": round(float(duration_seconds) / 60, 1)
+            if isinstance(duration_seconds, (int, float))
+            else None,
+        },
+    }
 
 
 def _build_filesystem_server() -> FastMCP:
@@ -330,6 +513,32 @@ def _build_weather_server() -> FastMCP:
     return mcp
 
 
+def _build_map_server() -> FastMCP:
+    mcp = FastMCP("Chanakya Map Tools", json_response=True)
+
+    @mcp.tool()
+    def search_place(query: str, limit: int = 5) -> dict[str, Any]:
+        """Search OpenStreetMap places by free-text query."""
+        if not query.strip():
+            raise ValueError("query is required")
+        result = _geocode_place(query, limit=limit)
+        if not result.get("ok"):
+            return result
+        return {"ok": True, "query": query, "results": result.get("places", [])}
+
+    @mcp.tool()
+    def reverse_geocode(latitude: float, longitude: float) -> dict[str, Any]:
+        """Resolve coordinates into the nearest OpenStreetMap address."""
+        return _reverse_geocode_lookup(latitude, longitude)
+
+    @mcp.tool()
+    def route_between(origin: str, destination: str, profile: str = "driving") -> dict[str, Any]:
+        """Route between two place names using OSM geocoding plus OSRM routing."""
+        return _route_places(origin, destination, profile)
+
+    return mcp
+
+
 def _build_server(mode: str) -> FastMCP:
     if mode == "filesystem":
         return _build_filesystem_server()
@@ -343,6 +552,8 @@ def _build_server(mode: str) -> FastMCP:
         return _build_shell_utils_server()
     if mode == "weather":
         return _build_weather_server()
+    if mode == "map":
+        return _build_map_server()
     raise ValueError(f"Unsupported MCP basic tools mode: {mode}")
 
 
@@ -350,7 +561,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run a local Chanakya MCP basic tools server")
     parser.add_argument(
         "mode",
-        choices=["filesystem", "git", "http", "json", "shell_utils", "weather"],
+        choices=["filesystem", "git", "http", "json", "shell_utils", "weather", "map"],
     )
     args = parser.parse_args()
     mcp = _build_server(args.mode)

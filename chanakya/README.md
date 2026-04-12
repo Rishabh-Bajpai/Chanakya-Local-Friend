@@ -327,10 +327,27 @@ Example:
       "args": ["-m", "chanakya.services.mcp_basic_tools_server", "weather"],
       "transport": "stdio",
       "env": {}
+    },
+    "mcp_map": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "map"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_timer": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_scheduler_launcher"],
+      "transport": "stdio",
+      "env": {}
     }
   }
 }
 ```
+
+Notes:
+
+- `mcp_map` uses free OpenStreetMap services through Nominatim and OSRM. Keep usage light and set a real `User-Agent` if you fork this project for broader use.
+- `mcp_timer` bootstraps the public `PhialsBasement/scheduler-mcp` server into `chanakya_data/external_tools/scheduler_mcp` on first launch, then runs it over stdio.
 
 ### Sandboxed Code Execution
 

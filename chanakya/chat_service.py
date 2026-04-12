@@ -31,6 +31,7 @@ from chanakya.agent.runtime import MAFRuntime
 from chanakya.agent_manager import AgentManager
 from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.services.sandbox_workspace import delete_shared_workspace
+from chanakya.services.ntfy import NtfyNotificationDispatcher, summarize_notification_text
 from chanakya.store import ChanakyaStore
 
 
@@ -96,6 +97,11 @@ _FAST_DIRECT_PATTERNS = (
     "polish this",
 )
 
+_LIGHT_ENTERTAINMENT_PATTERNS = (
+    "joke",
+    "jokes",
+)
+
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
 _WAITING_INPUT_ROUTE = "waiting_input_prompt"
 _CLASSIC_ACTIVE_WORK_PREFIX = "cwork"
@@ -119,10 +125,12 @@ class ChatService:
         store: ChanakyaStore,
         runtime: MAFRuntime,
         manager: AgentManager | None = None,
+        notification_dispatcher: NtfyNotificationDispatcher | None = None,
     ) -> None:
         self.store = store
         self.runtime = runtime
         self.manager = manager
+        self.notification_dispatcher = notification_dispatcher
         self._triage_client = OpenAIChatClient(env_file_path=".env")
         self._conversation_layer = ConversationLayerSupport()
 
@@ -154,6 +162,61 @@ class ChatService:
             "a2a_model_provider": str(payload.get("a2a_model_provider") or "").strip() or None,
             "a2a_model_id": str(payload.get("a2a_model_id") or "").strip() or None,
         }
+    def _runtime_metadata(self, model_id: str | None = None) -> dict[str, Any]:
+        try:
+            return self.runtime.runtime_metadata(model_id=model_id)
+        except TypeError:
+            return self.runtime.runtime_metadata()
+
+    def _runtime_run(
+        self,
+        session_id: str,
+        message: str,
+        *,
+        request_id: str,
+        model_id: str | None,
+    ) -> Any:
+        try:
+            return self.runtime.run(
+                session_id,
+                message,
+                request_id=request_id,
+                model_id=model_id,
+            )
+        except TypeError:
+            return self.runtime.run(session_id, message, request_id=request_id)
+
+    def _notify_root_task_outcome(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        root_task_id: str,
+        task_status: str,
+        work_id: str | None,
+        summary: str | None,
+    ) -> None:
+        if self.notification_dispatcher is None:
+            return
+        if task_status not in {TASK_STATUS_DONE, TASK_STATUS_FAILED, TASK_STATUS_WAITING_INPUT}:
+            return
+        normalized_summary = summarize_notification_text(summary or "")
+        if not normalized_summary:
+            normalized_summary = (
+                "A request finished successfully."
+                if task_status == TASK_STATUS_DONE
+                else "A request failed before producing a summary."
+                if task_status == TASK_STATUS_FAILED
+                else "Chanakya is waiting for your input to continue."
+            )
+        self.notification_dispatcher.notify_root_task_outcome(
+            session_id=session_id,
+            request_id=request_id,
+            root_task_id=root_task_id,
+            task_status=task_status,
+            summary=normalized_summary,
+            work_id=work_id,
+        )
 
     def _build_conversation_layer_result(
         self,
@@ -383,6 +446,8 @@ class ChatService:
     def _is_fast_direct_request(cls, message: str) -> bool:
         text = message.strip().lower()
         if cls._is_simple_direct_request(message):
+            return True
+        if len(text) <= 160 and any(pattern in text for pattern in _LIGHT_ENTERTAINMENT_PATTERNS):
             return True
         if cls._is_complex_request(message):
             return False
@@ -1097,7 +1162,7 @@ class ChatService:
                 run_result = None
             else:
                 manager_result = None
-                run_result = self.runtime.run(
+                run_result = self._runtime_run(
                     session_id,
                     message,
                     request_id=request_id,
@@ -1129,6 +1194,14 @@ class ChatService:
                     "error": str(exc),
                     "finished_at": finished_at,
                 },
+            )
+            self._notify_root_task_outcome(
+                session_id=session_id,
+                request_id=request_id,
+                root_task_id=root_task_id,
+                task_status=TASK_STATUS_FAILED,
+                work_id=work_id,
+                summary=str(exc),
             )
             self.store.log_event(
                 "chat_response_failed",
@@ -1292,7 +1365,14 @@ class ChatService:
             if isinstance(run_metadata, dict):
                 response_metadata.update(run_metadata)
             conversation_result = None
-            if manager_result is None and response_mode == "direct_answer":
+            if (
+                manager_result is None
+                and response_mode == "direct_answer"
+                and (
+                    isinstance(self.runtime, MAFRuntime)
+                    or not isinstance(self._conversation_layer, ConversationLayerSupport)
+                )
+            ):
                 conversation_result = self._build_conversation_layer_result(
                     session_id=session_id,
                     user_message=message,
@@ -1359,6 +1439,14 @@ class ChatService:
                 "request_status": request_status,
                 "finished_at": finished_at,
             },
+        )
+        self._notify_root_task_outcome(
+            session_id=session_id,
+            request_id=request_id,
+            root_task_id=root_task_id,
+            task_status=task_status,
+            work_id=work_id,
+            summary=input_prompt if task_status == TASK_STATUS_WAITING_INPUT else final_message,
         )
 
         reply = ChatReply(
@@ -1522,6 +1610,7 @@ class ChatService:
             agent_id=self.runtime.profile.id,
             session_id=session_id,
         )
+        runtime_meta = self._runtime_metadata()
         root_task_id = request.root_task_id
         if root_task_id is None:
             raise RuntimeError("Waiting task request is missing a root task")
@@ -1661,6 +1750,16 @@ class ChatService:
                 "request_status": request_status,
                 "finished_at": finished_at,
             },
+        )
+        self._notify_root_task_outcome(
+            session_id=session_id,
+            request_id=request.id,
+            root_task_id=root_task_id,
+            task_status=result.task_status,
+            work_id=work_id,
+            summary=result.input_prompt
+            if result.task_status == TASK_STATUS_WAITING_INPUT
+            else result.text,
         )
         return ChatReply(
             request_id=request.id,

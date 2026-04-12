@@ -787,6 +787,28 @@ def test_normal_chat_prefers_direct_for_fast_non_trivial_request() -> None:
     assert reply.message == "personal_assistant:Rewrite this sentence to sound more formal."
 
 
+def test_normal_chat_keeps_short_joke_requests_direct() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+
+    def _should_not_delegate(**kwargs: str) -> ManagerRunResult:
+        raise AssertionError("manager.execute should not run for short joke request")
+
+    service.manager.execute = _should_not_delegate  # type: ignore[method-assign]
+
+    reply = service.chat("session_direct_jokes", "Tell me 2 jokes")
+
+    assert reply.route == "direct_answer"
+    assert reply.message == "personal_assistant:Tell me 2 jokes"
+
+
 def test_work_mode_prefers_delegation_for_non_trivial_request() -> None:
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)
