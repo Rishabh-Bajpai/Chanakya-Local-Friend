@@ -1,38 +1,47 @@
-# Chanakya
+# MAF Demo Workspace
 
-Chanakya is a task orchestration system powered by Microsoft Agent Framework. The active application lives in `chanakya/`.
+This repository is a multi-project workspace centered on the Chanakya agent system and related Microsoft Agent Framework experiments.
+
+The primary app is `chanakya/`, with supporting services in `AI-Router-AIR/` and `chanakya_conversation_layer/`.
+
+## Repository Layout
+
+- `chanakya/` - main Flask app, orchestration runtime, persistence, templates, and MCP integration
+- `AI-Router-AIR/` - OpenAI-compatible routing and admin dashboard used by the local stack
+- `chanakya_conversation_layer/` - separate conversation-layer prototype and SDK-style implementation
+- `scripts/` - start/stop helpers and developer utilities
+- `chanakya_data/` - runtime data such as the SQLite database and shared sandbox workspace
+- `task.md` - implementation tracker
+- `tasks/` - design notes, PRDs, and supporting docs
 
 ## Quick Start
 
 ```bash
 source /home/rishabh/miniconda3/etc/profile.d/conda.sh
 conda activate test
+python -m pip install -e .[dev]
 cp .env.example .env
 cp mcp_config_file.example.json mcp_config_file.json
-./scripts/start_chanakya_air.sh
+./scripts/start_chanakya_air.sh core
 ```
 
-Open `http://localhost:5513` for Chanakya and `http://localhost:5512` for AIR.
+The startup script can launch either the core stack or the core stack plus A2A:
 
-## Core Paths
+- `./scripts/start_chanakya_air.sh core`
+- `./scripts/start_chanakya_air.sh core+a2a`
 
-- `chanakya/` - Flask app, MAF runtime, orchestration, persistence, templates
-- `chanakya/seeds/agents.json` - default persistent agent definitions
-- `task.md` - milestone tracker and execution plan
-- `tasks/prd-chanakya-full-system.md` - product requirements for the full system
+Core mode launches three services:
 
-## Configuration
+- AIR dashboard: `http://localhost:5512`
+- Chanakya app: `http://localhost:5513`
+- Chanakya conversation layer: `http://127.0.0.1:5514`
 
-Set values in `.env`:
+`core+a2a` also launches:
 
-- `OPENAI_BASE_URL` or `OPENAI_API_BASE`
-- `OPENAI_API_KEY`
-- `OPENAI_CHAT_MODEL_ID` (or `OPENAI_MODEL` / `MODEL`)
-- `DATABASE_URL` (optional; defaults to local SQLite)
+- OpenCode server: `http://127.0.0.1:18496`
+- A2A bridge: `http://127.0.0.1:18770`
 
-MCP servers are configured in `mcp_config_file.json`.
-
-Default MCP servers now include:
+Stop the stack with:
 
 - `mcp_websearch` (free DuckDuckGo web search)
 - `mcp_fetch` (webpage fetching)
@@ -42,46 +51,51 @@ Default MCP servers now include:
 - `mcp_timer` (scheduler-backed reminders and scheduled tasks)
 - `mcp_code_execution` (sandboxed code execution for developer/tester only)
 
-Sandboxed code execution uses a shared persistent workspace under:
+Logs and PID files are written to `build/runtime/`.
 
-- `chanakya_data/shared_workspace/<work_id>`
-- `chanakya_data/shared_workspace/temp` (fallback when no work id is available)
+## Configuration
 
-Code execution is container-only (Docker/Podman) and must not execute host-system commands.
+Root configuration lives in `.env` and `mcp_config_file.json`.
 
-## Sandbox Capabilities
+Important `.env` values:
 
-Available:
+- `OPENAI_BASE_URL`
+- `OPENAI_API_KEY`
+- `OPENAI_CHAT_MODEL_ID`
+- `OPENAI_RESPONSES_MODEL_ID`
+- `DATABASE_URL`
+- `CHANAKYA_DEBUG`
 
-- Execute Python and shell commands inside an isolated container
-- Persist files across runs in `chanakya_data/shared_workspace/<work_id>` or `temp`
-- Read host project files through read-only mounts inside the sandbox
-- Use the shared workspace as the only writable location during sandbox execution
-- Run with bounded CPU, memory, and pid count
-- Use full network access from sandboxed code when external fetches are required
-- Retry safely after permission errors by copying files into `/workspace`
+MCP servers are configured in `mcp_config_file.json` under `mcpServers`.
 
-Unavailable:
+## Sandbox Notes
 
-- Writing to host-mounted files or directories outside the shared workspace
-- Running commands directly on the host system
-- Privilege escalation or container capability expansion
-- Arbitrary path traversal outside the sandbox workspace policy
+Sandboxed code execution uses the shared workspace under `chanakya_data/shared_workspace/`.
 
-Common permission behavior:
+- Host project files may be mounted read-only into the sandbox
+- Only the sandbox workspace is writable during execution
+- Docker or Podman is required for containerized code execution
 
-- Host files are readable but read-only inside the sandbox
-- Only `/workspace` is writable in the container
-- If an agent hits `Permission denied` or `Read-only file system`, it should copy the target file into the shared workspace and retry there
+## Development
 
-## Validation Commands
+Run the main validation commands from the repo root:
 
 ```bash
-source /home/rishabh/miniconda3/etc/profile.d/conda.sh
-conda activate test
 python -m ruff check chanakya/
 python -m mypy chanakya/
 pytest chanakya/test
 ```
 
-For detailed architecture and API documentation, see `chanakya/README.md`.
+Helpful scripts:
+
+- `scripts/start_chanakya_air.sh` - start the core stack, or `core+a2a` to include OpenCode and the A2A bridge
+- `scripts/stop_chanakya_air.sh` - stop the local stack
+- `scripts/db_viewer.py` - inspect database contents
+- `scripts/clear_database.py` - reset local database state
+- `scripts/update_database.py` - apply local database updates
+
+## Additional Docs
+
+- `chanakya/README.md` - detailed Chanakya architecture and API documentation
+- `AI-Router-AIR/README.md` - AIR server and dashboard documentation
+- `chanakya_conversation_layer/README.md` - conversation-layer implementation details

@@ -39,19 +39,43 @@ def _extract_first_user_text(context: RequestContext) -> str:
     return ""
 
 
-def _collect_text(parts: list[dict[str, Any]]) -> str:
+def _collect_text(payload: Any) -> str:
     texts: list[str] = []
-    for part in parts:
-        if isinstance(part, dict) and part.get("type") == "text":
-            text = part.get("text")
-            if isinstance(text, str) and text.strip():
-                texts.append(text)
-    return "\n".join(texts).strip()
+
+    def collect(value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                texts.append(stripped)
+            return
+        if isinstance(value, dict):
+            part_type = str(value.get("type") or "").strip().lower()
+            if part_type == "text":
+                collect(value.get("text"))
+                return
+            if "text" in value and len(value) == 1:
+                collect(value.get("text"))
+                return
+            for key in ("parts", "artifacts", "root", "content", "message", "messages"):
+                if key in value:
+                    collect(value.get(key))
+            return
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                collect(item)
+            return
+        for attr in ("parts", "artifacts", "root", "content", "message", "messages", "text"):
+            nested = getattr(value, attr, None)
+            if nested is not None and nested is not value:
+                collect(nested)
+
+    collect(payload)
+    return "\n".join(dict.fromkeys(texts)).strip()
 
 
-def _extract_agent_name_and_prompt(
-    raw_prompt: str, default_agent: str
-) -> tuple[str, str]:
+def _extract_agent_name_and_prompt(raw_prompt: str, default_agent: str) -> tuple[str, str]:
     if raw_prompt.startswith("[[opencode-agent:") and "]]" in raw_prompt:
         header, prompt = raw_prompt.split("]]", 1)
         agent_name = header.replace("[[opencode-agent:", "", 1).strip()
@@ -68,9 +92,7 @@ def _extract_request_options(
 ) -> tuple[str, str, str | None, str | None, bool]:
     lines = raw_prompt.splitlines()
     if not lines or not lines[0].startswith("[[opencode-options:"):
-        agent_name, clean_prompt = _extract_agent_name_and_prompt(
-            raw_prompt, default_agent
-        )
+        agent_name, clean_prompt = _extract_agent_name_and_prompt(raw_prompt, default_agent)
         return (
             agent_name,
             clean_prompt,
@@ -185,9 +207,7 @@ class OpenCodeBridgeAgent(AgentExecutor):
                     default_model_id=self.opencode.model_id,
                 )
             )
-            session = await self.opencode.create_session(
-                f"A2A bridge session ({agent_name})"
-            )
+            session = await self.opencode.create_session(f"A2A bridge session ({agent_name})")
             session_id = session["id"]
 
             message = await self.opencode.send_message(
@@ -197,10 +217,7 @@ class OpenCodeBridgeAgent(AgentExecutor):
                 model_provider=model_provider,
                 model_id=model_id,
             )
-            reply = (
-                _collect_text(message.get("parts", []))
-                or "OpenCode returned no text parts."
-            )
+            reply = _collect_text(message) or "OpenCode returned no text parts."
             task = Task(
                 id=context.task_id,
                 context_id=context.context_id,
@@ -213,9 +230,7 @@ class OpenCodeBridgeAgent(AgentExecutor):
                 ],
                 status=TaskStatus(
                     state=TaskState.completed,
-                    message=new_agent_text_message(
-                        reply, context.context_id, context.task_id
-                    ),
+                    message=new_agent_text_message(reply, context.context_id, context.task_id),
                 ),
             )
         except Exception as exc:

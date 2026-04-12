@@ -62,9 +62,34 @@
         padding: 16px;
         border-bottom: 1px solid var(--line);
       }
+      .left .header {
+        padding: 20px 20px 18px;
+        background:
+          linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(216, 107, 74, 0.02) 55%, transparent),
+          rgba(255, 255, 255, 0.01);
+      }
       .header h1,
       .header h2 {
         margin: 0;
+      }
+      .chat .header {
+        padding: 18px 18px 16px;
+        background:
+          linear-gradient(180deg, rgba(58, 138, 135, 0.08), rgba(58, 138, 135, 0.015) 60%, transparent),
+          rgba(255, 255, 255, 0.01);
+      }
+      .history .header {
+        padding: 18px 18px 16px;
+        background:
+          linear-gradient(180deg, rgba(84, 105, 163, 0.14), rgba(84, 105, 163, 0.02) 60%, transparent),
+          rgba(255, 255, 255, 0.01);
+      }
+      .workspace-kicker {
+        margin: 0 0 8px;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #d7b2a7;
       }
       .header p {
         margin: 6px 0 0;
@@ -119,12 +144,36 @@
         border-radius: 999px;
         border: 2px solid rgba(0, 0, 0, 0.25);
       }
+      .left .body {
+        padding: 18px;
+        display: grid;
+        gap: 16px;
+        align-content: start;
+      }
+      .sidebar-block {
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.02);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+      }
+      .sidebar-block-header {
+        padding: 14px 14px 0;
+      }
+      .sidebar-block-header h3 {
+        margin: 0;
+        font-size: 14px;
+      }
+      .sidebar-block-header p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
       .work-form {
         display: grid;
         gap: 8px;
-        margin-bottom: 14px;
-        padding-bottom: 14px;
-        border-bottom: 1px solid var(--line);
+        margin: 0;
+        padding: 14px;
       }
       input,
       textarea,
@@ -161,16 +210,23 @@
         color: var(--muted);
       }
       .work-item {
-        border: 1px solid #3a3a3a;
+        border: 1px solid rgba(255, 255, 255, 0.06);
         border-left: 4px solid var(--ink);
-        border-radius: 12px;
-        padding: 10px;
+        border-radius: 14px;
+        padding: 12px 12px 11px;
         margin-bottom: 10px;
         cursor: pointer;
+        background: rgba(255, 255, 255, 0.02);
+        transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+      }
+      .work-item:hover {
+        transform: translateY(-1px);
+        border-color: rgba(216, 107, 74, 0.28);
+        background: rgba(255, 255, 255, 0.035);
       }
       .work-item.active {
         border-color: var(--accent);
-        box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.3);
+        box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.24), 0 10px 24px rgba(0, 0, 0, 0.18);
       }
       .work-item h3 {
         margin: 0 0 6px;
@@ -184,65 +240,159 @@
       .chat-log {
         flex: 1;
         overflow: auto;
-        padding: 14px;
+        padding: 18px;
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 12px;
+        background:
+          radial-gradient(circle at top right, rgba(58, 138, 135, 0.08), transparent 28%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
       }
       .msg {
         max-width: 86%;
-        border-radius: 14px;
-        padding: 10px 12px;
+        border-radius: 16px;
+        padding: 12px 14px;
+        line-height: 1.5;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
       }
       .msg.user {
         align-self: flex-end;
-        background: #3d2a20;
+        background: linear-gradient(180deg, #4b3024, #3b271e);
+        border: 1px solid rgba(216, 107, 74, 0.2);
       }
       .msg.assistant {
         align-self: flex-start;
-        background: #252525;
-        border: 1px solid #383838;
+        background: linear-gradient(180deg, #262a2d, #1f2225);
+        border: 1px solid rgba(97, 120, 129, 0.24);
       }
       .composer {
         border-top: 1px solid var(--line);
-        padding: 12px;
+        padding: 14px;
         display: grid;
         grid-template-columns: 1fr auto;
         gap: 8px;
+        background: rgba(255, 255, 255, 0.015);
       }
-      .air-panel {
-        margin-top: 14px;
-        padding: 12px;
+      .composer input {
+        min-height: 48px;
         border-radius: 14px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.02);
+        background: rgba(0, 0, 0, 0.2);
       }
-      .air-panel h3 {
-        margin: 0 0 6px;
-        font-size: 14px;
+      .control-deck {
+        margin-top: 0;
+        border: 1px solid rgba(216, 107, 74, 0.22);
+        border-radius: 18px;
+        background:
+          linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(58, 138, 135, 0.04)),
+          rgba(255, 255, 255, 0.02);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        overflow: hidden;
       }
-      .air-panel p {
-        margin: 0 0 10px;
+      .control-deck summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 16px;
+      }
+      .control-deck summary::-webkit-details-marker {
+        display: none;
+      }
+      .control-deck-titlebar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .control-deck-kicker {
+        margin: 0 0 4px;
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #d7b2a7;
+      }
+      .control-deck h3 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.1;
+      }
+      .control-deck p {
+        margin: 6px 0 0;
         color: var(--muted);
         font-size: 12px;
       }
+      .control-deck-toggle {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text);
+        font-size: 16px;
+      }
+      .control-deck[open] .control-deck-toggle::before {
+        content: "-";
+      }
+      .control-deck:not([open]) .control-deck-toggle::before {
+        content: "+";
+      }
+      .control-deck-body {
+        padding: 0 16px 16px;
+        display: grid;
+        gap: 14px;
+      }
+      .control-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      .control-group {
+        display: grid;
+        gap: 10px;
+        padding: 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(0, 0, 0, 0.12);
+      }
+      .control-group-title {
+        margin: 0;
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #d0cbc5;
+      }
+      .control-group-note {
+        margin: -4px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
       .air-links,
       .air-models,
-      .air-controls {
+      .air-controls,
+      .runtime-models {
         display: grid;
         gap: 8px;
       }
       .air-links,
+      .runtime-models,
       .air-controls {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
-      .air-models label {
+      .runtime-models .air-button {
+        grid-column: 1 / -1;
+      }
+      .air-models label,
+      .runtime-models label {
         display: grid;
         gap: 4px;
         font-size: 12px;
         color: var(--muted);
       }
-      .air-models select {
+      .air-models select,
+      .runtime-models select {
         width: 100%;
         padding: 8px 10px;
         border-radius: 10px;
@@ -267,6 +417,18 @@
       }
       .air-status[data-state="error"] {
         color: #e74c3c;
+      }
+      .work-list {
+        display: grid;
+        gap: 10px;
+      }
+      .work-list-empty {
+        padding: 14px;
+        border: 1px dashed rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        color: var(--muted);
+        font-size: 12px;
+        background: rgba(255, 255, 255, 0.015);
       }
       .agent-card {
         border: 1px solid #3a3a3a;
@@ -310,15 +472,21 @@
         border-top: 1px solid var(--line);
         padding-top: 12px;
       }
+      .history .body {
+        padding: 18px;
+        background:
+          radial-gradient(circle at top left, rgba(84, 105, 163, 0.08), transparent 25%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+      }
       details.section-toggle {
         margin-top: 14px;
-        border: 1px solid #3a3a3a;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.024);
       }
       details.section-toggle > summary {
         cursor: pointer;
-        padding: 10px 12px;
+        padding: 11px 13px;
         font-weight: 700;
         color: var(--text);
       }
@@ -327,20 +495,21 @@
       }
       details.agent-toggle {
         margin-bottom: 10px;
-        border: 1px solid #343434;
-        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.015);
       }
       details.agent-toggle > summary {
         cursor: pointer;
-        padding: 8px 10px;
+        padding: 10px 12px;
         color: var(--text);
       }
       .flow-item {
-        border: 1px solid #343434;
-        border-radius: 10px;
-        padding: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        padding: 10px;
         margin-bottom: 8px;
-        background: #161616;
+        background: rgba(17, 18, 21, 0.76);
       }
       .flow-meta {
         color: var(--muted);
@@ -520,6 +689,10 @@
       .empty {
         color: var(--muted);
         font-style: italic;
+        padding: 18px;
+        border: 1px dashed rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.018);
       }
       @media (max-width: 1200px) {
         .shell { grid-template-columns: 1fr; }
@@ -533,55 +706,161 @@
           top: auto;
         }
       }
+
+      .runtime-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        width: fit-content;
+        padding: 7px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #d5d0ca;
+      }
+      .runtime-chip::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--ink);
+        box-shadow: 0 0 10px rgba(58, 138, 135, 0.5);
+      }
+      .control-field-hint {
+        margin: -2px 0 0;
+        color: #8e8882;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .control-group.is-disabled {
+        opacity: 0.6;
+      }
+      @media (max-width: 900px) {
+        .control-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 640px) {
+        .air-links,
+        .runtime-models,
+        .air-controls {
+          grid-template-columns: 1fr;
+        }
+      }
     </style>
   </head>
   <body>
     <div class="shell">
       <section class="panel left">
         <div class="header">
+          <p class="workspace-kicker">Workspace Mode</p>
           <h1>Works</h1>
-          <p>Create and reopen long-running work contexts.</p>
+          <p>Create and reopen long-running work contexts without crowding the main chat pane.</p>
           <div class="link-row"><a href="/">Open classic chat</a></div>
-          <div class="air-panel">
-            <h3>AIR Voice Sidebar</h3>
-            <p>Use AIR models for speech input, speech output, and the AIR dashboard.</p>
-            <div class="air-links">
-              <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
-              <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
-            </div>
-            <div class="air-models">
-              <label>
-                Chanakya Model
-                <select id="airLlmModel"></select>
-              </label>
-              <label>
-                STT Model
-                <select id="airSttModel"></select>
-              </label>
-              <label>
-                TTS Model
-                <select id="airTtsModel"></select>
-              </label>
-            </div>
-            <div class="air-controls">
-              <button id="airMicButton" class="air-button" type="button">Mic</button>
-              <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
-              <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
-              <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
-              <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
-            </div>
-            <div id="airVoiceStatus" class="air-status"></div>
-            <div id="conversationQueueStatus" class="air-status"></div>
-          </div>
         </div>
         <div class="body">
-          <form id="workForm" class="work-form">
-            <input id="workTitle" type="text" placeholder="Work title" required />
-            <textarea id="workDescription" placeholder="Describe the objective (optional)"></textarea>
-            <button id="createWorkButton" type="submit">Create Work</button>
-            <div id="workStatus" class="status"></div>
-          </form>
-          <div id="workList"></div>
+          <section class="sidebar-block">
+            <div class="sidebar-block-header">
+              <h3>New Work</h3>
+              <p>Start a dedicated work context for a report, implementation track, or multi-agent task.</p>
+            </div>
+            <form id="workForm" class="work-form">
+              <input id="workTitle" type="text" placeholder="Work title" required />
+              <textarea id="workDescription" placeholder="Describe the objective (optional)"></textarea>
+              <button id="createWorkButton" type="submit">Create Work</button>
+              <div id="workStatus" class="status"></div>
+            </form>
+          </section>
+          <section class="sidebar-block">
+            <details class="control-deck" open>
+              <summary>
+                <div class="control-deck-titlebar">
+                  <div>
+                    <p class="control-deck-kicker">Control Deck</p>
+                    <h3>Voice, models, and runtime</h3>
+                    <p>Keep AIR voice controls and chat routing in one place. Use Apply Changes to update future requests across the app.</p>
+                  </div>
+                  <span class="control-deck-toggle" aria-hidden="true"></span>
+                </div>
+              </summary>
+              <div class="control-deck-body">
+                <div class="control-grid">
+                  <section class="control-group">
+                    <p class="control-group-title">Chat Runtime</p>
+                    <div class="runtime-chip">Active work chat path</div>
+                    <div class="runtime-models">
+                      <label>
+                        Backend
+                        <select id="chatBackendSelect">
+                          <option value="local">Local OpenAI-compatible via AIR</option>
+                          <option value="a2a">A2A</option>
+                        </select>
+                      </label>
+                      <label>
+                        Chanakya Model
+                        <select id="airLlmModel"></select>
+                      </label>
+                      <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
+                      <label>
+                        A2A Agent Override
+                        <select id="a2aAgentInput"></select>
+                      </label>
+                      <label>
+                        A2A Model Provider
+                        <select id="a2aModelProviderInput"></select>
+                      </label>
+                      <label>
+                        A2A Model
+                        <select id="a2aModelIdInput"></select>
+                      </label>
+                    </div>
+                    <p class="control-group-note">A2A sends the next work-chat turn through the app-managed bridge. The selected A2A agent applies to both direct replies and conversation-layer follow-ups. AIR model selection stays active only for local replies.</p>
+                    <div class="air-controls">
+                      <button id="runtimeConfigApplyButton" class="air-button" type="button">Apply Changes</button>
+                    </div>
+                    <p id="runtimeConfigStatus" class="control-field-hint"></p>
+                    <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
+                  </section>
+                  <section class="control-group">
+                    <p class="control-group-title">AIR Voice</p>
+                    <div class="air-links">
+                      <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
+                      <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
+                    </div>
+                    <div class="air-models">
+                      <label>
+                        STT Model
+                        <select id="airSttModel"></select>
+                      </label>
+                      <label>
+                        TTS Model
+                        <select id="airTtsModel"></select>
+                      </label>
+                    </div>
+                  </section>
+                </div>
+                <div class="air-controls">
+                  <button id="airMicButton" class="air-button" type="button">Mic</button>
+                  <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
+                  <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
+                  <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
+                  <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
+                </div>
+                <div id="airVoiceStatus" class="air-status"></div>
+                <div id="conversationQueueStatus" class="air-status"></div>
+              </div>
+            </details>
+          </section>
+          <section class="sidebar-block">
+            <div class="sidebar-block-header">
+              <h3>Saved Workspaces</h3>
+              <p>Reopen an existing context and continue where the workstream left off.</p>
+            </div>
+            <div id="workList" class="work-list"></div>
+          </section>
         </div>
       </section>
 
@@ -631,12 +910,22 @@
       const airSpeakButton = document.getElementById("airSpeakButton");
       const airPauseRepliesButton = document.getElementById("airPauseRepliesButton");
       const airRefreshModelsButton = document.getElementById("airRefreshModelsButton");
+      const chatBackendSelect = document.getElementById("chatBackendSelect");
+      const a2aRefreshOptionsButton = document.getElementById("a2aRefreshOptionsButton");
+      const a2aAgentInput = document.getElementById("a2aAgentInput");
+      const a2aModelProviderInput = document.getElementById("a2aModelProviderInput");
+      const a2aModelIdInput = document.getElementById("a2aModelIdInput");
+      const runtimeConfigApplyButton = document.getElementById("runtimeConfigApplyButton");
+      const runtimeConfigStatus = document.getElementById("runtimeConfigStatus");
+      const a2aDiscoveryStatus = document.getElementById("a2aDiscoveryStatus");
       const airVoiceStatus = document.getElementById("airVoiceStatus");
       const conversationQueueStatus = document.getElementById("conversationQueueStatus");
       const historyList = document.getElementById("historyList");
       const deleteWorkButton = document.getElementById("deleteWorkButton");
 
       const WORK_STORAGE_KEY = "chanakya-active-work";
+      const RUNTIME_CONFIG_SYNC_KEY = "chanakya-runtime-config-sync";
+      const DEFAULT_A2A_URL = {{ a2a_agent_url | tojson }};
       let activeWorkId = null;
       let works = [];
       let slideshowTimer = null;
@@ -649,6 +938,8 @@
       let cachedTasks = [];
       let cachedRequests = [];
       let airVoiceController = null;
+      let a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+      let appliedRuntimeConfig = null;
       const slideshowState = {
         requestId: null,
         followLatest: true,
@@ -658,6 +949,257 @@
         open: true,
       };
 
+      function getSelectedChatBackend() {
+        const value = chatBackendSelect ? chatBackendSelect.value : "local";
+        return value === "a2a" ? "a2a" : "local";
+      }
+
+      function normalizeRuntimeConfig(config) {
+        const normalized = config || {};
+        return {
+          backend: normalized.backend === "a2a" ? "a2a" : "local",
+          model_id: typeof normalized.model_id === "string" && normalized.model_id.trim() ? normalized.model_id.trim() : null,
+          a2a_url: typeof normalized.a2a_url === "string" && normalized.a2a_url.trim() ? normalized.a2a_url.trim() : (DEFAULT_A2A_URL || null),
+          a2a_remote_agent: typeof normalized.a2a_remote_agent === "string" && normalized.a2a_remote_agent.trim() ? normalized.a2a_remote_agent.trim() : null,
+          a2a_model_provider: typeof normalized.a2a_model_provider === "string" && normalized.a2a_model_provider.trim() ? normalized.a2a_model_provider.trim() : null,
+          a2a_model_id: typeof normalized.a2a_model_id === "string" && normalized.a2a_model_id.trim() ? normalized.a2a_model_id.trim() : null,
+        };
+      }
+
+      function collectPendingRuntimeConfig() {
+        return normalizeRuntimeConfig({
+          backend: getSelectedChatBackend(),
+          model_id: airLlmModel && airLlmModel.value.trim() ? airLlmModel.value.trim() : null,
+          a2a_url: DEFAULT_A2A_URL || null,
+          a2a_remote_agent: a2aAgentInput && a2aAgentInput.value.trim() ? a2aAgentInput.value.trim() : null,
+          a2a_model_provider: a2aModelProviderInput && a2aModelProviderInput.value.trim() ? a2aModelProviderInput.value.trim() : null,
+          a2a_model_id: a2aModelIdInput && a2aModelIdInput.value.trim() ? a2aModelIdInput.value.trim() : null,
+        });
+      }
+
+      function runtimeConfigsEqual(left, right) {
+        const a = normalizeRuntimeConfig(left);
+        const b = normalizeRuntimeConfig(right);
+        return JSON.stringify(a) === JSON.stringify(b);
+      }
+
+      function applyRuntimeConfigToControls(config) {
+        const normalized = normalizeRuntimeConfig(config);
+        if (chatBackendSelect) {
+          chatBackendSelect.value = normalized.backend;
+        }
+        if (airLlmModel && normalized.model_id) {
+          airLlmModel.value = normalized.model_id;
+        }
+        if (a2aAgentInput) {
+          a2aAgentInput.value = normalized.a2a_remote_agent || "";
+        }
+        if (a2aModelProviderInput) {
+          a2aModelProviderInput.value = normalized.a2a_model_provider || "";
+        }
+        if (a2aModelIdInput) {
+          a2aModelIdInput.value = normalized.a2a_model_id || "";
+        }
+        updateRuntimeConfigState();
+      }
+
+      function setRuntimeConfigStatus(text, isError = false) {
+        if (!runtimeConfigStatus) {
+          return;
+        }
+        runtimeConfigStatus.textContent = text || "";
+        runtimeConfigStatus.style.color = isError ? "#e74c3c" : "#8e8882";
+      }
+
+      function describeRuntimeConfig(config) {
+        const normalized = normalizeRuntimeConfig(config);
+        if (normalized.backend === "a2a") {
+          const parts = ["A2A"];
+          if (normalized.a2a_remote_agent) {
+            parts.push(`agent ${normalized.a2a_remote_agent}`);
+          }
+          if (normalized.a2a_model_provider && normalized.a2a_model_id) {
+            parts.push(`${normalized.a2a_model_provider}/${normalized.a2a_model_id}`);
+          } else if (normalized.a2a_model_id) {
+            parts.push(normalized.a2a_model_id);
+          }
+          return parts.join(" | ");
+        }
+        return normalized.model_id ? `Local | ${normalized.model_id}` : "Local";
+      }
+
+      function updateRuntimeConfigDirtyState() {
+        const hasPendingChanges = !runtimeConfigsEqual(appliedRuntimeConfig, collectPendingRuntimeConfig());
+        if (runtimeConfigApplyButton) {
+          runtimeConfigApplyButton.disabled = !hasPendingChanges;
+        }
+        const appliedSummary = describeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
+        setRuntimeConfigStatus(
+          hasPendingChanges
+            ? `Unapplied changes. Applied now: ${appliedSummary}`
+            : `Applied for future requests: ${appliedSummary}`
+        );
+      }
+
+      function setA2ADiscoveryStatus(text, isError = false) {
+        if (!a2aDiscoveryStatus) {
+          return;
+        }
+        a2aDiscoveryStatus.textContent = text || "";
+        a2aDiscoveryStatus.style.color = isError ? "#e74c3c" : "#8e8882";
+      }
+
+      function setA2ASelectLoading(isLoading) {
+        [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((select) => {
+          if (!select) {
+            return;
+          }
+          if (isLoading) {
+            select.replaceChildren();
+            const option = document.createElement("option");
+            option.value = "";
+            option.textContent = "Loading...";
+            select.appendChild(option);
+            select.value = "";
+          }
+        });
+      }
+
+      function setSelectOptions(select, values, selectedValue, placeholder, labels = {}) {
+        if (!select) {
+          return;
+        }
+        const items = Array.from(new Set((values || []).filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim())));
+        if (selectedValue && !items.includes(selectedValue)) {
+          items.unshift(selectedValue);
+        }
+        select.replaceChildren();
+        const placeholderOption = document.createElement("option");
+        placeholderOption.value = "";
+        placeholderOption.textContent = placeholder;
+        select.appendChild(placeholderOption);
+        items.forEach((item) => {
+          const option = document.createElement("option");
+          option.value = item;
+          option.textContent = labels[item] || item;
+          select.appendChild(option);
+        });
+        select.value = selectedValue && items.includes(selectedValue) ? selectedValue : "";
+      }
+
+      function syncA2AModelOptions(sourceConfig = null) {
+        const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
+        const provider = settings.a2a_model_provider;
+        const modelItems = (a2aDiscoveredOptions.models || []).filter((item) => !provider || item.provider === provider);
+        const labels = Object.fromEntries(modelItems.map((item) => [item.id, `${item.label} (${item.provider})`]));
+        setSelectOptions(a2aModelIdInput, modelItems.map((item) => item.id), settings.a2a_model_id, "Select A2A model", labels);
+      }
+
+      function applyA2ADiscoveryOptions(sourceConfig = null) {
+        const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
+        setSelectOptions(a2aAgentInput, a2aDiscoveredOptions.remote_agents || [], settings.a2a_remote_agent, "Select A2A agent");
+        setSelectOptions(a2aModelProviderInput, a2aDiscoveredOptions.providers || [], settings.a2a_model_provider, "Select model provider");
+        syncA2AModelOptions(settings);
+        updateRuntimeConfigDirtyState();
+      }
+
+      async function refreshA2AOptions(sourceConfig = null) {
+        const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
+        const url = String(DEFAULT_A2A_URL || "").trim();
+        if (!url) {
+          a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+          applyA2ADiscoveryOptions(settings);
+          setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
+          return;
+        }
+        setA2ASelectLoading(true);
+        setA2ADiscoveryStatus("Loading A2A agents and models...");
+        try {
+          const response = await fetch(`/api/a2a/options?url=${encodeURIComponent(url)}`);
+          const payload = await readJsonResponse(response);
+          if (!response.ok) {
+            throw new Error(payload.error || "Failed to load A2A options");
+          }
+          a2aDiscoveredOptions = {
+            remote_agents: Array.isArray(payload.remote_agents) ? payload.remote_agents : [],
+            providers: Array.isArray(payload.providers) ? payload.providers : [],
+            models: Array.isArray(payload.models) ? payload.models : [],
+          };
+          applyA2ADiscoveryOptions(settings);
+          setA2ADiscoveryStatus(
+            `Loaded ${a2aDiscoveredOptions.remote_agents.length} agent${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
+          );
+        } catch (error) {
+          a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+          applyA2ADiscoveryOptions(settings);
+          setA2ADiscoveryStatus(String(error && error.message ? error.message : error), true);
+        }
+      }
+
+      async function loadAppliedRuntimeConfig(options = {}) {
+        const { silent = false } = options;
+        if (!silent) {
+          setRuntimeConfigStatus("Loading applied settings...");
+        }
+        const response = await fetch("/api/runtime-config");
+        const payload = await readJsonResponse(response);
+        if (!response.ok) {
+          throw new Error(payload.error || "Failed to load runtime settings");
+        }
+        appliedRuntimeConfig = normalizeRuntimeConfig(payload);
+        applyRuntimeConfigToControls(appliedRuntimeConfig);
+        if (appliedRuntimeConfig.backend === "a2a") {
+          await refreshA2AOptions(appliedRuntimeConfig);
+        }
+        updateRuntimeConfigDirtyState();
+        return appliedRuntimeConfig;
+      }
+
+      async function applyRuntimeConfigChanges() {
+        const pendingConfig = collectPendingRuntimeConfig();
+        if (runtimeConfigsEqual(appliedRuntimeConfig, pendingConfig)) {
+          updateRuntimeConfigDirtyState();
+          return appliedRuntimeConfig;
+        }
+        if (runtimeConfigApplyButton) {
+          runtimeConfigApplyButton.disabled = true;
+        }
+        setRuntimeConfigStatus("Applying settings...");
+        const response = await fetch("/api/runtime-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pendingConfig),
+        });
+        const payload = await readJsonResponse(response);
+        if (!response.ok) {
+          updateRuntimeConfigDirtyState();
+          throw new Error(payload.error || "Failed to apply runtime settings");
+        }
+        appliedRuntimeConfig = normalizeRuntimeConfig(payload);
+        applyRuntimeConfigToControls(appliedRuntimeConfig);
+        if (appliedRuntimeConfig.backend === "a2a") {
+          await refreshA2AOptions(appliedRuntimeConfig);
+        }
+        try {
+          window.localStorage.setItem(RUNTIME_CONFIG_SYNC_KEY, JSON.stringify({ updatedAt: Date.now() }));
+        } catch {
+        }
+        updateRuntimeConfigDirtyState();
+        return appliedRuntimeConfig;
+      }
+
+      function updateRuntimeConfigState() {
+        const usingA2A = getSelectedChatBackend() === "a2a";
+        if (airLlmModel) {
+          airLlmModel.disabled = usingA2A;
+        }
+        [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput, a2aRefreshOptionsButton].forEach((node) => {
+          if (node) {
+            node.disabled = !usingA2A;
+          }
+        });
+      }
+
       function setStatus(text, isError = false) {
         workStatus.textContent = text || "";
         workStatus.style.color = isError ? "#e74c3c" : "var(--muted)";
@@ -665,9 +1207,23 @@
 
       function saveActiveWork(workId) {
         try {
-          if (workId) window.localStorage.setItem(WORK_STORAGE_KEY, workId);
+          if (workId) {
+            window.localStorage.setItem(WORK_STORAGE_KEY, workId);
+          } else {
+            window.localStorage.removeItem(WORK_STORAGE_KEY);
+          }
         } catch {
         }
+      }
+
+      function clearActiveWorkSelection() {
+        activeWorkId = null;
+        historyFetchNonce += 1;
+        saveActiveWork(null);
+        stopSlideshow();
+        stopLiveRefresh();
+        renderWorks();
+        resetWorkView();
       }
 
       function loadSavedWork() {
@@ -701,6 +1257,18 @@
         conversationQueueStatus.dataset.state = isError ? "error" : "idle";
       }
 
+      async function readJsonResponse(response) {
+        const raw = await response.text();
+        if (!raw) {
+          return {};
+        }
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return { error: raw.trim() || `HTTP ${response.status}` };
+        }
+      }
+
       async function pauseConversationReplies() {
         if (!activeWorkId) {
           setConversationQueueStatus("No active work session to pause.", true);
@@ -715,7 +1283,7 @@
         const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}/pause`, {
           method: "POST",
         });
-        const payload = await response.json();
+        const payload = await readJsonResponse(response);
         if (!response.ok) {
           throw new Error(payload.error || "Pause failed");
         }
@@ -726,7 +1294,7 @@
         const { onAssistantMessage } = options;
         while (true) {
           const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}/next-message`);
-          const payload = await response.json();
+          const payload = await readJsonResponse(response);
           if (!response.ok) {
             throw new Error(payload.error || "Next message failed");
           }
@@ -771,20 +1339,25 @@
         if (!activeWorkId) {
           throw new Error("Select a work before starting voice mode.");
         }
+        const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             work_id: activeWorkId,
             message,
-            model_id: airLlmModel.value || null,
+            model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
+            backend: runtimeConfig.backend,
+            a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
+            a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
+            a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
+            a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
           }),
         });
+        const data = await readJsonResponse(response);
         if (!response.ok) {
-          const data = await response.json();
           throw new Error(data.error || "Chat failed");
         }
-        const data = await response.json();
         const messages = Array.isArray(data.messages) && data.messages.length
           ? data.messages
           : [{ text: data.message || "", delay_ms: 0 }];
@@ -813,6 +1386,62 @@
         }
         return data;
       }
+
+      if (chatBackendSelect) {
+        chatBackendSelect.addEventListener("change", async () => {
+          updateRuntimeConfigState();
+          if (getSelectedChatBackend() === "a2a") {
+            await refreshA2AOptions(collectPendingRuntimeConfig());
+          }
+          updateRuntimeConfigDirtyState();
+        });
+      }
+
+      {
+        [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((node) => {
+          if (node) {
+            node.addEventListener("change", updateRuntimeConfigDirtyState);
+            node.addEventListener("blur", updateRuntimeConfigDirtyState);
+          }
+        });
+        if (a2aModelProviderInput) {
+          a2aModelProviderInput.addEventListener("change", () => {
+            syncA2AModelOptions(collectPendingRuntimeConfig());
+          });
+        }
+        if (a2aRefreshOptionsButton) {
+          a2aRefreshOptionsButton.addEventListener("click", () => refreshA2AOptions(collectPendingRuntimeConfig()));
+        }
+        if (runtimeConfigApplyButton) {
+          runtimeConfigApplyButton.addEventListener("click", async () => {
+            try {
+              await applyRuntimeConfigChanges();
+            } catch (error) {
+              setRuntimeConfigStatus(String(error && error.message ? error.message : error), true);
+            }
+          });
+        }
+        if (airLlmModel) {
+          airLlmModel.addEventListener("change", updateRuntimeConfigDirtyState);
+        }
+        updateRuntimeConfigState();
+        applyA2ADiscoveryOptions(appliedRuntimeConfig);
+        if (String(DEFAULT_A2A_URL || "").trim()) {
+          refreshA2AOptions(appliedRuntimeConfig);
+        } else {
+          setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
+        }
+      }
+
+      window.addEventListener("storage", async (event) => {
+        if (event.key === RUNTIME_CONFIG_SYNC_KEY) {
+          try {
+            await loadAppliedRuntimeConfig({ silent: true });
+          } catch (error) {
+            setRuntimeConfigStatus(String(error && error.message ? error.message : error), true);
+          }
+        }
+      });
 
       function formatAsPrettyJSON(text) {
         if (typeof text !== "string") return "";
@@ -877,24 +1506,19 @@
         if (!window.confirm(`Delete work "${label}" and all of its history?`)) {
           return;
         }
+        const deletingWorkId = activeWorkId;
+        historyFetchNonce += 1;
         stopSlideshow();
         stopLiveRefresh();
         deleteWorkButton.disabled = true;
         try {
-          const response = await fetch(`/api/works/${encodeURIComponent(activeWorkId)}`, {
+          const response = await fetch(`/api/works/${encodeURIComponent(deletingWorkId)}`, {
             method: "DELETE",
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || "Work deletion failed");
-          const deletedWorkId = activeWorkId;
-          works = works.filter((work) => work.id !== deletedWorkId);
-          activeWorkId = null;
-          try {
-            window.localStorage.removeItem(WORK_STORAGE_KEY);
-          } catch {
-          }
-          renderWorks();
-          resetWorkView();
+          works = works.filter((work) => work.id !== deletingWorkId);
+          clearActiveWorkSelection();
           setStatus(`Deleted ${label}`);
         } catch (error) {
           deleteWorkButton.disabled = false;
@@ -1402,6 +2026,12 @@
           return;
         }
         if (!response.ok) {
+          if (response.status === 404 && workId === activeWorkId) {
+            works = works.filter((work) => work.id !== workId);
+            clearActiveWorkSelection();
+            setStatus(`The selected work no longer exists.`);
+            return;
+          }
           throw new Error(data.error || "Failed to load work history");
         }
         if (!background) {
@@ -1534,7 +2164,8 @@
             setConversationQueueStatus(error instanceof Error ? error.message : String(error), true);
           }
         });
-        airVoiceController.fetchModels();
+        await airVoiceController.fetchModels();
+        await loadAppliedRuntimeConfig();
         resetWorkView();
         await loadWorks();
         const saved = loadSavedWork();

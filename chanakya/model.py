@@ -25,6 +25,32 @@ class ChatSessionModel(Base):
     )
 
 
+class AgentSessionContextModel(Base):
+    __tablename__ = "agent_session_contexts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    backend: Mapped[str] = mapped_column(String, nullable=False)
+    remote_context_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    remote_agent_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class RuntimeConfigModel(Base):
+    __tablename__ = "runtime_config"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    backend: Mapped[str] = mapped_column(String, nullable=False)
+    model_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    a2a_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    a2a_remote_agent: Mapped[str | None] = mapped_column(String, nullable=True)
+    a2a_model_provider: Mapped[str | None] = mapped_column(String, nullable=True)
+    a2a_model_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class WorkModel(Base):
     __tablename__ = "works"
 

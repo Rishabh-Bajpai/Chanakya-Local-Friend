@@ -63,6 +63,19 @@ def get_conversation_openai_config() -> dict[str, str | None]:
     }
 
 
+def get_core_agent_backend() -> str:
+    load_local_env()
+    value = (os.getenv("CHANAKYA_CORE_AGENT_BACKEND") or "local").strip().lower()
+    if value in {"local", "a2a"}:
+        return value
+    return "local"
+
+
+def get_a2a_agent_url() -> str:
+    load_local_env()
+    return (os.getenv("A2A_AGENT_URL") or "").strip()
+
+
 def get_air_server_url() -> str:
     load_local_env()
     configured = os.getenv("AIR_SERVER_URL")

@@ -9,12 +9,14 @@ from chanakya.db import session_scope
 from chanakya.domain import TASK_STATUS_FAILED, now_iso
 from chanakya.model import (
     AgentProfileModel,
+    AgentSessionContextModel,
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
     ClassicActiveWorkModel,
     NotificationSettingsModel,
     RequestModel,
+    RuntimeConfigModel,
     TaskEventModel,
     TaskModel,
     TemporaryAgentModel,
@@ -225,6 +227,75 @@ class EventRepository:
         return records
 
 
+class RuntimeConfigRepository:
+    _ROW_ID = "global"
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def get(self) -> dict[str, Any] | None:
+        with session_scope(self.Session) as session:
+            row = session.get(RuntimeConfigModel, self._ROW_ID)
+            if row is None:
+                return None
+            return {
+                "backend": row.backend,
+                "model_id": row.model_id,
+                "a2a_url": row.a2a_url,
+                "a2a_remote_agent": row.a2a_remote_agent,
+                "a2a_model_provider": row.a2a_model_provider,
+                "a2a_model_id": row.a2a_model_id,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+
+    def set(
+        self,
+        *,
+        backend: str,
+        model_id: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
+    ) -> dict[str, Any]:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            row = session.get(RuntimeConfigModel, self._ROW_ID)
+            if row is None:
+                row = RuntimeConfigModel(
+                    id=self._ROW_ID,
+                    backend=backend,
+                    model_id=model_id,
+                    a2a_url=a2a_url,
+                    a2a_remote_agent=a2a_remote_agent,
+                    a2a_model_provider=a2a_model_provider,
+                    a2a_model_id=a2a_model_id,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+                session.add(row)
+            else:
+                row.backend = backend
+                row.model_id = model_id
+                row.a2a_url = a2a_url
+                row.a2a_remote_agent = a2a_remote_agent
+                row.a2a_model_provider = a2a_model_provider
+                row.a2a_model_id = a2a_model_id
+                row.updated_at = timestamp
+            session.commit()
+            return {
+                "backend": row.backend,
+                "model_id": row.model_id,
+                "a2a_url": row.a2a_url,
+                "a2a_remote_agent": row.a2a_remote_agent,
+                "a2a_model_provider": row.a2a_model_provider,
+                "a2a_model_id": row.a2a_model_id,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+
+
 class NotificationSettingsRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
@@ -273,6 +344,101 @@ class NotificationSettingsRepository:
             if row is None:
                 return
             session.delete(row)
+            session.commit()
+
+
+class AgentSessionContextRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    @staticmethod
+    def _storage_session_id(session_id: str, target_key: str | None = None) -> str:
+        if target_key:
+            return f"{session_id}::target::{target_key}"
+        return session_id
+
+    def get(self, session_id: str, *, target_key: str | None = None) -> dict[str, Any]:
+        storage_session_id = self._storage_session_id(session_id, target_key)
+        with session_scope(self.Session) as session:
+            row = session.scalar(
+                select(AgentSessionContextModel).where(
+                    AgentSessionContextModel.session_id == storage_session_id
+                )
+            )
+        if row is None:
+            return {
+                "session_id": session_id,
+                "target_key": target_key,
+                "backend": None,
+                "remote_context_id": None,
+                "remote_agent_url": None,
+            }
+        return {
+            "session_id": session_id,
+            "target_key": target_key,
+            "backend": row.backend,
+            "remote_context_id": row.remote_context_id,
+            "remote_agent_url": row.remote_agent_url,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    def save(
+        self,
+        session_id: str,
+        *,
+        backend: str,
+        remote_context_id: str | None,
+        remote_agent_url: str | None,
+        target_key: str | None = None,
+    ) -> dict[str, Any]:
+        storage_session_id = self._storage_session_id(session_id, target_key)
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            row = session.scalar(
+                select(AgentSessionContextModel).where(
+                    AgentSessionContextModel.session_id == storage_session_id
+                )
+            )
+            if row is None:
+                session.add(
+                    AgentSessionContextModel(
+                        session_id=storage_session_id,
+                        backend=backend,
+                        remote_context_id=remote_context_id,
+                        remote_agent_url=remote_agent_url,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
+                )
+            else:
+                row.backend = backend
+                row.remote_context_id = remote_context_id
+                row.remote_agent_url = remote_agent_url
+                row.updated_at = timestamp
+            session.commit()
+        return self.get(session_id, target_key=target_key)
+
+    def delete(self, session_id: str, *, target_key: str | None = None) -> None:
+        with session_scope(self.Session) as session:
+            if target_key is None:
+                session.execute(
+                    delete(AgentSessionContextModel).where(
+                        AgentSessionContextModel.session_id == session_id
+                    )
+                )
+                session.execute(
+                    delete(AgentSessionContextModel).where(
+                        AgentSessionContextModel.session_id.like(f"{session_id}::target::%")
+                    )
+                )
+            else:
+                storage_session_id = self._storage_session_id(session_id, target_key)
+                session.execute(
+                    delete(AgentSessionContextModel).where(
+                        AgentSessionContextModel.session_id == storage_session_id
+                    )
+                )
             session.commit()
 
 
@@ -1049,12 +1215,14 @@ class ChanakyaStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
         self.chat = ChatRepository(session_factory)
+        self.runtime_config = RuntimeConfigRepository(session_factory)
         self.works = WorkRepository(session_factory)
         self.work_agent_sessions = WorkAgentSessionRepository(session_factory)
         self.classic_active_works = ClassicActiveWorkRepository(session_factory)
         self.requests = RequestRepository(session_factory)
         self.tasks = TaskRepository(session_factory)
         self.events = EventRepository(session_factory)
+        self.session_contexts = AgentSessionContextRepository(session_factory)
         self.notification_settings = NotificationSettingsRepository(session_factory)
         self.tools = ToolInvocationRepository(session_factory)
         self.agents = AgentProfileRepository(session_factory)
@@ -1126,15 +1294,66 @@ class ChanakyaStore:
                 session.execute(
                     delete(ChatSessionModel).where(ChatSessionModel.id.in_(session_ids))
                 )
-                session.execute(
-                    delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
-                )
-                session.execute(
-                    delete(ClassicActiveWorkModel).where(ClassicActiveWorkModel.work_id == work_id)
-                )
+            session.execute(
+                delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
+            )
+            session.execute(
+                delete(ClassicActiveWorkModel).where(ClassicActiveWorkModel.work_id == work_id)
+            )
             session.execute(delete(WorkModel).where(WorkModel.id == work_id))
             session.commit()
+        for session_id in session_ids:
+            self.session_contexts.delete(session_id)
         return session_ids
+
+    def get_agent_session_context(
+        self, session_id: str, *, target_key: str | None = None
+    ) -> dict[str, Any]:
+        return self.session_contexts.get(session_id, target_key=target_key)
+
+    def get_runtime_config(self) -> dict[str, Any] | None:
+        return self.runtime_config.get()
+
+    def set_runtime_config(
+        self,
+        *,
+        backend: str,
+        model_id: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
+    ) -> dict[str, Any]:
+        return self.runtime_config.set(
+            backend=backend,
+            model_id=model_id,
+            a2a_url=a2a_url,
+            a2a_remote_agent=a2a_remote_agent,
+            a2a_model_provider=a2a_model_provider,
+            a2a_model_id=a2a_model_id,
+        )
+
+    def save_agent_session_context(
+        self,
+        session_id: str,
+        *,
+        backend: str,
+        remote_context_id: str | None,
+        remote_agent_url: str | None,
+        target_key: str | None = None,
+    ) -> dict[str, Any]:
+        return self.session_contexts.save(
+            session_id,
+            backend=backend,
+            remote_context_id=remote_context_id,
+            remote_agent_url=remote_agent_url,
+            target_key=target_key,
+        )
+
+    def delete_agent_session_context(
+        self, session_id: str, *, target_key: str | None = None
+    ) -> None:
+        self.session_contexts.delete(session_id, target_key=target_key)
 
     def get_active_classic_work(self, chat_session_id: str) -> dict[str, Any] | None:
         return self.classic_active_works.get_active_work(chat_session_id)
