@@ -1491,6 +1491,8 @@
     let airVoiceController = null;
     let availableTools = [];
     let a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+    let a2aDiscoveryHealthy = false;
+    let a2aDiscoveryError = "";
     let appliedRuntimeConfig = null;
     const STORAGE_KEY = "chanakya-active-session";
     const RUNTIME_CONFIG_SYNC_KEY = "chanakya-runtime-config-sync";
@@ -1603,6 +1605,14 @@
       a2aDiscoveryStatus.style.color = isError ? "#e74c3c" : "#8e8882";
     }
 
+    function canUseA2A() {
+      return a2aDiscoveryHealthy;
+    }
+
+    function getA2AUnavailableMessage() {
+      return a2aDiscoveryError || "A2A is unavailable because the bridge could not be reached.";
+    }
+
     function setA2ASelectLoading(isLoading) {
       [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((select) => {
         if (!select) {
@@ -1663,8 +1673,10 @@
       const url = String(DEFAULT_A2A_URL || "").trim();
       if (!url) {
         a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+        a2aDiscoveryHealthy = false;
+        a2aDiscoveryError = "A2A bridge URL is not configured.";
         applyA2ADiscoveryOptions(settings);
-        setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
+        setA2ADiscoveryStatus(a2aDiscoveryError, true);
         return;
       }
       setA2ASelectLoading(true);
@@ -1680,14 +1692,18 @@
           providers: Array.isArray(payload.providers) ? payload.providers : [],
           models: Array.isArray(payload.models) ? payload.models : [],
         };
+        a2aDiscoveryHealthy = true;
+        a2aDiscoveryError = "";
         applyA2ADiscoveryOptions(settings);
         setA2ADiscoveryStatus(
           `Loaded ${a2aDiscoveredOptions.remote_agents.length} agent${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
         );
       } catch (error) {
         a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+        a2aDiscoveryHealthy = false;
+        a2aDiscoveryError = String(error && error.message ? error.message : error);
         applyA2ADiscoveryOptions(settings);
-        setA2ADiscoveryStatus(String(error && error.message ? error.message : error), true);
+        setA2ADiscoveryStatus(a2aDiscoveryError, true);
       }
     }
 
@@ -1715,6 +1731,13 @@
       if (runtimeConfigsEqual(appliedRuntimeConfig, pendingConfig)) {
         updateRuntimeConfigDirtyState();
         return appliedRuntimeConfig;
+      }
+      if (pendingConfig.backend === "a2a") {
+        await refreshA2AOptions(pendingConfig);
+        if (!canUseA2A()) {
+          updateRuntimeConfigDirtyState();
+          throw new Error(getA2AUnavailableMessage());
+        }
       }
       if (runtimeConfigApplyButton) {
         runtimeConfigApplyButton.disabled = true;
@@ -2012,6 +2035,9 @@
     async function submitChatMessage(message, options = {}) {
       const { onAssistantMessage } = options;
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
+      if (runtimeConfig.backend === "a2a" && !canUseA2A()) {
+        throw new Error(getA2AUnavailableMessage());
+      }
       const targetSessionId = sessionId || createClientSessionId();
       const baselineMessageCount = chatLog.childElementCount;
       sessionId = targetSessionId;
