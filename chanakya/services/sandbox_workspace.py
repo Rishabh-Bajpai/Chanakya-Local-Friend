@@ -58,4 +58,15 @@ def delete_shared_workspace(work_id: str | None) -> None:
     if target == root or root not in target.parents:
         raise PermissionError("Resolved sandbox workspace escapes shared root")
     if target.exists():
-        shutil.rmtree(target)
+        try:
+            shutil.rmtree(target)
+        except OSError as exc:
+            debug_log(
+                "sandbox_workspace_delete_failed",
+                {
+                    "work_id": safe_work_id,
+                    "path": str(target),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
