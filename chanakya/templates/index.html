@@ -1496,6 +1496,13 @@
     const RUNTIME_CONFIG_SYNC_KEY = "chanakya-runtime-config-sync";
     const DEFAULT_A2A_URL = {{ a2a_agent_url | tojson }};
 
+    function createClientSessionId() {
+      const token = typeof window.crypto?.randomUUID === "function"
+        ? window.crypto.randomUUID().replace(/-/g, "")
+        : `${Date.now()}${Math.random().toString(16).slice(2)}`;
+      return `session_${token}`;
+    }
+
     function getSelectedChatBackend() {
       const value = chatBackendSelect ? chatBackendSelect.value : "local";
       return value === "a2a" ? "a2a" : "local";
@@ -1896,6 +1903,53 @@
       }
     }
 
+    function isTransientFetchError(error) {
+      const message = error instanceof Error ? error.message : String(error || "");
+      return error instanceof TypeError || /networkerror|failed to fetch|load failed/i.test(message);
+    }
+
+    async function fetchSessionMessages(targetSessionId) {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}`);
+      if (!response.ok) {
+        return null;
+      }
+      const data = await response.json();
+      return Array.isArray(data.messages) ? data.messages : [];
+    }
+
+    async function recoverSubmittedChat(targetSessionId, baselineMessageCount) {
+      setConversationQueueStatus("Connection dropped while waiting for reply. Recovering saved messages...");
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        try {
+          const messages = await fetchSessionMessages(targetSessionId);
+          if (Array.isArray(messages) && messages.length > baselineMessageCount) {
+            renderChatHistory(messages);
+            await refreshSidePanels();
+            const assistantMessages = messages.filter((item) => item.role === "assistant");
+            const latestAssistant = assistantMessages[assistantMessages.length - 1];
+            const pendingCount = Number(latestAssistant?.metadata?.pending_delivery_count || 0);
+            if (pendingCount > 0) {
+              setConversationQueueStatus(
+                `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+              );
+            } else {
+              setConversationQueueStatus(assistantMessages.length ? "" : "Request is still being processed...");
+            }
+            return {
+              session_id: targetSessionId,
+              message: latestAssistant?.content || "",
+              messages: latestAssistant ? [{ text: latestAssistant.content || "", delay_ms: 0 }] : [],
+              metadata: latestAssistant?.metadata || {},
+            };
+          }
+        } catch {
+          // Keep polling; the backend may still be finalizing the persisted response.
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      }
+      return null;
+    }
+
     async function pauseConversationReplies() {
       if (!sessionId) {
         setConversationQueueStatus("No active session to pause.", true);
@@ -1958,20 +2012,36 @@
     async function submitChatMessage(message, options = {}) {
       const { onAssistantMessage } = options;
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          message,
-          model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
-          backend: runtimeConfig.backend,
-          a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
-          a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
-          a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
-          a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
-        }),
-      });
+      const targetSessionId = sessionId || createClientSessionId();
+      const baselineMessageCount = chatLog.childElementCount;
+      sessionId = targetSessionId;
+      storeSessionId(sessionId);
+      let response;
+      try {
+        response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: targetSessionId,
+            message,
+            model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
+            backend: runtimeConfig.backend,
+            a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
+            a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
+            a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
+            a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
+          }),
+        });
+      } catch (error) {
+        if (!isTransientFetchError(error)) {
+          throw error;
+        }
+        const recovered = await recoverSubmittedChat(targetSessionId, baselineMessageCount);
+        if (recovered) {
+          return recovered;
+        }
+        throw error;
+      }
       const data = await readJsonResponse(response);
       if (!response.ok) {
         throw new Error(data.error || "Request failed");
@@ -2978,16 +3048,16 @@
       await refreshToolTraces();
     }
 
-    async function loadSessionHistory() {
+    async function loadSessionHistory(targetSessionId = null) {
       await refreshToolAvailability();
-      const storedSessionId = loadStoredSessionId();
-      if (!storedSessionId) {
+      const resolvedSessionId = targetSessionId || loadStoredSessionId();
+      if (!resolvedSessionId) {
         renderChatHistory([]);
         await refreshSidePanels();
         return;
       }
-      sessionId = storedSessionId;
-      const response = await fetch(`/api/sessions/${sessionId}`);
+      sessionId = resolvedSessionId;
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
       if (!response.ok) {
         sessionId = null;
         renderChatHistory([]);
@@ -3146,6 +3216,16 @@
       if (_sseRefreshTimer) return;
       _sseRefreshTimer = setTimeout(async () => {
         _sseRefreshTimer = null;
+        if (sessionId) {
+          try {
+            const messages = await fetchSessionMessages(sessionId);
+            if (Array.isArray(messages)) {
+              renderChatHistory(messages);
+            }
+          } catch {
+            // Keep the current transcript if the history sync races with reconnects.
+          }
+        }
         await refreshSidePanels();
       }, 400); // debounce: coalesce rapid events
     }

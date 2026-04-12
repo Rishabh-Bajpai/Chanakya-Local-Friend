@@ -1269,6 +1269,52 @@
         }
       }
 
+      function isTransientFetchError(error) {
+        const message = error instanceof Error ? error.message : String(error || "");
+        return error instanceof TypeError || /networkerror|failed to fetch|load failed/i.test(message);
+      }
+
+      function extractChanakyaMessages(agentHistories) {
+        const chanakyaHistory = (agentHistories || []).find((item) => item.agent_id === "agent_chanakya");
+        return Array.isArray(chanakyaHistory?.messages) ? chanakyaHistory.messages : [];
+      }
+
+      async function recoverSubmittedWorkChat(workId, baselineMessageCount) {
+        setConversationQueueStatus("Connection dropped while waiting for reply. Recovering saved messages...");
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          try {
+            const response = await fetch(
+              `/api/works/${encodeURIComponent(workId)}/history?task_limit=3000&event_limit=8000&request_limit=4000`
+            );
+            if (response.ok) {
+              const data = await response.json();
+              const messages = extractChanakyaMessages(data.agent_histories || []);
+              if (messages.length > baselineMessageCount) {
+                renderChatFromHistory(data.agent_histories || []);
+                cachedAgentHistories = data.agent_histories || [];
+                cachedTaskFlow = data.task_flow || [];
+                cachedTasks = data.tasks || [];
+                cachedRequests = data.requests || [];
+                renderAgentHistories(cachedAgentHistories, cachedTaskFlow, cachedTasks, cachedRequests);
+                const assistantMessages = messages.filter((item) => item.role === "assistant");
+                const latestAssistant = assistantMessages[assistantMessages.length - 1];
+                setConversationQueueStatus(assistantMessages.length ? "" : "Request is still being processed...");
+                return {
+                  session_id: data.work?.session_id || null,
+                  message: latestAssistant?.content || "",
+                  messages: latestAssistant ? [{ text: latestAssistant.content || "", delay_ms: 0 }] : [],
+                  metadata: latestAssistant?.metadata || {},
+                };
+              }
+            }
+          } catch {
+            // Keep polling; the backend may still be finalizing the persisted response.
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        }
+        return null;
+      }
+
       async function pauseConversationReplies() {
         if (!activeWorkId) {
           setConversationQueueStatus("No active work session to pause.", true);
@@ -1340,20 +1386,33 @@
           throw new Error("Select a work before starting voice mode.");
         }
         const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            work_id: activeWorkId,
-            message,
-            model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
-            backend: runtimeConfig.backend,
-            a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
-            a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
-            a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
-            a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
-          }),
-        });
+        const baselineMessageCount = chatLog.childElementCount;
+        let response;
+        try {
+          response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              work_id: activeWorkId,
+              message,
+              model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
+              backend: runtimeConfig.backend,
+              a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
+              a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
+              a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
+              a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
+            }),
+          });
+        } catch (error) {
+          if (!isTransientFetchError(error)) {
+            throw error;
+          }
+          const recovered = await recoverSubmittedWorkChat(activeWorkId, baselineMessageCount);
+          if (recovered) {
+            return recovered;
+          }
+          throw error;
+        }
         const data = await readJsonResponse(response);
         if (!response.ok) {
           throw new Error(data.error || "Chat failed");
@@ -2037,8 +2096,8 @@
         if (!background) {
           chatTitle.textContent = data.work.title;
           chatSubtitle.textContent = data.work.description || "Work-scoped chat with Chanakya.";
-          renderChatFromHistory(data.agent_histories || []);
         }
+        renderChatFromHistory(data.agent_histories || []);
         cachedAgentHistories = data.agent_histories || [];
         cachedTaskFlow = data.task_flow || [];
         cachedTasks = data.tasks || [];
