@@ -162,6 +162,7 @@ class ChatService:
             "a2a_model_provider": str(payload.get("a2a_model_provider") or "").strip() or None,
             "a2a_model_id": str(payload.get("a2a_model_id") or "").strip() or None,
         }
+
     def _runtime_metadata(self, model_id: str | None = None) -> dict[str, Any]:
         try:
             return self.runtime.runtime_metadata(model_id=model_id)
@@ -175,16 +176,41 @@ class ChatService:
         *,
         request_id: str,
         model_id: str | None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
     ) -> Any:
+        runtime_kwargs: dict[str, Any] = {"request_id": request_id}
+        if model_id is not None:
+            runtime_kwargs["model_id"] = model_id
+        if backend is not None:
+            runtime_kwargs["backend"] = backend
+        if a2a_url is not None:
+            runtime_kwargs["a2a_url"] = a2a_url
+        if a2a_remote_agent is not None:
+            runtime_kwargs["a2a_remote_agent"] = a2a_remote_agent
+        if a2a_model_provider is not None:
+            runtime_kwargs["a2a_model_provider"] = a2a_model_provider
+        if a2a_model_id is not None:
+            runtime_kwargs["a2a_model_id"] = a2a_model_id
         try:
-            return self.runtime.run(
-                session_id,
-                message,
-                request_id=request_id,
-                model_id=model_id,
-            )
+            return self.runtime.run(session_id, message, **runtime_kwargs)
         except TypeError:
-            return self.runtime.run(session_id, message, request_id=request_id)
+            fallback_kwargs = dict(runtime_kwargs)
+            for key in (
+                "backend",
+                "a2a_url",
+                "a2a_remote_agent",
+                "a2a_model_provider",
+                "a2a_model_id",
+            ):
+                fallback_kwargs.pop(key, None)
+            try:
+                return self.runtime.run(session_id, message, **fallback_kwargs)
+            except TypeError:
+                return self.runtime.run(session_id, message, request_id=request_id)
 
     def _notify_root_task_outcome(
         self,

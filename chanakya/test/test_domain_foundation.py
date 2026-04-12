@@ -246,6 +246,41 @@ def test_chat_passes_a2a_backend_into_conversation_layer() -> None:
     assert reply.metadata["conversation_layer_backend"] == "a2a"
 
 
+def test_chat_backend_falls_back_for_legacy_runtime_run_signature() -> None:
+    class _LegacyRuntimeStub(_RuntimeStub):
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+        ) -> _RunResult:
+            if self.should_fail:
+                raise RuntimeError("runtime exploded")
+            return _RunResult(
+                text=f"legacy:{text}",
+                response_mode="direct_answer",
+                tool_traces=[],
+            )
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _LegacyRuntimeStub()))
+
+    reply = service.chat(
+        "session_legacy_backend",
+        "Hi",
+        backend="a2a",
+        a2a_url="http://127.0.0.1:18770",
+        a2a_remote_agent="planner",
+        a2a_model_provider="lmstudio",
+        a2a_model_id="qwen/qwen3.5-9b",
+    )
+
+    assert reply.message == "legacy:Hi"
+    assert reply.request_status == REQUEST_STATUS_COMPLETED
+
+
 def test_chat_failure_marks_request_and_task_failed() -> None:
     store = _build_store()
     service = ChatService(store, cast(MAFRuntime, _RuntimeStub(should_fail=True)))
