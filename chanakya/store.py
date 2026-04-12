@@ -271,6 +271,31 @@ class RuntimeConfigRepository:
                     a2a_remote_agent=a2a_remote_agent,
                     a2a_model_provider=a2a_model_provider,
                     a2a_model_id=a2a_model_id,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+                session.add(row)
+            else:
+                row.backend = backend
+                row.model_id = model_id
+                row.a2a_url = a2a_url
+                row.a2a_remote_agent = a2a_remote_agent
+                row.a2a_model_provider = a2a_model_provider
+                row.a2a_model_id = a2a_model_id
+                row.updated_at = timestamp
+            session.commit()
+            return {
+                "backend": row.backend,
+                "model_id": row.model_id,
+                "a2a_url": row.a2a_url,
+                "a2a_remote_agent": row.a2a_remote_agent,
+                "a2a_model_provider": row.a2a_model_provider,
+                "a2a_model_id": row.a2a_model_id,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+
+
 class NotificationSettingsRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
@@ -304,24 +329,22 @@ class NotificationSettingsRepository:
                 )
                 session.add(row)
             else:
-                row.backend = backend
-                row.model_id = model_id
-                row.a2a_url = a2a_url
-                row.a2a_remote_agent = a2a_remote_agent
-                row.a2a_model_provider = a2a_model_provider
-                row.a2a_model_id = a2a_model_id
+                row.server_url = server_url
+                row.topic = topic
+                row.enabled = enabled
+                row.include_message_preview = include_message_preview
                 row.updated_at = timestamp
             session.commit()
-            return {
-                "backend": row.backend,
-                "model_id": row.model_id,
-                "a2a_url": row.a2a_url,
-                "a2a_remote_agent": row.a2a_remote_agent,
-                "a2a_model_provider": row.a2a_model_provider,
-                "a2a_model_id": row.a2a_model_id,
-                "created_at": row.created_at,
-                "updated_at": row.updated_at,
-            }
+            session.refresh(row)
+        return row
+
+    def delete_settings(self, channel_type: str) -> None:
+        with session_scope(self.Session) as session:
+            row = session.get(NotificationSettingsModel, channel_type)
+            if row is None:
+                return
+            session.delete(row)
+            session.commit()
 
 
 class AgentSessionContextRepository:
