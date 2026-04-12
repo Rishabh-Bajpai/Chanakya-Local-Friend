@@ -123,7 +123,10 @@ class MAFOrchestrationAgent:
         message = self._build_a2a_prompt(prompt, model_override=model_override)
         from agent_framework import Message
 
-        return await self._a2a_agent.run([Message("user", [message])], session=session)
+        return await self._a2a_agent.run(
+            [Message(role="user", text=message)],
+            session=session,
+        )
 
     def _coerce_result_to_text(self, result: Any) -> str:
         if isinstance(result, dict):
