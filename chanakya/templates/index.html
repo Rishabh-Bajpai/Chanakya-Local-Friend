@@ -3135,7 +3135,6 @@
       .catch((error) => {
         setRuntimeConfigStatus(error instanceof Error ? error.message : String(error), true);
       });
-    airVoiceController.fetchModels();
     loadNotificationSettings().catch((error) => {
       setNotificationStatus(error instanceof Error ? error.message : String(error), true);
     });
