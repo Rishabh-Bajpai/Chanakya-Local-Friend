@@ -2207,9 +2207,9 @@ class AgentManager:
     def _resolve_current_shared_workspace(self) -> str:
         work_id = _ACTIVE_WORK_ID.get()
         try:
-            return str(resolve_shared_workspace(work_id))
+            return str(resolve_shared_workspace(work_id, create=False))
         except (ValueError, PermissionError):
-            return str(resolve_shared_workspace("temp"))
+            return str(resolve_shared_workspace("temp", create=False))
 
     def _resolve_current_sandbox_work_id(self) -> str:
         work_id = _ACTIVE_WORK_ID.get()
@@ -3837,7 +3837,9 @@ class AgentManager:
         return any(marker in lowered for marker in markers)
 
     def _workspace_has_clone_artifacts(self, work_id: str | None) -> bool:
-        workspace = resolve_shared_workspace(work_id)
+        workspace = resolve_shared_workspace(work_id, create=False)
+        if not workspace.exists():
+            return False
         entries = [path for path in workspace.rglob("*") if path.is_file()]
         if not entries:
             return False
@@ -3992,7 +3994,7 @@ print(json.dumps({{'pages': visited, 'asset_count': len(asset_manifest)}}))
         )
         if not bool(result.get("ok")):
             return None
-        workspace = resolve_shared_workspace(work_id)
+        workspace = resolve_shared_workspace(work_id, create=False)
         if not self._workspace_has_clone_artifacts(work_id):
             return None
         return (
@@ -4004,7 +4006,9 @@ print(json.dumps({{'pages': visited, 'asset_count': len(asset_manifest)}}))
         )
 
     def _build_clone_validation_report(self, work_id: str | None) -> str | None:
-        workspace = resolve_shared_workspace(work_id)
+        workspace = resolve_shared_workspace(work_id, create=False)
+        if not workspace.exists():
+            return None
         clone_root = workspace / "cloned_site"
         manifest = clone_root / "asset_manifest.json"
         readme = clone_root / "README.md"

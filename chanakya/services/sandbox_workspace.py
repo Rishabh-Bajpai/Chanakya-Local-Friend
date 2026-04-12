@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from chanakya.config import get_data_dir
+from chanakya.debug import debug_log
 
 _WORK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
@@ -29,14 +30,24 @@ def normalize_work_id(work_id: str | None) -> str:
     return value
 
 
-def resolve_shared_workspace(work_id: str | None) -> Path:
+def resolve_shared_workspace(work_id: str | None, *, create: bool = True) -> Path:
     root = get_shared_workspace_root().resolve()
     safe_work_id = normalize_work_id(work_id)
     target = (root / safe_work_id).resolve()
     if target != root and root not in target.parents:
         raise PermissionError("Resolved sandbox workspace escapes shared root")
-    target.mkdir(parents=True, exist_ok=True)
-    target.chmod(0o775)
+    if create:
+        created = not target.exists()
+        target.mkdir(parents=True, exist_ok=True)
+        target.chmod(0o775)
+        if created:
+            debug_log(
+                "sandbox_workspace_created",
+                {
+                    "work_id": safe_work_id,
+                    "path": str(target),
+                },
+            )
     return target
 
 

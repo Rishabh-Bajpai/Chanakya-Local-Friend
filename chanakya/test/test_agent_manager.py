@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 from typing import cast
 
 from agent_framework import Message
@@ -160,6 +161,7 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
     )
     service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
     assert service.manager is not None
+    service.manager.summary_runner = lambda prompt: "hello-world"
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
@@ -305,6 +307,166 @@ def test_specialist_review_persists_cto_exchange_without_history_runtime() -> No
     assert messages[-2]["route"] == "specialist_review_prompt"
     assert messages[-1]["route"] == "specialist_review_response"
     assert messages[-1]["content"] == "Final CTO answer"
+
+
+def test_work_agent_memory_is_isolated_per_agent_for_local_backend(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    developer_profile = store.get_agent_profile("agent_developer")
+    tester_profile = store.get_agent_profile("agent_tester")
+    store.create_work(work_id="work_local_memory", title="Local Memory", description="")
+    calls: list[tuple[str | None, str, bool]] = []
+
+    class _FakeResponse:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def __str__(self) -> str:
+            return self.text
+
+    class _FakeAgent:
+        def __init__(self, *, include_history: bool) -> None:
+            self.include_history = include_history
+
+        def create_session(self, *, session_id: str | None = None):
+            return type("Session", (), {"session_id": session_id, "state": {}})()
+
+        async def run(self, message, session=None, options=None):
+            calls.append(
+                (
+                    getattr(session, "session_id", None),
+                    str(message.text),
+                    self.include_history,
+                )
+            )
+            if self.include_history:
+                raise RuntimeError(
+                    "Error code: 400 - {'error': 'Error rendering prompt with jinja template: \"No user query found in messages.\".'}"
+                )
+            return _FakeResponse(str(message.text))
+
+    def _fake_build_profile_agent(*args, include_history=False, **kwargs):
+        return _FakeAgent(include_history=bool(include_history)), object()
+
+    monkeypatch.setattr("chanakya.agent_manager.build_profile_agent", _fake_build_profile_agent)
+
+    tokens = manager.bind_execution_context(
+        session_id="session_work_local",
+        work_id="work_local_memory",
+        backend="local",
+    )
+    try:
+        manager._run_profile_prompt(developer_profile, "Developer first turn")
+        manager._run_profile_prompt(developer_profile, "Developer second turn")
+        manager._run_profile_prompt(tester_profile, "Tester first turn")
+    finally:
+        manager.reset_execution_context(tokens)
+
+    mappings = store.list_work_agent_sessions("work_local_memory")
+    developer_session_id = next(
+        str(item["session_id"]) for item in mappings if item["agent_id"] == developer_profile.id
+    )
+    tester_session_id = next(
+        str(item["session_id"]) for item in mappings if item["agent_id"] == tester_profile.id
+    )
+    assert developer_session_id != tester_session_id
+
+    fallback_calls = [(sid, text) for sid, text, include_history in calls if not include_history]
+    developer_prompts = [text for sid, text in fallback_calls if sid == developer_session_id]
+    tester_prompts = [text for sid, text in fallback_calls if sid == tester_session_id]
+    assert len(developer_prompts) == 2
+    assert "Developer first turn" in developer_prompts[1]
+    assert "Developer second turn" in developer_prompts[1]
+    assert "Tester first turn" not in developer_prompts[1]
+    assert len(tester_prompts) == 1
+    assert "Developer first turn" not in tester_prompts[0]
+    assert "Developer second turn" not in tester_prompts[0]
+
+
+def test_work_agent_memory_is_isolated_per_agent_for_a2a_backend(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    developer_profile = store.get_agent_profile("agent_developer")
+    tester_profile = store.get_agent_profile("agent_tester")
+    store.create_work(work_id="work_a2a_memory", title="A2A Memory", description="")
+
+    class _FakeA2AResponse:
+        def __init__(self, text: str) -> None:
+            self.text = text
+            self.value = text
+            self.raw_representation = SimpleNamespace(context_id=None)
+
+    class _FakeA2AAgent:
+        def __init__(self, *args, **kwargs) -> None:
+            self.calls: list[dict[str, str | None]] = []
+
+        def create_session(self, *, session_id: str | None = None):
+            return SimpleNamespace(session_id=session_id)
+
+        async def run(self, messages, session=None):
+            message = messages[0]
+            self.calls.append(
+                {
+                    "text": str(message.text),
+                    "session_id": getattr(session, "session_id", None),
+                }
+            )
+            return _FakeA2AResponse(str(message.text))
+
+    fake_module = ModuleType("agent_framework_a2a")
+    fake_module.A2AAgent = _FakeA2AAgent
+    monkeypatch.setitem(__import__("sys").modules, "agent_framework_a2a", fake_module)
+
+    tokens = manager.bind_execution_context(
+        session_id="session_work_a2a",
+        work_id="work_a2a_memory",
+        backend="a2a",
+        a2a_url="http://a2a.test:8000",
+    )
+    try:
+        manager._run_profile_prompt(developer_profile, "Developer first turn")
+        manager._run_profile_prompt(developer_profile, "Developer second turn")
+        manager._run_profile_prompt(tester_profile, "Tester first turn")
+    finally:
+        manager.reset_execution_context(tokens)
+
+    mappings = store.list_work_agent_sessions("work_a2a_memory")
+    developer_session_id = next(
+        str(item["session_id"]) for item in mappings if item["agent_id"] == developer_profile.id
+    )
+    tester_session_id = next(
+        str(item["session_id"]) for item in mappings if item["agent_id"] == tester_profile.id
+    )
+    assert developer_session_id != tester_session_id
+
+    agent = manager._a2a_agents["http://a2a.test:8000"]
+    assert len(agent.calls) == 3
+    assert "Developer first turn" in str(agent.calls[1]["text"])
+    assert "Developer second turn" in str(agent.calls[1]["text"])
+    assert agent.calls[0]["session_id"] != agent.calls[1]["session_id"]
+    assert agent.calls[1]["session_id"] != agent.calls[2]["session_id"]
+    assert "Developer first turn" not in str(agent.calls[2]["text"])
+    assert "Developer second turn" not in str(agent.calls[2]["text"])
+    developer_messages = store.list_messages(developer_session_id)
+    tester_messages = store.list_messages(tester_session_id)
+    assert [message["content"] for message in developer_messages] == [
+        "Developer first turn",
+        str(agent.calls[0]["text"]),
+        "Developer second turn",
+        str(agent.calls[1]["text"]),
+    ]
+    assert [message["content"] for message in tester_messages] == [
+        "Tester first turn",
+        str(agent.calls[2]["text"]),
+    ]
 
 
 def test_profile_prompt_uses_a2a_runner_when_backend_active() -> None:
@@ -664,6 +826,7 @@ def test_manager_direct_fallback_runs_when_required_worker_is_missing() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    service.manager.summary_runner = lambda prompt: "hello-world"
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
@@ -937,6 +1100,7 @@ def test_manager_runs_worker_stages_with_the_persisted_prompts() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    service.manager.summary_runner = lambda prompt: "hello-world"
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
@@ -1114,6 +1278,7 @@ def test_developer_future_tense_plan_output_is_rejected_and_repaired() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    service.manager.summary_runner = lambda prompt: "hello-world"
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
@@ -2815,6 +2980,34 @@ def test_classic_unrelated_request_replacement_cleans_workspace_and_runtime_stat
     assert not first_workspace.exists()
     assert runtime.cleared_session_ids
     assert str(first_active_work["work_session_id"]) in runtime.cleared_session_ids
+
+
+def test_resolving_current_shared_workspace_does_not_create_work_dir(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from chanakya.services import sandbox_workspace
+
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+    work_id = "cwork_no_mkdir"
+    workspace = sandbox_workspace.resolve_shared_workspace(work_id, create=False)
+
+    tokens = manager.bind_execution_context(
+        session_id="session_no_mkdir",
+        work_id=work_id,
+        backend="local",
+    )
+    try:
+        resolved = manager._resolve_current_shared_workspace()
+    finally:
+        manager.reset_execution_context(tokens)
+
+    assert resolved.endswith(f"/shared_workspace/{work_id}")
+    assert not workspace.exists()
 
 
 def test_clarification_warning_logged_when_output_is_unparsable() -> None:

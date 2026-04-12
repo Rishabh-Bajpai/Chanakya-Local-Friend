@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 from flask import Flask
 from pytest import MonkeyPatch
 
 import chanakya.app as app_module
+from chanakya.agent_manager import AgentManager, ManagerRunResult, WORKFLOW_INFORMATION
 from chanakya.app import create_app
 from chanakya.db import build_engine, build_session_factory
 from chanakya.domain import ChatReply, TASK_STATUS_DONE, now_iso
@@ -148,6 +150,126 @@ class _ChatServiceCaptureStub:
             response_mode="direct_answer",
             metadata={"core_agent_backend": backend or "local"},
         )
+
+
+class _RuntimeDelegationStub:
+    def __init__(self, profile) -> None:
+        self.profile = profile
+
+    def runtime_metadata(
+        self,
+        model_id: str | None = None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
+    ) -> dict[str, str | None]:
+        return {
+            "model": a2a_model_id or model_id,
+            "endpoint": a2a_url or "http://test",
+            "runtime": "maf_agent",
+            "backend": backend or "local",
+            "a2a_remote_agent": a2a_remote_agent,
+            "a2a_model_provider": a2a_model_provider,
+            "a2a_model_id": a2a_model_id,
+        }
+
+    def clear_session_state(self, session_id: str) -> None:
+        return None
+
+
+def _build_work_memory_app(tmp_path: Path, monkeypatch: MonkeyPatch) -> Flask:
+    seed_dir = tmp_path / "chanakya" / "seeds"
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    (seed_dir / "agents.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "agent_chanakya",
+                    "name": "Chanakya",
+                    "role": "personal_assistant",
+                    "system_prompt": "You are Chanakya.",
+                    "personality": "calm",
+                    "tool_ids": [],
+                    "workspace": "main",
+                    "heartbeat_enabled": False,
+                    "heartbeat_interval_seconds": 300,
+                    "heartbeat_file_path": "chanakya_data/agents/agent_chanakya/heartbeat.md",
+                    "is_active": True,
+                },
+                {
+                    "id": "agent_manager",
+                    "name": "Agent Manager",
+                    "role": "manager",
+                    "system_prompt": "You are the manager.",
+                    "personality": "structured",
+                    "tool_ids": [],
+                    "workspace": "manager",
+                    "heartbeat_enabled": False,
+                    "heartbeat_interval_seconds": 300,
+                    "heartbeat_file_path": "chanakya_data/agents/agent_manager/heartbeat.md",
+                    "is_active": True,
+                },
+                {
+                    "id": "agent_developer",
+                    "name": "Developer",
+                    "role": "developer",
+                    "system_prompt": "You are the developer.",
+                    "personality": "focused",
+                    "tool_ids": [],
+                    "workspace": "dev",
+                    "heartbeat_enabled": False,
+                    "heartbeat_interval_seconds": 300,
+                    "heartbeat_file_path": "chanakya_data/agents/agent_developer/heartbeat.md",
+                    "is_active": True,
+                },
+                {
+                    "id": "agent_tester",
+                    "name": "Tester",
+                    "role": "tester",
+                    "system_prompt": "You are the tester.",
+                    "personality": "careful",
+                    "tool_ids": [],
+                    "workspace": "qa",
+                    "heartbeat_enabled": False,
+                    "heartbeat_interval_seconds": 300,
+                    "heartbeat_file_path": "chanakya_data/agents/agent_tester/heartbeat.md",
+                    "is_active": True,
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    database_path = tmp_path / "chanakya-test.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    monkeypatch.setattr(app_module, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(tool_loader, "initialize_all_tools", lambda: None)
+    monkeypatch.setattr(tool_loader, "get_tools_availability", lambda: [])
+    monkeypatch.setattr(app_module, "get_tools_availability", lambda: [])
+    monkeypatch.setattr(
+        app_module,
+        "MAFRuntime",
+        lambda profile, session_factory: _RuntimeDelegationStub(profile),
+    )
+
+    class _WorkMemoryManager(AgentManager):
+        def execute(self, *, session_id: str, request_id: str, root_task_id: str, message: str):
+            worker_id = "agent_developer" if message.startswith("dev:") else "agent_tester"
+            profile = self.store.get_agent_profile(worker_id)
+            text = self._run_profile_prompt(profile, message).strip()
+            return ManagerRunResult(
+                text=text,
+                workflow_type=WORKFLOW_INFORMATION,
+                child_task_ids=[root_task_id],
+                manager_agent_id=self.manager_profile.id,
+                worker_agent_ids=[worker_id],
+                task_status=TASK_STATUS_DONE,
+                result_json={"workflow_type": WORKFLOW_INFORMATION, "worker_id": worker_id},
+            )
+
+    monkeypatch.setattr(app_module, "AgentManager", _WorkMemoryManager)
+    return create_app()
 
 
 def test_agent_create_and_update_api_persists_configuration(
@@ -790,3 +912,172 @@ def test_work_delete_clears_runtime_session_state(
 
     assert deleted.status_code == 200
     assert len(cleared) == 2
+
+
+def test_work_api_preserves_per_agent_memory_for_local_backend(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    class _FakeResponse:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def __str__(self) -> str:
+            return self.text
+
+    class _FakeAgent:
+        def __init__(self, *, include_history: bool) -> None:
+            self.include_history = include_history
+
+        def create_session(self, *, session_id: str | None = None):
+            return type("Session", (), {"session_id": session_id, "state": {}})()
+
+        async def run(self, message, session=None, options=None):
+            if self.include_history:
+                raise RuntimeError(
+                    "Error code: 400 - {'error': 'Error rendering prompt with jinja template: \"No user query found in messages.\".'}"
+                )
+            return _FakeResponse(str(message.text))
+
+    def _fake_build_profile_agent(*args, include_history=False, **kwargs):
+        return _FakeAgent(include_history=bool(include_history)), object()
+
+    monkeypatch.setattr("chanakya.agent_manager.build_profile_agent", _fake_build_profile_agent)
+    app = _build_work_memory_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    work_id = client.post(
+        "/api/works",
+        json={"title": "Memory Work", "description": "local"},
+    ).get_json()["id"]
+
+    assert (
+        client.post(
+            "/api/chat",
+            json={
+                "work_id": work_id,
+                "message": "dev: implement login hardening",
+                "backend": "local",
+            },
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/chat",
+            json={"work_id": work_id, "message": "dev: refine login hardening", "backend": "local"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/chat",
+            json={
+                "work_id": work_id,
+                "message": "test: validate login hardening",
+                "backend": "local",
+            },
+        ).status_code
+        == 200
+    )
+
+    history_payload = client.get(f"/api/works/{work_id}/history").get_json()
+    histories = history_payload["agent_histories"]
+    developer_history = next(item for item in histories if item["agent_id"] == "agent_developer")
+    tester_history = next(item for item in histories if item["agent_id"] == "agent_tester")
+
+    developer_messages = [message["content"] for message in developer_history["messages"]]
+    tester_messages = [message["content"] for message in tester_history["messages"]]
+    assert developer_messages[0] == "dev: implement login hardening"
+    assert developer_messages[2] == "dev: refine login hardening"
+    assert "dev: implement login hardening" in developer_messages[3]
+    assert "dev: refine login hardening" in developer_messages[3]
+    assert "test: validate login hardening" not in developer_messages[3]
+    assert tester_messages[0] == "test: validate login hardening"
+    assert "dev: implement login hardening" not in tester_messages[1]
+    assert "dev: refine login hardening" not in tester_messages[1]
+
+
+def test_work_api_preserves_per_agent_memory_for_a2a_backend(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    class _FakeA2AResponse:
+        def __init__(self, text: str) -> None:
+            self.text = text
+            self.value = text
+            self.raw_representation = SimpleNamespace(context_id=None)
+
+    class _FakeA2AAgent:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def create_session(self, *, session_id: str | None = None):
+            return SimpleNamespace(session_id=session_id)
+
+        async def run(self, messages, session=None):
+            return _FakeA2AResponse(str(messages[0].text))
+
+    fake_module = ModuleType("agent_framework_a2a")
+    fake_module.A2AAgent = _FakeA2AAgent
+    monkeypatch.setitem(__import__("sys").modules, "agent_framework_a2a", fake_module)
+    app = _build_work_memory_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    work_id = client.post(
+        "/api/works",
+        json={"title": "Memory Work", "description": "a2a"},
+    ).get_json()["id"]
+
+    assert (
+        client.post(
+            "/api/chat",
+            json={
+                "work_id": work_id,
+                "message": "dev: implement login hardening",
+                "backend": "a2a",
+                "a2a_url": "http://a2a.test:8000",
+            },
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/chat",
+            json={
+                "work_id": work_id,
+                "message": "dev: refine login hardening",
+                "backend": "a2a",
+                "a2a_url": "http://a2a.test:8000",
+            },
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/chat",
+            json={
+                "work_id": work_id,
+                "message": "test: validate login hardening",
+                "backend": "a2a",
+                "a2a_url": "http://a2a.test:8000",
+            },
+        ).status_code
+        == 200
+    )
+
+    history_payload = client.get(f"/api/works/{work_id}/history").get_json()
+    histories = history_payload["agent_histories"]
+    developer_history = next(item for item in histories if item["agent_id"] == "agent_developer")
+    tester_history = next(item for item in histories if item["agent_id"] == "agent_tester")
+
+    developer_messages = [message["content"] for message in developer_history["messages"]]
+    tester_messages = [message["content"] for message in tester_history["messages"]]
+    assert developer_messages[0] == "dev: implement login hardening"
+    assert developer_messages[2] == "dev: refine login hardening"
+    assert "dev: implement login hardening" in developer_messages[3]
+    assert "dev: refine login hardening" in developer_messages[3]
+    assert "test: validate login hardening" not in developer_messages[3]
+    assert tester_messages[0] == "test: validate login hardening"
+    assert "dev: implement login hardening" not in tester_messages[1]
+    assert "dev: refine login hardening" not in tester_messages[1]
