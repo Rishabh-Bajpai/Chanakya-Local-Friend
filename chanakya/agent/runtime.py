@@ -653,6 +653,7 @@ class MAFRuntime:
         if selected_backend == "a2a":
             return {
                 "model": str(a2a_model_id or "").strip() or None,
+                "a2a_model_id": str(a2a_model_id or "").strip() or None,
                 "endpoint": str(a2a_url or get_a2a_agent_url() or "").strip() or None,
                 "runtime": "maf_agent",
                 "backend": "a2a",
