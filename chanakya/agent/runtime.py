@@ -447,7 +447,7 @@ class MAFRuntime:
         self.session_context_store.save(
             session_id,
             backend="a2a",
-            remote_context_id=None,
+            remote_context_id=new_context_id,
             remote_agent_url=selected_url,
             target_key=target_key,
         )
