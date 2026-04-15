@@ -2085,11 +2085,69 @@
       }
     }
 
+    function startDelegationNoticeWatcher(targetSessionId, assistantCountBefore, options = {}) {
+      const { onAssistantMessage, delegationNoticeText } = options;
+      if (!targetSessionId) {
+        return {
+          stop() {},
+          hasNotified() {
+            return false;
+          },
+        };
+      }
+      let stopped = false;
+      let notified = false;
+      const run = async () => {
+        while (!stopped && !notified) {
+          try {
+            const response = await fetchWithTimeout(
+              `/api/sessions/${encodeURIComponent(targetSessionId)}`,
+              {},
+              4000
+            );
+            const payload = await readJsonResponse(response);
+            if (response.ok) {
+              const messages = Array.isArray(payload.messages) ? payload.messages : [];
+              const assistantMessages = messages.filter((message) => String(message.role || "") === "assistant");
+              const newAssistantMessages = assistantMessages.slice(assistantCountBefore);
+              const hasDelegationNotice = newAssistantMessages.some(
+                (message) => String(message.route || "") === "delegation_notice"
+              );
+              if (hasDelegationNotice) {
+                notified = true;
+                appendMessage("assistant", delegationNoticeText);
+                if (typeof onAssistantMessage === "function") {
+                  onAssistantMessage(delegationNoticeText);
+                }
+                setConversationQueueStatus("Work transferred to an expert. Waiting for result...");
+                break;
+              }
+            }
+          } catch {
+          }
+          await delay(700);
+        }
+      };
+      void run();
+      return {
+        stop() {
+          stopped = true;
+        },
+        hasNotified() {
+          return notified;
+        },
+      };
+    }
+
     async function submitChatMessage(message, options = {}) {
       const { onAssistantMessage } = options;
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
       const assistantCountBefore = chatLog.querySelectorAll(".message.assistant").length;
       const delegationNoticeText = "Transferring your work to an expert. This may take a bit longer.";
+      const delegationNoticeWatcher = startDelegationNoticeWatcher(sessionId, assistantCountBefore, {
+        onAssistantMessage,
+        delegationNoticeText,
+      });
       let response;
       try {
         response = await fetch("/api/chat", {
@@ -2107,6 +2165,7 @@
           }),
         });
       } catch (error) {
+        delegationNoticeWatcher.stop();
         if (!isRecoverableNetworkError(error)) {
           throw error;
         }
@@ -2124,13 +2183,14 @@
         throw new Error("Connection interrupted before the reply arrived.");
       }
       const data = await readJsonResponse(response);
+      delegationNoticeWatcher.stop();
       if (!response.ok) {
         throw new Error(data.error || "Request failed");
       }
       sessionId = data.session_id;
       storeSessionId(sessionId);
       renderTrace(data);
-      if (data.route === "delegated_manager" && data.work_id) {
+      if (data.route === "delegated_manager" && !delegationNoticeWatcher.hasNotified()) {
         appendMessage("assistant", delegationNoticeText);
         if (typeof onAssistantMessage === "function") {
           onAssistantMessage(delegationNoticeText);

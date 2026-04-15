@@ -105,6 +105,7 @@ _LIGHT_ENTERTAINMENT_PATTERNS = (
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
 _WAITING_INPUT_ROUTE = "waiting_input_prompt"
 _CLASSIC_ACTIVE_WORK_PREFIX = "cwork"
+_CLASSIC_ACTIVE_WORK_RECENCY_WINDOW = 2
 _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM = (
     "Optimize for speed and direct completion. "
     "Handle as much work yourself as possible using your own available tools, and give concise "
@@ -524,11 +525,27 @@ class ChatService:
         return f"Active Task: {cleaned[:60]}"
 
     @classmethod
-    def _is_related_to_active_work(cls, message: str, active_work: dict[str, str | None]) -> bool:
+    def _is_related_to_active_work(
+        cls,
+        message: str,
+        active_work: dict[str, str | None],
+        *,
+        recent_active_context: bool,
+    ) -> bool:
         lowered = message.strip().lower()
         if not lowered:
             return False
-        referential_phrases = (
+        explicit_active_work_phrases = (
+            "active task",
+            "active work",
+            "that work",
+            "that task",
+            "the work",
+            "the task",
+        )
+        if any(marker in lowered for marker in explicit_active_work_phrases):
+            return True
+        continuation_phrases = (
             "continue",
             "update",
             "revise",
@@ -543,10 +560,10 @@ class ChatService:
             "make it",
             "make this",
         )
-        if any(marker in lowered for marker in referential_phrases):
+        if recent_active_context and any(marker in lowered for marker in continuation_phrases):
             return True
         message_tokens = set(re.findall(r"[a-z0-9]+", lowered))
-        if {"it", "this", "that"} & message_tokens:
+        if recent_active_context and {"it", "this", "that"} & message_tokens:
             return True
         summary = str(active_work.get("summary") or "").lower()
         if not summary:
@@ -557,6 +574,32 @@ class ChatService:
             if len(token) >= 5 and token not in {"which", "their", "there", "about"}
         }
         return len(summary_tokens & message_tokens) >= 2
+
+    def _has_recent_active_work_context(
+        self,
+        session_id: str,
+        *,
+        work_id: str,
+        window: int = _CLASSIC_ACTIVE_WORK_RECENCY_WINDOW,
+    ) -> bool:
+        if window <= 0:
+            return False
+        messages = self.store.list_messages(session_id)
+        recent_messages: list[dict[str, Any]] = []
+        for item in reversed(messages):
+            recent_messages.append(item)
+            if len(recent_messages) >= window:
+                break
+        for item in recent_messages:
+            route = str(item.get("route") or "")
+            metadata = item.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            if str(metadata.get("active_work_id") or "") != work_id:
+                continue
+            if route == "active_work_user_message" or bool(metadata.get("mirrored_from_work")):
+                return True
+        return False
 
     def _ensure_classic_active_work(self, session_id: str, message: str) -> dict[str, str | None]:
         active_work = self.store.get_active_classic_work(session_id)
@@ -955,7 +998,14 @@ class ChatService:
                         input_prompt=reply.input_prompt,
                     )
 
-            if active_work is not None and self._is_related_to_active_work(message, active_work):
+            if active_work is not None and self._is_related_to_active_work(
+                message,
+                active_work,
+                recent_active_context=self._has_recent_active_work_context(
+                    session_id,
+                    work_id=str(active_work["work_id"]),
+                ),
+            ):
                 return self._chat_in_active_work(
                     session_id,
                     message,

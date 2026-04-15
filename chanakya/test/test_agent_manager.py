@@ -19,6 +19,7 @@ from chanakya.agent_manager import (
 from chanakya.chat_service import ChatService
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.domain import (
+    ChatReply,
     REQUEST_STATUS_IN_PROGRESS,
     REQUEST_STATUS_CANCELLED,
     TASK_STATUS_BLOCKED,
@@ -3037,6 +3038,106 @@ def test_classic_unrelated_complex_request_replaces_active_work() -> None:
     assert (
         store.get_active_classic_work("session_replace_active")["work_id"] == second_reply.work_id
     )
+
+
+def test_classic_pronoun_followup_without_recent_active_context_stays_main_chat() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+
+    store.create_work(work_id="cwork_stale", title="Stale active work", description="")
+    store.set_active_classic_work(
+        chat_session_id="session_pronoun_stale",
+        work_id="cwork_stale",
+        work_session_id="session_cwork_stale",
+        root_request_id=None,
+        title="Stale active work",
+        summary="Write a report on climate change",
+        workflow_type=WORKFLOW_INFORMATION,
+    )
+    store.add_message(
+        "session_pronoun_stale",
+        "user",
+        "Write a report on climate change",
+        route="active_work_user_message",
+        metadata={
+            "active_work_id": "cwork_stale",
+            "active_work_session_id": "session_cwork_stale",
+            "mirrored_from": "classic_chat",
+        },
+    )
+    store.add_message("session_pronoun_stale", "assistant", "Shared report draft.")
+    store.add_message("session_pronoun_stale", "user", "What is 7400 times 57?")
+    store.add_message("session_pronoun_stale", "assistant", "421800")
+
+    def _should_not_route(*args, **kwargs):
+        raise AssertionError("Stale pronoun follow-up should not route to active work")
+
+    service._chat_in_active_work = _should_not_route  # type: ignore[method-assign]
+
+    reply = service.chat("session_pronoun_stale", "Now add 74 to it")
+
+    assert reply.work_id is None
+    assert reply.route == "direct_answer"
+    assert reply.message == "personal_assistant:Now add 74 to it"
+
+
+def test_classic_pronoun_followup_with_recent_active_context_routes_to_active_work() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+
+    store.create_work(work_id="cwork_recent", title="Recent active work", description="")
+    store.set_active_classic_work(
+        chat_session_id="session_pronoun_recent",
+        work_id="cwork_recent",
+        work_session_id="session_cwork_recent",
+        root_request_id=None,
+        title="Recent active work",
+        summary="Write a report on climate change",
+        workflow_type=WORKFLOW_INFORMATION,
+    )
+    store.add_message(
+        "session_pronoun_recent",
+        "user",
+        "Add a short conclusion to it",
+        route="active_work_user_message",
+        metadata={
+            "active_work_id": "cwork_recent",
+            "active_work_session_id": "session_cwork_recent",
+            "mirrored_from": "classic_chat",
+        },
+    )
+    store.add_message("session_pronoun_recent", "assistant", "Conclusion added.")
+
+    def _route_to_active_work(*args, **kwargs):
+        return ChatReply(
+            request_id="req_recent",
+            session_id="session_pronoun_recent",
+            work_id="cwork_recent",
+            route="delegated_manager",
+            message="Routed to active work",
+            model="test-model",
+            endpoint="http://test",
+            runtime="maf_agent",
+            agent_name="Chanakya",
+            response_mode="information_delivery",
+        )
+
+    service._chat_in_active_work = _route_to_active_work  # type: ignore[method-assign]
+
+    reply = service.chat("session_pronoun_recent", "Now add one more paragraph to it")
+
+    assert reply.work_id == "cwork_recent"
+    assert reply.message == "Routed to active work"
 
 
 def test_classic_unrelated_request_replacement_cleans_workspace_and_runtime_state(
