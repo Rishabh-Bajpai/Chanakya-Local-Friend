@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import re
 
 from agent_framework import Agent, Message
@@ -130,6 +132,37 @@ _WAITING_INPUT_CANCEL_MARKERS = (
     "leave it",
     "ignore it",
 )
+_CLASSIC_NEW_TASK_MARKERS = (
+    "new task",
+    "another task",
+    "different task",
+    "something else",
+    "unrelated",
+    "instead",
+    "new request",
+)
+_CLASSIC_DELEGATE_PREVIOUS_MARKERS = (
+    "delegate",
+    "agent manager",
+    "someone else",
+    "hand off",
+    "handoff",
+)
+_CLASSIC_ROUTER_CONFIDENCE_THRESHOLD = 0.62
+_CLASSIC_ROUTER_HISTORY_WINDOW = 12
+_CLASSIC_ROUTER_SYSTEM_PROMPT = (
+    "You are a routing planner for Chanakya classic chat. Decide exactly one action.\n"
+    "Output valid JSON ONLY with this schema:\n"
+    '{"action":"direct|continue_active_work|create_new_work","confidence":0.0,"reason":"...","handoff_message":"..."}\n'
+    "Rules:\n"
+    "- Choose direct when Chanakya can answer quickly using its own tools/capabilities.\n"
+    "- Choose continue_active_work only when user is clearly continuing the active task.\n"
+    "- Choose create_new_work when user starts a different request or asks to delegate prior context into manager workflow.\n"
+    "- For delegated actions, handoff_message must be a clear standalone request for Agent Manager, grounded in recent user intent and context.\n"
+    "- For direct action, set handoff_message to empty string.\n"
+    "- confidence must be a number from 0 to 1.\n"
+    "- No markdown, no code fences, no extra keys."
+)
 
 
 class ChatService:
@@ -145,6 +178,7 @@ class ChatService:
         self.manager = manager
         self.notification_dispatcher = notification_dispatcher
         self._triage_client = OpenAIChatClient(env_file_path=".env")
+        self.classic_router_runner: Any | None = None
         self._conversation_layer = ConversationLayerSupport()
 
     @staticmethod
@@ -541,8 +575,6 @@ class ChatService:
             "active work",
             "that work",
             "that task",
-            "the work",
-            "the task",
         )
         if any(marker in lowered for marker in explicit_active_work_phrases):
             return True
@@ -601,6 +633,307 @@ class ChatService:
             if route == "active_work_user_message" or bool(metadata.get("mirrored_from_work")):
                 return True
         return False
+
+    @staticmethod
+    def _is_new_task_intent(message: str) -> bool:
+        lowered = message.strip().lower()
+        if not lowered:
+            return False
+        return any(marker in lowered for marker in _CLASSIC_NEW_TASK_MARKERS)
+
+    @staticmethod
+    def _is_delegate_previous_request_instruction(message: str) -> bool:
+        lowered = message.strip().lower()
+        if not lowered:
+            return False
+        if "previous message" in lowered or "previous request" in lowered:
+            return "delegate" in lowered
+        return "delegate" in lowered and any(
+            marker in lowered for marker in _CLASSIC_DELEGATE_PREVIOUS_MARKERS
+        )
+
+    def _find_recent_non_active_user_message(self, session_id: str) -> str | None:
+        messages = self.store.list_messages(session_id)
+        candidate: str | None = None
+        for item in reversed(messages):
+            if str(item.get("role") or "") != "user":
+                continue
+            if str(item.get("route") or "") == "active_work_user_message":
+                continue
+            content = str(item.get("content") or "").strip()
+            if not content:
+                continue
+            candidate = content
+            break
+        return candidate
+
+    @staticmethod
+    def _parse_json_object_relaxed(raw: str) -> dict[str, Any] | None:
+        text = raw.strip()
+        if not text:
+            return None
+        try:
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            pass
+        decoder = json.JSONDecoder()
+        start = text.find("{")
+        while start != -1:
+            try:
+                parsed, _ = decoder.raw_decode(text[start:])
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+            start = text.find("{", start + 1)
+        return None
+
+    def _classic_router_is_enabled(self) -> bool:
+        if self.classic_router_runner is not None:
+            return True
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return False
+        explicit = os.getenv("CHANAKYA_CLASSIC_ROUTER_LLM_ENABLED", "").strip().lower()
+        if explicit in {"0", "false", "no", "off"}:
+            return False
+        if explicit in {"1", "true", "yes", "on"}:
+            return True
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        return bool(api_key)
+
+    @staticmethod
+    def _format_capability_summary(tool_ids: list[str]) -> str:
+        listed_tools = ", ".join(sorted(set(tool_ids))) if tool_ids else "none"
+        return (
+            "Direct capabilities: concise chat, arithmetic, quick factual answers, rewrites, and tool usage. "
+            f"Available tools: {listed_tools}."
+        )
+
+    @staticmethod
+    def _format_router_history(messages: list[dict[str, Any]]) -> str:
+        if not messages:
+            return "(no prior messages)"
+        lines: list[str] = []
+        for item in messages[-_CLASSIC_ROUTER_HISTORY_WINDOW:]:
+            role = str(item.get("role") or "assistant")
+            route = str(item.get("route") or "")
+            content = " ".join(str(item.get("content") or "").split())
+            if len(content) > 260:
+                content = f"{content[:257]}..."
+            prefix = f"{role}"
+            if route:
+                prefix = f"{prefix} ({route})"
+            lines.append(f"- {prefix}: {content}")
+        return "\n".join(lines)
+
+    def _build_classic_router_prompt(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        active_work: dict[str, Any] | None,
+    ) -> str:
+        history = self._format_router_history(self.store.list_messages(session_id))
+        active_work_block = "none"
+        if active_work is not None:
+            active_work_block = (
+                f"work_id={active_work.get('work_id')}\n"
+                f"title={str(active_work.get('title') or '').strip()}\n"
+                f"summary={str(active_work.get('summary') or '').strip()}\n"
+                f"workflow_type={str(active_work.get('workflow_type') or '').strip() or 'unknown'}"
+            )
+        tool_ids = getattr(self.runtime.profile, "tool_ids", None)
+        if not isinstance(tool_ids, list):
+            raw_tool_ids = getattr(self.runtime.profile, "tool_ids_json", None)
+            tool_ids = raw_tool_ids if isinstance(raw_tool_ids, list) else []
+        capabilities = self._format_capability_summary(tool_ids)
+        return (
+            f"Current user message:\n{message}\n\n"
+            f"Recent chat history (latest up to {_CLASSIC_ROUTER_HISTORY_WINDOW}):\n{history}\n\n"
+            f"Active delegated work context:\n{active_work_block}\n\n"
+            f"Chanakya capabilities:\n{capabilities}\n"
+        )
+
+    def _run_classic_router_prompt(self, prompt: str) -> str:
+        if self.classic_router_runner is not None:
+            return str(self.classic_router_runner(prompt))
+        router_agent = Agent(
+            client=self._triage_client,
+            name="classic_task_router",
+            instructions=_CLASSIC_ROUTER_SYSTEM_PROMPT,
+        )
+
+        async def _route() -> str:
+            response = await asyncio.wait_for(
+                router_agent.run(
+                    Message(role="user", text=prompt),
+                    options={"store": False},
+                ),
+                timeout=18,
+            )
+            return str(response).strip()
+
+        return run_in_maf_loop(_route())
+
+    @staticmethod
+    def _validate_classic_router_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+        action = str(payload.get("action") or "").strip()
+        if action not in {"direct", "continue_active_work", "create_new_work"}:
+            return None
+        try:
+            confidence = float(payload.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = max(0.0, min(confidence, 1.0))
+        reason = str(payload.get("reason") or "").strip()
+        handoff_message = str(payload.get("handoff_message") or "").strip()
+        if action == "direct":
+            handoff_message = ""
+        return {
+            "action": action,
+            "confidence": confidence,
+            "reason": reason,
+            "handoff_message": handoff_message,
+        }
+
+    def _classic_router_fallback_decision(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        active_work: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if self._is_delegate_previous_request_instruction(message):
+            target = self._find_recent_non_active_user_message(session_id)
+            if target:
+                return {
+                    "action": "create_new_work",
+                    "confidence": 0.5,
+                    "reason": "heuristic_delegate_previous",
+                    "handoff_message": target,
+                    "source": "fallback",
+                }
+        if (
+            active_work is not None
+            and self._is_related_to_active_work(
+                message,
+                active_work,
+                recent_active_context=self._has_recent_active_work_context(
+                    session_id,
+                    work_id=str(active_work["work_id"]),
+                ),
+            )
+            and not self._is_new_task_intent(message)
+        ):
+            return {
+                "action": "continue_active_work",
+                "confidence": 0.5,
+                "reason": "heuristic_recent_active_work",
+                "handoff_message": message,
+                "source": "fallback",
+            }
+        if self._should_handle_directly(message, work_id=None):
+            return {
+                "action": "direct",
+                "confidence": 0.5,
+                "reason": "heuristic_fast_direct",
+                "handoff_message": "",
+                "source": "fallback",
+            }
+        return {
+            "action": "create_new_work",
+            "confidence": 0.5,
+            "reason": "heuristic_new_work",
+            "handoff_message": message,
+            "source": "fallback",
+        }
+
+    def _decide_classic_execution(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        active_work: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if self.manager is None:
+            return {
+                "action": "direct",
+                "confidence": 1.0,
+                "reason": "manager_unavailable",
+                "handoff_message": "",
+                "source": "fallback",
+            }
+        if not self._classic_router_is_enabled():
+            return self._classic_router_fallback_decision(
+                session_id=session_id,
+                message=message,
+                active_work=active_work,
+            )
+
+        prompt = self._build_classic_router_prompt(
+            session_id=session_id,
+            message=message,
+            active_work=active_work,
+        )
+        parsed: dict[str, Any] | None = None
+        last_raw = ""
+        for attempt in range(2):
+            try:
+                attempt_prompt = prompt
+                if attempt == 1 and last_raw:
+                    attempt_prompt = (
+                        f"{prompt}\n\n"
+                        "Your previous output was invalid JSON.\n"
+                        f"Previous output:\n{last_raw}\n"
+                        "Return ONLY a valid JSON object matching schema."
+                    )
+                raw = self._run_classic_router_prompt(attempt_prompt)
+                last_raw = raw
+                payload = self._parse_json_object_relaxed(raw)
+                if payload is None:
+                    continue
+                parsed = self._validate_classic_router_payload(payload)
+                if parsed is not None:
+                    break
+            except Exception as exc:
+                debug_log(
+                    "classic_router_error",
+                    {
+                        "session_id": session_id,
+                        "error": str(exc),
+                        "attempt": attempt + 1,
+                    },
+                )
+        if parsed is None:
+            return self._classic_router_fallback_decision(
+                session_id=session_id,
+                message=message,
+                active_work=active_work,
+            )
+        if parsed["confidence"] < _CLASSIC_ROUTER_CONFIDENCE_THRESHOLD:
+            return self._classic_router_fallback_decision(
+                session_id=session_id,
+                message=message,
+                active_work=active_work,
+            )
+
+        decision = {**parsed, "source": "llm"}
+        if decision["action"] == "continue_active_work" and active_work is None:
+            decision["action"] = "create_new_work"
+        if decision["action"] != "direct" and not decision.get("handoff_message"):
+            decision["handoff_message"] = message
+        debug_log(
+            "classic_router_decision",
+            {
+                "session_id": session_id,
+                "action": decision["action"],
+                "confidence": decision["confidence"],
+                "source": decision["source"],
+                "reason": decision.get("reason"),
+            },
+        )
+        return decision
 
     def _ensure_classic_active_work(self, session_id: str, message: str) -> dict[str, str | None]:
         active_work = self.store.get_active_classic_work(session_id)
@@ -999,40 +1332,41 @@ class ChatService:
                         input_prompt=reply.input_prompt,
                     )
 
-            if active_work is not None and self._is_related_to_active_work(
-                message,
-                active_work,
-                recent_active_context=self._has_recent_active_work_context(
-                    session_id,
-                    work_id=str(active_work["work_id"]),
-                ),
-            ):
-                return self._chat_in_active_work(
-                    session_id,
-                    message,
-                    model_id=model_id,
-                    backend=backend,
-                    a2a_url=a2a_url,
-                    a2a_remote_agent=a2a_remote_agent,
-                    a2a_model_provider=a2a_model_provider,
-                    a2a_model_id=a2a_model_id,
+            if self.manager is not None:
+                decision = self._decide_classic_execution(
+                    session_id=session_id,
+                    message=message,
+                    active_work=active_work,
                 )
+                action = str(decision.get("action") or "direct")
+                handoff_message = str(decision.get("handoff_message") or "").strip() or message
 
-            if (
-                self.manager is not None
-                and self._triage_message(message, work_id=None) == "delegate"
-            ):
-                active_work = self._replace_classic_active_work(session_id, message)
-                return self._chat_in_active_work(
-                    session_id,
-                    message,
-                    model_id=model_id,
-                    backend=backend,
-                    a2a_url=a2a_url,
-                    a2a_remote_agent=a2a_remote_agent,
-                    a2a_model_provider=a2a_model_provider,
-                    a2a_model_id=a2a_model_id,
-                )
+                if action in {"continue_active_work", "create_new_work"}:
+                    if action == "create_new_work":
+                        active_work = self._replace_classic_active_work(session_id, handoff_message)
+                    if handoff_message.strip() != message.strip():
+                        self.store.add_message(
+                            session_id,
+                            "user",
+                            message,
+                            route="delegation_control",
+                            metadata={
+                                "delegation_control": True,
+                                "delegation_target_message": handoff_message,
+                                "router_reason": decision.get("reason"),
+                                "router_source": decision.get("source"),
+                            },
+                        )
+                    return self._chat_in_active_work(
+                        session_id,
+                        handoff_message,
+                        model_id=model_id,
+                        backend=backend,
+                        a2a_url=a2a_url,
+                        a2a_remote_agent=a2a_remote_agent,
+                        a2a_model_provider=a2a_model_provider,
+                        a2a_model_id=a2a_model_id,
+                    )
 
         resumable_task = self.store.find_waiting_input_task(session_id)
         if resumable_task is not None:

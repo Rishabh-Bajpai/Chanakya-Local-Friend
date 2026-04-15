@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 from agent_framework import Message
 from pytest import MonkeyPatch, raises
@@ -3138,6 +3138,187 @@ def test_classic_pronoun_followup_with_recent_active_context_routes_to_active_wo
 
     assert reply.work_id == "cwork_recent"
     assert reply.message == "Routed to active work"
+
+
+def test_classic_new_task_intent_replaces_old_active_work() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
+    )
+    service.manager.specialist_runner = lambda profile, prompt, step: {
+        (
+            "cto",
+            "brief",
+        ): '{"implementation_brief":"Implement requested software","assumptions":[],"risks":[],"testing_focus":[]}',
+        ("cto", "review"): "Reviewed software delivery.",
+    }[(profile.role, step)]
+
+    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
+        if profile.role == "developer":
+            return "Implemented requested change."
+        if profile.role == "tester":
+            return '{"validation_summary":"Looks good","checks_performed":[],"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
+        raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
+
+    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.manager.clarification_runner = lambda profile, prompt: (
+        '{"needs_input":false,"question":"","reason":""}'
+    )
+
+    first_reply = service.chat("session_new_task_replace", "Implement a login API")
+    first_active_work = store.get_active_classic_work("session_new_task_replace")
+    assert first_active_work is not None
+
+    second_reply = service.chat(
+        "session_new_task_replace",
+        "This is a different task: build a database migration tool",
+    )
+    second_active_work = store.get_active_classic_work("session_new_task_replace")
+
+    assert first_reply.work_id is not None
+    assert second_reply.work_id is not None
+    assert second_active_work is not None
+    assert second_active_work["work_id"] != first_active_work["work_id"]
+
+
+def test_classic_delegate_previous_request_uses_previous_main_chat_message() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+
+    store.create_work(work_id="cwork_old", title="Old active work", description="")
+    store.set_active_classic_work(
+        chat_session_id="session_delegate_previous",
+        work_id="cwork_old",
+        work_session_id="session_cwork_old",
+        root_request_id=None,
+        title="Old active work",
+        summary="Fix authentication flow",
+        workflow_type=WORKFLOW_SOFTWARE,
+    )
+    store.add_message("session_delegate_previous", "user", "What is the latest Chrome version?")
+    store.add_message("session_delegate_previous", "assistant", "It is 124.x")
+
+    captured: dict[str, str] = {}
+
+    def _capture_active_work(classic_session_id: str, message: str, **kwargs: Any) -> ChatReply:
+        captured["message"] = message
+        return ChatReply(
+            request_id="req_delegate_previous",
+            session_id=classic_session_id,
+            work_id="cwork_new",
+            route="delegated_manager",
+            message="Delegated previous request",
+            model="test-model",
+            endpoint="http://test",
+            runtime="maf_agent",
+            agent_name="Chanakya",
+            response_mode="software_delivery",
+        )
+
+    service._chat_in_active_work = _capture_active_work  # type: ignore[method-assign]
+
+    reply = service.chat(
+        "session_delegate_previous",
+        "No, just delegate the task to someone else like agent manager",
+    )
+
+    assert reply.route == "delegated_manager"
+    assert captured["message"] == "What is the latest Chrome version?"
+    messages = store.list_messages("session_delegate_previous")
+    assert any(msg.get("route") == "delegation_control" for msg in messages)
+
+
+def test_classic_router_rewrites_manager_handoff_message() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.92,
+            "reason": "user asked to delegate prior request",
+            "handoff_message": "Research and summarize the latest Chrome stable version.",
+        }
+    )
+
+    captured: dict[str, str] = {}
+
+    def _capture_active_work(classic_session_id: str, message: str, **kwargs: Any) -> ChatReply:
+        captured["message"] = message
+        return ChatReply(
+            request_id="req_router_handoff",
+            session_id=classic_session_id,
+            work_id="cwork_router",
+            route="delegated_manager",
+            message="Delegated with rewritten handoff",
+            model="test-model",
+            endpoint="http://test",
+            runtime="maf_agent",
+            agent_name="Chanakya",
+            response_mode="information_delivery",
+        )
+
+    service._chat_in_active_work = _capture_active_work  # type: ignore[method-assign]
+
+    reply = service.chat(
+        "session_router_rewrite",
+        "No, delegate this to someone else",
+    )
+
+    assert reply.route == "delegated_manager"
+    assert captured["message"] == "Research and summarize the latest Chrome stable version."
+    messages = store.list_messages("session_router_rewrite")
+    control_messages = [m for m in messages if m.get("route") == "delegation_control"]
+    assert control_messages
+    assert (
+        control_messages[-1].get("metadata", {}).get("delegation_target_message")
+        == "Research and summarize the latest Chrome stable version."
+    )
+
+
+def test_classic_router_direct_action_skips_active_work_routing() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "direct",
+            "confidence": 0.87,
+            "reason": "simple arithmetic follow-up",
+            "handoff_message": "",
+        }
+    )
+
+    def _should_not_route(*args, **kwargs):
+        raise AssertionError("Direct router decision should not route to active work")
+
+    service._chat_in_active_work = _should_not_route  # type: ignore[method-assign]
+
+    reply = service.chat("session_router_direct", "What is 7400 times 57?")
+
+    assert reply.work_id is None
+    assert reply.route == "direct_answer"
+    assert reply.message == "personal_assistant:What is 7400 times 57?"
 
 
 def test_classic_unrelated_request_replacement_cleans_workspace_and_runtime_state(

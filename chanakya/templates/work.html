@@ -1285,6 +1285,21 @@
         }
       }
 
+      async function syncActiveWorkFromStorage(preferredWorkId = null) {
+        const targetWorkId = preferredWorkId || loadSavedWork();
+        await loadWorks();
+        if (!targetWorkId) {
+          return;
+        }
+        if (!works.some((work) => work.id === targetWorkId)) {
+          return;
+        }
+        if (activeWorkId === targetWorkId) {
+          return;
+        }
+        await selectWork(targetWorkId);
+      }
+
       function appendChatMessage(role, content) {
         const node = document.createElement("div");
         node.className = `msg ${role}`;
@@ -1602,6 +1617,14 @@
       }
 
       window.addEventListener("storage", async (event) => {
+        if (event.key === WORK_STORAGE_KEY) {
+          try {
+            await syncActiveWorkFromStorage(event.newValue || null);
+          } catch (error) {
+            setStatus(error instanceof Error ? error.message : String(error), true);
+          }
+          return;
+        }
         if (event.key === RUNTIME_CONFIG_SYNC_KEY) {
           try {
             await loadAppliedRuntimeConfig({ silent: true });

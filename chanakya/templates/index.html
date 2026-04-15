@@ -476,6 +476,21 @@
       border: 1px solid #383838;
     }
 
+    .message-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: #f3d38f;
+      background: rgba(243, 211, 143, 0.12);
+      border: 1px solid rgba(243, 211, 143, 0.3);
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-bottom: 8px;
+    }
+
     .meta {
       margin-top: 8px;
       font-size: 12px;
@@ -1501,6 +1516,7 @@
     let a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
     let appliedRuntimeConfig = null;
     const STORAGE_KEY = "chanakya-active-session";
+    const WORK_STORAGE_KEY = "chanakya-active-work";
     const RUNTIME_CONFIG_SYNC_KEY = "chanakya-runtime-config-sync";
     const DEFAULT_A2A_URL = {{ a2a_agent_url | tojson }};
     const A2A_GUI_ENABLED = {{ a2a_gui_enabled | tojson }};
@@ -1894,10 +1910,19 @@
       });
     }
 
-    function appendMessage(role, text, meta) {
+    function appendMessage(role, text, meta, options = {}) {
+      const { badge } = options;
       const node = document.createElement("div");
       node.className = `message ${role}`;
-      node.textContent = text;
+      if (badge) {
+        const badgeNode = document.createElement("div");
+        badgeNode.className = "message-badge";
+        badgeNode.textContent = badge;
+        node.appendChild(badgeNode);
+      }
+      const bodyNode = document.createElement("div");
+      bodyNode.textContent = text;
+      node.appendChild(bodyNode);
       if (meta) {
         const metaNode = document.createElement("div");
         metaNode.className = "meta";
@@ -1907,6 +1932,19 @@
       chatLog.appendChild(node);
       chatLog.scrollTop = chatLog.scrollHeight;
       return node;
+    }
+
+    function messageBadgeForHistoryItem(item) {
+      if (!item || !item.route) {
+        return "";
+      }
+      if (item.route === "delegation_notice") {
+        return "Delegated";
+      }
+      if (item.route === "delegation_control") {
+        return "Delegation Control";
+      }
+      return "";
     }
 
     function getLatestAssistantMessageText() {
@@ -2115,7 +2153,7 @@
               );
               if (hasDelegationNotice) {
                 notified = true;
-                appendMessage("assistant", delegationNoticeText);
+                appendMessage("assistant", delegationNoticeText, "", { badge: "Delegated" });
                 if (typeof onAssistantMessage === "function") {
                   onAssistantMessage(delegationNoticeText);
                 }
@@ -2189,9 +2227,16 @@
       }
       sessionId = data.session_id;
       storeSessionId(sessionId);
+      const activeWorkIdFromResponse =
+        (typeof data.work_id === "string" && data.work_id.trim())
+        || (typeof data.metadata?.active_work_id === "string" && data.metadata.active_work_id.trim())
+        || "";
+      if (activeWorkIdFromResponse) {
+        storeActiveWorkId(activeWorkIdFromResponse);
+      }
       renderTrace(data);
       if (data.route === "delegated_manager" && !delegationNoticeWatcher.hasNotified()) {
-        appendMessage("assistant", delegationNoticeText);
+        appendMessage("assistant", delegationNoticeText, "", { badge: "Delegated" });
         if (typeof onAssistantMessage === "function") {
           onAssistantMessage(delegationNoticeText);
         }
@@ -2254,6 +2299,16 @@
       try {
         if (value) {
           window.localStorage.setItem(STORAGE_KEY, value);
+        }
+      } catch {
+        return;
+      }
+    }
+
+    function storeActiveWorkId(value) {
+      try {
+        if (value) {
+          window.localStorage.setItem(WORK_STORAGE_KEY, value);
         }
       } catch {
         return;
@@ -2521,7 +2576,12 @@
         if (item.route) meta.push(`route=${item.route}`);
         if (item.request_id) meta.push(`request=${item.request_id}`);
         if (item.metadata && item.metadata.runtime) meta.push(`runtime=${item.metadata.runtime}`);
-        appendMessage(item.role === "user" ? "user" : "assistant", item.content, meta.join(" "));
+        appendMessage(
+          item.role === "user" ? "user" : "assistant",
+          item.content,
+          meta.join(" "),
+          { badge: messageBadgeForHistoryItem(item) }
+        );
       });
     }
 
