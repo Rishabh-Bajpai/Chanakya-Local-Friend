@@ -1539,11 +1539,6 @@
       }
     }
 
-    function createClientSessionId() {
-      const random = Math.random().toString(36).slice(2, 10);
-      return `session_client_${Date.now().toString(36)}_${random}`;
-    }
-
     function getSelectedChatBackend() {
       if (!A2A_GUI_ENABLED) {
         return "local";
@@ -2083,10 +2078,6 @@
 
     async function submitChatMessage(message, options = {}) {
       const { onAssistantMessage } = options;
-      if (!sessionId) {
-        sessionId = createClientSessionId();
-        storeSessionId(sessionId);
-      }
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
       const assistantCountBefore = chatLog.querySelectorAll(".message.assistant").length;
       let response;
@@ -2108,6 +2099,9 @@
       } catch (error) {
         if (!isRecoverableNetworkError(error)) {
           throw error;
+        }
+        if (!sessionId) {
+          throw new Error("Connection interrupted before session assignment. Please retry.");
         }
         const recovered = await recoverChatAfterDisconnect(
           sessionId,
@@ -3157,7 +3151,7 @@
         return;
       }
       sessionId = storedSessionId;
-      const response = await fetch(`/api/sessions/${sessionId}`);
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
       if (!response.ok) {
         sessionId = null;
         renderChatHistory([]);
