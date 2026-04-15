@@ -162,6 +162,7 @@ class ChatService:
             "a2a_model_provider": str(payload.get("a2a_model_provider") or "").strip() or None,
             "a2a_model_id": str(payload.get("a2a_model_id") or "").strip() or None,
         }
+
     def _runtime_metadata(self, model_id: str | None = None) -> dict[str, Any]:
         try:
             return self.runtime.runtime_metadata(model_id=model_id)
@@ -175,6 +176,11 @@ class ChatService:
         *,
         request_id: str,
         model_id: str | None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
     ) -> Any:
         try:
             return self.runtime.run(
@@ -182,9 +188,22 @@ class ChatService:
                 message,
                 request_id=request_id,
                 model_id=model_id,
+                backend=backend,
+                a2a_url=a2a_url,
+                a2a_remote_agent=a2a_remote_agent,
+                a2a_model_provider=a2a_model_provider,
+                a2a_model_id=a2a_model_id,
             )
         except TypeError:
-            return self.runtime.run(session_id, message, request_id=request_id)
+            try:
+                return self.runtime.run(
+                    session_id,
+                    message,
+                    request_id=request_id,
+                    model_id=model_id,
+                )
+            except TypeError:
+                return self.runtime.run(session_id, message, request_id=request_id)
 
     def _notify_root_task_outcome(
         self,

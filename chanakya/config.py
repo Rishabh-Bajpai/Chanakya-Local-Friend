@@ -76,6 +76,10 @@ def get_a2a_agent_url() -> str:
     return (os.getenv("A2A_AGENT_URL") or "").strip()
 
 
+def get_a2a_gui_enabled() -> bool:
+    return env_flag("CHANAKYA_A2A_GUI_ENABLED", default=False)
+
+
 def get_air_server_url() -> str:
     load_local_env()
     configured = os.getenv("AIR_SERVER_URL")

@@ -796,13 +796,16 @@
                         Backend
                         <select id="chatBackendSelect">
                           <option value="local">Local OpenAI-compatible via AIR</option>
+                          {% if a2a_gui_enabled %}
                           <option value="a2a">A2A</option>
+                          {% endif %}
                         </select>
                       </label>
                       <label>
                         Chanakya Model
                         <select id="airLlmModel"></select>
                       </label>
+                      {% if a2a_gui_enabled %}
                       <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
                       <label>
                         A2A Agent Override
@@ -816,13 +819,18 @@
                         A2A Model
                         <select id="a2aModelIdInput"></select>
                       </label>
+                      {% endif %}
                     </div>
+                    {% if a2a_gui_enabled %}
                     <p class="control-group-note">A2A sends the next work-chat turn through the app-managed bridge. The selected A2A agent applies to both direct replies and conversation-layer follow-ups. AIR model selection stays active only for local replies.</p>
+                    {% endif %}
                     <div class="air-controls">
                       <button id="runtimeConfigApplyButton" class="air-button" type="button">Apply Changes</button>
                     </div>
                     <p id="runtimeConfigStatus" class="control-field-hint"></p>
+                    {% if a2a_gui_enabled %}
                     <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
+                    {% endif %}
                   </section>
                   <section class="control-group">
                     <p class="control-group-title">AIR Voice</p>
@@ -926,6 +934,7 @@
       const WORK_STORAGE_KEY = "chanakya-active-work";
       const RUNTIME_CONFIG_SYNC_KEY = "chanakya-runtime-config-sync";
       const DEFAULT_A2A_URL = {{ a2a_agent_url | tojson }};
+      const A2A_GUI_ENABLED = {{ a2a_gui_enabled | tojson }};
       let activeWorkId = null;
       let works = [];
       let slideshowTimer = null;
@@ -950,6 +959,9 @@
       };
 
       function getSelectedChatBackend() {
+        if (!A2A_GUI_ENABLED) {
+          return "local";
+        }
         const value = chatBackendSelect ? chatBackendSelect.value : "local";
         return value === "a2a" ? "a2a" : "local";
       }
@@ -957,12 +969,14 @@
       function normalizeRuntimeConfig(config) {
         const normalized = config || {};
         return {
-          backend: normalized.backend === "a2a" ? "a2a" : "local",
+          backend: A2A_GUI_ENABLED && normalized.backend === "a2a" ? "a2a" : "local",
           model_id: typeof normalized.model_id === "string" && normalized.model_id.trim() ? normalized.model_id.trim() : null,
-          a2a_url: typeof normalized.a2a_url === "string" && normalized.a2a_url.trim() ? normalized.a2a_url.trim() : (DEFAULT_A2A_URL || null),
-          a2a_remote_agent: typeof normalized.a2a_remote_agent === "string" && normalized.a2a_remote_agent.trim() ? normalized.a2a_remote_agent.trim() : null,
-          a2a_model_provider: typeof normalized.a2a_model_provider === "string" && normalized.a2a_model_provider.trim() ? normalized.a2a_model_provider.trim() : null,
-          a2a_model_id: typeof normalized.a2a_model_id === "string" && normalized.a2a_model_id.trim() ? normalized.a2a_model_id.trim() : null,
+          a2a_url: A2A_GUI_ENABLED
+            ? (typeof normalized.a2a_url === "string" && normalized.a2a_url.trim() ? normalized.a2a_url.trim() : (DEFAULT_A2A_URL || null))
+            : null,
+          a2a_remote_agent: A2A_GUI_ENABLED && typeof normalized.a2a_remote_agent === "string" && normalized.a2a_remote_agent.trim() ? normalized.a2a_remote_agent.trim() : null,
+          a2a_model_provider: A2A_GUI_ENABLED && typeof normalized.a2a_model_provider === "string" && normalized.a2a_model_provider.trim() ? normalized.a2a_model_provider.trim() : null,
+          a2a_model_id: A2A_GUI_ENABLED && typeof normalized.a2a_model_id === "string" && normalized.a2a_model_id.trim() ? normalized.a2a_model_id.trim() : null,
         };
       }
 
@@ -970,10 +984,10 @@
         return normalizeRuntimeConfig({
           backend: getSelectedChatBackend(),
           model_id: airLlmModel && airLlmModel.value.trim() ? airLlmModel.value.trim() : null,
-          a2a_url: DEFAULT_A2A_URL || null,
-          a2a_remote_agent: a2aAgentInput && a2aAgentInput.value.trim() ? a2aAgentInput.value.trim() : null,
-          a2a_model_provider: a2aModelProviderInput && a2aModelProviderInput.value.trim() ? a2aModelProviderInput.value.trim() : null,
-          a2a_model_id: a2aModelIdInput && a2aModelIdInput.value.trim() ? a2aModelIdInput.value.trim() : null,
+          a2a_url: A2A_GUI_ENABLED ? (DEFAULT_A2A_URL || null) : null,
+          a2a_remote_agent: A2A_GUI_ENABLED && a2aAgentInput && a2aAgentInput.value.trim() ? a2aAgentInput.value.trim() : null,
+          a2a_model_provider: A2A_GUI_ENABLED && a2aModelProviderInput && a2aModelProviderInput.value.trim() ? a2aModelProviderInput.value.trim() : null,
+          a2a_model_id: A2A_GUI_ENABLED && a2aModelIdInput && a2aModelIdInput.value.trim() ? a2aModelIdInput.value.trim() : null,
         });
       }
 
@@ -1104,6 +1118,9 @@
       }
 
       async function refreshA2AOptions(sourceConfig = null) {
+        if (!A2A_GUI_ENABLED) {
+          return;
+        }
         const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
         const url = String(DEFAULT_A2A_URL || "").trim();
         if (!url) {
@@ -1148,7 +1165,7 @@
         }
         appliedRuntimeConfig = normalizeRuntimeConfig(payload);
         applyRuntimeConfigToControls(appliedRuntimeConfig);
-        if (appliedRuntimeConfig.backend === "a2a") {
+        if (A2A_GUI_ENABLED && appliedRuntimeConfig.backend === "a2a") {
           await refreshA2AOptions(appliedRuntimeConfig);
         }
         updateRuntimeConfigDirtyState();
@@ -1177,7 +1194,7 @@
         }
         appliedRuntimeConfig = normalizeRuntimeConfig(payload);
         applyRuntimeConfigToControls(appliedRuntimeConfig);
-        if (appliedRuntimeConfig.backend === "a2a") {
+        if (A2A_GUI_ENABLED && appliedRuntimeConfig.backend === "a2a") {
           await refreshA2AOptions(appliedRuntimeConfig);
         }
         try {
@@ -1388,6 +1405,10 @@
       }
 
       if (chatBackendSelect) {
+        if (!A2A_GUI_ENABLED) {
+          chatBackendSelect.value = "local";
+          chatBackendSelect.disabled = true;
+        }
         chatBackendSelect.addEventListener("change", async () => {
           updateRuntimeConfigState();
           if (getSelectedChatBackend() === "a2a") {
@@ -1425,11 +1446,13 @@
           airLlmModel.addEventListener("change", updateRuntimeConfigDirtyState);
         }
         updateRuntimeConfigState();
-        applyA2ADiscoveryOptions(appliedRuntimeConfig);
-        if (String(DEFAULT_A2A_URL || "").trim()) {
-          refreshA2AOptions(appliedRuntimeConfig);
-        } else {
-          setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
+        if (A2A_GUI_ENABLED) {
+          applyA2ADiscoveryOptions(appliedRuntimeConfig);
+          if (String(DEFAULT_A2A_URL || "").trim()) {
+            refreshA2AOptions(appliedRuntimeConfig);
+          } else {
+            setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
+          }
         }
       }
 

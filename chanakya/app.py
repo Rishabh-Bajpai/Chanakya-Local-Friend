@@ -17,6 +17,7 @@ from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
 from chanakya.config import (
     get_a2a_agent_url,
+    get_a2a_gui_enabled,
     get_air_dashboard_url,
     get_air_server_url,
     get_air_status_url,
@@ -247,6 +248,7 @@ def create_app() -> Flask:
             air_server_url=get_air_server_url(),
             air_status_url=get_air_status_url(),
             a2a_agent_url=get_a2a_agent_url(),
+            a2a_gui_enabled=get_a2a_gui_enabled(),
             force_subagents_enabled=force_subagents_enabled(),
         )
 
@@ -257,6 +259,7 @@ def create_app() -> Flask:
             air_server_url=get_air_server_url(),
             air_status_url=get_air_status_url(),
             a2a_agent_url=get_a2a_agent_url(),
+            a2a_gui_enabled=get_a2a_gui_enabled(),
             force_subagents_enabled=force_subagents_enabled(),
         )
 
