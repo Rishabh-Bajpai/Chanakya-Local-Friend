@@ -1963,11 +1963,20 @@
             const messages = Array.isArray(payload.messages) ? payload.messages : [];
             const assistantMessages = messages.filter((message) => String(message.role || "") === "assistant");
             if (assistantMessages.length > assistantCountBefore) {
+              const newAssistantMessages = assistantMessages.slice(assistantCountBefore);
+              const latestMeaningfulAssistant = [...newAssistantMessages]
+                .reverse()
+                .find((item) => String(item.route || "") !== "delegation_notice");
+              if (!latestMeaningfulAssistant) {
+                setConversationQueueStatus(
+                  "Request transferred to active work. Waiting for generated response..."
+                );
+                await delay(CHAT_RECOVERY_POLL_MS);
+                continue;
+              }
               renderChatHistory(messages);
               await refreshSidePanels();
-              const latestAssistantText = assistantMessages.length
-                ? String(assistantMessages[assistantMessages.length - 1].content || "")
-                : "";
+              const latestAssistantText = String(latestMeaningfulAssistant.content || "");
               if (latestAssistantText && typeof onAssistantMessage === "function") {
                 onAssistantMessage(latestAssistantText);
               }
@@ -2080,6 +2089,7 @@
       const { onAssistantMessage } = options;
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
       const assistantCountBefore = chatLog.querySelectorAll(".message.assistant").length;
+      const delegationNoticeText = "Transferring your work to an expert. This may take a bit longer.";
       let response;
       try {
         response = await fetch("/api/chat", {
@@ -2120,6 +2130,9 @@
       sessionId = data.session_id;
       storeSessionId(sessionId);
       renderTrace(data);
+      if (data.route === "delegated_manager" && data.work_id) {
+        appendMessage("assistant", delegationNoticeText);
+      }
       const messages = Array.isArray(data.messages) && data.messages.length
         ? data.messages
         : [{ text: data.message || "", delay_ms: 0 }];

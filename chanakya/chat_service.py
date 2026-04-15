@@ -105,6 +105,17 @@ _LIGHT_ENTERTAINMENT_PATTERNS = (
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
 _WAITING_INPUT_ROUTE = "waiting_input_prompt"
 _CLASSIC_ACTIVE_WORK_PREFIX = "cwork"
+_CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM = (
+    "Optimize for speed and direct completion. "
+    "Handle as much work yourself as possible using your own available tools, and give concise "
+    "direct answers when you can finish the task reliably. Delegate only when you can't do it using tools or without using tools or the request is "
+    "clearly complex, long-running, multi-step, or specialist-heavy."
+)
+_WORK_MODE_RUNTIME_PROMPT_ADDENDUM = (
+    "Optimize for deliberate accuracy and completeness over speed. "
+    "Trivial requests can still be handled directly, but for non-trivial work prefer specialist "
+    "coordination and gather downstream inputs before presenting the final answer."
+)
 _WAITING_INPUT_CANCEL_MARKERS = (
     "never mind",
     "nevermind",
@@ -181,6 +192,7 @@ class ChatService:
         a2a_remote_agent: str | None = None,
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
+        prompt_addendum: str | None = None,
     ) -> Any:
         try:
             return self.runtime.run(
@@ -193,6 +205,7 @@ class ChatService:
                 a2a_remote_agent=a2a_remote_agent,
                 a2a_model_provider=a2a_model_provider,
                 a2a_model_id=a2a_model_id,
+                prompt_addendum=prompt_addendum,
             )
         except TypeError:
             try:
@@ -204,6 +217,12 @@ class ChatService:
                 )
             except TypeError:
                 return self.runtime.run(session_id, message, request_id=request_id)
+
+    @staticmethod
+    def _runtime_prompt_addendum_for_mode(*, work_id: str | None) -> str:
+        if work_id is not None:
+            return _WORK_MODE_RUNTIME_PROMPT_ADDENDUM
+        return _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM
 
     def _notify_root_task_outcome(
         self,
@@ -1191,6 +1210,7 @@ class ChatService:
                     a2a_remote_agent=a2a_remote_agent,
                     a2a_model_provider=a2a_model_provider,
                     a2a_model_id=a2a_model_id,
+                    prompt_addendum=self._runtime_prompt_addendum_for_mode(work_id=work_id),
                 )
         except Exception as exc:
             finished_at = now_iso()

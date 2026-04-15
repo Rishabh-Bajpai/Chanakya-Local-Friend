@@ -66,6 +66,7 @@ def build_profile_agent_config_for_usage(
     profile: AgentProfileModel,
     *,
     usage_text: str = "",
+    prompt_addendum: str | None = None,
     repo_root: Path | None = None,
 ) -> ProfileAgentConfig:
     availability = get_tools_availability()
@@ -74,6 +75,9 @@ def build_profile_agent_config_for_usage(
     cached_tools = [t for t in all_cached if getattr(t, "name", None) in allowed_ids]
     root = repo_root or Path(__file__).resolve().parents[2]
     profile_prompt = load_agent_prompt(profile, repo_root=root, usage_text=usage_text)
+    addendum = str(prompt_addendum or "").strip()
+    if addendum:
+        profile_prompt = f"{profile_prompt}\n\n# Execution Mode Guidance\n{addendum}"
     system_prompt = inject_tools_into_prompt(profile, cached_tools, base_prompt=profile_prompt)
     return ProfileAgentConfig(
         system_prompt=system_prompt,
@@ -92,11 +96,13 @@ def build_profile_agent(
     store_inputs: bool = True,
     store_outputs: bool = True,
     usage_text: str = "",
+    prompt_addendum: str | None = None,
     repo_root: Path | None = None,
 ) -> tuple[Agent, ProfileAgentConfig]:
     config = build_profile_agent_config_for_usage(
         profile,
         usage_text=usage_text,
+        prompt_addendum=prompt_addendum,
         repo_root=repo_root,
     )
     context_providers = None
@@ -208,6 +214,7 @@ class MAFRuntime:
         a2a_remote_agent: str | None = None,
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
+        prompt_addendum: str | None = None,
     ) -> RunResult:
         """Run the agent, bridging Sync Flask to Background Async Event Loop."""
         return run_in_maf_loop(
@@ -221,6 +228,7 @@ class MAFRuntime:
                 a2a_remote_agent=a2a_remote_agent,
                 a2a_model_provider=a2a_model_provider,
                 a2a_model_id=a2a_model_id,
+                prompt_addendum=prompt_addendum,
             )
         )
 
@@ -245,6 +253,7 @@ class MAFRuntime:
         a2a_remote_agent: str | None = None,
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
+        prompt_addendum: str | None = None,
     ) -> RunResult:
         selected_backend = normalize_runtime_backend(backend or self.default_backend)
         if selected_backend == "a2a":
@@ -263,6 +272,7 @@ class MAFRuntime:
             text,
             request_id=request_id,
             model_id=model_id,
+            prompt_addendum=prompt_addendum,
         )
 
     async def _run_async_local_in_loop(
@@ -272,6 +282,7 @@ class MAFRuntime:
         *,
         request_id: str,
         model_id: str | None = None,
+        prompt_addendum: str | None = None,
     ) -> RunResult:
         tool_traces: list[ToolExecutionTrace] = []
 
@@ -295,6 +306,7 @@ class MAFRuntime:
                 client=run_client,
                 include_history=True,
                 history_query_text=text,
+                prompt_addendum=prompt_addendum,
             )
             local_fallback_used = False
         except Exception as exc:
@@ -311,6 +323,7 @@ class MAFRuntime:
                 client=run_client,
                 include_history=False,
                 history_query_text=text,
+                prompt_addendum=prompt_addendum,
             )
             local_fallback_used = True
 
@@ -360,6 +373,7 @@ class MAFRuntime:
         client: OpenAIChatClient,
         include_history: bool,
         history_query_text: str,
+        prompt_addendum: str | None,
     ) -> AgentResponse[Any]:
         run_agent, _ = build_profile_agent(
             self.profile,
@@ -369,6 +383,7 @@ class MAFRuntime:
             store_inputs=False,
             store_outputs=False,
             usage_text=prompt_text,
+            prompt_addendum=prompt_addendum,
             repo_root=self.repo_root,
         )
         session = run_agent.create_session(session_id=session_id)

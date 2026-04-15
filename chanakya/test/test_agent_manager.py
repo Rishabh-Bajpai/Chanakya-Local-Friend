@@ -56,6 +56,7 @@ class _RuntimeStub:
     def __init__(self, profile: AgentProfileModel) -> None:
         self.profile = profile
         self.cleared_session_ids: list[str] = []
+        self.last_prompt_addendum: str | None = None
 
     def runtime_metadata(
         self,
@@ -85,7 +86,9 @@ class _RuntimeStub:
         a2a_remote_agent: str | None = None,
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
+        prompt_addendum: str | None = None,
     ) -> _RunResult:
+        self.last_prompt_addendum = prompt_addendum
         return _RunResult(
             text=f"{self.profile.role}:{text}", response_mode="direct_answer", tool_traces=[]
         )
@@ -785,6 +788,37 @@ def test_normal_chat_prefers_direct_for_fast_non_trivial_request() -> None:
 
     assert reply.route == "direct_answer"
     assert reply.message == "personal_assistant:Rewrite this sentence to sound more formal."
+
+
+def test_normal_chat_uses_classic_runtime_prompt_addendum_for_direct_runs() -> None:
+    store = _build_store()
+    chanakya = _seed_agent(store, "agent_chanakya", "Chanakya", "personal_assistant")
+    runtime = _RuntimeStub(chanakya)
+    service = ChatService(store, cast(MAFRuntime, runtime), manager=None)
+
+    reply = service.chat("session_mode_classic", "Summarize this in one line")
+
+    assert reply.route == "direct_answer"
+    assert runtime.last_prompt_addendum is not None
+    assert "Optimize for speed and direct completion" in runtime.last_prompt_addendum
+
+
+def test_work_mode_uses_work_runtime_prompt_addendum_for_direct_runs() -> None:
+    store = _build_store()
+    chanakya = _seed_agent(store, "agent_chanakya", "Chanakya", "personal_assistant")
+    runtime = _RuntimeStub(chanakya)
+    service = ChatService(store, cast(MAFRuntime, runtime), manager=None)
+    store.create_work(work_id="work_mode_prompt", title="Work Prompt", description="")
+
+    reply = service.chat(
+        "session_mode_work",
+        "Summarize this in one line",
+        work_id="work_mode_prompt",
+    )
+
+    assert reply.route == "direct_answer"
+    assert runtime.last_prompt_addendum is not None
+    assert "accuracy and completeness over speed" in runtime.last_prompt_addendum
 
 
 def test_normal_chat_keeps_short_joke_requests_direct() -> None:
