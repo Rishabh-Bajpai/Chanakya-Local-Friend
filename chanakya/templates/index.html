@@ -1504,6 +1504,45 @@
     const RUNTIME_CONFIG_SYNC_KEY = "chanakya-runtime-config-sync";
     const DEFAULT_A2A_URL = {{ a2a_agent_url | tojson }};
     const A2A_GUI_ENABLED = {{ a2a_gui_enabled | tojson }};
+    const CHAT_RECOVERY_MAX_WAIT_MS = 180000;
+    const CHAT_RECOVERY_POLL_MS = 1500;
+
+    function delay(ms) {
+      return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
+    function isRecoverableNetworkError(error) {
+      if (!(error instanceof Error)) {
+        return false;
+      }
+      const text = String(error.message || "").toLowerCase();
+      return (
+        error.name === "TypeError"
+        || text.includes("networkerror")
+        || text.includes("failed to fetch")
+        || text.includes("load failed")
+        || text.includes("network request failed")
+        || text.includes("aborted")
+      );
+    }
+
+    async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, {
+          ...options,
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timer);
+      }
+    }
+
+    function createClientSessionId() {
+      const random = Math.random().toString(36).slice(2, 10);
+      return `session_client_${Date.now().toString(36)}_${random}`;
+    }
 
     function getSelectedChatBackend() {
       if (!A2A_GUI_ENABLED) {
@@ -1913,6 +1952,52 @@
       }
     }
 
+    async function recoverChatAfterDisconnect(targetSessionId, assistantCountBefore, options = {}) {
+      const { onAssistantMessage } = options;
+      const deadline = Date.now() + CHAT_RECOVERY_MAX_WAIT_MS;
+      setConversationQueueStatus("Connection interrupted. Waiting for the assistant response...");
+      while (Date.now() < deadline) {
+        try {
+          const response = await fetchWithTimeout(
+            `/api/sessions/${encodeURIComponent(targetSessionId)}`,
+            {},
+            10000
+          );
+          const payload = await readJsonResponse(response);
+          if (response.ok) {
+            const messages = Array.isArray(payload.messages) ? payload.messages : [];
+            const assistantMessages = messages.filter((message) => String(message.role || "") === "assistant");
+            if (assistantMessages.length > assistantCountBefore) {
+              renderChatHistory(messages);
+              await refreshSidePanels();
+              const latestAssistantText = assistantMessages.length
+                ? String(assistantMessages[assistantMessages.length - 1].content || "")
+                : "";
+              if (latestAssistantText && typeof onAssistantMessage === "function") {
+                onAssistantMessage(latestAssistantText);
+              }
+              setConversationQueueStatus("Recovered assistant response after reconnect.");
+              if (airVoiceController) {
+                airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
+              }
+              return {
+                recovered: true,
+                session_id: targetSessionId,
+                message: latestAssistantText,
+              };
+            }
+          }
+        } catch {
+        }
+        await delay(CHAT_RECOVERY_POLL_MS);
+      }
+      setConversationQueueStatus(
+        "Connection dropped before the response reached the browser. The request may still complete; refresh if needed.",
+        true
+      );
+      return null;
+    }
+
     async function pauseConversationReplies() {
       if (!sessionId) {
         setConversationQueueStatus("No active session to pause.", true);
@@ -1930,12 +2015,36 @@
 
     async function pollNextConversationMessages(targetSessionId, options = {}) {
       const { onAssistantMessage } = options;
+      let consecutiveFailures = 0;
       while (true) {
-        const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}/next-message`);
-        const payload = await readJsonResponse(response);
+        let response;
+        let payload;
+        try {
+          response = await fetchWithTimeout(
+            `/api/sessions/${encodeURIComponent(targetSessionId)}/next-message`,
+            {},
+            15000
+          );
+          payload = await readJsonResponse(response);
+        } catch (error) {
+          if (isRecoverableNetworkError(error) && consecutiveFailures < 12) {
+            consecutiveFailures += 1;
+            setConversationQueueStatus("Connection hiccup while waiting for queued replies. Retrying...");
+            await delay(Math.min(5000, 500 * consecutiveFailures));
+            continue;
+          }
+          throw error;
+        }
         if (!response.ok) {
+          if ([502, 503, 504, 522, 524].includes(Number(response.status)) && consecutiveFailures < 12) {
+            consecutiveFailures += 1;
+            setConversationQueueStatus("Assistant is still running. Retrying...");
+            await delay(Math.min(5000, 500 * consecutiveFailures));
+            continue;
+          }
           throw new Error(payload.error || "Next message failed");
         }
+        consecutiveFailures = 0;
         if (payload.status === "delivered" && payload.message) {
           const text = payload.message.text || "";
           if (text) {
@@ -1974,21 +2083,42 @@
 
     async function submitChatMessage(message, options = {}) {
       const { onAssistantMessage } = options;
+      if (!sessionId) {
+        sessionId = createClientSessionId();
+        storeSessionId(sessionId);
+      }
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          message,
-          model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
-          backend: runtimeConfig.backend,
-          a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
-          a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
-          a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
-          a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
-        }),
-      });
+      const assistantCountBefore = chatLog.querySelectorAll(".message.assistant").length;
+      let response;
+      try {
+        response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: sessionId,
+            message,
+            model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
+            backend: runtimeConfig.backend,
+            a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
+            a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
+            a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
+            a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
+          }),
+        });
+      } catch (error) {
+        if (!isRecoverableNetworkError(error)) {
+          throw error;
+        }
+        const recovered = await recoverChatAfterDisconnect(
+          sessionId,
+          assistantCountBefore,
+          { onAssistantMessage }
+        );
+        if (recovered) {
+          return recovered;
+        }
+        throw new Error("Connection interrupted before the reply arrived.");
+      }
       const data = await readJsonResponse(response);
       if (!response.ok) {
         throw new Error(data.error || "Request failed");
@@ -2014,7 +2144,24 @@
         setConversationQueueStatus(
           `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
         );
-        await pollNextConversationMessages(data.session_id, { onAssistantMessage });
+        try {
+          await pollNextConversationMessages(data.session_id, { onAssistantMessage });
+        } catch (error) {
+          const shouldRecover = isRecoverableNetworkError(error)
+            || (error instanceof Error && /next message failed/i.test(error.message));
+          if (!shouldRecover) {
+            throw error;
+          }
+          const assistantCountNow = chatLog.querySelectorAll(".message.assistant").length;
+          const recovered = await recoverChatAfterDisconnect(
+            data.session_id,
+            assistantCountNow,
+            { onAssistantMessage }
+          );
+          if (!recovered) {
+            throw new Error("Connection interrupted while waiting for queued replies.");
+          }
+        }
       } else {
         setConversationQueueStatus("");
       }
