@@ -111,6 +111,7 @@ _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM = (
     "Handle as much work yourself as possible using your own available tools, and give concise "
     "direct answers when you can finish the task reliably. Delegate only when you can't do it using tools or without using tools or the request is "
     "clearly complex, long-running, multi-step, or specialist-heavy."
+    "Note: delegating the work is takes time so it should be avoided unless it is really necessary."
 )
 _WORK_MODE_RUNTIME_PROMPT_ADDENDUM = (
     "Optimize for deliberate accuracy and completeness over speed. "
