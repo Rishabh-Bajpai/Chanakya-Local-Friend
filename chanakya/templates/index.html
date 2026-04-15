@@ -2132,6 +2132,9 @@
       renderTrace(data);
       if (data.route === "delegated_manager" && data.work_id) {
         appendMessage("assistant", delegationNoticeText);
+        if (typeof onAssistantMessage === "function") {
+          onAssistantMessage(delegationNoticeText);
+        }
       }
       const messages = Array.isArray(data.messages) && data.messages.length
         ? data.messages
