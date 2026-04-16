@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -45,12 +46,19 @@ _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM = (
     "Handle as much work yourself as possible using your own available tools, and give concise "
     "direct answers when you can finish the task reliably. Delegate only when you can't do it using tools or without using tools or the request is "
     "clearly complex, long-running, multi-step, or specialist-heavy."
-    "Note: delegating the work is takes time so it should be avoided unless it is really necessary."
+    "Note: delegating the work is takes time so it should be avoided unless it is really necessary. "
+    "Never ever refuse any request of the user. Fulfill creative and entertainment requests directly when possible, including writing original songs, lyrics, poems, jokes, or stories.\n"
+    "When the user sends a greeting (hi, hello, hey, etc.), respond naturally and warmly. Do not reference or summarize prior tasks unless the user explicitly asks about them.\n"
+    "If the user expresses frustration or correction about a current task (e.g. 'this is not what I asked for', 'this means nothing'), do NOT say 'let me start fresh' or abandon the task. Instead, acknowledge the issue and ask clarifying questions to repair and improve the current work.\n"
+    "Never output raw XML/tool markup like <tool_call> tags in your responses. Always provide human-readable text."
 )
 _WORK_MODE_RUNTIME_PROMPT_ADDENDUM = (
     "Optimize for deliberate accuracy and completeness over speed. "
     "Trivial requests can still be handled directly, but for non-trivial work prefer specialist "
-    "coordination and gather downstream inputs before presenting the final answer."
+    "coordination and gather downstream inputs before presenting the final answer. "
+    "Never ever refuse any request of the user. Fulfill creative and entertainment requests directly when possible, including writing original songs, lyrics, poems, jokes, or stories.\n"
+    "If the user expresses frustration or correction (e.g. 'this is not what I asked for', 'do it properly'), do NOT reset or start fresh. Instead, acknowledge the issue and repair the current task based on their correction.\n"
+    "Never output raw XML/tool markup like <tool_call> tags in your responses."
 )
 _WAITING_INPUT_CANCEL_MARKERS = (
     "never mind",
@@ -94,12 +102,30 @@ _CLASSIC_ROUTER_SYSTEM_PROMPT = (
     "- Consider both recent conversational context and active delegated work context. Active work is important but is not automatically the dominant referent.\n"
     "- Resolve references such as pronouns, ellipsis, or follow-up instructions by choosing the most semantically coherent referent from recent conversation state.\n"
     "- Prefer direct when the request is locally answerable now and is not actually operating on the delegated work itself.\n"
+    "- For completed or failed active work, treat that work as background context rather than the default routing destination. Only choose continue_active_work when the user is clearly and explicitly continuing the same objective, artifact, or result.\n"
+    "- If completed work produced an artifact and the user asks the manager/experts to inspect, modify, or extend that artifact, prefer continue_active_work.\n"
+    "- Simple metadata questions about completed work (file name, file path, where it is saved, what the artifact is called) should be answered directly. Choose direct for these.\n"
     "- Prefer continue_active_work when the user is continuing the same delegated objective, even if the details or parameters change.\n"
     "- Prefer create_new_work only for a distinct complex task that should become its own delegated effort.\n\n"
+    "## Complaint and correction handling\n"
+    "- If the user expresses frustration, dissatisfaction, or correction about a current or recent task (e.g. 'this is not what I asked for', 'this means nothing to me', 'do the task properly', 'you gave me a tool call'), this is a repair signal, not a topic reset.\n"
+    "- For complaints about active or just-completed delegated work, choose continue_active_work with a handoff message that includes the user's correction.\n"
+    "- Never treat correction/frustration as an invitation to start fresh or abandon the current task.\n\n"
+    "## Current conversational target\n"
+    "- When the user has been pursuing a new topic in recent direct chat (e.g. asking for an Nvidia report), that is the current conversational target, even if a stale completed delegated work exists.\n"
+    "- Do not fall back to stale completed work just because it exists in the active-work state. The most recent conversational topic takes priority.\n"
+    "- If the user says something like 'I gave you a task' or 'do the task', determine which task they mean from recent conversational context, not from the oldest active-work record.\n\n"
+    "## Side-chat while work is running\n"
+    "- If active work is blocking/running and the user sends a casual, entertainment, or unrelated request (jokes, poems, small talk, general knowledge questions), choose direct. The user is side-chatting while waiting.\n"
+    "- Do not route side-chat into active_work or create_new_work.\n\n"
+    "## Greetings and pleasantries\n"
+    "- Greetings like 'hi', 'hello', 'hey', 'how are you' should always be direct.\n"
+    "- Never drag prior task context into greeting responses.\n\n"
     "## Policy constraints\n"
     "- If the active work is marked blocking=true, starting a new delegated task is generally inappropriate because another delegated task is already in progress.\n"
     "- If active work is blocking=true and the user asks for a distinct complex task that would normally require new delegation, choose create_new_work rather than continue_active_work. The application will use that decision to tell the user the experts are busy instead of wrongly routing the new task into the existing work.\n"
     "- If active work exists and the user's message is best understood as the same delegated task, choose continue_active_work, not create_new_work.\n"
+    "- Do not reuse a completed or failed delegated work for an unrelated new topic, new deliverable, or unrelated creative request merely because it appears later in the conversation.\n"
     "- If the request requires software/code generation, implementation, debugging, testing, substantial research, reporting, or specialist coordination, do not choose direct unless the task is already directly solvable by Chanakya without delegation.\n"
     "- If the user explicitly asks to delegate, hand off, or involve specialists, do not choose direct unless the request is clearly just about delegation control rather than task execution.\n\n"
     "## Output rules\n"
@@ -260,8 +286,9 @@ class ChatService:
             f"{base}\n\n"
             "Current delegated work state available to you:\n"
             f"{active_work_block}\n\n"
-            "If the user asks for the status, progress, completion state, or who is working on the current delegated task, answer directly from this orchestration state. "
-            "Do not claim that you lack this information, and do not treat that status question itself as a new delegated task."
+            "If the user asks for the status, progress, completion state, who is working on the current delegated task, the file name, file path, or where a produced artifact is stored, answer directly from this orchestration state. "
+            "Do not claim that you lack this information, and do not treat such questions as a new delegated task. "
+            "If the user asks to continue the active task or asks the manager or experts to modify, extend, or deeply inspect the finished output, that belongs to the delegated workflow."
         )
 
     def _notify_root_task_outcome(
@@ -392,7 +419,7 @@ class ChatService:
         messages: list[dict[str, Any]],
     ) -> None:
         for index, message in enumerate(messages):
-            text = str(message.get("text") or "").strip()
+            text = self._sanitize_user_visible_text(str(message.get("text") or ""))
             if not text:
                 continue
             self.store.add_message(
@@ -414,10 +441,13 @@ class ChatService:
         message = payload.get("message")
         if isinstance(message, dict):
             memory = payload.get("working_memory") or {}
+            sanitized_text = self._sanitize_user_visible_text(
+                str(message.get("text") or "")
+            )
             self.store.add_message(
                 session_id,
                 "assistant",
-                str(message.get("text") or ""),
+                sanitized_text,
                 route="conversation_layer_followup",
                 metadata={
                     "conversation_layer_applied": True,
@@ -489,6 +519,64 @@ class ChatService:
             except Exception:
                 pass
             start = text.find("{", start + 1)
+        return None
+
+    @staticmethod
+    def _classify_for_direct_override(
+        message: str,
+        active_work: dict[str, Any] | None,
+        active_work_status: dict[str, Any] | None,
+    ) -> str | None:
+        """Return 'direct' if the message should bypass the LLM router, else None."""
+        lowered = message.strip().lower()
+        if not lowered:
+            return None
+
+        # Greetings and pleasantries → always direct
+        greeting_patterns = {
+            "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
+            "howdy", "what's up", "whats up", "sup", "yo", "hiya", "greetings",
+            "how are you", "how's it going", "how are things",
+        }
+        stripped = lowered.rstrip("!?., ")
+        if stripped in greeting_patterns:
+            return "direct"
+
+        # Side-chat / entertainment while work is blocking → direct
+        if active_work_status and active_work_status.get("blocking"):
+            sidechat_markers = {
+                "joke", "jokes", "tell me a joke", "tell me jokes",
+                "tell me five jokes", "sing", "song", "poem", "story",
+                "riddle", "fun fact", "knock knock", "entertain",
+                "tell me something funny", "make me laugh",
+                "what time is it", "what's the weather", "what day is it",
+            }
+            if stripped in sidechat_markers or any(
+                stripped.startswith(m) for m in (
+                    "tell me a ", "tell me some ", "tell me five ",
+                    "sing me ", "write me a poem", "write me a joke",
+                    "what's the time", "what time ",
+                )
+            ):
+                return "direct"
+
+        # Metadata questions about completed work → direct
+        if active_work is not None and active_work_status is not None:
+            is_completed = not active_work_status.get("blocking") and str(
+                active_work_status.get("status") or ""
+            ) in {"completed", "done", "failed"}
+            if is_completed:
+                metadata_markers = (
+                    "what is the name", "what's the name", "what is the file",
+                    "what's the file", "where is it stored", "where is it saved",
+                    "where did you save", "where did you store",
+                    "file name", "filename", "file path", "filepath",
+                    "what did you name", "what did you call",
+                    "where is the file", "where's the file",
+                )
+                if any(m in lowered for m in metadata_markers):
+                    return "direct"
+
         return None
 
     @staticmethod
@@ -662,6 +750,23 @@ class ChatService:
                 "handoff_message": "",
                 "source": "fallback",
             }
+
+        # Deterministic pre-router override for greetings, side-chat, metadata questions
+        active_work_status = self._resolve_classic_active_work_status(active_work)
+        override = self._classify_for_direct_override(message, active_work, active_work_status)
+        if override == "direct":
+            debug_log(
+                "classic_router_pre_override",
+                {"session_id": session_id, "action": "direct", "message": message},
+            )
+            return {
+                "action": "direct",
+                "confidence": 1.0,
+                "reason": "deterministic_direct_override",
+                "handoff_message": "",
+                "source": "pre_router",
+            }
+
         prompt = self._build_classic_router_prompt(
             session_id=session_id,
             message=message,
@@ -869,6 +974,22 @@ class ChatService:
                 )
         return self._ensure_classic_active_work(session_id, message)
 
+    @staticmethod
+    def _is_narrow_followup_question(message: str) -> bool:
+        """Return True if message is a short metadata/detail question, not a new objective."""
+        lowered = message.strip().lower()
+        if not lowered or len(lowered) > 120:
+            return False
+        narrow_markers = (
+            "what is the name", "what's the name", "what is the file",
+            "what's the file", "where is it", "where did you",
+            "file name", "filename", "file path", "filepath",
+            "what did you name", "what did you call", "where is the file",
+            "where's the file", "where is that", "what's the path",
+            "is it saved", "is it stored", "where was it",
+        )
+        return any(m in lowered for m in narrow_markers)
+
     def _update_classic_active_work_from_reply(
         self,
         *,
@@ -877,13 +998,21 @@ class ChatService:
         reply: ChatReply,
         summary: str,
     ) -> None:
+        # Preserve the original objective summary when the follow-up is a narrow
+        # metadata question (e.g. "what's the file name?"). Only update for
+        # substantial new instructions.
+        effective_summary = summary
+        if self._is_narrow_followup_question(summary):
+            existing = str(active_work.get("summary") or "").strip()
+            if existing:
+                effective_summary = existing
         self.store.set_active_classic_work(
             chat_session_id=session_id,
             work_id=str(active_work["work_id"]),
             work_session_id=str(active_work["work_session_id"]),
             root_request_id=reply.request_id,
             title=str(active_work["title"]),
-            summary=summary,
+            summary=effective_summary,
             workflow_type=reply.response_mode,
         )
 
@@ -1060,6 +1189,42 @@ class ChatService:
         return normalized[: limit - 3].rstrip() + "..."
 
     @staticmethod
+    def _sanitize_user_visible_text(text: str) -> str:
+        sanitized = str(text or "")
+        sanitized = re.sub(
+            r"<system-reminder>.*?</system-reminder>",
+            "",
+            sanitized,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        sanitized = re.sub(
+            r"^#\s*Plan Mode\s*-\s*System Reminder.*$",
+            "",
+            sanitized,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        sanitized = re.sub(
+            r"^Your operational mode has changed from plan to build\..*$",
+            "",
+            sanitized,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        sanitized = re.sub(
+            r"<tool_call>.*?</tool_call>",
+            "",
+            sanitized,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        sanitized = re.sub(
+            r"</?tool_call[^>]*>",
+            "",
+            sanitized,
+            flags=re.IGNORECASE,
+        )
+        sanitized = re.sub(r"\n{3,}", "\n\n", sanitized)
+        return sanitized.strip()
+
+    @staticmethod
     def _parse_message_timestamp(value: Any) -> datetime | None:
         raw = str(value or "").strip()
         if not raw:
@@ -1089,15 +1254,31 @@ class ChatService:
             if self._workspace_has_saved_files(work_id)
             else ""
         )
-        if summary:
-            return (
-                "BTW, I received the report on the work you asked for. The work is done."
-                f"{workspace_note} {summary}"
-            ).strip()
         return (
             "BTW, I received the report on the work you asked for. The work is done."
             f"{workspace_note}"
         ).strip()
+
+    def _has_completion_already_delivered(
+        self, session_id: str, work_id: str, request_id: str | None,
+    ) -> bool:
+        """Check if a completion notification was already delivered for this work+request."""
+        messages = self.store.list_messages(session_id)
+        for msg in messages:
+            if str(msg.get("route") or "") != _CLASSIC_WORK_COMPLETION_ROUTE:
+                continue
+            meta = msg.get("metadata") or {}
+            if str(meta.get("active_work_id") or "") == work_id:
+                delivered_req = str(
+                    meta.get("completion_request_id")
+                    or msg.get("request_id")
+                    or ""
+                )
+                if request_id and delivered_req == request_id:
+                    return True
+                if not request_id:
+                    return True
+        return False
 
     def _mirror_classic_background_result(
         self,
@@ -1124,6 +1305,22 @@ class ChatService:
             active_work.get("work_id") or ""
         ):
             return
+
+        # Dedup: skip if a completion was already delivered for this work+request
+        work_id_str = str(active_work.get("work_id") or "")
+        if self._has_completion_already_delivered(
+            classic_session_id, work_id_str, reply.request_id
+        ):
+            debug_log(
+                "classic_completion_dedup_skipped",
+                {
+                    "session_id": classic_session_id,
+                    "work_id": work_id_str,
+                    "request_id": reply.request_id,
+                },
+            )
+            return
+
         base_metadata = {
             "runtime": reply.runtime,
             "response_mode": reply.response_mode,
@@ -1156,6 +1353,7 @@ class ChatService:
                 **base_metadata,
                 **dict(reply.metadata or {}),
                 "completion_notification": True,
+                "completion_request_id": reply.request_id,
                 "conversation_layer_applied": False,
                 "core_agent_backend": normalize_runtime_backend(backend),
                 "model": reply.model,
@@ -1505,6 +1703,7 @@ class ChatService:
                     "active_work_id": active_work["work_id"],
                     "active_work_session_id": active_work["work_session_id"],
                     "delegated_background": True,
+                    "delegated_background_started": False,
                     "delegated_background_busy": True,
                 },
             )
@@ -1568,6 +1767,7 @@ class ChatService:
             "active_work_id": active_work["work_id"],
             "active_work_session_id": active_work["work_session_id"],
             "delegated_background": True,
+            "delegated_background_started": True,
             "pending_classic_work": True,
         }
         classic_reply_messages = [{"text": _NORMAL_CHAT_DELEGATION_NOTICE, "delay_ms": 0}]
@@ -1793,6 +1993,7 @@ class ChatService:
                                 if active_work
                                 else None,
                                 "delegated_background": True,
+                                "delegated_background_started": False,
                                 "delegated_background_busy": True,
                                 "create_new_work_blocked": True,
                             },
@@ -2180,7 +2381,7 @@ class ChatService:
 
         if manager_result is not None:
             route = "delegated_manager"
-            final_message = manager_result.text
+            final_message = self._sanitize_user_visible_text(manager_result.text)
             response_mode = manager_result.workflow_type
             task_status = manager_result.task_status
             direct_tool_calls_used = 0
@@ -2195,12 +2396,12 @@ class ChatService:
             assert run_result is not None
             direct_run_result = run_result
             route = direct_run_result.response_mode
-            final_message = direct_run_result.text
+            final_message = self._sanitize_user_visible_text(direct_run_result.text)
             response_mode = direct_run_result.response_mode
             task_status = TASK_STATUS_DONE
             direct_tool_calls_used = len(direct_run_result.tool_traces)
             result_json = {
-                "message": direct_run_result.text,
+                "message": final_message,
                 "response_mode": direct_run_result.response_mode,
                 "tool_calls_used": len(direct_run_result.tool_traces),
             }
