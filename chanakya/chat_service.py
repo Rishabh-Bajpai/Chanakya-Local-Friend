@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+from typing import Any
 
 from chanakya.agent.runtime import normalize_runtime_backend
 from chanakya.config import get_agent_request_timeout_seconds
@@ -34,6 +36,7 @@ from chanakya.store import ChanakyaStore
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
 _WAITING_INPUT_ROUTE = "waiting_input_prompt"
 _CLASSIC_ACTIVE_WORK_PREFIX = "cwork"
+_CLASSIC_WORK_COMPLETION_ROUTE = "classic_work_completion"
 _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM = (
     "Optimize for speed and direct completion. "
     "Handle as much work yourself as possible using your own available tools, and give concise "
@@ -121,8 +124,12 @@ class ChatService:
         self.runtime = runtime
         self.manager = manager
         self.notification_dispatcher = notification_dispatcher
+        self.classic_async_enabled = isinstance(runtime, MAFRuntime)
         self.classic_router_runner: Any | None = None
+        self.classic_background_launcher: Any | None = None
         self._classic_router_runtime: MAFRuntime | None = None
+        self._classic_background_lock = threading.Lock()
+        self._classic_background_work_ids: set[str] = set()
         session_factory = getattr(runtime, "session_factory", None)
         if session_factory is not None:
             router_profile = AgentProfileModel(
@@ -142,6 +149,31 @@ class ChatService:
             )
             self._classic_router_runtime = MAFRuntime(router_profile, session_factory)
         self._conversation_layer = ConversationLayerSupport()
+
+    def _launch_background_call(self, target: Any, *args: Any, **kwargs: Any) -> None:
+        launcher = self.classic_background_launcher
+        if launcher is not None:
+            launcher(target, *args, **kwargs)
+            return
+        if not self.classic_async_enabled:
+            target(*args, **kwargs)
+            return
+        thread = threading.Thread(target=target, args=args, kwargs=kwargs, daemon=True)
+        thread.start()
+
+    def _mark_classic_work_running(self, work_id: str) -> None:
+        with self._classic_background_lock:
+            self._classic_background_work_ids.add(work_id)
+
+    def _mark_classic_work_finished(self, work_id: str) -> None:
+        with self._classic_background_lock:
+            self._classic_background_work_ids.discard(work_id)
+
+    def _classic_work_running(self, work_id: str | None) -> bool:
+        if not work_id:
+            return False
+        with self._classic_background_lock:
+            return work_id in self._classic_background_work_ids
 
     @staticmethod
     def _runtime_snapshot_from_metadata(runtime_meta: dict[str, object]) -> dict[str, str | None]:
@@ -796,14 +828,21 @@ class ChatService:
     def _replace_classic_active_work(self, session_id: str, message: str) -> dict[str, str | None]:
         existing = self.store.get_active_classic_work(session_id)
         if existing is not None:
-            deleted_session_ids = self.store.delete_work(str(existing["work_id"]))
-            for deleted_session_id in deleted_session_ids:
-                self.runtime.clear_session_state(deleted_session_id)
-            delete_shared_workspace(str(existing["work_id"]))
-            self.store.log_event(
-                "classic_active_work_replaced",
-                {"session_id": session_id, "replaced_work_id": existing["work_id"]},
-            )
+            replaced_work_id = str(existing["work_id"])
+            if self._classic_work_running(replaced_work_id):
+                self.store.log_event(
+                    "classic_active_work_replaced_while_running",
+                    {"session_id": session_id, "replaced_work_id": replaced_work_id},
+                )
+            else:
+                deleted_session_ids = self.store.delete_work(replaced_work_id)
+                for deleted_session_id in deleted_session_ids:
+                    self.runtime.clear_session_state(deleted_session_id)
+                delete_shared_workspace(replaced_work_id)
+                self.store.log_event(
+                    "classic_active_work_replaced",
+                    {"session_id": session_id, "replaced_work_id": replaced_work_id},
+                )
         return self._ensure_classic_active_work(session_id, message)
 
     def _update_classic_active_work_from_reply(
@@ -825,123 +864,170 @@ class ChatService:
         )
 
     @staticmethod
-    def _format_chanakya_input_prompt(question: str) -> str:
-        cleaned = " ".join(question.strip().split())
-        if not cleaned:
-            return "I need one detail before I can continue."
-        if cleaned.endswith(("?", ".", "!")):
-            return f"I need one detail before I can continue: {cleaned}"
-        return f"I need one detail before I can continue: {cleaned}?"
+    def _workspace_has_saved_files(work_id: str) -> bool:
+        try:
+            workspace = resolve_shared_workspace(work_id, create=False)
+        except (ValueError, PermissionError):
+            return False
+        if not workspace.exists():
+            return False
+        return any(path.is_file() for path in workspace.rglob("*"))
 
-    @classmethod
-    def _is_waiting_input_cancel_intent(cls, message: str) -> bool:
-        lowered = message.strip().lower()
-        return any(marker in lowered for marker in _WAITING_INPUT_CANCEL_MARKERS)
+    @staticmethod
+    def _trim_sentence(text: str, *, limit: int = 220) -> str:
+        normalized = " ".join(str(text or "").split())
+        if not normalized:
+            return ""
+        if len(normalized) <= limit:
+            return normalized
+        boundary = max(normalized.rfind(". ", 0, limit), normalized.rfind("; ", 0, limit))
+        if boundary >= 40:
+            return normalized[: boundary + 1].strip()
+        return normalized[: limit - 3].rstrip() + "..."
 
-    def _cancel_waiting_task_via_chat(
+    def _build_classic_completion_message(
         self,
         *,
-        visible_session_id: str,
-        task_id: str,
-        user_message: str,
-        work_id: str | None,
-        active_work_session_id: str | None = None,
-    ) -> ChatReply:
-        task = self.store.get_task(task_id)
-        request = self.store.get_request(task.request_id)
-        self.cancel_task(task_id)
-        self.store.add_message(
-            visible_session_id,
-            "user",
-            user_message,
-            request_id=request.id,
-            route="active_work_user_message" if work_id is not None else None,
-            metadata={
-                "input_submission": True,
-                "cancel_waiting_task": True,
-                "active_work_id": work_id,
-                "active_work_session_id": active_work_session_id,
-            },
+        work_id: str,
+        task_status: str | None,
+        manager_message: str,
+    ) -> str:
+        summary = self._trim_sentence(manager_message, limit=220)
+        if task_status == TASK_STATUS_WAITING_INPUT:
+            return "BTW, I got an update on the delegated work. The expert needs one more detail from you before they can continue."
+        if task_status == TASK_STATUS_FAILED:
+            if summary:
+                return (
+                    "BTW, I got an update on the delegated work. It hit a problem before it could finish. "
+                    f"{summary}"
+                )
+            return "BTW, I got an update on the delegated work. It hit a problem before it could finish."
+        workspace_note = (
+            " The files are saved in the workspace."
+            if self._workspace_has_saved_files(work_id)
+            else ""
         )
-        final_message = "Stopped that task. I won't continue it unless you ask me to restart it."
-        self.store.add_message(
-            visible_session_id,
-            "assistant",
-            final_message,
-            request_id=request.id,
-            route="task_cancelled",
-            metadata={
-                "runtime": "maf_agent",
-                "task_status": TASK_STATUS_CANCELLED,
-                "cancelled_task_id": task_id,
-                "active_work_id": work_id,
-                "active_work_session_id": active_work_session_id,
-            },
-        )
-        return ChatReply(
-            request_id=request.id,
-            session_id=visible_session_id,
-            work_id=work_id,
-            route="task_cancelled",
-            message=final_message,
-            model=None,
-            endpoint=None,
-            runtime="maf_agent",
-            agent_name=self.runtime.profile.name,
-            request_status=REQUEST_STATUS_CANCELLED,
-            root_task_id=request.root_task_id,
-            root_task_status=TASK_STATUS_CANCELLED,
-            response_mode="cancelled",
-            tool_calls_used=0,
-            tool_trace_ids=[],
-            requires_input=False,
-            waiting_task_id=None,
-            input_prompt=None,
-        )
+        if summary:
+            return (
+                "BTW, I received the report on the work you asked for. The work is done."
+                f"{workspace_note} {summary}"
+            ).strip()
+        return (
+            "BTW, I received the report on the work you asked for. The work is done."
+            f"{workspace_note}"
+        ).strip()
 
-    def _chat_in_active_work(
+    def _mirror_classic_background_result(
         self,
+        *,
         classic_session_id: str,
-        message: str,
+        active_work: dict[str, str | None],
+        user_message: str,
+        reply: ChatReply,
+        model_id: str | None,
+        backend: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
+    ) -> None:
+        current_active_work = self.store.get_active_classic_work(classic_session_id)
+        if current_active_work is None or str(current_active_work.get("work_id") or "") != str(
+            active_work.get("work_id") or ""
+        ):
+            return
+        base_metadata = {
+            "runtime": reply.runtime,
+            "response_mode": reply.response_mode,
+            "root_task_id": reply.root_task_id,
+            "task_status": reply.root_task_status,
+            "active_work_id": active_work["work_id"],
+            "active_work_session_id": active_work["work_session_id"],
+            "mirrored_from_work": True,
+            "waiting_task_id": reply.waiting_task_id,
+            "input_prompt": reply.input_prompt,
+            "awaiting_user_input": reply.requires_input,
+            "classic_background_completion": True,
+        }
+        if reply.requires_input and reply.input_prompt:
+            self.store.add_message(
+                classic_session_id,
+                "assistant",
+                reply.input_prompt,
+                request_id=reply.request_id,
+                route=_WAITING_INPUT_ROUTE,
+                metadata=base_metadata,
+            )
+        else:
+            assistant_message = self._build_classic_completion_message(
+                work_id=str(active_work["work_id"]),
+                task_status=reply.root_task_status,
+                manager_message=reply.message,
+            )
+            runtime_metadata = {
+                **dict(reply.metadata or {}),
+                "runtime": reply.runtime,
+                "model": reply.model,
+                "endpoint": reply.endpoint,
+                "core_agent_backend": normalize_runtime_backend(backend),
+                "a2a_remote_url": a2a_url,
+                "a2a_remote_agent": a2a_remote_agent,
+                "a2a_model_provider": a2a_model_provider,
+                "a2a_model_id": a2a_model_id,
+            }
+            conversation_result = self._build_conversation_layer_result(
+                session_id=classic_session_id,
+                user_message=user_message,
+                assistant_message=assistant_message,
+                model_id=model_id,
+                request_id=reply.request_id,
+                runtime_metadata=runtime_metadata,
+            )
+            response_metadata = {
+                **base_metadata,
+                **dict(reply.metadata or {}),
+            }
+            if conversation_result is not None:
+                response_metadata = {**response_metadata, **conversation_result.metadata}
+                messages = conversation_result.messages or [
+                    {"text": assistant_message, "delay_ms": 0}
+                ]
+                self._persist_conversation_messages(
+                    session_id=classic_session_id,
+                    request_id=reply.request_id,
+                    route=_CLASSIC_WORK_COMPLETION_ROUTE,
+                    base_metadata=response_metadata,
+                    messages=messages,
+                )
+            else:
+                self.store.add_message(
+                    classic_session_id,
+                    "assistant",
+                    assistant_message,
+                    request_id=reply.request_id,
+                    route=_CLASSIC_WORK_COMPLETION_ROUTE,
+                    metadata=response_metadata,
+                )
+        self._update_classic_active_work_from_reply(
+            session_id=classic_session_id,
+            active_work=active_work,
+            reply=reply,
+            summary=user_message,
+        )
+
+    def _complete_classic_active_work_sync(
+        self,
         *,
-        model_id: str | None = None,
-        backend: str | None = None,
-        a2a_url: str | None = None,
-        a2a_remote_agent: str | None = None,
-        a2a_model_provider: str | None = None,
-        a2a_model_id: str | None = None,
+        classic_session_id: str,
+        active_work: dict[str, str | None],
+        message: str,
+        model_id: str | None,
+        backend: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
     ) -> ChatReply:
-        active_work = self.store.get_active_classic_work(classic_session_id)
-        if active_work is None:
-            active_work = self._ensure_classic_active_work(classic_session_id, message)
-        self.store.add_message(
-            classic_session_id,
-            "user",
-            message,
-            route="active_work_user_message",
-            metadata={
-                "active_work_id": active_work["work_id"],
-                "active_work_session_id": active_work["work_session_id"],
-                "mirrored_from": "classic_chat",
-            },
-        )
-        self.store.add_message(
-            classic_session_id,
-            "assistant",
-            _NORMAL_CHAT_DELEGATION_NOTICE,
-            route="delegation_notice",
-            metadata={
-                "runtime": "maf_agent",
-                "delegation_notice": True,
-                "active_work_id": active_work["work_id"],
-                "active_work_session_id": active_work["work_session_id"],
-            },
-        )
-        self.store.create_task_event(
-            session_id=str(active_work["work_session_id"]),
-            event_type="delegation_notice_persisted",
-            payload={"message": _NORMAL_CHAT_DELEGATION_NOTICE},
-        )
         reply = self._chat_internal(
             str(active_work["work_session_id"]),
             message,
@@ -1037,6 +1123,309 @@ class ChatService:
             requires_input=reply.requires_input,
             waiting_task_id=reply.waiting_task_id,
             input_prompt=reply.input_prompt,
+            messages=classic_reply_messages,
+            metadata=classic_reply_metadata,
+        )
+
+    def _run_classic_active_work_background(
+        self,
+        *,
+        classic_session_id: str,
+        active_work: dict[str, str | None],
+        message: str,
+        model_id: str | None,
+        backend: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
+    ) -> None:
+        work_id = str(active_work["work_id"])
+        try:
+            reply = self._chat_internal(
+                str(active_work["work_session_id"]),
+                message,
+                work_id=work_id,
+                force_manager_execution=True,
+                model_id=model_id,
+                backend=backend,
+                a2a_url=a2a_url,
+                a2a_remote_agent=a2a_remote_agent,
+                a2a_model_provider=a2a_model_provider,
+                a2a_model_id=a2a_model_id,
+            )
+            self._mirror_classic_background_result(
+                classic_session_id=classic_session_id,
+                active_work=active_work,
+                user_message=message,
+                reply=reply,
+                model_id=model_id,
+                backend=backend,
+                a2a_url=a2a_url,
+                a2a_remote_agent=a2a_remote_agent,
+                a2a_model_provider=a2a_model_provider,
+                a2a_model_id=a2a_model_id,
+            )
+        except Exception as exc:
+            failure_text = (
+                "BTW, I got an update on the delegated work. It failed before completion. "
+                + self._trim_sentence(str(exc), limit=180)
+            ).strip()
+            current_active_work = self.store.get_active_classic_work(classic_session_id)
+            if (
+                current_active_work is not None
+                and str(current_active_work.get("work_id") or "") == work_id
+            ):
+                self.store.add_message(
+                    classic_session_id,
+                    "assistant",
+                    failure_text,
+                    route=_CLASSIC_WORK_COMPLETION_ROUTE,
+                    metadata={
+                        "runtime": "maf_agent",
+                        "response_mode": "failed",
+                        "active_work_id": work_id,
+                        "active_work_session_id": active_work["work_session_id"],
+                        "classic_background_completion": True,
+                        "task_status": TASK_STATUS_FAILED,
+                    },
+                )
+            debug_log(
+                "classic_background_work_failed",
+                {
+                    "session_id": classic_session_id,
+                    "work_id": work_id,
+                    "error": str(exc),
+                },
+            )
+        finally:
+            self._mark_classic_work_finished(work_id)
+
+    @staticmethod
+    def _format_chanakya_input_prompt(question: str) -> str:
+        cleaned = " ".join(question.strip().split())
+        if not cleaned:
+            return "I need one detail before I can continue."
+        if cleaned.endswith(("?", ".", "!")):
+            return f"I need one detail before I can continue: {cleaned}"
+        return f"I need one detail before I can continue: {cleaned}?"
+
+    @classmethod
+    def _is_waiting_input_cancel_intent(cls, message: str) -> bool:
+        lowered = message.strip().lower()
+        return any(marker in lowered for marker in _WAITING_INPUT_CANCEL_MARKERS)
+
+    def _cancel_waiting_task_via_chat(
+        self,
+        *,
+        visible_session_id: str,
+        task_id: str,
+        user_message: str,
+        work_id: str | None,
+        active_work_session_id: str | None = None,
+    ) -> ChatReply:
+        task = self.store.get_task(task_id)
+        request = self.store.get_request(task.request_id)
+        self.cancel_task(task_id)
+        self.store.add_message(
+            visible_session_id,
+            "user",
+            user_message,
+            request_id=request.id,
+            route="active_work_user_message" if work_id is not None else None,
+            metadata={
+                "input_submission": True,
+                "cancel_waiting_task": True,
+                "active_work_id": work_id,
+                "active_work_session_id": active_work_session_id,
+            },
+        )
+        final_message = "Stopped that task. I won't continue it unless you ask me to restart it."
+        self.store.add_message(
+            visible_session_id,
+            "assistant",
+            final_message,
+            request_id=request.id,
+            route="task_cancelled",
+            metadata={
+                "runtime": "maf_agent",
+                "task_status": TASK_STATUS_CANCELLED,
+                "cancelled_task_id": task_id,
+                "active_work_id": work_id,
+                "active_work_session_id": active_work_session_id,
+            },
+        )
+        return ChatReply(
+            request_id=request.id,
+            session_id=visible_session_id,
+            work_id=work_id,
+            route="task_cancelled",
+            message=final_message,
+            model=None,
+            endpoint=None,
+            runtime="maf_agent",
+            agent_name=self.runtime.profile.name,
+            request_status=REQUEST_STATUS_CANCELLED,
+            root_task_id=request.root_task_id,
+            root_task_status=TASK_STATUS_CANCELLED,
+            response_mode="cancelled",
+            tool_calls_used=0,
+            tool_trace_ids=[],
+            requires_input=False,
+            waiting_task_id=None,
+            input_prompt=None,
+        )
+
+    def _chat_in_active_work(
+        self,
+        classic_session_id: str,
+        message: str,
+        *,
+        model_id: str | None = None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
+    ) -> ChatReply:
+        active_work = self.store.get_active_classic_work(classic_session_id)
+        if active_work is None:
+            active_work = self._ensure_classic_active_work(classic_session_id, message)
+        if self._classic_work_running(str(active_work["work_id"])):
+            busy_message = (
+                "The expert is still working on that delegated task. I can keep chatting here, "
+                "and once that run finishes I will deliver the update."
+            )
+            self.store.add_message(
+                classic_session_id,
+                "user",
+                message,
+                route="active_work_user_message",
+                metadata={
+                    "active_work_id": active_work["work_id"],
+                    "active_work_session_id": active_work["work_session_id"],
+                    "mirrored_from": "classic_chat",
+                },
+            )
+            self.store.add_message(
+                classic_session_id,
+                "assistant",
+                busy_message,
+                route="delegation_notice",
+                metadata={
+                    "runtime": "maf_agent",
+                    "delegation_notice": True,
+                    "active_work_id": active_work["work_id"],
+                    "active_work_session_id": active_work["work_session_id"],
+                    "delegated_background_busy": True,
+                },
+            )
+            return ChatReply(
+                request_id=make_id("req"),
+                session_id=classic_session_id,
+                work_id=str(active_work["work_id"]),
+                route="delegated_manager",
+                message=busy_message,
+                model=model_id,
+                endpoint=a2a_url if normalize_runtime_backend(backend) == "a2a" else None,
+                runtime="maf_agent",
+                agent_name=self.runtime.profile.name,
+                request_status=REQUEST_STATUS_IN_PROGRESS,
+                root_task_status=TASK_STATUS_IN_PROGRESS,
+                response_mode="delegated_background",
+                messages=[{"text": busy_message, "delay_ms": 0}],
+                metadata={
+                    "runtime": "maf_agent",
+                    "response_mode": "delegated_background",
+                    "active_work_id": active_work["work_id"],
+                    "active_work_session_id": active_work["work_session_id"],
+                    "delegated_background": True,
+                    "delegated_background_busy": True,
+                },
+            )
+        self.store.add_message(
+            classic_session_id,
+            "user",
+            message,
+            route="active_work_user_message",
+            metadata={
+                "active_work_id": active_work["work_id"],
+                "active_work_session_id": active_work["work_session_id"],
+                "mirrored_from": "classic_chat",
+            },
+        )
+        self.store.add_message(
+            classic_session_id,
+            "assistant",
+            _NORMAL_CHAT_DELEGATION_NOTICE,
+            route="delegation_notice",
+            metadata={
+                "runtime": "maf_agent",
+                "delegation_notice": True,
+                "active_work_id": active_work["work_id"],
+                "active_work_session_id": active_work["work_session_id"],
+            },
+        )
+        self.store.create_task_event(
+            session_id=str(active_work["work_session_id"]),
+            event_type="delegation_notice_persisted",
+            payload={"message": _NORMAL_CHAT_DELEGATION_NOTICE},
+        )
+        if not self.classic_async_enabled:
+            return self._complete_classic_active_work_sync(
+                classic_session_id=classic_session_id,
+                active_work=active_work,
+                message=message,
+                model_id=model_id,
+                backend=backend,
+                a2a_url=a2a_url,
+                a2a_remote_agent=a2a_remote_agent,
+                a2a_model_provider=a2a_model_provider,
+                a2a_model_id=a2a_model_id,
+            )
+        work_id = str(active_work["work_id"])
+        self._mark_classic_work_running(work_id)
+        self._launch_background_call(
+            self._run_classic_active_work_background,
+            classic_session_id=classic_session_id,
+            active_work=active_work,
+            message=message,
+            model_id=model_id,
+            backend=backend,
+            a2a_url=a2a_url,
+            a2a_remote_agent=a2a_remote_agent,
+            a2a_model_provider=a2a_model_provider,
+            a2a_model_id=a2a_model_id,
+        )
+        classic_reply_metadata = {
+            "runtime": "maf_agent",
+            "response_mode": "delegated_background",
+            "active_work_id": active_work["work_id"],
+            "active_work_session_id": active_work["work_session_id"],
+            "delegated_background": True,
+            "pending_classic_work": True,
+        }
+        classic_reply_messages = [{"text": _NORMAL_CHAT_DELEGATION_NOTICE, "delay_ms": 0}]
+        classic_visible_message = _NORMAL_CHAT_DELEGATION_NOTICE
+        return ChatReply(
+            request_id=make_id("req"),
+            session_id=classic_session_id,
+            work_id=work_id,
+            route="delegated_manager",
+            message=classic_visible_message,
+            model=model_id,
+            endpoint=a2a_url if normalize_runtime_backend(backend) == "a2a" else None,
+            runtime="maf_agent",
+            agent_name=self.runtime.profile.name,
+            request_status=REQUEST_STATUS_IN_PROGRESS,
+            root_task_id=None,
+            root_task_status=TASK_STATUS_IN_PROGRESS,
+            response_mode="delegated_background",
+            tool_calls_used=0,
+            tool_trace_ids=[],
+            requires_input=False,
+            waiting_task_id=None,
+            input_prompt=None,
             messages=classic_reply_messages,
             metadata=classic_reply_metadata,
         )

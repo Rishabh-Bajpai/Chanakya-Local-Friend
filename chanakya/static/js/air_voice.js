@@ -12,6 +12,7 @@
       submitText,
       getLatestAssistantText,
       onTranscript,
+      beforeRecordStart,
     } = options;
 
     let mediaRecorder = null;
@@ -25,6 +26,8 @@
     let isPlayingQueue = false;
     let ttsInFlightCount = 0;
     let spokenAssistantSegments = [];
+    let nextAudioTimer = null;
+    const playbackGapMs = 1200;
 
     function setStatus(text, isError = false) {
       if (!statusNode) {
@@ -83,6 +86,10 @@
     }
 
     function stopPlayback() {
+      if (nextAudioTimer) {
+        window.clearTimeout(nextAudioTimer);
+        nextAudioTimer = null;
+      }
       audioQueue = [];
       isPlayingQueue = false;
       if (activeAudio) {
@@ -111,6 +118,10 @@
     }
 
     function playNextAudioChunk() {
+      if (nextAudioTimer) {
+        window.clearTimeout(nextAudioTimer);
+        nextAudioTimer = null;
+      }
       if (!audioQueue.length) {
         isPlayingQueue = false;
         activeAudio = null;
@@ -131,20 +142,26 @@
       isPlayingQueue = true;
       const currentChunk = audioQueue.shift();
       activeAudio = new Audio(currentChunk.url);
+      const scheduleNextChunk = () => {
+        nextAudioTimer = window.setTimeout(() => {
+          nextAudioTimer = null;
+          playNextAudioChunk();
+        }, playbackGapMs);
+      };
       activeAudio.onended = () => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        playNextAudioChunk();
+        scheduleNextChunk();
       };
       activeAudio.onerror = () => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        playNextAudioChunk();
+        scheduleNextChunk();
       };
       activeAudio.play().catch(() => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        playNextAudioChunk();
+        scheduleNextChunk();
       });
     }
 
@@ -285,6 +302,14 @@
     async function startRecording() {
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         return;
+      }
+      if (typeof beforeRecordStart === "function") {
+        await beforeRecordStart({
+          isPlaybackActive: Boolean(activeAudio || audioQueue.length || nextAudioTimer),
+        });
+      }
+      if (activeAudio || audioQueue.length || nextAudioTimer) {
+        stopPlayback();
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioChunks = [];

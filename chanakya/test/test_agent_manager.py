@@ -3110,6 +3110,129 @@ def test_classic_active_work_keeps_user_message_before_transfer_notice() -> None
     assert messages[1]["route"] == "delegation_notice"
 
 
+def test_classic_async_delegation_returns_notice_then_completion_update() -> None:
+    from chanakya.services.sandbox_workspace import resolve_shared_workspace
+
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.classic_async_enabled = True
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Build a small app",
+        }
+    )
+    captured: dict[str, Any] = {}
+
+    def _capture_background(target: Any, *args: Any, **kwargs: Any) -> None:
+        captured["target"] = target
+        captured["kwargs"] = kwargs
+
+    service.classic_background_launcher = _capture_background
+    service.manager.execute = lambda **kwargs: ManagerRunResult(
+        text="Built the app successfully and validated the main flow.",
+        workflow_type=WORKFLOW_SOFTWARE,
+        child_task_ids=["task_mgr"],
+        manager_agent_id="agent_manager",
+        worker_agent_ids=["agent_cto"],
+        task_status=TASK_STATUS_DONE,
+        result_json={"workflow_type": WORKFLOW_SOFTWARE},
+    )  # type: ignore[method-assign]
+
+    reply = service.chat("session_async_notice", "Build a small app")
+
+    assert reply.route == "delegated_manager"
+    assert reply.response_mode == "delegated_background"
+    assert reply.message == "Transferring your work to an expert. This may take a bit longer."
+    messages = store.list_messages("session_async_notice")
+    assert [message["content"] for message in messages] == [
+        "Build a small app",
+        "Transferring your work to an expert. This may take a bit longer.",
+    ]
+
+    workspace = resolve_shared_workspace(reply.work_id)
+    (workspace / "app.py").write_text("print('ok')", encoding="utf-8")
+    captured_target = captured["target"]
+    captured_target(**captured["kwargs"])
+
+    messages_after = store.list_messages("session_async_notice")
+    completion_messages = [
+        message for message in messages_after if message["route"] == "classic_work_completion"
+    ]
+    assert len(completion_messages) == 1
+    assert completion_messages[0]["metadata"]["classic_background_completion"] is True
+    assert completion_messages[0]["metadata"]["conversation_layer_applied"] is True
+    active_work = store.get_active_classic_work("session_async_notice")
+    assert active_work is not None
+    assert active_work["root_request_id"] is not None
+
+
+def test_classic_async_delegation_busy_followup_does_not_start_second_background_run() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.classic_async_enabled = True
+    router_calls = {"count": 0}
+
+    def _dynamic_router(prompt: str) -> str:
+        router_calls["count"] += 1
+        if router_calls["count"] == 1:
+            return json.dumps(
+                {
+                    "action": "create_new_work",
+                    "confidence": 0.95,
+                    "reason": "new work",
+                    "handoff_message": "Build a small app",
+                }
+            )
+        return json.dumps(
+            {
+                "action": "continue_active_work",
+                "confidence": 0.95,
+                "reason": "same delegated work",
+                "handoff_message": "Add authentication to it",
+            }
+        )
+
+    background_calls: list[dict[str, Any]] = []
+
+    def _capture_background(target: Any, *args: Any, **kwargs: Any) -> None:
+        background_calls.append(kwargs)
+
+    service.classic_router_runner = _dynamic_router
+    service.classic_background_launcher = _capture_background
+    service.manager.execute = lambda **kwargs: ManagerRunResult(
+        text="Finished specialist work.",
+        workflow_type=WORKFLOW_SOFTWARE,
+        child_task_ids=["task_mgr"],
+        manager_agent_id="agent_manager",
+        worker_agent_ids=["agent_cto"],
+        task_status=TASK_STATUS_DONE,
+        result_json={"workflow_type": WORKFLOW_SOFTWARE},
+    )  # type: ignore[method-assign]
+
+    first_reply = service.chat("session_async_busy", "Build a small app")
+    second_reply = service.chat("session_async_busy", "Add authentication to it")
+
+    assert first_reply.response_mode == "delegated_background"
+    assert second_reply.response_mode == "delegated_background"
+    assert len(background_calls) == 1
+    assert "still working on that delegated task" in second_reply.message
+
+
 def test_waiting_input_cancel_intent_stops_active_work_task() -> None:
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)

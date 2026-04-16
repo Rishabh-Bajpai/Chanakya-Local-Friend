@@ -2178,6 +2178,67 @@
       };
     }
 
+    function startClassicDelegatedCompletionWatcher(targetSessionId, assistantCountBefore, options = {}) {
+      const { onAssistantMessage } = options;
+      if (!targetSessionId) {
+        return { stop() {} };
+      }
+      let stopped = false;
+      const run = async () => {
+        while (!stopped) {
+          try {
+            const response = await fetchWithTimeout(
+              `/api/sessions/${encodeURIComponent(targetSessionId)}`,
+              {},
+              6000
+            );
+            const payload = await readJsonResponse(response);
+            if (response.ok) {
+              const messages = Array.isArray(payload.messages) ? payload.messages : [];
+              const assistantMessages = messages.filter((message) => String(message.role || "") === "assistant");
+              const newAssistantMessages = assistantMessages.slice(assistantCountBefore);
+              const completionMessages = newAssistantMessages.filter((message) => {
+                const route = String(message.route || "");
+                return route === "classic_work_completion" || route === "waiting_input_prompt";
+              });
+              if (completionMessages.length) {
+                renderChatHistory(messages);
+                await refreshSidePanels();
+                completionMessages.forEach((item) => {
+                  const text = String(item.content || "");
+                  if (text && typeof onAssistantMessage === "function") {
+                    onAssistantMessage(text);
+                  }
+                });
+                const latestCompletion = completionMessages[completionMessages.length - 1] || null;
+                const pendingCount = Number(latestCompletion?.metadata?.pending_delivery_count || 0);
+                if (pendingCount > 0) {
+                  setConversationQueueStatus(
+                    `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+                  );
+                  await pollNextConversationMessages(targetSessionId, { onAssistantMessage });
+                } else {
+                  setConversationQueueStatus("Delegated work finished.");
+                }
+                if (airVoiceController) {
+                  airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
+                }
+                return;
+              }
+            }
+          } catch {
+          }
+          await delay(900);
+        }
+      };
+      void run();
+      return {
+        stop() {
+          stopped = true;
+        },
+      };
+    }
+
     async function submitChatMessage(message, options = {}) {
       const { onAssistantMessage } = options;
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
@@ -2244,6 +2305,17 @@
         if (typeof onAssistantMessage === "function") {
           onAssistantMessage(delegationNoticeText);
         }
+      }
+      if (data.metadata?.delegated_background) {
+        setConversationQueueStatus("Work transferred to an expert. Waiting for result...");
+        startClassicDelegatedCompletionWatcher(data.session_id, assistantCountBefore, {
+          onAssistantMessage,
+        });
+        await refreshSidePanels();
+        if (airVoiceController) {
+          airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
+        }
+        return data;
       }
       const messages = Array.isArray(data.messages) && data.messages.length
         ? data.messages
@@ -3468,6 +3540,12 @@
       getLatestAssistantText: getLatestAssistantMessageText,
       onTranscript: (text) => {
         messageInput.value = text;
+      },
+      beforeRecordStart: async ({ isPlaybackActive }) => {
+        if (!isPlaybackActive) {
+          return;
+        }
+        await pauseConversationReplies();
       },
     });
     airRefreshModelsButton.addEventListener("click", () => airVoiceController.fetchModels());
