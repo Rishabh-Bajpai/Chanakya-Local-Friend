@@ -21,6 +21,7 @@ from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.domain import (
     ChatReply,
     REQUEST_STATUS_IN_PROGRESS,
+    REQUEST_STATUS_COMPLETED,
     REQUEST_STATUS_CANCELLED,
     TASK_STATUS_BLOCKED,
     TASK_STATUS_CANCELLED,
@@ -1321,6 +1322,7 @@ def test_manager_runs_worker_stages_with_the_persisted_prompts() -> None:
     service.manager.subagent_decision_runner = lambda profile, prompt: (
         '{"use_subagent":false,"reason":"not needed"}'
     )
+
     service.classic_router_runner = lambda prompt: json.dumps(
         {
             "action": "create_new_work",
@@ -1395,6 +1397,7 @@ def test_informer_writer_recovers_when_output_echoes_research_handoff() -> None:
     service.manager.subagent_decision_runner = lambda profile, prompt: (
         '{"use_subagent":false,"reason":"not needed"}'
     )
+
     service.classic_router_runner = lambda prompt: json.dumps(
         {
             "action": "create_new_work",
@@ -1466,6 +1469,7 @@ def test_cto_tester_recovers_when_output_echoes_developer_handoff() -> None:
     service.manager.subagent_decision_runner = lambda profile, prompt: (
         '{"use_subagent":false,"reason":"not needed"}'
     )
+
     service.classic_router_runner = lambda prompt: json.dumps(
         {
             "action": "create_new_work",
@@ -1530,6 +1534,56 @@ def test_developer_future_tense_plan_output_is_rejected_and_repaired() -> None:
     service.manager.subagent_decision_runner = lambda profile, prompt: (
         '{"use_subagent":false,"reason":"not needed"}'
     )
+
+    def _fake_successful_workflow(**kwargs):
+        manager = kwargs["manager"]
+        session_id = kwargs["session_id"]
+        request_id = kwargs["request_id"]
+        developer_task_id = kwargs["developer_task_id"]
+        tester_task_id = kwargs["tester_task_id"]
+        repaired_handoff = '# Implementation Handoff\n\n```python\nprint("Hello World")\n```'
+        manager._transition_task(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=developer_task_id,
+            from_status=TASK_STATUS_IN_PROGRESS,
+            to_status=TASK_STATUS_DONE,
+            finished_at="2026-04-16T20:00:00+00:00",
+            result_json={"handoff": repaired_handoff},
+            event_type="worker_handoff_ready",
+            event_payload={"handoff_for_role": "tester"},
+        )
+        manager._transition_task(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=tester_task_id,
+            from_status=TASK_STATUS_BLOCKED,
+            to_status=TASK_STATUS_IN_PROGRESS,
+            started_at="2026-04-16T20:00:01+00:00",
+            event_type="worker_unblocked",
+            event_payload={"dependency_task_id": developer_task_id},
+        )
+        manager._transition_task(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=tester_task_id,
+            from_status=TASK_STATUS_IN_PROGRESS,
+            to_status=TASK_STATUS_DONE,
+            finished_at="2026-04-16T20:00:02+00:00",
+            result_json={
+                "developer_task_id": developer_task_id,
+                "validation_report": '{"validation_summary":"Output matches Hello World","checks_performed":["stdout check"],"defects_or_risks":[],"pass_fail_recommendation":"pass"}',
+            },
+            event_type="worker_validation_completed",
+            event_payload={"validated_task_id": developer_task_id},
+        )
+        return SoftwareWorkerWorkflowResult(
+            status=TASK_STATUS_DONE,
+            developer_output=repaired_handoff,
+            tester_output='{"validation_summary":"Output matches Hello World","checks_performed":["stdout check"],"defects_or_risks":[],"pass_fail_recommendation":"pass"}',
+        )
+
+    service.manager.workflow_runtime.start_software_workflow = _fake_successful_workflow  # type: ignore[method-assign]
     service.classic_router_runner = lambda prompt: json.dumps(
         {
             "action": "create_new_work",
@@ -3457,6 +3511,99 @@ def test_classic_router_prompt_exposes_direct_status_answering_capability() -> N
     assert (
         "answer direct questions about the status or progress of the current delegated work"
         in prompt
+    )
+
+
+def test_classic_router_prompt_includes_current_conversational_target() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    store.create_request(
+        request_id="req_target",
+        session_id="session_target_prompt",
+        user_message="Create a concise Nvidia report",
+        status=REQUEST_STATUS_COMPLETED,
+        route="direct_answer",
+        root_task_id="task_target",
+    )
+    store.add_message(
+        "session_target_prompt",
+        "user",
+        "Create a concise Nvidia report",
+        request_id="req_target",
+    )
+    store.add_message(
+        "session_target_prompt",
+        "assistant",
+        "Sure, what time horizon do you want?",
+        request_id="req_target",
+        route="direct_answer",
+    )
+
+    prompt = service._build_classic_router_prompt(
+        session_id="session_target_prompt",
+        message="I don't want to start fresh. I gave you a task and you need to do it.",
+        active_work=None,
+    )
+
+    assert "[current_conversational_target]" in prompt
+    assert "user_message=Create a concise Nvidia report" in prompt
+    assert "latest_assistant_response:" in prompt
+
+
+def test_active_work_summary_preserves_original_objective_on_followup() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    runtime = _RuntimeStub(chanakya)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, runtime),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    active_work: dict[str, str | None] = {
+        "work_id": "w1",
+        "work_session_id": "ws1",
+        "title": "Fruit file",
+        "summary": "Create a file and populate it with a list of 100 fruits and vegetables",
+    }
+    reply = ChatReply(
+        request_id="req_1",
+        session_id="ws1",
+        work_id="w1",
+        route="delegated_manager",
+        message="Done.",
+        model="test-model",
+        endpoint="http://test",
+        runtime="maf_agent",
+        agent_name="personal_assistant",
+    )
+    store.create_work(work_id="w1", title="Fruit file", description="")
+    store.set_active_classic_work(
+        chat_session_id="sess_1",
+        work_id="w1",
+        work_session_id="ws1",
+        root_request_id=None,
+        title="Fruit file",
+        summary="Create a file and populate it with a list of 100 fruits and vegetables",
+        workflow_type=None,
+    )
+
+    service._update_classic_active_work_from_reply(
+        session_id="sess_1",
+        active_work=active_work,
+        reply=reply,
+        summary="Please provide the name and storage location of the file containing the list.",
+    )
+
+    updated = store.get_active_classic_work("sess_1")
+    assert updated is not None
+    assert (
+        updated["summary"]
+        == "Create a file and populate it with a list of 100 fruits and vegetables"
     )
 
 

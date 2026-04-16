@@ -340,7 +340,11 @@ class MAFRuntime:
 
         tool_traces = extract_tool_execution_traces(response, mock_specs)
 
-        reply_text = str(response).strip()
+        reply_text = self._extract_local_response_text(response)
+        if not reply_text and tool_traces:
+            reply_text = "I used available tools while working on your request."
+        if not reply_text:
+            reply_text = str(response).strip()
         debug_log(
             "maf_runtime_after_run",
             {
@@ -363,6 +367,57 @@ class MAFRuntime:
                 "local_seeded_history_fallback": local_fallback_used,
             },
         )
+
+    @staticmethod
+    def _extract_local_response_text(response: Any) -> str:
+        texts: list[str] = []
+
+        def collect(value: Any) -> None:
+            if value is None:
+                return
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    texts.append(stripped)
+                return
+            value_type = str(getattr(value, "type", "") or "").strip().lower()
+            if value_type == "text":
+                collect(getattr(value, "text", None) or getattr(value, "value", None))
+                return
+            if value_type in {"function_call", "function_result"}:
+                return
+            if isinstance(value, dict):
+                dict_type = str(value.get("type") or "").strip().lower()
+                if dict_type == "text":
+                    collect(value.get("text") or value.get("value"))
+                    return
+                if dict_type in {"function_call", "function_result"}:
+                    return
+                for key in (
+                    "messages",
+                    "contents",
+                    "content",
+                    "text",
+                    "value",
+                    "raw_representation",
+                ):
+                    if key in value:
+                        collect(value.get(key))
+                return
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    collect(item)
+                return
+            for attr in ("messages", "contents", "content", "text", "value", "raw_representation"):
+                nested = getattr(value, attr, None)
+                if nested is not None and nested is not value:
+                    collect(nested)
+
+        collect(getattr(response, "messages", None))
+        if not texts:
+            collect(getattr(response, "raw_representation", None))
+        ordered = [text for text in dict.fromkeys(texts) if text]
+        return "\n\n".join(ordered).strip()
 
     async def _run_local_agent(
         self,

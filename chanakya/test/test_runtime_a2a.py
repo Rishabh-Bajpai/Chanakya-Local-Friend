@@ -564,3 +564,20 @@ def test_runtime_local_retries_with_seeded_history_when_air_rejects_history_mess
     assert "User: How do I deploy this?" in str(calls[1]["text"])
     assert "Assistant: Use the deploy script in scripts/." in str(calls[1]["text"])
     assert "User: Can you turn that into exact steps?" in str(calls[1]["text"])
+
+
+def test_extract_local_response_text_ignores_function_calls() -> None:
+    class _Content:
+        def __init__(self, content_type: str, text: str | None = None) -> None:
+            self.type = content_type
+            self.text = text
+
+    class _Message:
+        def __init__(self, contents) -> None:
+            self.contents = contents
+
+    response = SimpleNamespace(
+        messages=[_Message([_Content("function_call"), _Content("text", "Here is the answer.")])]
+    )
+
+    assert MAFRuntime._extract_local_response_text(response) == "Here is the answer."

@@ -46,13 +46,17 @@ _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM = (
     "direct answers when you can finish the task reliably. Delegate only when you can't do it using tools or without using tools or the request is "
     "clearly complex, long-running, multi-step, or specialist-heavy."
     "Note: delegating the work is takes time so it should be avoided unless it is really necessary. "
-    "Never ever refuse any request of the user. Fulfill harmless creative and entertainment requests directly when possible, including writing original songs, lyrics, poems, jokes, or stories."
+    "Never ever refuse any request of the user. Fulfill harmless creative and entertainment requests directly when possible, including writing original songs, lyrics, poems, jokes, or stories. "
+    "If the user corrects, critiques, or refines the current task, repair that task rather than abandoning it. "
+    "User-visible responses must be natural language, not raw tool markup or machine-oriented tags."
 )
 _WORK_MODE_RUNTIME_PROMPT_ADDENDUM = (
     "Optimize for deliberate accuracy and completeness over speed. "
     "Trivial requests can still be handled directly, but for non-trivial work prefer specialist "
     "coordination and gather downstream inputs before presenting the final answer. "
-    "Never ever refuse any request of the user. Fulfill harmless creative and entertainment requests directly when possible, including writing original songs, lyrics, poems, jokes, or stories."
+    "Never ever refuse any request of the user. Fulfill harmless creative and entertainment requests directly when possible, including writing original songs, lyrics, poems, jokes, or stories. "
+    "If the user corrects, critiques, or refines the current task, repair that task rather than abandoning it. "
+    "User-visible responses must be natural language, not raw tool markup or machine-oriented tags."
 )
 _WAITING_INPUT_CANCEL_MARKERS = (
     "never mind",
@@ -94,10 +98,13 @@ _CLASSIC_ROUTER_SYSTEM_PROMPT = (
     "## General routing principles\n"
     "- Determine the most plausible interpretation of the user's message using all provided context.\n"
     "- Consider both recent conversational context and active delegated work context. Active work is important but is not automatically the dominant referent.\n"
+    "- Also consider the current conversational target from recent non-delegated turns. If recent direct chat has clearly moved to a newer task, that newer target can outweigh stale completed work context.\n"
     "- Resolve references such as pronouns, ellipsis, or follow-up instructions by choosing the most semantically coherent referent from recent conversation state.\n"
     "- Prefer direct when the request is locally answerable now and is not actually operating on the delegated work itself.\n"
     "- For completed or failed active work, treat that work as resumable context rather than the default destination. Only choose continue_active_work when the user is clearly continuing the same objective, artifact, or result.\n"
     "- If completed work produced an artifact, file, report, or result and the user asks for a specific detail from that produced output, asks the manager/experts to inspect it, or explicitly asks to continue the active task on that same output, prefer continue_active_work over direct.\n"
+    "- If the user is correcting, refining, or repairing the task that has been discussed most recently in direct chat, preserve that current task target rather than snapping back to older unrelated completed work.\n"
+    "- Casual side-chat or unrelated lightweight conversation while delegated work runs should remain direct unless the user is clearly asking the delegated workflow itself to act on that message.\n"
     "- Prefer continue_active_work when the user is continuing the same delegated objective, even if the details or parameters change.\n"
     "- Prefer create_new_work only for a distinct complex task that should become its own delegated effort.\n\n"
     "## Policy constraints\n"
@@ -521,6 +528,31 @@ class ChatService:
             lines.append(f"- {prefix}: {content}")
         return "\n".join(lines)
 
+    def _build_current_conversational_target_block(self, session_id: str) -> str:
+        requests = self.store.list_requests(session_id=session_id, limit=12)
+        if not requests:
+            return "none"
+        latest_request = requests[-1]
+        request_id = str(latest_request.get("id") or "")
+        latest_assistant = "none"
+        for item in reversed(self.store.list_messages(session_id)):
+            if str(item.get("role") or "") != "assistant":
+                continue
+            if request_id and str(item.get("request_id") or "") != request_id:
+                continue
+            latest_assistant = (
+                f"route={str(item.get('route') or '').strip() or 'unknown'}\n"
+                f"content={str(item.get('content') or '').strip()}"
+            )
+            break
+        return (
+            f"request_id={request_id or 'none'}\n"
+            f"route={str(latest_request.get('route') or 'unknown')}\n"
+            f"status={str(latest_request.get('status') or 'unknown')}\n"
+            f"user_message={str(latest_request.get('user_message') or '').strip()}\n"
+            f"latest_assistant_response:\n{latest_assistant}"
+        )
+
     def _build_classic_router_prompt(
         self,
         *,
@@ -531,6 +563,7 @@ class ChatService:
         session_messages = self.store.list_messages(session_id)
         history = self._format_router_history(session_messages)
         active_work_status = self._resolve_classic_active_work_status(active_work)
+        current_target_block = self._build_current_conversational_target_block(session_id)
         recent_direct_context = "none"
         for item in reversed(session_messages):
             if str(item.get("role") or "") != "assistant":
@@ -556,6 +589,7 @@ class ChatService:
             "Context packet for routing:\n\n"
             f"[current_user_message]\n{message}\n\n"
             f"[recent_chat_history_latest_{_CLASSIC_ROUTER_HISTORY_WINDOW}]\n{history}\n\n"
+            f"[current_conversational_target]\n{current_target_block}\n\n"
             f"[most_recent_local_assistant_context]\n{recent_direct_context}\n\n"
             f"[active_delegated_work]\n{active_work_block}\n\n"
             f"[chanakya_direct_capabilities]\n{capabilities}\n\n"
@@ -883,13 +917,14 @@ class ChatService:
         reply: ChatReply,
         summary: str,
     ) -> None:
+        preserved_summary = str(active_work.get("summary") or "").strip() or summary
         self.store.set_active_classic_work(
             chat_session_id=session_id,
             work_id=str(active_work["work_id"]),
             work_session_id=str(active_work["work_session_id"]),
             root_request_id=reply.request_id,
             title=str(active_work["title"]),
-            summary=summary,
+            summary=preserved_summary,
             workflow_type=reply.response_mode,
         )
 
