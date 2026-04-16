@@ -243,11 +243,24 @@ class ChatService:
             except TypeError:
                 return self.runtime.run(session_id, message, request_id=request_id)
 
-    @staticmethod
-    def _runtime_prompt_addendum_for_mode(*, work_id: str | None) -> str:
+    def _runtime_prompt_addendum_for_mode(self, *, session_id: str, work_id: str | None) -> str:
+        base = (
+            _WORK_MODE_RUNTIME_PROMPT_ADDENDUM
+            if work_id is not None
+            else _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM
+        )
         if work_id is not None:
-            return _WORK_MODE_RUNTIME_PROMPT_ADDENDUM
-        return _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM
+            return base
+        active_work_block = self._build_active_work_status_block(session_id)
+        if active_work_block == "none":
+            return base
+        return (
+            f"{base}\n\n"
+            "Current delegated work state available to you:\n"
+            f"{active_work_block}\n\n"
+            "If the user asks for the status, progress, completion state, or who is working on the current delegated task, answer directly from this orchestration state. "
+            "Do not claim that you lack this information, and do not treat that status question itself as a new delegated task."
+        )
 
     def _notify_root_task_outcome(
         self,
@@ -526,16 +539,7 @@ class ChatService:
                     f"route={route}\ncontent={str(item.get('content') or '').strip()}"
                 )
                 break
-        active_work_block = "none"
-        if active_work_status is not None:
-            active_work_block = (
-                f"work_id={active_work_status.get('work_id')}\n"
-                f"title={str(active_work_status.get('title') or '').strip()}\n"
-                f"summary={str(active_work_status.get('summary') or '').strip()}\n"
-                f"workflow_type={str(active_work_status.get('workflow_type') or '').strip() or 'unknown'}\n"
-                f"status={str(active_work_status.get('status') or 'unknown')}\n"
-                f"blocking={bool(active_work_status.get('blocking'))}"
-            )
+        active_work_block = self._build_active_work_status_block(session_id)
         tool_ids = getattr(self.runtime.profile, "tool_ids", None)
         if not isinstance(tool_ids, list):
             raw_tool_ids = getattr(self.runtime.profile, "tool_ids_json", None)
@@ -548,6 +552,8 @@ class ChatService:
             f"[most_recent_local_assistant_context]\n{recent_direct_context}\n\n"
             f"[active_delegated_work]\n{active_work_block}\n\n"
             f"[chanakya_direct_capabilities]\n{capabilities}\n\n"
+            "[status_answering_capability]\n"
+            "Chanakya can answer direct questions about the status or progress of the current delegated work using orchestration state, without sending the question back into delegated execution.\n\n"
             "[delegation_system]\n"
             "Delegation means routing work to Chanakya's internal specialist workflow, not to external humans by default.\n\n"
             "Choose the single best routing action for this message. Base the decision on semantic continuity, local conversational coherence, delegated-work continuity, and whether Chanakya can answer directly right now."
@@ -933,6 +939,47 @@ class ChatService:
     def _classic_active_work_is_blocking(self, active_work: dict[str, Any] | None) -> bool:
         status = self._resolve_classic_active_work_status(active_work)
         return bool(status and status.get("blocking"))
+
+    def _collect_work_agent_status_lines(self, work_id: str) -> list[str]:
+        lines: list[str] = []
+        for mapping in self.store.list_work_agent_sessions(work_id):
+            agent_role = str(mapping.get("agent_role") or "unknown").strip() or "unknown"
+            agent_name = str(mapping.get("agent_name") or agent_role).strip() or agent_role
+            session_id = str(mapping.get("session_id") or "").strip()
+            latest_status = "idle"
+            tasks = self.store.list_tasks(session_id=session_id, limit=50) if session_id else []
+            if tasks:
+                latest_task = max(
+                    tasks,
+                    key=lambda item: (
+                        str(item.get("updated_at") or ""),
+                        str(item.get("created_at") or ""),
+                        str(item.get("id") or ""),
+                    ),
+                )
+                latest_status = str(latest_task.get("status") or "idle").strip() or "idle"
+            lines.append(f"- {agent_role} ({agent_name}): {latest_status}")
+        return lines
+
+    def _build_active_work_status_block(self, session_id: str) -> str:
+        active_work = self.store.get_active_classic_work(session_id)
+        active_work_status = self._resolve_classic_active_work_status(active_work)
+        if active_work_status is None:
+            return "none"
+        agent_lines = self._collect_work_agent_status_lines(str(active_work_status["work_id"]))
+        agent_block = "\n".join(agent_lines) if agent_lines else "- no agent sessions recorded"
+        return (
+            f"work_id={active_work_status.get('work_id')}\n"
+            f"title={str(active_work_status.get('title') or '').strip()}\n"
+            f"summary={str(active_work_status.get('summary') or '').strip()}\n"
+            f"workflow_type={str(active_work_status.get('workflow_type') or '').strip() or 'unknown'}\n"
+            f"overall_status={str(active_work_status.get('status') or 'unknown')}\n"
+            f"blocking={bool(active_work_status.get('blocking'))}\n"
+            f"request_status={str(active_work_status.get('request_status') or 'unknown')}\n"
+            f"task_status={str(active_work_status.get('task_status') or 'unknown')}\n"
+            "agent_statuses:\n"
+            f"{agent_block}"
+        )
 
     def _classic_busy_notice(self, active_work: dict[str, Any] | None) -> str:
         status = self._resolve_classic_active_work_status(active_work)
@@ -2038,7 +2085,10 @@ class ChatService:
                     a2a_remote_agent=a2a_remote_agent,
                     a2a_model_provider=a2a_model_provider,
                     a2a_model_id=a2a_model_id,
-                    prompt_addendum=self._runtime_prompt_addendum_for_mode(work_id=work_id),
+                    prompt_addendum=self._runtime_prompt_addendum_for_mode(
+                        session_id=session_id,
+                        work_id=work_id,
+                    ),
                 )
                 manager_invoked = False
         except Exception as exc:

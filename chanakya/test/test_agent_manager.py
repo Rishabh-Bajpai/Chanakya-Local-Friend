@@ -3405,6 +3405,90 @@ def test_classic_router_prompt_defines_internal_expert_delegation() -> None:
     assert "[delegation_system]" in prompt
 
 
+def test_classic_router_prompt_exposes_direct_status_answering_capability() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    store.create_work(work_id="cwork_status", title="Climate report", description="")
+    store.set_active_classic_work(
+        chat_session_id="session_status_prompt",
+        work_id="cwork_status",
+        work_session_id="session_status_work",
+        root_request_id=None,
+        title="Climate report",
+        summary="Create a climate report",
+        workflow_type=WORKFLOW_SOFTWARE,
+    )
+
+    prompt = service._build_classic_router_prompt(
+        session_id="session_status_prompt",
+        message="What is the status of the work I gave you?",
+        active_work=store.get_active_classic_work("session_status_prompt"),
+    )
+
+    assert "[status_answering_capability]" in prompt
+    assert (
+        "answer direct questions about the status or progress of the current delegated work"
+        in prompt
+    )
+
+
+def test_classic_direct_runtime_addendum_includes_active_work_status_snapshot() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    runtime = _RuntimeStub(chanakya)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, runtime),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    store.create_work(work_id="cwork_status", title="Climate report", description="")
+    store.ensure_work_agent_session(
+        work_id="cwork_status",
+        agent_id="agent_developer",
+        session_id="session_dev_status",
+        session_title="Climate report - Developer",
+    )
+    store.create_request(
+        request_id="req_dev_status",
+        session_id="session_dev_status",
+        user_message="Implement climate report output",
+        status=REQUEST_STATUS_IN_PROGRESS,
+        root_task_id="task_dev_status",
+    )
+    store.create_task(
+        task_id="task_dev_status",
+        request_id="req_dev_status",
+        parent_task_id=None,
+        title="Developer Implementation",
+        summary="Implement climate report output",
+        status=TASK_STATUS_IN_PROGRESS,
+        owner_agent_id="agent_developer",
+        task_type="implementation",
+        input_json={},
+    )
+    store.set_active_classic_work(
+        chat_session_id="session_status_runtime",
+        work_id="cwork_status",
+        work_session_id="session_status_work",
+        root_request_id=None,
+        title="Climate report",
+        summary="Create a climate report",
+        workflow_type=WORKFLOW_SOFTWARE,
+    )
+
+    service.chat("session_status_runtime", "What is the status of the work I gave you?")
+
+    assert runtime.last_prompt_addendum is not None
+    assert "Current delegated work state available to you:" in runtime.last_prompt_addendum
+    assert "agent_statuses:" in runtime.last_prompt_addendum
+    assert "developer (Developer): in_progress" in runtime.last_prompt_addendum
+
+
 def test_waiting_input_cancel_intent_stops_active_work_task() -> None:
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)
