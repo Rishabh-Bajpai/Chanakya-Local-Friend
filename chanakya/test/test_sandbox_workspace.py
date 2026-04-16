@@ -45,6 +45,33 @@ def test_resolve_shared_workspace_can_skip_creation(
     assert not workspace.exists()
 
 
+def test_resolve_shared_workspace_rejects_unknown_classic_workspace_when_strict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+
+    with pytest.raises(FileNotFoundError):
+        sandbox_workspace.resolve_shared_workspace(
+            "cwork_123",
+            allow_create_missing_classic=False,
+        )
+
+
+def test_resolve_shared_workspace_allows_non_classic_workspace_when_strict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+
+    workspace = sandbox_workspace.resolve_shared_workspace(
+        "work_123",
+        allow_create_missing_classic=False,
+    )
+
+    assert workspace.exists()
+
+
 def test_resolve_shared_workspace_logs_only_on_creation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

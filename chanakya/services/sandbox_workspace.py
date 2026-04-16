@@ -30,13 +30,26 @@ def normalize_work_id(work_id: str | None) -> str:
     return value
 
 
-def resolve_shared_workspace(work_id: str | None, *, create: bool = True) -> Path:
+def resolve_shared_workspace(
+    work_id: str | None,
+    *,
+    create: bool = True,
+    allow_create_missing_classic: bool = True,
+) -> Path:
     root = get_shared_workspace_root().resolve()
     safe_work_id = normalize_work_id(work_id)
     target = (root / safe_work_id).resolve()
     if target != root and root not in target.parents:
         raise PermissionError("Resolved sandbox workspace escapes shared root")
     if create:
+        if (
+            safe_work_id.startswith("cwork_")
+            and not target.exists()
+            and not allow_create_missing_classic
+        ):
+            raise FileNotFoundError(
+                "Unknown classic work sandbox. Refusing to create a new cwork_* workspace from tool input."
+            )
         created = not target.exists()
         target.mkdir(parents=True, exist_ok=True)
         target.chmod(0o775)

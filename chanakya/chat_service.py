@@ -26,7 +26,7 @@ from chanakya.domain import (
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.agent_manager import AgentManager
 from chanakya.model import AgentProfileModel
-from chanakya.services.sandbox_workspace import delete_shared_workspace
+from chanakya.services.sandbox_workspace import delete_shared_workspace, resolve_shared_workspace
 from chanakya.services.ntfy import NtfyNotificationDispatcher, summarize_notification_text
 from chanakya.store import ChanakyaStore
 
@@ -755,6 +755,7 @@ class ChatService:
             description="Classic chat active delegated workspace",
             status="active",
         )
+        resolve_shared_workspace(work_id)
         active_profiles = [
             profile for profile in self.store.list_agent_profiles() if profile.is_active
         ]

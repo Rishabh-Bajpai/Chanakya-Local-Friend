@@ -1747,6 +1747,8 @@ def test_developer_stage_prompt_forbids_plan_only_output() -> None:
 
     assert "Return completed work, not a plan" in prompt
     assert "When files are produced, name the workspace paths" in prompt
+    assert "All agents working on this request must share this sandbox" in prompt
+    assert "Do not create or write under /workspace/<work_id>/" in prompt
 
 
 def test_long_running_clone_request_uses_extended_timeout(monkeypatch: MonkeyPatch) -> None:
@@ -1873,6 +1875,8 @@ def test_researcher_stage_prompt_requires_actual_findings() -> None:
 
     assert "Return completed research findings" in prompt
     assert "Include facts, references_or_sources, uncertainties, and notes_for_writer" in prompt
+    assert "Use work_id='temp' for sandbox tool calls." in prompt
+    assert "Do not create or write under /workspace/<work_id>/" in prompt
 
 
 def test_researcher_fallback_prompt_forbids_blank_output() -> None:
@@ -1958,6 +1962,8 @@ def test_information_prompts_include_chanakya_clarification_when_provided() -> N
     assert clarification in revision_prompt
     assert clarification in repair_prompt
     assert "User clarification relayed by Chanakya" in writer_prompt
+    assert "All agents working on this request must share this sandbox" in writer_prompt
+    assert "Do not create or write under /workspace/<work_id>/" in revision_prompt
 
 
 def test_forced_helper_prompt_treats_parent_prompt_as_reference_only() -> None:
