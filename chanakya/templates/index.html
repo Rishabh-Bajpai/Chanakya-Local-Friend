@@ -1975,6 +1975,10 @@
 
     let voiceQueuePaused = false;
     let voiceQueueGeneration = 0;
+    const deferredVoiceNotifications = [];
+    let deferredVoiceNotificationsTimer = null;
+    let assistantTurnPendingCount = 0;
+    let currentDeferredVoiceNotification = null;
 
     function isVoiceDeliveryMode() {
       return Boolean(airVoiceController && typeof airVoiceController.isVoiceModeEnabled === "function"
@@ -1991,13 +1995,92 @@
       voiceQueueGeneration += 1;
     }
 
+    function hasActiveVoiceInteraction() {
+      return Boolean(
+        assistantTurnPendingCount > 0
+        ||
+        airVoiceController
+        && typeof airVoiceController.isInteractionActive === "function"
+        && airVoiceController.isInteractionActive()
+      );
+    }
+
+    function beginAssistantTurn() {
+      assistantTurnPendingCount += 1;
+    }
+
+    function endAssistantTurn() {
+      assistantTurnPendingCount = Math.max(0, assistantTurnPendingCount - 1);
+      if (deferredVoiceNotifications.length) {
+        scheduleDeferredVoiceNotifications();
+      }
+    }
+
+    function requeueCurrentDeferredVoiceNotification() {
+      if (!currentDeferredVoiceNotification) {
+        return;
+      }
+      if (!currentDeferredVoiceNotification.requeued) {
+        currentDeferredVoiceNotification.requeued = true;
+        deferredVoiceNotifications.unshift(currentDeferredVoiceNotification);
+      }
+      currentDeferredVoiceNotification = null;
+      if (airVoiceController && typeof airVoiceController.stopSpeechAndInvalidate === "function") {
+        airVoiceController.stopSpeechAndInvalidate();
+      }
+    }
+
+    function scheduleDeferredVoiceNotifications() {
+      if (deferredVoiceNotificationsTimer || !deferredVoiceNotifications.length) {
+        return;
+      }
+      const tick = async () => {
+        if (!deferredVoiceNotifications.length) {
+          deferredVoiceNotificationsTimer = null;
+          return;
+        }
+        if (hasActiveVoiceInteraction()) {
+          deferredVoiceNotificationsTimer = window.setTimeout(tick, 400);
+          return;
+        }
+        const nextItem = deferredVoiceNotifications.shift();
+        deferredVoiceNotificationsTimer = null;
+        currentDeferredVoiceNotification = nextItem || null;
+        if (currentDeferredVoiceNotification) {
+          currentDeferredVoiceNotification.requeued = false;
+        }
+        if (nextItem && isVoiceDeliveryMode() && airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
+          const completed = await airVoiceController.speakAssistantMessageAndWait(nextItem.text);
+          if (!completed && currentDeferredVoiceNotification && !currentDeferredVoiceNotification.requeued) {
+            deferredVoiceNotifications.unshift(currentDeferredVoiceNotification);
+          }
+        } else if (nextItem && typeof nextItem.onAssistantMessage === "function") {
+          await nextItem.onAssistantMessage(nextItem.text);
+        }
+        currentDeferredVoiceNotification = null;
+        if (deferredVoiceNotifications.length) {
+          scheduleDeferredVoiceNotifications();
+        }
+      };
+      deferredVoiceNotificationsTimer = window.setTimeout(tick, 400);
+    }
+
     async function deliverAssistantText(text, options = {}) {
-      const { onAssistantMessage, alreadyRendered = false } = options;
+      const { onAssistantMessage, alreadyRendered = false, metadata = null } = options;
       if (!text) {
         return;
       }
       if (!alreadyRendered) {
         appendMessage("assistant", text);
+      }
+      const isBackgroundCompletion = Boolean(metadata && metadata.completion_notification);
+      if (isBackgroundCompletion && hasActiveVoiceInteraction()) {
+        deferredVoiceNotifications.push({ text, onAssistantMessage });
+        scheduleDeferredVoiceNotifications();
+        return;
+      }
+      if (!isBackgroundCompletion && currentDeferredVoiceNotification) {
+        requeueCurrentDeferredVoiceNotification();
       }
       if (isVoiceDeliveryMode() && airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
         await airVoiceController.speakAssistantMessageAndWait(text);
@@ -2261,7 +2344,16 @@
               const assistantMessages = messages.filter((message) => String(message.role || "") === "assistant");
               const newAssistantMessages = assistantMessages.slice(assistantCountBefore);
               const hasDelegationNotice = newAssistantMessages.some(
-                (message) => String(message.route || "") === "delegation_notice"
+                (message) => (
+                  String(message.route || "") === "delegation_notice"
+                  && !message?.metadata?.delegated_background_busy
+                )
+              );
+              const hasBusyDelegationNotice = newAssistantMessages.some(
+                (message) => (
+                  String(message.route || "") === "delegation_notice"
+                  && Boolean(message?.metadata?.delegated_background_busy)
+                )
               );
               if (hasDelegationNotice) {
                 notified = true;
@@ -2272,6 +2364,10 @@
                   await onAssistantMessage(delegationNoticeText);
                 }
                 setConversationQueueStatus("Work transferred to an expert. Waiting for result...");
+                break;
+              }
+              if (hasBusyDelegationNotice) {
+                stopped = true;
                 break;
               }
             }
@@ -2322,7 +2418,7 @@
                 for (const item of completionMessages) {
                   const text = String(item.content || "");
                   if (text) {
-                    await deliverAssistantText(text, { onAssistantMessage, alreadyRendered: true });
+                    await deliverAssistantText(text, { onAssistantMessage, alreadyRendered: true, metadata: item.metadata || null });
                   }
                 }
                 const latestCompletion = completionMessages[completionMessages.length - 1] || null;
@@ -2359,6 +2455,7 @@
       if (voiceMode) {
         resetVoiceQueueState();
       }
+      beginAssistantTurn();
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
       const assistantCountBefore = chatLog.querySelectorAll(".message.assistant").length;
       const delegationNoticeText = "Transferring your work to an expert. This may take a bit longer.";
@@ -2366,114 +2463,125 @@
         onAssistantMessage,
         delegationNoticeText,
       });
-      let response;
       try {
-        response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            session_id: sessionId,
-            message,
-            model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
-            backend: runtimeConfig.backend,
-            a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
-            a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
-            a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
-            a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
-          }),
-        });
-      } catch (error) {
+        let response;
+        try {
+          response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: sessionId,
+              message,
+              model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
+              backend: runtimeConfig.backend,
+              a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
+              a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
+              a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
+              a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
+            }),
+          });
+        } catch (error) {
+          delegationNoticeWatcher.stop();
+          if (!isRecoverableNetworkError(error)) {
+            throw error;
+          }
+          if (!sessionId) {
+            throw new Error("Connection interrupted before session assignment. Please retry.");
+          }
+          const recovered = await recoverChatAfterDisconnect(
+            sessionId,
+            assistantCountBefore,
+            { onAssistantMessage }
+          );
+          if (recovered) {
+            return recovered;
+          }
+          throw new Error("Connection interrupted before the reply arrived.");
+        }
+        const data = await readJsonResponse(response);
         delegationNoticeWatcher.stop();
-        if (!isRecoverableNetworkError(error)) {
-          throw error;
+        if (!response.ok) {
+          throw new Error(data.error || "Request failed");
         }
-        if (!sessionId) {
-          throw new Error("Connection interrupted before session assignment. Please retry.");
+        sessionId = data.session_id;
+        storeSessionId(sessionId);
+        const activeWorkIdFromResponse =
+          (typeof data.work_id === "string" && data.work_id.trim())
+          || (typeof data.metadata?.active_work_id === "string" && data.metadata.active_work_id.trim())
+          || "";
+        if (activeWorkIdFromResponse) {
+          storeActiveWorkId(activeWorkIdFromResponse);
+        } else {
+          await syncActiveWorkForSession(sessionId);
         }
-        const recovered = await recoverChatAfterDisconnect(
-          sessionId,
-          assistantCountBefore,
-          { onAssistantMessage }
-        );
-        if (recovered) {
-          return recovered;
+        renderTrace(data);
+        showRouterFailureDialogIfNeeded(data);
+        if (data.route === "delegated_manager" && data.metadata?.delegated_background_started && !delegationNoticeWatcher.hasNotified()) {
+          appendMessage("assistant", delegationNoticeText, "", { badge: "Delegated" });
+          await deliverAssistantText(delegationNoticeText, { onAssistantMessage, alreadyRendered: true, metadata: data.metadata || null });
         }
-        throw new Error("Connection interrupted before the reply arrived.");
-      }
-      const data = await readJsonResponse(response);
-      delegationNoticeWatcher.stop();
-      if (!response.ok) {
-        throw new Error(data.error || "Request failed");
-      }
-      sessionId = data.session_id;
-      storeSessionId(sessionId);
-      const activeWorkIdFromResponse =
-        (typeof data.work_id === "string" && data.work_id.trim())
-        || (typeof data.metadata?.active_work_id === "string" && data.metadata.active_work_id.trim())
-        || "";
-      if (activeWorkIdFromResponse) {
-        storeActiveWorkId(activeWorkIdFromResponse);
-      } else {
-        await syncActiveWorkForSession(sessionId);
-      }
-      renderTrace(data);
-      showRouterFailureDialogIfNeeded(data);
-      if (data.route === "delegated_manager" && !delegationNoticeWatcher.hasNotified()) {
-        appendMessage("assistant", delegationNoticeText, "", { badge: "Delegated" });
-        await deliverAssistantText(delegationNoticeText, { onAssistantMessage, alreadyRendered: true });
-      }
-      if (data.metadata?.delegated_background) {
-        setConversationQueueStatus("Work transferred to an expert. Waiting for result...");
-        startClassicDelegatedCompletionWatcher(data.session_id, assistantCountBefore, {
-          onAssistantMessage,
-        });
+        if (data.metadata?.delegated_background_started) {
+          setConversationQueueStatus("Work transferred to an expert. Waiting for result...");
+          startClassicDelegatedCompletionWatcher(data.session_id, assistantCountBefore, {
+            onAssistantMessage,
+          });
+          await refreshSidePanels();
+          if (airVoiceController) {
+            airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
+          }
+          return data;
+        }
+        if (data.metadata?.delegated_background_busy) {
+          const busyText = String(data.message || (data.messages && data.messages[0] && data.messages[0].text) || "");
+          if (busyText) {
+            await deliverAssistantText(busyText, { onAssistantMessage, metadata: data.metadata || null });
+          }
+          return data;
+        }
+        const messages = Array.isArray(data.messages) && data.messages.length
+          ? data.messages
+          : [{ text: data.message || "", delay_ms: 0 }];
+        for (const item of messages) {
+          const text = item.text || "";
+          if (!text) {
+            continue;
+          }
+          await deliverAssistantText(text, { onAssistantMessage, metadata: data.metadata || null });
+        }
+        if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
+          const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
+          setConversationQueueStatus(
+            `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+          );
+          try {
+            await pollNextConversationMessages(data.session_id, { onAssistantMessage });
+          } catch (error) {
+            const shouldRecover = isRecoverableNetworkError(error)
+              || (error instanceof Error && /next message failed/i.test(error.message));
+            if (!shouldRecover) {
+              throw error;
+            }
+            const assistantCountNow = chatLog.querySelectorAll(".message.assistant").length;
+            const recovered = await recoverChatAfterDisconnect(
+              data.session_id,
+              assistantCountNow,
+              { onAssistantMessage }
+            );
+            if (!recovered) {
+              throw new Error("Connection interrupted while waiting for queued replies.");
+            }
+          }
+        } else {
+          setConversationQueueStatus("");
+        }
         await refreshSidePanels();
         if (airVoiceController) {
           airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
         }
         return data;
+      } finally {
+        endAssistantTurn();
       }
-      const messages = Array.isArray(data.messages) && data.messages.length
-        ? data.messages
-        : [{ text: data.message || "", delay_ms: 0 }];
-      for (const item of messages) {
-        const text = item.text || "";
-        if (!text) {
-          continue;
-        }
-        await deliverAssistantText(text, { onAssistantMessage });
-      }
-      if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
-        const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
-        setConversationQueueStatus(
-          `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
-        );
-        try {
-          await pollNextConversationMessages(data.session_id, { onAssistantMessage });
-        } catch (error) {
-          const shouldRecover = isRecoverableNetworkError(error)
-            || (error instanceof Error && /next message failed/i.test(error.message));
-          if (!shouldRecover) {
-            throw error;
-          }
-          const assistantCountNow = chatLog.querySelectorAll(".message.assistant").length;
-          const recovered = await recoverChatAfterDisconnect(
-            data.session_id,
-            assistantCountNow,
-            { onAssistantMessage }
-          );
-          if (!recovered) {
-            throw new Error("Connection interrupted while waiting for queued replies.");
-          }
-        }
-      } else {
-        setConversationQueueStatus("");
-      }
-      await refreshSidePanels();
-      if (airVoiceController) {
-        airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
-      }
-      return data;
     }
 
     function loadStoredSessionId() {
@@ -3657,6 +3765,9 @@
         messageInput.value = text;
       },
       beforeRecordStart: async ({ isPlaybackActive }) => {
+        if (currentDeferredVoiceNotification) {
+          requeueCurrentDeferredVoiceNotification();
+        }
         if (!isPlaybackActive) {
           return;
         }

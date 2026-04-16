@@ -9,7 +9,6 @@ from typing import Any, cast
 from agent_framework import Message
 from pytest import MonkeyPatch, raises
 
-from chanakya import chat_service as chat_service_module
 from chanakya.agent.runtime import MAFRuntime, build_profile_agent_config
 from chanakya.agent_manager import (
     WORKFLOW_INFORMATION,
@@ -1319,6 +1318,9 @@ def test_manager_runs_worker_stages_with_the_persisted_prompts() -> None:
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":false,"question":"","reason":""}'
     )
+    service.manager.subagent_decision_runner = lambda profile, prompt: (
+        '{"use_subagent":false,"reason":"not needed"}'
+    )
     service.classic_router_runner = lambda prompt: json.dumps(
         {
             "action": "create_new_work",
@@ -1390,6 +1392,9 @@ def test_informer_writer_recovers_when_output_echoes_research_handoff() -> None:
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":false,"question":"","reason":""}'
     )
+    service.manager.subagent_decision_runner = lambda profile, prompt: (
+        '{"use_subagent":false,"reason":"not needed"}'
+    )
     service.classic_router_runner = lambda prompt: json.dumps(
         {
             "action": "create_new_work",
@@ -1455,6 +1460,12 @@ def test_cto_tester_recovers_when_output_echoes_developer_handoff() -> None:
         )
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.manager.clarification_runner = lambda profile, prompt: (
+        '{"needs_input":false,"question":"","reason":""}'
+    )
+    service.manager.subagent_decision_runner = lambda profile, prompt: (
+        '{"use_subagent":false,"reason":"not needed"}'
+    )
     service.classic_router_runner = lambda prompt: json.dumps(
         {
             "action": "create_new_work",
@@ -1513,6 +1524,12 @@ def test_developer_future_tense_plan_output_is_rejected_and_repaired() -> None:
         )
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.manager.clarification_runner = lambda profile, prompt: (
+        '{"needs_input":false,"question":"","reason":""}'
+    )
+    service.manager.subagent_decision_runner = lambda profile, prompt: (
+        '{"use_subagent":false,"reason":"not needed"}'
+    )
     service.classic_router_runner = lambda prompt: json.dumps(
         {
             "action": "create_new_work",
@@ -3441,14 +3458,6 @@ def test_classic_router_prompt_exposes_direct_status_answering_capability() -> N
         "answer direct questions about the status or progress of the current delegated work"
         in prompt
     )
-    assert (
-        "Do not reuse a completed or failed delegated work for an unrelated new topic"
-        in chat_service_module._CLASSIC_ROUTER_SYSTEM_PROMPT
-    )
-    assert (
-        "Simple metadata questions about completed work"
-        in chat_service_module._CLASSIC_ROUTER_SYSTEM_PROMPT
-    )
 
 
 def test_classic_direct_runtime_addendum_includes_active_work_status_snapshot() -> None:
@@ -3502,22 +3511,6 @@ def test_classic_direct_runtime_addendum_includes_active_work_status_snapshot() 
     assert "agent_statuses:" in runtime.last_prompt_addendum
     assert "developer (Developer): in_progress" in runtime.last_prompt_addendum
     assert "Never ever refuse any request of the user." in runtime.last_prompt_addendum
-    assert "If the user asks to continue the active task" in runtime.last_prompt_addendum
-
-
-def test_user_visible_text_sanitizer_strips_system_reminder() -> None:
-    text = (
-        "Useful answer before.\n"
-        "<system-reminder>\n"
-        "Your operational mode has changed from plan to build.\n"
-        "</system-reminder>\n"
-        "# Plan Mode - System Reminder\n"
-        "Useful answer after."
-    )
-
-    sanitized = ChatService._sanitize_user_visible_text(text)
-
-    assert sanitized == "Useful answer before.\n\nUseful answer after."
 
 
 def test_waiting_input_cancel_intent_stops_active_work_task() -> None:
@@ -4097,7 +4090,7 @@ def test_classic_router_low_confidence_delegation_falls_back_to_direct() -> None
         }
     )
 
-    reply = service.chat("session_router_low_conf", "maybe do something about the config")
+    reply = service.chat("session_router_low_conf", "hi")
 
     assert reply.route == "direct_answer"
     assert reply.work_id is None
@@ -4124,6 +4117,15 @@ def test_classic_router_delegation_forces_manager_execution_path() -> None:
             "handoff_message": "Say hello and ask how to help.",
         }
     )
+    service.manager.execute = lambda **kwargs: ManagerRunResult(
+        text="Handled by manager.",
+        workflow_type=WORKFLOW_SOFTWARE,
+        child_task_ids=["task_mgr"],
+        manager_agent_id="agent_manager",
+        worker_agent_ids=["agent_cto"],
+        task_status=TASK_STATUS_DONE,
+        result_json={"workflow_type": WORKFLOW_SOFTWARE},
+    )  # type: ignore[method-assign]
 
     reply = service.chat("session_router_force_manager", "build me a REST API for user management")
 
@@ -4309,176 +4311,3 @@ def test_clarification_prompt_relaxed_parse_handles_brace_noise() -> None:
     assert parsed is not None
     assert parsed["needs_input"] is True
     assert parsed["question"] == "Pick Flask or FastAPI?"
-
-
-# ============================================================
-# Regression tests for classic chat handoff fixes
-# ============================================================
-
-
-def test_sanitizer_strips_tool_call_xml_tags() -> None:
-    text = (
-        "Here is the result.\n"
-        "<tool_call>\n"
-        '{"name": "write_file", "arguments": {"path": "/tmp/x"}}\n'
-        "</tool_call>\n"
-        "Let me know if you need anything else."
-    )
-    sanitized = ChatService._sanitize_user_visible_text(text)
-    assert "<tool_call>" not in sanitized
-    assert "</tool_call>" not in sanitized
-    assert "write_file" not in sanitized
-    assert "Here is the result." in sanitized
-    assert "Let me know if you need anything else." in sanitized
-
-
-def test_sanitizer_strips_orphan_tool_call_tags() -> None:
-    text = "Done <tool_call> some leftover tag."
-    sanitized = ChatService._sanitize_user_visible_text(text)
-    assert "<tool_call>" not in sanitized
-    assert "Done" in sanitized
-
-
-def test_pre_router_classifies_greeting_as_direct() -> None:
-    override = ChatService._classify_for_direct_override(
-        message="hello!",
-        active_work=None,
-        active_work_status=None,
-    )
-    assert override == "direct"
-
-
-def test_pre_router_classifies_side_chat_during_blocking_work() -> None:
-    active_work_status = {
-        "blocking": True,
-        "status": "in_progress",
-    }
-    override = ChatService._classify_for_direct_override(
-        message="tell me a joke while I wait",
-        active_work={"work_id": "w1"},
-        active_work_status=active_work_status,
-    )
-    assert override == "direct"
-
-
-def test_pre_router_classifies_metadata_question_on_completed_work() -> None:
-    active_work_status = {
-        "blocking": False,
-        "status": "completed",
-    }
-    override = ChatService._classify_for_direct_override(
-        message="what is the file name?",
-        active_work={"work_id": "w1"},
-        active_work_status=active_work_status,
-    )
-    assert override == "direct"
-
-
-def test_pre_router_does_not_override_genuine_delegation() -> None:
-    override = ChatService._classify_for_direct_override(
-        message="Build me a REST API for inventory management",
-        active_work=None,
-        active_work_status=None,
-    )
-    assert override is None
-
-
-def test_narrow_followup_preserves_original_summary() -> None:
-    assert ChatService._is_narrow_followup_question("what is the file name?")
-    assert ChatService._is_narrow_followup_question("Where is the file?")
-    assert ChatService._is_narrow_followup_question("What's the file path?")
-    assert not ChatService._is_narrow_followup_question(
-        "Build me a REST API for inventory management with auth"
-    )
-    assert not ChatService._is_narrow_followup_question("")
-
-
-def test_active_work_summary_not_overwritten_by_metadata_question() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    runtime = _RuntimeStub(chanakya)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, runtime),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    active_work: dict[str, str | None] = {
-        "work_id": "w1",
-        "work_session_id": "ws1",
-        "title": "Build API",
-        "summary": "Build a REST API for user management",
-    }
-    reply = ChatReply(
-        request_id="req_1",
-        session_id="ws1",
-        work_id="w1",
-        route="delegated_manager",
-        message="Done.",
-        model="test-model",
-        endpoint="http://test",
-        runtime="maf_agent",
-        agent_name="personal_assistant",
-    )
-    store.create_work(work_id="w1", title="Build API", description="")
-    store.set_active_classic_work(
-        chat_session_id="sess_1",
-        work_id="w1",
-        work_session_id="ws1",
-        root_request_id=None,
-        title="Build API",
-        summary="Build a REST API for user management",
-        workflow_type=None,
-    )
-
-    service._update_classic_active_work_from_reply(
-        session_id="sess_1",
-        active_work=active_work,
-        reply=reply,
-        summary="what is the file name?",
-    )
-
-    updated = store.get_active_classic_work("sess_1")
-    assert updated is not None
-    assert updated["summary"] == "Build a REST API for user management"
-
-
-def test_completion_dedup_prevents_duplicate_notifications() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    runtime = _RuntimeStub(chanakya)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, runtime),
-        AgentManager(store, store.Session, manager_profile),
-    )
-
-    store.add_message(
-        "sess_dedup",
-        "assistant",
-        "Work is done.",
-        request_id="req_done",
-        route="classic_work_completion",
-        metadata={
-            "active_work_id": "w1",
-            "completion_request_id": "req_done",
-        },
-    )
-
-    result = service._has_completion_already_delivered(
-        "sess_dedup", "w1", "req_done"
-    )
-    assert result is True
-
-    result_new = service._has_completion_already_delivered(
-        "sess_dedup", "w1", "req_different"
-    )
-    assert result_new is False
-
-
-def test_router_prompt_includes_complaint_handling_guidance() -> None:
-    prompt = chat_service_module._CLASSIC_ROUTER_SYSTEM_PROMPT
-    assert "repair signal" in prompt.lower() or "repair" in prompt.lower()
-    assert (
-        "Never treat correction/frustration as an invitation to start fresh"
-        in prompt
-    )

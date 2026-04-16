@@ -463,6 +463,24 @@
       isVoiceModeEnabled() {
         return continuousMode || voiceTurnActive;
       },
+      isRecordingActive() {
+        return Boolean(mediaRecorder && mediaRecorder.state !== "inactive");
+      },
+      isInteractionActive() {
+        return Boolean(
+          (mediaRecorder && mediaRecorder.state !== "inactive")
+          || voiceTurnActive
+          || activeAudio
+          || audioQueue.length
+          || isPlayingQueue
+          || ttsInFlightCount > 0
+          || nextAudioTimer
+        );
+      },
+      stopSpeechAndInvalidate() {
+        speechSequenceId += 1;
+        stopPlayback();
+      },
       async speakAssistantMessageAndWait(text) {
         return speakAssistantMessageAndWait(text);
       },
