@@ -1973,6 +1973,41 @@
       conversationQueueStatus.dataset.state = isError ? "error" : "idle";
     }
 
+    let voiceQueuePaused = false;
+    let voiceQueueGeneration = 0;
+
+    function isVoiceDeliveryMode() {
+      return Boolean(airVoiceController && typeof airVoiceController.isVoiceModeEnabled === "function"
+        && airVoiceController.isVoiceModeEnabled());
+    }
+
+    function resetVoiceQueueState() {
+      voiceQueuePaused = false;
+      voiceQueueGeneration += 1;
+    }
+
+    function pauseVoiceQueueState() {
+      voiceQueuePaused = true;
+      voiceQueueGeneration += 1;
+    }
+
+    async function deliverAssistantText(text, options = {}) {
+      const { onAssistantMessage, alreadyRendered = false } = options;
+      if (!text) {
+        return;
+      }
+      if (!alreadyRendered) {
+        appendMessage("assistant", text);
+      }
+      if (isVoiceDeliveryMode() && airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
+        await airVoiceController.speakAssistantMessageAndWait(text);
+        return;
+      }
+      if (typeof onAssistantMessage === "function") {
+        await onAssistantMessage(text);
+      }
+    }
+
     async function readJsonResponse(response) {
       const raw = await response.text();
       if (!raw) {
@@ -2042,6 +2077,7 @@
     }
 
     async function pauseConversationReplies() {
+      pauseVoiceQueueState();
       if (!sessionId) {
         setConversationQueueStatus("No active session to pause.", true);
         return;
@@ -2053,13 +2089,18 @@
       if (!response.ok) {
         throw new Error(payload.error || "Pause failed");
       }
-      setConversationQueueStatus("Paused queued assistant replies.");
+      setConversationQueueStatus(
+        isVoiceDeliveryMode()
+          ? "Paused queued assistant speech after the current message."
+          : "Paused queued assistant replies."
+      );
     }
 
-    async function pollNextConversationMessages(targetSessionId, options = {}) {
+    async function runVoiceConversationMessages(targetSessionId, options = {}) {
       const { onAssistantMessage } = options;
+      const generation = voiceQueueGeneration;
       let consecutiveFailures = 0;
-      while (true) {
+      while (generation === voiceQueueGeneration && !voiceQueuePaused) {
         let response;
         let payload;
         try {
@@ -2091,11 +2132,81 @@
         if (payload.status === "delivered" && payload.message) {
           const text = payload.message.text || "";
           if (text) {
-            appendMessage("assistant", text);
-            if (typeof onAssistantMessage === "function") {
-              onAssistantMessage(text);
-            }
+            await deliverAssistantText(text, { onAssistantMessage });
           }
+          const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+          if (voiceQueuePaused || generation !== voiceQueueGeneration) {
+            setConversationQueueStatus("Queued assistant speech paused.");
+            break;
+          }
+          setConversationQueueStatus(
+            pendingCount > 0
+              ? `Assistant has ${pendingCount} queued spoken follow-up${pendingCount === 1 ? "" : "s"}.`
+              : "Assistant finished replying."
+          );
+          continue;
+        }
+        if (payload.status === "waiting") {
+          const waitMs = Math.max(Number(payload.retry_after_ms || 500), 250);
+          const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+          setConversationQueueStatus(
+            pendingCount > 0
+              ? `Assistant is pacing ${pendingCount} queued spoken follow-up${pendingCount === 1 ? "" : "s"}.`
+              : "Assistant is thinking..."
+          );
+          await delay(Math.min(waitMs, 1000));
+          continue;
+        }
+        if (payload.status === "paused") {
+          setConversationQueueStatus("Queued assistant speech paused.");
+          break;
+        }
+        setConversationQueueStatus(voiceQueuePaused ? "Queued assistant speech paused." : "");
+        break;
+      }
+    }
+
+    async function pollNextConversationMessages(targetSessionId, options = {}) {
+      if (isVoiceDeliveryMode()) {
+        await runVoiceConversationMessages(targetSessionId, options);
+        return;
+      }
+      const { onAssistantMessage } = options;
+      let consecutiveFailures = 0;
+      while (true) {
+        let response;
+        let payload;
+        try {
+          response = await fetchWithTimeout(
+            `/api/sessions/${encodeURIComponent(targetSessionId)}/next-message`,
+            {},
+            15000
+          );
+          payload = await readJsonResponse(response);
+        } catch (error) {
+          if (isRecoverableNetworkError(error) && consecutiveFailures < 12) {
+            consecutiveFailures += 1;
+            setConversationQueueStatus("Connection hiccup while waiting for queued replies. Retrying...");
+            await delay(Math.min(5000, 500 * consecutiveFailures));
+            continue;
+          }
+          throw error;
+        }
+        if (!response.ok) {
+          if ([502, 503, 504, 522, 524].includes(Number(response.status)) && consecutiveFailures < 12) {
+            consecutiveFailures += 1;
+            setConversationQueueStatus("Assistant is still running. Retrying...");
+            await delay(Math.min(5000, 500 * consecutiveFailures));
+            continue;
+          }
+          throw new Error(payload.error || "Next message failed");
+        }
+        consecutiveFailures = 0;
+          if (payload.status === "delivered" && payload.message) {
+            const text = payload.message.text || "";
+            if (text) {
+            await deliverAssistantText(text, { onAssistantMessage });
+            }
           const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
           setConversationQueueStatus(
             pendingCount > 0
@@ -2155,8 +2266,10 @@
               if (hasDelegationNotice) {
                 notified = true;
                 appendMessage("assistant", delegationNoticeText, "", { badge: "Delegated" });
-                if (typeof onAssistantMessage === "function") {
-                  onAssistantMessage(delegationNoticeText);
+                if (isVoiceDeliveryMode() && airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
+                  await airVoiceController.speakAssistantMessageAndWait(delegationNoticeText);
+                } else if (typeof onAssistantMessage === "function") {
+                  await onAssistantMessage(delegationNoticeText);
                 }
                 setConversationQueueStatus("Work transferred to an expert. Waiting for result...");
                 break;
@@ -2205,11 +2318,13 @@
                 renderChatHistory(messages);
                 await refreshSidePanels();
                 completionMessages.forEach((item) => {
-                  const text = String(item.content || "");
-                  if (text && typeof onAssistantMessage === "function") {
-                    onAssistantMessage(text);
-                  }
                 });
+                for (const item of completionMessages) {
+                  const text = String(item.content || "");
+                  if (text) {
+                    await deliverAssistantText(text, { onAssistantMessage, alreadyRendered: true });
+                  }
+                }
                 const latestCompletion = completionMessages[completionMessages.length - 1] || null;
                 const pendingCount = Number(latestCompletion?.metadata?.pending_delivery_count || 0);
                 if (pendingCount > 0) {
@@ -2240,7 +2355,10 @@
     }
 
     async function submitChatMessage(message, options = {}) {
-      const { onAssistantMessage } = options;
+      const { onAssistantMessage, voiceMode = false } = options;
+      if (voiceMode) {
+        resetVoiceQueueState();
+      }
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
       const assistantCountBefore = chatLog.querySelectorAll(".message.assistant").length;
       const delegationNoticeText = "Transferring your work to an expert. This may take a bit longer.";
@@ -2302,9 +2420,7 @@
       showRouterFailureDialogIfNeeded(data);
       if (data.route === "delegated_manager" && !delegationNoticeWatcher.hasNotified()) {
         appendMessage("assistant", delegationNoticeText, "", { badge: "Delegated" });
-        if (typeof onAssistantMessage === "function") {
-          onAssistantMessage(delegationNoticeText);
-        }
+        await deliverAssistantText(delegationNoticeText, { onAssistantMessage, alreadyRendered: true });
       }
       if (data.metadata?.delegated_background) {
         setConversationQueueStatus("Work transferred to an expert. Waiting for result...");
@@ -2320,16 +2436,13 @@
       const messages = Array.isArray(data.messages) && data.messages.length
         ? data.messages
         : [{ text: data.message || "", delay_ms: 0 }];
-      messages.forEach((item) => {
+      for (const item of messages) {
         const text = item.text || "";
         if (!text) {
-          return;
+          continue;
         }
-        appendMessage("assistant", text);
-        if (typeof onAssistantMessage === "function") {
-          onAssistantMessage(text);
-        }
-      });
+        await deliverAssistantText(text, { onAssistantMessage });
+      }
       if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
         const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
         setConversationQueueStatus(
@@ -3529,10 +3642,12 @@
         const { onAssistantMessage } = options;
         appendMessage("user", text, "voice transcript");
         const data = await submitChatMessage(text, {
+          voiceMode: true,
           onAssistantMessage: (content) => {
             if (typeof onAssistantMessage === "function") {
-              onAssistantMessage(content);
+              return onAssistantMessage(content);
             }
+            return undefined;
           },
         });
         return data.message || "";

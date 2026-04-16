@@ -3233,6 +3233,178 @@ def test_classic_async_delegation_busy_followup_does_not_start_second_background
     assert "still working on that delegated task" in second_reply.message
 
 
+def test_classic_async_running_active_work_blocks_create_new_work() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.classic_async_enabled = True
+    router_calls = {"count": 0}
+
+    def _dynamic_router(prompt: str) -> str:
+        router_calls["count"] += 1
+        if router_calls["count"] == 1:
+            return json.dumps(
+                {
+                    "action": "create_new_work",
+                    "confidence": 0.95,
+                    "reason": "first delegated request",
+                    "handoff_message": "Research climate change",
+                }
+            )
+        return json.dumps(
+            {
+                "action": "create_new_work",
+                "confidence": 0.95,
+                "reason": "new complex request while first still running",
+                "handoff_message": "Build a todo app",
+            }
+        )
+
+    background_calls: list[dict[str, Any]] = []
+
+    def _capture_background(target: Any, *args: Any, **kwargs: Any) -> None:
+        background_calls.append(kwargs)
+
+    service.classic_router_runner = _dynamic_router
+    service.classic_background_launcher = _capture_background
+
+    first_reply = service.chat("session_running_block", "Research climate change")
+    first_active_work = store.get_active_classic_work("session_running_block")
+    second_reply = service.chat("session_running_block", "Build a todo app")
+    second_active_work = store.get_active_classic_work("session_running_block")
+
+    assert first_reply.response_mode == "delegated_background"
+    assert second_reply.response_mode == "delegated_background"
+    assert "still busy with the current delegated work" in second_reply.message
+    assert len(background_calls) == 1
+    assert first_active_work is not None
+    assert second_active_work is not None
+    assert second_active_work["work_id"] == first_active_work["work_id"]
+    messages = store.list_messages("session_running_block")
+    assert [message["content"] for message in messages[-2:]] == [
+        "Build a todo app",
+        "The experts are still busy with the current delegated work. Please wait for them to finish before starting another complex request.",
+    ]
+
+
+def test_completed_active_work_allows_create_new_work_replacement() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    router_calls = {"count": 0}
+
+    def _dynamic_router(prompt: str) -> str:
+        router_calls["count"] += 1
+        if router_calls["count"] == 1:
+            return json.dumps(
+                {
+                    "action": "create_new_work",
+                    "confidence": 0.95,
+                    "reason": "first delegated request",
+                    "handoff_message": "Research climate change",
+                }
+            )
+        return json.dumps(
+            {
+                "action": "create_new_work",
+                "confidence": 0.95,
+                "reason": "new complex request after completion",
+                "handoff_message": "Build a todo app",
+            }
+        )
+
+    service.classic_router_runner = _dynamic_router
+    service.manager.execute = lambda **kwargs: ManagerRunResult(
+        text="Completed delegated work.",
+        workflow_type=WORKFLOW_INFORMATION,
+        child_task_ids=["task_mgr"],
+        manager_agent_id="agent_manager",
+        worker_agent_ids=["agent_informer"],
+        task_status=TASK_STATUS_DONE,
+        result_json={"workflow_type": WORKFLOW_INFORMATION},
+    )  # type: ignore[method-assign]
+
+    first_reply = service.chat("session_replace_completed", "Research climate change")
+    first_active_work = store.get_active_classic_work("session_replace_completed")
+    second_reply = service.chat("session_replace_completed", "Build a todo app")
+    second_active_work = store.get_active_classic_work("session_replace_completed")
+
+    assert first_active_work is not None
+    assert second_active_work is not None
+    assert first_reply.work_id == first_active_work["work_id"]
+    assert second_reply.work_id == second_active_work["work_id"]
+    assert second_active_work["work_id"] != first_active_work["work_id"]
+
+
+def test_classic_router_prompt_marks_completed_active_work_non_blocking() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "research request",
+            "handoff_message": "Research climate change",
+        }
+    )
+    service.manager.execute = lambda **kwargs: ManagerRunResult(
+        text="Completed delegated work.",
+        workflow_type=WORKFLOW_INFORMATION,
+        child_task_ids=["task_mgr"],
+        manager_agent_id="agent_manager",
+        worker_agent_ids=["agent_informer"],
+        task_status=TASK_STATUS_DONE,
+        result_json={"workflow_type": WORKFLOW_INFORMATION},
+    )  # type: ignore[method-assign]
+
+    service.chat("session_router_prompt", "Research climate change")
+    active_work = store.get_active_classic_work("session_router_prompt")
+
+    prompt = service._build_classic_router_prompt(
+        session_id="session_router_prompt",
+        message="Build a todo app",
+        active_work=active_work,
+    )
+
+    assert "blocking=False" in prompt
+    assert "status=done" in prompt
+
+
+def test_classic_router_prompt_defines_internal_expert_delegation() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+
+    prompt = service._build_classic_router_prompt(
+        session_id="session_expert_prompt",
+        message="I think you should call an expert and ask the expert to generate the report properly.",
+        active_work=None,
+    )
+
+    assert "Delegation means routing work to Chanakya's internal specialist workflow" in prompt
+    assert "[delegation_system]" in prompt
+
+
 def test_waiting_input_cancel_intent_stops_active_work_task() -> None:
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)
@@ -3789,7 +3961,7 @@ def test_classic_router_failure_falls_back_to_direct_with_diagnostics() -> None:
     failure = reply.metadata.get("router_failure")
     assert isinstance(failure, dict)
     assert str(failure.get("output") or "") == "this is not json"
-    assert "Current user message:" in str(failure.get("input") or "")
+    assert "[current_user_message]" in str(failure.get("input") or "")
 
 
 def test_classic_router_low_confidence_delegation_falls_back_to_direct() -> None:

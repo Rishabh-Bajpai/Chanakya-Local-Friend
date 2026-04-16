@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from typing import Any
 
 from chanakya.agent.runtime import normalize_runtime_backend
@@ -21,6 +22,7 @@ from chanakya.domain import (
     TASK_STATUS_DONE,
     TASK_STATUS_FAILED,
     TASK_STATUS_IN_PROGRESS,
+    TASK_STATUS_READY,
     TASK_STATUS_WAITING_INPUT,
     make_id,
     now_iso,
@@ -64,51 +66,44 @@ _WAITING_INPUT_CANCEL_MARKERS = (
 _CLASSIC_ROUTER_MIN_DELEGATION_CONFIDENCE = 0.25
 _CLASSIC_ROUTER_HISTORY_WINDOW = 12
 _CLASSIC_ROUTER_SYSTEM_PROMPT = (
-    "You are a routing planner for Chanakya classic chat. "
-    "Given a user message, recent chat history, active work context, and Chanakya's direct capabilities, "
-    "decide exactly ONE action.\n\n"
+    "You are the routing planner for Chanakya classic chat. Your job is to choose exactly one execution path for the current user message based on the full context provided.\n\n"
+    "You will receive:\n"
+    "- the current user message\n"
+    "- recent chat history with roles and routes\n"
+    "- active delegated work context, including whether it is currently blocking/running\n"
+    "- Chanakya's direct capabilities and tools\n\n"
     "Output valid JSON ONLY with this schema:\n"
     '{"action":"direct|continue_active_work|create_new_work","confidence":0.0-1.0,"reason":"...","handoff_message":"..."}\n\n'
-    "## Actions\n\n"
+    "## What the actions mean\n\n"
     "### direct\n"
-    "Handle the message yourself in a single turn. Choose this for:\n"
-    "- Greetings, small talk, thanks, social niceties\n"
-    '- Simple factual questions ("What is the capital of France?")\n'
-    '- Short math/arithmetic ("What is 7400 times 57?")\n'
-    "- Quick rewrites, rephrasing, grammar fixes, translations on short text\n"
-    "- Jokes, riddles, simple entertainment\n"
-    "- Any request that Chanakya can fully answer in one turn with its direct capabilities\n"
-    "For direct, set handoff_message to empty string.\n\n"
+    "Chanakya should answer the user now in classic chat without starting or continuing delegated specialist work. Choose this when the request can be completed reliably in one turn with Chanakya's direct capabilities or tools.\n"
+    "For direct, handoff_message must be empty.\n\n"
     "### continue_active_work\n"
-    "Route the message to the EXISTING active work session. Choose this when:\n"
-    "- The user is continuing, refining, or following up on the active task\n"
-    '- The user modifies parameters of the same task type (e.g. "now do it for range 2-300" '
-    "after finding primes in range 74-534). CRITICAL: parameter changes to the same fundamental "
-    "task are follow-ups, NOT new tasks.\n"
-    '- The user refers to active work output ("add a conclusion", "fix that bug", "update the report")\n'
-    '- Pronoun references ("it", "this", "that") that clearly refer to the active work\n'
-    "- The user asks to revise, extend, or iterate on the active work result\n"
-    "For continue_active_work, handoff_message should include enough context for the worker "
-    "to understand the follow-up instruction.\n\n"
+    "Route the message to the existing delegated work session. Choose this when the user's message is best understood as operating on the same delegated objective, work product, task, or result as the active work, including refinements, revisions, parameter changes, follow-ups, or requests to continue after completion.\n"
+    "For continue_active_work, handoff_message should carry enough context for the worker to understand the follow-up clearly.\n\n"
     "### create_new_work\n"
-    "Create a brand-new delegated work session. Choose this when:\n"
-    "- The user asks for something FUNDAMENTALLY DIFFERENT from the active task "
-    "(different domain, different goal, different deliverable type)\n"
-    "- There is no active work and the request requires multi-step specialist work "
-    "(software, research, reports, complex analysis)\n"
-    '- The user explicitly says "new task", "something else", "different task"\n'
-    "- The user explicitly asks to delegate, hand off, or involve Agent Manager\n"
-    "For create_new_work, handoff_message MUST be fully self-contained: the receiving agent "
-    "has NO knowledge of prior conversation. Include all relevant details, context, "
-    "and requirements from the chat history.\n\n"
-    "## Critical Rules\n"
-    "- If active work exists and the user's request is a variation/continuation of that work, "
-    "ALWAYS choose continue_active_work, NOT create_new_work.\n"
-    "- If a request involves software/code generation, implementation, debugging, testing, "
-    "multi-step research, or specialist coordination, do NOT choose direct.\n"
-    "- If the user explicitly asks to delegate or hand off, NEVER choose direct.\n"
-    "- confidence must be a number from 0.0 to 1.0.\n"
-    "- No markdown, no code fences, no extra keys."
+    "Start a new delegated work session. Choose this only when the user's request requires specialist or multi-step work and is distinct from the active delegated objective.\n"
+    "For create_new_work, handoff_message must be fully self-contained because the receiving worker should not rely on hidden chat context.\n\n"
+    "## Delegation semantics\n"
+    "- Chanakya has an internal specialist workflow. Delegation routes work to Chanakya's own internal experts and manager system, not to external humans by default.\n"
+    "- If the user asks for an expert, specialist, manager, handoff, delegation, or for someone else inside Chanakya to do the work properly, interpret that as a request for internal delegation unless the user clearly specifies an external human or outside organization.\n"
+    "- Do not choose direct merely because Chanakya itself cannot contact real external humans, if the user's actual intent is to have Chanakya delegate the work internally.\n\n"
+    "## General routing principles\n"
+    "- Determine the most plausible interpretation of the user's message using all provided context.\n"
+    "- Consider both recent conversational context and active delegated work context. Active work is important but is not automatically the dominant referent.\n"
+    "- Resolve references such as pronouns, ellipsis, or follow-up instructions by choosing the most semantically coherent referent from recent conversation state.\n"
+    "- Prefer direct when the request is locally answerable now and is not actually operating on the delegated work itself.\n"
+    "- Prefer continue_active_work when the user is continuing the same delegated objective, even if the details or parameters change.\n"
+    "- Prefer create_new_work only for a distinct complex task that should become its own delegated effort.\n\n"
+    "## Policy constraints\n"
+    "- If the active work is marked blocking=true, starting a new delegated task is generally inappropriate because another delegated task is already in progress.\n"
+    "- If active work exists and the user's message is best understood as the same delegated task, choose continue_active_work, not create_new_work.\n"
+    "- If the request requires software/code generation, implementation, debugging, testing, substantial research, reporting, or specialist coordination, do not choose direct unless the task is already directly solvable by Chanakya without delegation.\n"
+    "- If the user explicitly asks to delegate, hand off, or involve specialists, do not choose direct unless the request is clearly just about delegation control rather than task execution.\n\n"
+    "## Output rules\n"
+    "- confidence must be a number from 0.0 to 1.0\n"
+    "- reason should explain why this action is the best fit for the current message and context\n"
+    "- no markdown, no code fences, no extra keys"
 )
 
 
@@ -513,14 +508,33 @@ class ChatService:
         message: str,
         active_work: dict[str, Any] | None,
     ) -> str:
-        history = self._format_router_history(self.store.list_messages(session_id))
+        session_messages = self.store.list_messages(session_id)
+        history = self._format_router_history(session_messages)
+        active_work_status = self._resolve_classic_active_work_status(active_work)
+        recent_direct_context = "none"
+        for item in reversed(session_messages):
+            if str(item.get("role") or "") != "assistant":
+                continue
+            route = str(item.get("route") or "")
+            if route in {
+                "direct_answer",
+                "tool_assisted",
+                "classic_work_completion",
+                "conversation_layer_followup",
+            }:
+                recent_direct_context = (
+                    f"route={route}\ncontent={str(item.get('content') or '').strip()}"
+                )
+                break
         active_work_block = "none"
-        if active_work is not None:
+        if active_work_status is not None:
             active_work_block = (
-                f"work_id={active_work.get('work_id')}\n"
-                f"title={str(active_work.get('title') or '').strip()}\n"
-                f"summary={str(active_work.get('summary') or '').strip()}\n"
-                f"workflow_type={str(active_work.get('workflow_type') or '').strip() or 'unknown'}"
+                f"work_id={active_work_status.get('work_id')}\n"
+                f"title={str(active_work_status.get('title') or '').strip()}\n"
+                f"summary={str(active_work_status.get('summary') or '').strip()}\n"
+                f"workflow_type={str(active_work_status.get('workflow_type') or '').strip() or 'unknown'}\n"
+                f"status={str(active_work_status.get('status') or 'unknown')}\n"
+                f"blocking={bool(active_work_status.get('blocking'))}"
             )
         tool_ids = getattr(self.runtime.profile, "tool_ids", None)
         if not isinstance(tool_ids, list):
@@ -528,13 +542,15 @@ class ChatService:
             tool_ids = raw_tool_ids if isinstance(raw_tool_ids, list) else []
         capabilities = self._format_capability_summary(tool_ids)
         return (
-            f"Current user message:\n{message}\n\n"
-            f"Recent chat history (latest up to {_CLASSIC_ROUTER_HISTORY_WINDOW}):\n{history}\n\n"
-            f"Active delegated work context:\n{active_work_block}\n\n"
-            f"Chanakya direct capabilities:\n{capabilities}\n\n"
-            "Decide the routing action based on the system prompt rules. "
-            "If active work exists, carefully check whether the user's message is a continuation "
-            "or refinement of that work before choosing create_new_work."
+            "Context packet for routing:\n\n"
+            f"[current_user_message]\n{message}\n\n"
+            f"[recent_chat_history_latest_{_CLASSIC_ROUTER_HISTORY_WINDOW}]\n{history}\n\n"
+            f"[most_recent_local_assistant_context]\n{recent_direct_context}\n\n"
+            f"[active_delegated_work]\n{active_work_block}\n\n"
+            f"[chanakya_direct_capabilities]\n{capabilities}\n\n"
+            "[delegation_system]\n"
+            "Delegation means routing work to Chanakya's internal specialist workflow, not to external humans by default.\n\n"
+            "Choose the single best routing action for this message. Base the decision on semantic continuity, local conversational coherence, delegated-work continuity, and whether Chanakya can answer directly right now."
         )
 
     def _run_classic_router_prompt(
@@ -863,6 +879,106 @@ class ChatService:
             workflow_type=reply.response_mode,
         )
 
+    def _resolve_classic_active_work_status(
+        self, active_work: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        if active_work is None:
+            return None
+        work_id = str(active_work.get("work_id") or "").strip()
+        root_request_id = str(active_work.get("root_request_id") or "").strip()
+        status = "completed"
+        blocking = False
+        request_status: str | None = None
+        task_status: str | None = None
+        if work_id and self._classic_work_running(work_id):
+            status = "running"
+            blocking = True
+        elif root_request_id:
+            try:
+                request = self.store.get_request(root_request_id)
+                request_status = str(request.status or "").strip() or None
+                root_task_id = str(request.root_task_id or "").strip()
+                if root_task_id:
+                    try:
+                        task = self.store.get_task(root_task_id)
+                        task_status = str(task.status or "").strip() or None
+                    except KeyError:
+                        task_status = None
+            except KeyError:
+                request_status = None
+            if task_status in {
+                TASK_STATUS_CREATED,
+                TASK_STATUS_READY,
+                TASK_STATUS_IN_PROGRESS,
+                TASK_STATUS_WAITING_INPUT,
+                TASK_STATUS_BLOCKED,
+            }:
+                status = task_status
+                blocking = True
+            elif request_status in {REQUEST_STATUS_CREATED, REQUEST_STATUS_IN_PROGRESS}:
+                status = request_status
+                blocking = True
+            elif task_status:
+                status = task_status
+            elif request_status:
+                status = request_status
+        return {
+            **active_work,
+            "status": status,
+            "request_status": request_status,
+            "task_status": task_status,
+            "blocking": blocking,
+        }
+
+    def _classic_active_work_is_blocking(self, active_work: dict[str, Any] | None) -> bool:
+        status = self._resolve_classic_active_work_status(active_work)
+        return bool(status and status.get("blocking"))
+
+    def _classic_busy_notice(self, active_work: dict[str, Any] | None) -> str:
+        status = self._resolve_classic_active_work_status(active_work)
+        if status and status.get("task_status") == TASK_STATUS_WAITING_INPUT:
+            return (
+                "The experts are still busy with the current delegated work and they still need "
+                "your input to finish it. Please complete that work first before starting another complex request."
+            )
+        return (
+            "The experts are still busy with the current delegated work. Please wait for them to "
+            "finish before starting another complex request."
+        )
+
+    def _wait_for_classic_completion_delivery_slot(
+        self,
+        session_id: str,
+        *,
+        timeout_seconds: float = 30.0,
+    ) -> None:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            messages = self.store.list_messages(session_id)
+            last_message = messages[-1] if messages else None
+            if last_message is not None and str(last_message.get("role") or "") == "user":
+                time.sleep(0.25)
+                continue
+            if last_message is not None:
+                metadata = last_message.get("metadata") or {}
+                pending_delivery_count = int(
+                    metadata.get("pending_delivery_count")
+                    or metadata.get("conversation_layer_pending_delivery_count")
+                    or 0
+                )
+                if pending_delivery_count > 0:
+                    time.sleep(0.25)
+                    continue
+            requests = self.store.list_requests(session_id=session_id, limit=8)
+            if any(
+                str(request.get("status") or "")
+                in {REQUEST_STATUS_CREATED, REQUEST_STATUS_IN_PROGRESS}
+                for request in requests
+            ):
+                time.sleep(0.25)
+                continue
+            return
+
     @staticmethod
     def _workspace_has_saved_files(work_id: str) -> bool:
         try:
@@ -931,6 +1047,12 @@ class ChatService:
         a2a_model_provider: str | None,
         a2a_model_id: str | None,
     ) -> None:
+        current_active_work = self.store.get_active_classic_work(classic_session_id)
+        if current_active_work is None or str(current_active_work.get("work_id") or "") != str(
+            active_work.get("work_id") or ""
+        ):
+            return
+        self._wait_for_classic_completion_delivery_slot(classic_session_id)
         current_active_work = self.store.get_active_classic_work(classic_session_id)
         if current_active_work is None or str(current_active_work.get("work_id") or "") != str(
             active_work.get("work_id") or ""
@@ -1568,6 +1690,70 @@ class ChatService:
                     classic_router_failure = diagnostics if isinstance(diagnostics, dict) else {}
 
                 if action in {"continue_active_work", "create_new_work"}:
+                    if action == "create_new_work" and self._classic_active_work_is_blocking(
+                        active_work
+                    ):
+                        busy_message = self._classic_busy_notice(active_work)
+                        self.store.add_message(
+                            session_id,
+                            "user",
+                            message,
+                            metadata={},
+                        )
+                        self.store.add_message(
+                            session_id,
+                            "assistant",
+                            busy_message,
+                            route="delegation_notice",
+                            metadata={
+                                "runtime": "maf_agent",
+                                "delegation_notice": True,
+                                "active_work_id": active_work["work_id"] if active_work else None,
+                                "active_work_session_id": active_work["work_session_id"]
+                                if active_work
+                                else None,
+                                "delegated_background_busy": True,
+                                "create_new_work_blocked": True,
+                            },
+                        )
+                        return ChatReply(
+                            request_id=make_id("req"),
+                            session_id=session_id,
+                            work_id=str(active_work["work_id"]) if active_work else None,
+                            route="delegated_manager",
+                            message=busy_message,
+                            model=model_id,
+                            endpoint=a2a_url
+                            if normalize_runtime_backend(backend) == "a2a"
+                            else None,
+                            runtime="maf_agent",
+                            agent_name=self.runtime.profile.name,
+                            request_status=REQUEST_STATUS_IN_PROGRESS,
+                            root_task_status=(
+                                str(
+                                    self._resolve_classic_active_work_status(active_work).get(
+                                        "task_status"
+                                    )
+                                    or ""
+                                )
+                                or TASK_STATUS_IN_PROGRESS
+                            )
+                            if active_work is not None
+                            else TASK_STATUS_IN_PROGRESS,
+                            response_mode="delegated_background",
+                            messages=[{"text": busy_message, "delay_ms": 0}],
+                            metadata={
+                                "runtime": "maf_agent",
+                                "response_mode": "delegated_background",
+                                "active_work_id": active_work["work_id"] if active_work else None,
+                                "active_work_session_id": active_work["work_session_id"]
+                                if active_work
+                                else None,
+                                "delegated_background": True,
+                                "delegated_background_busy": True,
+                                "create_new_work_blocked": True,
+                            },
+                        )
                     if action == "create_new_work":
                         active_work = self._replace_classic_active_work(session_id, handoff_message)
                     if handoff_message.strip() != message.strip():
