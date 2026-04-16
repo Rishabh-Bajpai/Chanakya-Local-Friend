@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from chanakya.agent.runtime import normalize_runtime_backend
@@ -97,6 +98,7 @@ _CLASSIC_ROUTER_SYSTEM_PROMPT = (
     "- Prefer create_new_work only for a distinct complex task that should become its own delegated effort.\n\n"
     "## Policy constraints\n"
     "- If the active work is marked blocking=true, starting a new delegated task is generally inappropriate because another delegated task is already in progress.\n"
+    "- If active work is blocking=true and the user asks for a distinct complex task that would normally require new delegation, choose create_new_work rather than continue_active_work. The application will use that decision to tell the user the experts are busy instead of wrongly routing the new task into the existing work.\n"
     "- If active work exists and the user's message is best understood as the same delegated task, choose continue_active_work, not create_new_work.\n"
     "- If the request requires software/code generation, implementation, debugging, testing, substantial research, reporting, or specialist coordination, do not choose direct unless the task is already directly solvable by Chanakya without delegation.\n"
     "- If the user explicitly asks to delegate, hand off, or involve specialists, do not choose direct unless the request is clearly just about delegation control rather than task execution.\n\n"
@@ -997,7 +999,8 @@ class ChatService:
         self,
         session_id: str,
         *,
-        timeout_seconds: float = 30.0,
+        timeout_seconds: float = 120.0,
+        idle_gap_seconds: float = 20.0,
     ) -> None:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
@@ -1016,6 +1019,14 @@ class ChatService:
                 if pending_delivery_count > 0:
                     time.sleep(0.25)
                     continue
+                last_route = str(last_message.get("route") or "")
+                if last_route != _CLASSIC_WORK_COMPLETION_ROUTE:
+                    last_timestamp = self._parse_message_timestamp(last_message.get("created_at"))
+                    if last_timestamp is not None:
+                        elapsed = (datetime.now(timezone.utc) - last_timestamp).total_seconds()
+                        if elapsed < idle_gap_seconds:
+                            time.sleep(min(1.0, idle_gap_seconds - elapsed))
+                            continue
             requests = self.store.list_requests(session_id=session_id, limit=8)
             if any(
                 str(request.get("status") or "")
@@ -1048,6 +1059,19 @@ class ChatService:
             return normalized[: boundary + 1].strip()
         return normalized[: limit - 3].rstrip() + "..."
 
+    @staticmethod
+    def _parse_message_timestamp(value: Any) -> datetime | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
     def _build_classic_completion_message(
         self,
         *,
@@ -1059,11 +1083,6 @@ class ChatService:
         if task_status == TASK_STATUS_WAITING_INPUT:
             return "BTW, I got an update on the delegated work. The expert needs one more detail from you before they can continue."
         if task_status == TASK_STATUS_FAILED:
-            if summary:
-                return (
-                    "BTW, I got an update on the delegated work. It hit a problem before it could finish. "
-                    f"{summary}"
-                )
             return "BTW, I got an update on the delegated work. It hit a problem before it could finish."
         workspace_note = (
             " The files are saved in the workspace."
@@ -1133,50 +1152,27 @@ class ChatService:
                 task_status=reply.root_task_status,
                 manager_message=reply.message,
             )
-            runtime_metadata = {
+            response_metadata = {
+                **base_metadata,
                 **dict(reply.metadata or {}),
-                "runtime": reply.runtime,
+                "completion_notification": True,
+                "conversation_layer_applied": False,
+                "core_agent_backend": normalize_runtime_backend(backend),
                 "model": reply.model,
                 "endpoint": reply.endpoint,
-                "core_agent_backend": normalize_runtime_backend(backend),
                 "a2a_remote_url": a2a_url,
                 "a2a_remote_agent": a2a_remote_agent,
                 "a2a_model_provider": a2a_model_provider,
                 "a2a_model_id": a2a_model_id,
             }
-            conversation_result = self._build_conversation_layer_result(
-                session_id=classic_session_id,
-                user_message=user_message,
-                assistant_message=assistant_message,
-                model_id=model_id,
+            self.store.add_message(
+                classic_session_id,
+                "assistant",
+                assistant_message,
                 request_id=reply.request_id,
-                runtime_metadata=runtime_metadata,
+                route=_CLASSIC_WORK_COMPLETION_ROUTE,
+                metadata=response_metadata,
             )
-            response_metadata = {
-                **base_metadata,
-                **dict(reply.metadata or {}),
-            }
-            if conversation_result is not None:
-                response_metadata = {**response_metadata, **conversation_result.metadata}
-                messages = conversation_result.messages or [
-                    {"text": assistant_message, "delay_ms": 0}
-                ]
-                self._persist_conversation_messages(
-                    session_id=classic_session_id,
-                    request_id=reply.request_id,
-                    route=_CLASSIC_WORK_COMPLETION_ROUTE,
-                    base_metadata=response_metadata,
-                    messages=messages,
-                )
-            else:
-                self.store.add_message(
-                    classic_session_id,
-                    "assistant",
-                    assistant_message,
-                    request_id=reply.request_id,
-                    route=_CLASSIC_WORK_COMPLETION_ROUTE,
-                    metadata=response_metadata,
-                )
         self._update_classic_active_work_from_reply(
             session_id=classic_session_id,
             active_work=active_work,

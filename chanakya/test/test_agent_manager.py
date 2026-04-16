@@ -3169,7 +3169,7 @@ def test_classic_async_delegation_returns_notice_then_completion_update() -> Non
     ]
     assert len(completion_messages) == 1
     assert completion_messages[0]["metadata"]["classic_background_completion"] is True
-    assert completion_messages[0]["metadata"]["conversation_layer_applied"] is True
+    assert completion_messages[0]["metadata"]["conversation_layer_applied"] is False
     active_work = store.get_active_classic_work("session_async_notice")
     assert active_work is not None
     assert active_work["root_request_id"] is not None
