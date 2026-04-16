@@ -2022,6 +2022,7 @@
               if (airVoiceController) {
                 airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
               }
+              await syncActiveWorkForSession(targetSessionId);
               return {
                 recovered: true,
                 session_id: targetSessionId,
@@ -2233,6 +2234,8 @@
         || "";
       if (activeWorkIdFromResponse) {
         storeActiveWorkId(activeWorkIdFromResponse);
+      } else {
+        await syncActiveWorkForSession(sessionId);
       }
       renderTrace(data);
       if (data.route === "delegated_manager" && !delegationNoticeWatcher.hasNotified()) {
@@ -2312,6 +2315,26 @@
         }
       } catch {
         return;
+      }
+    }
+
+    async function syncActiveWorkForSession(targetSessionId) {
+      if (!targetSessionId) {
+        return;
+      }
+      try {
+        const response = await fetch(
+          `/api/sessions/${encodeURIComponent(targetSessionId)}/active-work`
+        );
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        const workId = String(data?.active_work?.work_id || "").trim();
+        if (workId) {
+          storeActiveWorkId(workId);
+        }
+      } catch {
       }
     }
 
@@ -3296,6 +3319,7 @@
       }
       const data = await response.json();
       renderChatHistory(data.messages || []);
+      await syncActiveWorkForSession(sessionId);
       await refreshSidePanels();
     }
 

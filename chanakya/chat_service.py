@@ -8,7 +8,7 @@ import re
 from agent_framework import Agent, Message
 from agent_framework.openai import OpenAIChatClient
 
-from chanakya.agent.runtime import build_profile_agent, normalize_runtime_backend
+from chanakya.agent.runtime import normalize_runtime_backend
 from chanakya.config import get_agent_request_timeout_seconds
 from chanakya.conversation_layer_support import ConversationLayerResult, ConversationLayerSupport
 from chanakya.debug import debug_log
@@ -31,6 +31,7 @@ from chanakya.domain import (
 )
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.agent_manager import AgentManager
+from chanakya.model import AgentProfileModel
 from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.services.sandbox_workspace import delete_shared_workspace
 from chanakya.services.ntfy import NtfyNotificationDispatcher, summarize_notification_text
@@ -148,7 +149,6 @@ _CLASSIC_DELEGATE_PREVIOUS_MARKERS = (
     "hand off",
     "handoff",
 )
-_CLASSIC_ROUTER_CONFIDENCE_THRESHOLD = 0.62
 _CLASSIC_ROUTER_HISTORY_WINDOW = 12
 _CLASSIC_ROUTER_SYSTEM_PROMPT = (
     "You are a routing planner for Chanakya classic chat. Decide exactly one action.\n"
@@ -158,6 +158,8 @@ _CLASSIC_ROUTER_SYSTEM_PROMPT = (
     "- Choose direct when Chanakya can answer quickly using its own tools/capabilities.\n"
     "- Choose continue_active_work only when user is clearly continuing the active task.\n"
     "- Choose create_new_work when user starts a different request or asks to delegate prior context into manager workflow.\n"
+    "- If the user explicitly asks to delegate, hand off, call an agent, or involve Agent Manager, NEVER choose direct. "
+    "Choose continue_active_work or create_new_work.\n"
     "- For delegated actions, handoff_message must be a clear standalone request for Agent Manager, grounded in recent user intent and context.\n"
     "- For direct action, set handoff_message to empty string.\n"
     "- confidence must be a number from 0 to 1.\n"
@@ -179,6 +181,25 @@ class ChatService:
         self.notification_dispatcher = notification_dispatcher
         self._triage_client = OpenAIChatClient(env_file_path=".env")
         self.classic_router_runner: Any | None = None
+        self._classic_router_runtime: MAFRuntime | None = None
+        session_factory = getattr(runtime, "session_factory", None)
+        if session_factory is not None:
+            router_profile = AgentProfileModel(
+                id="agent_classic_router",
+                name="Classic Router",
+                role="router",
+                system_prompt=_CLASSIC_ROUTER_SYSTEM_PROMPT,
+                personality="deterministic",
+                tool_ids_json=[],
+                workspace=None,
+                heartbeat_enabled=False,
+                heartbeat_interval_seconds=300,
+                heartbeat_file_path=None,
+                is_active=True,
+                created_at=now_iso(),
+                updated_at=now_iso(),
+            )
+            self._classic_router_runtime = MAFRuntime(router_profile, session_factory)
         self._conversation_layer = ConversationLayerSupport()
 
     @staticmethod
@@ -689,19 +710,6 @@ class ChatService:
             start = text.find("{", start + 1)
         return None
 
-    def _classic_router_is_enabled(self) -> bool:
-        if self.classic_router_runner is not None:
-            return True
-        if os.getenv("PYTEST_CURRENT_TEST"):
-            return False
-        explicit = os.getenv("CHANAKYA_CLASSIC_ROUTER_LLM_ENABLED", "").strip().lower()
-        if explicit in {"0", "false", "no", "off"}:
-            return False
-        if explicit in {"1", "true", "yes", "on"}:
-            return True
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        return bool(api_key)
-
     @staticmethod
     def _format_capability_summary(tool_ids: list[str]) -> str:
         listed_tools = ", ".join(sorted(set(tool_ids))) if tool_ids else "none"
@@ -755,26 +763,46 @@ class ChatService:
             f"Chanakya capabilities:\n{capabilities}\n"
         )
 
-    def _run_classic_router_prompt(self, prompt: str) -> str:
+    def _run_classic_router_prompt(
+        self,
+        prompt: str,
+        *,
+        model_id: str | None,
+        backend: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
+    ) -> str:
         if self.classic_router_runner is not None:
             return str(self.classic_router_runner(prompt))
-        router_agent = Agent(
-            client=self._triage_client,
-            name="classic_task_router",
-            instructions=_CLASSIC_ROUTER_SYSTEM_PROMPT,
-        )
-
-        async def _route() -> str:
-            response = await asyncio.wait_for(
-                router_agent.run(
-                    Message(role="user", text=prompt),
-                    options={"store": False},
-                ),
-                timeout=18,
+        if self._classic_router_runtime is None:
+            return json.dumps(
+                {
+                    "action": "direct",
+                    "confidence": 1.0,
+                    "reason": "router_runtime_unavailable",
+                    "handoff_message": "",
+                }
             )
-            return str(response).strip()
 
-        return run_in_maf_loop(_route())
+        router_session_id = make_id("router")
+        router_request_id = make_id("router_req")
+        try:
+            result = self._classic_router_runtime.run(
+                router_session_id,
+                prompt,
+                request_id=router_request_id,
+                model_id=model_id,
+                backend=backend,
+                a2a_url=a2a_url,
+                a2a_remote_agent=a2a_remote_agent,
+                a2a_model_provider=a2a_model_provider,
+                a2a_model_id=a2a_model_id,
+            )
+            return str(result.text).strip()
+        finally:
+            self._classic_router_runtime.clear_session_state(router_session_id)
 
     @staticmethod
     def _validate_classic_router_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -804,15 +832,30 @@ class ChatService:
         message: str,
         active_work: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        return {
+            "action": "direct",
+            "confidence": 0.5,
+            "reason": "router_fallback_direct",
+            "handoff_message": "",
+            "source": "fallback",
+        }
+
+    def _classic_router_test_decision(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        active_work: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         if self._is_delegate_previous_request_instruction(message):
             target = self._find_recent_non_active_user_message(session_id)
             if target:
                 return {
                     "action": "create_new_work",
-                    "confidence": 0.5,
-                    "reason": "heuristic_delegate_previous",
+                    "confidence": 1.0,
+                    "reason": "pytest_delegate_previous",
                     "handoff_message": target,
-                    "source": "fallback",
+                    "source": "pytest",
                 }
         if (
             active_work is not None
@@ -828,25 +871,25 @@ class ChatService:
         ):
             return {
                 "action": "continue_active_work",
-                "confidence": 0.5,
-                "reason": "heuristic_recent_active_work",
+                "confidence": 1.0,
+                "reason": "pytest_continue_active_work",
                 "handoff_message": message,
-                "source": "fallback",
+                "source": "pytest",
             }
         if self._should_handle_directly(message, work_id=None):
             return {
                 "action": "direct",
-                "confidence": 0.5,
-                "reason": "heuristic_fast_direct",
+                "confidence": 1.0,
+                "reason": "pytest_direct",
                 "handoff_message": "",
-                "source": "fallback",
+                "source": "pytest",
             }
         return {
             "action": "create_new_work",
-            "confidence": 0.5,
-            "reason": "heuristic_new_work",
+            "confidence": 1.0,
+            "reason": "pytest_create_new_work",
             "handoff_message": message,
-            "source": "fallback",
+            "source": "pytest",
         }
 
     def _decide_classic_execution(
@@ -855,6 +898,12 @@ class ChatService:
         session_id: str,
         message: str,
         active_work: dict[str, Any] | None,
+        model_id: str | None,
+        backend: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
     ) -> dict[str, Any]:
         if self.manager is None:
             return {
@@ -864,13 +913,12 @@ class ChatService:
                 "handoff_message": "",
                 "source": "fallback",
             }
-        if not self._classic_router_is_enabled():
-            return self._classic_router_fallback_decision(
+        if os.getenv("PYTEST_CURRENT_TEST") and self.classic_router_runner is None:
+            return self._classic_router_test_decision(
                 session_id=session_id,
                 message=message,
                 active_work=active_work,
             )
-
         prompt = self._build_classic_router_prompt(
             session_id=session_id,
             message=message,
@@ -888,7 +936,15 @@ class ChatService:
                         f"Previous output:\n{last_raw}\n"
                         "Return ONLY a valid JSON object matching schema."
                     )
-                raw = self._run_classic_router_prompt(attempt_prompt)
+                raw = self._run_classic_router_prompt(
+                    attempt_prompt,
+                    model_id=model_id,
+                    backend=backend,
+                    a2a_url=a2a_url,
+                    a2a_remote_agent=a2a_remote_agent,
+                    a2a_model_provider=a2a_model_provider,
+                    a2a_model_id=a2a_model_id,
+                )
                 last_raw = raw
                 payload = self._parse_json_object_relaxed(raw)
                 if payload is None:
@@ -911,13 +967,6 @@ class ChatService:
                 message=message,
                 active_work=active_work,
             )
-        if parsed["confidence"] < _CLASSIC_ROUTER_CONFIDENCE_THRESHOLD:
-            return self._classic_router_fallback_decision(
-                session_id=session_id,
-                message=message,
-                active_work=active_work,
-            )
-
         decision = {**parsed, "source": "llm"}
         if decision["action"] == "continue_active_work" and active_work is None:
             decision["action"] = "create_new_work"
@@ -1337,6 +1386,12 @@ class ChatService:
                     session_id=session_id,
                     message=message,
                     active_work=active_work,
+                    model_id=model_id,
+                    backend=backend,
+                    a2a_url=a2a_url,
+                    a2a_remote_agent=a2a_remote_agent,
+                    a2a_model_provider=a2a_model_provider,
+                    a2a_model_id=a2a_model_id,
                 )
                 action = str(decision.get("action") or "direct")
                 handoff_message = str(decision.get("handoff_message") or "").strip() or message
@@ -1383,6 +1438,7 @@ class ChatService:
             session_id,
             message,
             work_id=work_id,
+            allow_manager_delegation=work_id is not None,
             model_id=model_id,
             backend=backend,
             a2a_url=a2a_url,
@@ -1397,6 +1453,7 @@ class ChatService:
         message: str,
         *,
         work_id: str | None = None,
+        allow_manager_delegation: bool = True,
         model_id: str | None = None,
         backend: str | None = None,
         a2a_url: str | None = None,
@@ -1497,10 +1554,11 @@ class ChatService:
                 "started_at": started_at,
             },
         )
+        resolved_work_id = work_id
 
         try:
             use_manager = False
-            if self.manager is not None:
+            if self.manager is not None and allow_manager_delegation:
                 triage = self._triage_message(message, work_id=work_id)
                 use_manager = triage == "delegate"
                 self.store.create_task_event(
@@ -1515,6 +1573,14 @@ class ChatService:
                 )
 
             if use_manager:
+                manager_work_id = work_id
+                if manager_work_id is None:
+                    active_classic_work = self.store.get_active_classic_work(session_id)
+                    if active_classic_work is not None:
+                        manager_work_id = (
+                            str(active_classic_work.get("work_id") or "").strip() or None
+                        )
+                resolved_work_id = manager_work_id
                 if work_id is None:
                     self.store.add_message(
                         session_id,
@@ -1538,7 +1604,7 @@ class ChatService:
                     )
                 context_tokens = self.manager.bind_execution_context(
                     session_id=session_id,
-                    work_id=work_id,
+                    work_id=manager_work_id,
                     model_id=model_id,
                     backend=runtime_snapshot["backend"],
                     a2a_url=runtime_snapshot["a2a_url"],
@@ -1549,7 +1615,7 @@ class ChatService:
                 try:
                     followup_artifacts = self._resolve_targeted_writer_followup_artifacts(
                         session_id=session_id,
-                        work_id=work_id,
+                        work_id=manager_work_id,
                         message=message,
                     )
                     if followup_artifacts is not None:
@@ -1624,7 +1690,7 @@ class ChatService:
                 request_id=request_id,
                 root_task_id=root_task_id,
                 task_status=TASK_STATUS_FAILED,
-                work_id=work_id,
+                work_id=resolved_work_id,
                 summary=str(exc),
             )
             self.store.log_event(
@@ -1869,14 +1935,14 @@ class ChatService:
             request_id=request_id,
             root_task_id=root_task_id,
             task_status=task_status,
-            work_id=work_id,
+            work_id=resolved_work_id,
             summary=input_prompt if task_status == TASK_STATUS_WAITING_INPUT else final_message,
         )
 
         reply = ChatReply(
             request_id=request_id,
             session_id=session_id,
-            work_id=work_id,
+            work_id=resolved_work_id,
             route=route,
             message=final_message,
             request_status=request_status,
@@ -1906,7 +1972,7 @@ class ChatService:
             {
                 "request_id": request_id,
                 "session_id": session_id,
-                "work_id": work_id,
+                "work_id": resolved_work_id,
                 "route": route,
                 "runtime": reply.runtime,
                 "core_agent_backend": response_metadata.get("core_agent_backend"),

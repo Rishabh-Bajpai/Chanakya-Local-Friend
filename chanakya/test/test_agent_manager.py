@@ -3321,6 +3321,33 @@ def test_classic_router_direct_action_skips_active_work_routing() -> None:
     assert reply.message == "personal_assistant:What is 7400 times 57?"
 
 
+def test_classic_router_direct_action_does_not_delegate_complex_request_without_cwork() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, _RuntimeStub(chanakya)),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "direct",
+            "confidence": 0.95,
+            "reason": "force direct for this test",
+            "handoff_message": "",
+        }
+    )
+
+    reply = service.chat(
+        "session_router_direct_complex",
+        "write a Python script for finding the prime number between 74 and 534.",
+    )
+
+    assert reply.route == "direct_answer"
+    assert reply.work_id is None
+    assert store.get_active_classic_work("session_router_direct_complex") is None
+
+
 def test_classic_unrelated_request_replacement_cleans_workspace_and_runtime_state(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,

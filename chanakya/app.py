@@ -437,6 +437,24 @@ def create_app() -> Flask:
         )
         return jsonify({"session_id": session_id, "messages": messages})
 
+    @app.get("/api/sessions/<session_id>/active-work")
+    def api_session_active_work(session_id: str) -> Any:
+        active_work = store.get_active_classic_work(session_id)
+        if active_work is None:
+            return jsonify({"session_id": session_id, "active_work": None})
+        return jsonify(
+            {
+                "session_id": session_id,
+                "active_work": {
+                    "work_id": str(active_work.get("work_id") or ""),
+                    "work_session_id": str(active_work.get("work_session_id") or ""),
+                    "title": str(active_work.get("title") or ""),
+                    "summary": str(active_work.get("summary") or ""),
+                    "workflow_type": str(active_work.get("workflow_type") or ""),
+                },
+            }
+        )
+
     @app.get("/api/events")
     def api_events() -> Any:
         events = store.list_events(limit=100)
