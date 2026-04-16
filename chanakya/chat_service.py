@@ -1,12 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 import json
-import os
-import re
-
-from agent_framework import Agent, Message
-from agent_framework.openai import OpenAIChatClient
 
 from chanakya.agent.runtime import normalize_runtime_backend
 from chanakya.config import get_agent_request_timeout_seconds
@@ -32,83 +26,14 @@ from chanakya.domain import (
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.agent_manager import AgentManager
 from chanakya.model import AgentProfileModel
-from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.services.sandbox_workspace import delete_shared_workspace
 from chanakya.services.ntfy import NtfyNotificationDispatcher, summarize_notification_text
 from chanakya.store import ChanakyaStore
 
 
-_TRIAGE_SYSTEM_PROMPT = (
-    "You are a request classifier. Your ONLY job is to output exactly one word.\n"
-    'Reply with "direct" if the user\'s message is:\n'
-    "- A greeting, small talk, or simple conversational exchange\n"
-    "- A simple factual question answerable from general knowledge\n"
-    "- A math calculation or unit conversion\n"
-    "- A weather check or current conditions lookup\n"
-    "- A request to fetch or summarise a single URL or web page\n"
-    "- Anything a single assistant with a calculator and web-fetch tool can fully answer in one step\n"
-    "\n"
-    'Reply with "delegate" if the user\'s message requires:\n'
-    "- Multi-step research across multiple sources\n"
-    "- Software development, code generation, architecture, or debugging\n"
-    "- Complex analysis requiring structured specialist workflows\n"
-    "- Coordination between multiple specialists (researcher+writer, developer+tester)\n"
-    "\n"
-    'Output ONLY the single word "direct" or "delegate". Nothing else.'
-)
-
-_COMPLEX_DELEGATION_MARKERS = (
-    "implement",
-    "code",
-    "debug",
-    "fix ",
-    "fix the bug",
-    "refactor",
-    "write a function",
-    "write a python",
-    "write a ",
-    "build a",
-    "architecture",
-    "database",
-    "endpoint",
-    "api",
-    "test ",
-    "test this",
-    "write tests",
-    "research ",
-    "research deeply",
-    "investigate",
-    "analyze in depth",
-    "compare and recommend",
-    "step by step plan",
-    "full report",
-    "tell me",
-    "give me",
-    "biography",
-)
-
-_FAST_DIRECT_PATTERNS = (
-    "summarize",
-    "rephrase",
-    "rewrite",
-    "translate",
-    "shorten",
-    "make this",
-    "make it",
-    "improve this sentence",
-    "fix grammar",
-    "polish this",
-)
-
-_LIGHT_ENTERTAINMENT_PATTERNS = (
-    "joke",
-    "jokes",
-)
-
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
 _WAITING_INPUT_ROUTE = "waiting_input_prompt"
 _CLASSIC_ACTIVE_WORK_PREFIX = "cwork"
-_CLASSIC_ACTIVE_WORK_RECENCY_WINDOW = 2
 _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM = (
     "Optimize for speed and direct completion. "
     "Handle as much work yourself as possible using your own available tools, and give concise "
@@ -133,38 +58,53 @@ _WAITING_INPUT_CANCEL_MARKERS = (
     "leave it",
     "ignore it",
 )
-_CLASSIC_NEW_TASK_MARKERS = (
-    "new task",
-    "another task",
-    "different task",
-    "something else",
-    "unrelated",
-    "instead",
-    "new request",
-)
-_CLASSIC_DELEGATE_PREVIOUS_MARKERS = (
-    "delegate",
-    "agent manager",
-    "someone else",
-    "hand off",
-    "handoff",
-)
 _CLASSIC_ROUTER_MIN_DELEGATION_CONFIDENCE = 0.25
 _CLASSIC_ROUTER_HISTORY_WINDOW = 12
 _CLASSIC_ROUTER_SYSTEM_PROMPT = (
-    "You are a routing planner for Chanakya classic chat. Decide exactly one action.\n"
+    "You are a routing planner for Chanakya classic chat. "
+    "Given a user message, recent chat history, active work context, and Chanakya's direct capabilities, "
+    "decide exactly ONE action.\n\n"
     "Output valid JSON ONLY with this schema:\n"
-    '{"action":"direct|continue_active_work|create_new_work","confidence":0.0,"reason":"...","handoff_message":"..."}\n'
-    "Rules:\n"
-    "- Choose direct ONLY for trivial, single-turn requests (greetings, simple math, quick factual checks, short rewrites).\n"
-    "- If a request involves software/code/script generation, implementation, debugging, testing, file/workspace saving, multi-step execution, or explicit delegation intent, do NOT choose direct.\n"
-    "- Choose continue_active_work only when user is clearly continuing the active task.\n"
-    "- Choose create_new_work when user starts a different request or asks to delegate prior context into manager workflow.\n"
-    "- If the user explicitly asks to delegate, hand off, call an agent, or involve Agent Manager, NEVER choose direct. "
-    "Choose continue_active_work or create_new_work.\n"
-    "- For delegated actions, handoff_message must be a clear standalone request for Agent Manager, grounded in recent user intent and context.\n"
-    "- For direct action, set handoff_message to empty string.\n"
-    "- confidence must be a number from 0 to 1.\n"
+    '{"action":"direct|continue_active_work|create_new_work","confidence":0.0-1.0,"reason":"...","handoff_message":"..."}\n\n'
+    "## Actions\n\n"
+    "### direct\n"
+    "Handle the message yourself in a single turn. Choose this for:\n"
+    "- Greetings, small talk, thanks, social niceties\n"
+    '- Simple factual questions ("What is the capital of France?")\n'
+    '- Short math/arithmetic ("What is 7400 times 57?")\n'
+    "- Quick rewrites, rephrasing, grammar fixes, translations on short text\n"
+    "- Jokes, riddles, simple entertainment\n"
+    "- Any request that Chanakya can fully answer in one turn with its direct capabilities\n"
+    "For direct, set handoff_message to empty string.\n\n"
+    "### continue_active_work\n"
+    "Route the message to the EXISTING active work session. Choose this when:\n"
+    "- The user is continuing, refining, or following up on the active task\n"
+    '- The user modifies parameters of the same task type (e.g. "now do it for range 2-300" '
+    "after finding primes in range 74-534). CRITICAL: parameter changes to the same fundamental "
+    "task are follow-ups, NOT new tasks.\n"
+    '- The user refers to active work output ("add a conclusion", "fix that bug", "update the report")\n'
+    '- Pronoun references ("it", "this", "that") that clearly refer to the active work\n'
+    "- The user asks to revise, extend, or iterate on the active work result\n"
+    "For continue_active_work, handoff_message should include enough context for the worker "
+    "to understand the follow-up instruction.\n\n"
+    "### create_new_work\n"
+    "Create a brand-new delegated work session. Choose this when:\n"
+    "- The user asks for something FUNDAMENTALLY DIFFERENT from the active task "
+    "(different domain, different goal, different deliverable type)\n"
+    "- There is no active work and the request requires multi-step specialist work "
+    "(software, research, reports, complex analysis)\n"
+    '- The user explicitly says "new task", "something else", "different task"\n'
+    "- The user explicitly asks to delegate, hand off, or involve Agent Manager\n"
+    "For create_new_work, handoff_message MUST be fully self-contained: the receiving agent "
+    "has NO knowledge of prior conversation. Include all relevant details, context, "
+    "and requirements from the chat history.\n\n"
+    "## Critical Rules\n"
+    "- If active work exists and the user's request is a variation/continuation of that work, "
+    "ALWAYS choose continue_active_work, NOT create_new_work.\n"
+    "- If a request involves software/code generation, implementation, debugging, testing, "
+    "multi-step research, or specialist coordination, do NOT choose direct.\n"
+    "- If the user explicitly asks to delegate or hand off, NEVER choose direct.\n"
+    "- confidence must be a number from 0.0 to 1.0.\n"
     "- No markdown, no code fences, no extra keys."
 )
 
@@ -181,7 +121,6 @@ class ChatService:
         self.runtime = runtime
         self.manager = manager
         self.notification_dispatcher = notification_dispatcher
-        self._triage_client = OpenAIChatClient(env_file_path=".env")
         self.classic_router_runner: Any | None = None
         self._classic_router_runtime: MAFRuntime | None = None
         session_factory = getattr(runtime, "session_factory", None)
@@ -453,127 +392,33 @@ class ChatService:
         return self._conversation_layer.request_manual_pause(session_id)
 
     def _triage_message(self, message: str, *, work_id: str | None = None) -> str:
-        """Classify a message as 'direct' or 'delegate'."""
-        if self._should_handle_directly(message, work_id=work_id):
-            debug_log(
-                "triage_heuristic",
-                {
-                    "message": message,
-                    "decision": "direct",
-                    "reason": (
-                        "work_trivial_request"
-                        if work_id is not None
-                        else "normal_chat_fast_request"
-                    ),
-                    "work_id": work_id,
-                },
-            )
-            return "direct"
+        """Classify a message as 'direct' or 'delegate'.
+
+        Used ONLY for /work mode (work_id is not None). In /work mode we always
+        delegate when a manager is available — the manager orchestrates specialist
+        work inside the work session.
+        """
         if self.manager is not None:
             debug_log(
                 "triage_heuristic",
                 {
                     "message": message,
                     "decision": "delegate",
-                    "reason": (
-                        "work_non_trivial_request"
-                        if work_id is not None
-                        else "normal_chat_complex_request"
-                    ),
+                    "reason": "work_delegate_manager_available",
                     "work_id": work_id,
                 },
             )
             return "delegate"
-        try:
-            triage_agent = Agent(
-                client=self._triage_client,
-                name="triage_classifier",
-                instructions=_TRIAGE_SYSTEM_PROMPT,
-            )
-
-            async def _classify() -> str:
-                response = await asyncio.wait_for(
-                    triage_agent.run(
-                        Message(role="user", text=message),
-                        options={"store": False},
-                    ),
-                    timeout=15,
-                )
-                return str(response).strip().lower()
-
-            raw = run_in_maf_loop(_classify())
-            decision = "direct" if "direct" in raw else "delegate"
-            debug_log(
-                "triage_decision",
-                {"message": message, "raw_response": raw, "decision": decision},
-            )
-            return decision
-        except Exception as exc:
-            debug_log(
-                "triage_fallback",
-                {"message": message, "error": str(exc), "decision": "delegate"},
-            )
-            return "delegate"
-
-    @staticmethod
-    def _is_simple_direct_request(message: str) -> bool:
-        text = message.strip().lower()
-        if not text:
-            return True
-        greeting_markers = {
-            "hi",
-            "hello",
-            "hey",
-            "thanks",
-            "thank you",
-            "good morning",
-            "good evening",
-            "how are you",
-        }
-        if text in greeting_markers:
-            return True
-        if any(text.startswith(f"{marker} ") for marker in greeting_markers):
-            return True
-        normalized = text.replace(" ", "")
-        if re.fullmatch(r"[0-9+\-*/().]+", normalized):
-            return True
-        return False
-
-    @classmethod
-    def _is_fast_direct_request(cls, message: str) -> bool:
-        text = message.strip().lower()
-        if cls._is_simple_direct_request(message):
-            return True
-        if len(text) <= 160 and any(pattern in text for pattern in _LIGHT_ENTERTAINMENT_PATTERNS):
-            return True
-        if cls._is_complex_request(message):
-            return False
-        if len(text) <= 220 and any(pattern in text for pattern in _FAST_DIRECT_PATTERNS):
-            return True
-        if len(text) <= 160 and text.startswith(("what is ", "who is ", "when is ", "where is ")):
-            return True
-        return False
-
-    @classmethod
-    def _is_complex_request(cls, message: str) -> bool:
-        text = message.strip().lower()
-        if not text:
-            return False
-        if any(marker in text for marker in _COMPLEX_DELEGATION_MARKERS):
-            return True
-        if text.count(" and ") >= 2 and len(text) > 120:
-            return True
-        if len(text) > 280:
-            return True
-        return False
-
-    @classmethod
-    def _should_handle_directly(cls, message: str, *, work_id: str | None) -> bool:
-        if work_id is not None:
-            return cls._is_simple_direct_request(message)
-        if cls._is_fast_direct_request(message):
-            return True
-        return not cls._is_complex_request(message)
+        debug_log(
+            "triage_heuristic",
+            {
+                "message": message,
+                "decision": "direct",
+                "reason": "no_manager_available",
+                "work_id": work_id,
+            },
+        )
+        return "direct"
 
     @staticmethod
     def _summarize_work_title(message: str) -> str:
@@ -581,114 +426,6 @@ class ChatService:
         if not cleaned:
             return "Active Task"
         return f"Active Task: {cleaned[:60]}"
-
-    @classmethod
-    def _is_related_to_active_work(
-        cls,
-        message: str,
-        active_work: dict[str, str | None],
-        *,
-        recent_active_context: bool,
-    ) -> bool:
-        lowered = message.strip().lower()
-        if not lowered:
-            return False
-        explicit_active_work_phrases = (
-            "active task",
-            "active work",
-            "that work",
-            "that task",
-        )
-        if any(marker in lowered for marker in explicit_active_work_phrases):
-            return True
-        continuation_phrases = (
-            "continue",
-            "update",
-            "revise",
-            "rewrite",
-            "rephrase",
-            "fix that",
-            "fix this",
-            "the above",
-            "the report",
-            "the code",
-            "add tests",
-            "make it",
-            "make this",
-        )
-        if recent_active_context and any(marker in lowered for marker in continuation_phrases):
-            return True
-        message_tokens = set(re.findall(r"[a-z0-9]+", lowered))
-        if recent_active_context and {"it", "this", "that"} & message_tokens:
-            return True
-        summary = str(active_work.get("summary") or "").lower()
-        if not summary:
-            return False
-        summary_tokens = {
-            token
-            for token in re.findall(r"[a-z0-9]+", summary)
-            if len(token) >= 5 and token not in {"which", "their", "there", "about"}
-        }
-        return len(summary_tokens & message_tokens) >= 2
-
-    def _has_recent_active_work_context(
-        self,
-        session_id: str,
-        *,
-        work_id: str,
-        window: int = _CLASSIC_ACTIVE_WORK_RECENCY_WINDOW,
-    ) -> bool:
-        if window <= 0:
-            return False
-        messages = self.store.list_messages(session_id)
-        recent_messages: list[dict[str, Any]] = []
-        for item in reversed(messages):
-            recent_messages.append(item)
-            if len(recent_messages) >= window:
-                break
-        for item in recent_messages:
-            route = str(item.get("route") or "")
-            metadata = item.get("metadata")
-            if not isinstance(metadata, dict):
-                continue
-            if str(metadata.get("active_work_id") or "") != work_id:
-                continue
-            if route == "active_work_user_message" or bool(metadata.get("mirrored_from_work")):
-                return True
-        return False
-
-    @staticmethod
-    def _is_new_task_intent(message: str) -> bool:
-        lowered = message.strip().lower()
-        if not lowered:
-            return False
-        return any(marker in lowered for marker in _CLASSIC_NEW_TASK_MARKERS)
-
-    @staticmethod
-    def _is_delegate_previous_request_instruction(message: str) -> bool:
-        lowered = message.strip().lower()
-        if not lowered:
-            return False
-        if "previous message" in lowered or "previous request" in lowered:
-            return "delegate" in lowered
-        return "delegate" in lowered and any(
-            marker in lowered for marker in _CLASSIC_DELEGATE_PREVIOUS_MARKERS
-        )
-
-    def _find_recent_non_active_user_message(self, session_id: str) -> str | None:
-        messages = self.store.list_messages(session_id)
-        candidate: str | None = None
-        for item in reversed(messages):
-            if str(item.get("role") or "") != "user":
-                continue
-            if str(item.get("route") or "") == "active_work_user_message":
-                continue
-            content = str(item.get("content") or "").strip()
-            if not content:
-                continue
-            candidate = content
-            break
-        return candidate
 
     @staticmethod
     def _parse_json_object_relaxed(raw: str) -> dict[str, Any] | None:
@@ -762,7 +499,10 @@ class ChatService:
             f"Current user message:\n{message}\n\n"
             f"Recent chat history (latest up to {_CLASSIC_ROUTER_HISTORY_WINDOW}):\n{history}\n\n"
             f"Active delegated work context:\n{active_work_block}\n\n"
-            f"Chanakya capabilities:\n{capabilities}\n"
+            f"Chanakya direct capabilities:\n{capabilities}\n\n"
+            "Decide the routing action based on the system prompt rules. "
+            "If active work exists, carefully check whether the user's message is a continuation "
+            "or refinement of that work before choosing create_new_work."
         )
 
     def _run_classic_router_prompt(
@@ -845,58 +585,6 @@ class ChatService:
             "router_diagnostics": diagnostics or {},
         }
 
-    def _classic_router_test_decision(
-        self,
-        *,
-        session_id: str,
-        message: str,
-        active_work: dict[str, Any] | None,
-    ) -> dict[str, Any]:
-        if self._is_delegate_previous_request_instruction(message):
-            target = self._find_recent_non_active_user_message(session_id)
-            if target:
-                return {
-                    "action": "create_new_work",
-                    "confidence": 1.0,
-                    "reason": "pytest_delegate_previous",
-                    "handoff_message": target,
-                    "source": "pytest",
-                }
-        if (
-            active_work is not None
-            and self._is_related_to_active_work(
-                message,
-                active_work,
-                recent_active_context=self._has_recent_active_work_context(
-                    session_id,
-                    work_id=str(active_work["work_id"]),
-                ),
-            )
-            and not self._is_new_task_intent(message)
-        ):
-            return {
-                "action": "continue_active_work",
-                "confidence": 1.0,
-                "reason": "pytest_continue_active_work",
-                "handoff_message": message,
-                "source": "pytest",
-            }
-        if self._should_handle_directly(message, work_id=None):
-            return {
-                "action": "direct",
-                "confidence": 1.0,
-                "reason": "pytest_direct",
-                "handoff_message": "",
-                "source": "pytest",
-            }
-        return {
-            "action": "create_new_work",
-            "confidence": 1.0,
-            "reason": "pytest_create_new_work",
-            "handoff_message": message,
-            "source": "pytest",
-        }
-
     def _decide_classic_execution(
         self,
         *,
@@ -918,12 +606,6 @@ class ChatService:
                 "handoff_message": "",
                 "source": "fallback",
             }
-        if os.getenv("PYTEST_CURRENT_TEST") and self.classic_router_runner is None:
-            return self._classic_router_test_decision(
-                session_id=session_id,
-                message=message,
-                active_work=active_work,
-            )
         prompt = self._build_classic_router_prompt(
             session_id=session_id,
             message=message,

@@ -165,6 +165,14 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
     )
     service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
     assert service.manager is not None
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Please fix and test login rate limiting",
+        }
+    )
     service.manager.summary_runner = lambda prompt: "hello-world"
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
@@ -779,6 +787,14 @@ def test_normal_chat_prefers_direct_for_fast_non_trivial_request() -> None:
     )
     service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
     assert service.manager is not None
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "direct",
+            "confidence": 0.95,
+            "reason": "simple rewrite request",
+            "handoff_message": "",
+        }
+    )
 
     def _should_not_delegate(**kwargs: str) -> ManagerRunResult:
         raise AssertionError("manager.execute should not run for fast normal-chat request")
@@ -832,6 +848,14 @@ def test_normal_chat_keeps_short_joke_requests_direct() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "direct",
+            "confidence": 0.95,
+            "reason": "short entertainment request",
+            "handoff_message": "",
+        }
+    )
 
     def _should_not_delegate(**kwargs: str) -> ManagerRunResult:
         raise AssertionError("manager.execute should not run for short joke request")
@@ -899,6 +923,14 @@ def test_normal_chat_persists_visible_delegation_notice_before_manager_result() 
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement and test login rate limiting",
+        }
+    )
 
     service.manager.execute = lambda **kwargs: ManagerRunResult(
         text="Completed by specialist.",
@@ -948,6 +980,14 @@ def test_manager_direct_fallback_runs_when_required_worker_is_missing() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement and test login rate limiting",
+        }
+    )
     service.manager.summary_runner = lambda prompt: "hello-world"
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
@@ -1095,6 +1135,14 @@ def test_chat_service_routes_non_software_requests_through_informer_chain() -> N
     service.manager.summary_runner = lambda prompt: (
         "Berlin weather was researched first and then turned into a concise answer."
     )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "research and writing request",
+            "handoff_message": "Research the weather in Berlin and write a concise answer",
+        }
+    )
 
     reply = service.chat(
         "session_informer", "Research the weather in Berlin and write a concise answer"
@@ -1156,6 +1204,14 @@ def test_manager_preserves_specialist_response_when_user_did_not_request_summary
         ]
     )
     service.manager.summary_runner = lambda prompt: "This should not be used."
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "research request about Life of Pi",
+            "handoff_message": "Tell me something about Life of Pi",
+        }
+    )
 
     reply = service.chat("session_passthrough", "Tell me something about Life of Pi")
 
@@ -1194,6 +1250,14 @@ def test_informer_writer_recovers_when_workflow_output_contains_artifacts() -> N
         return "Virat Kohli was born on 5 November 1988 in New Delhi and is one of cricket's most decorated batters."
 
     service.manager.specialist_runner = _specialist_runner
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "research request about Virat Kohli",
+            "handoff_message": "Tell me some important facts about Virat Kohli",
+        }
+    )
 
     reply = service.chat(
         "session_writer_recovery", "Tell me some important facts about Virat Kohli"
@@ -1253,6 +1317,14 @@ def test_manager_runs_worker_stages_with_the_persisted_prompts() -> None:
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":false,"question":"","reason":""}'
+    )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Write a python program to print hello world",
+        }
     )
 
     reply = service.chat(
@@ -1317,6 +1389,14 @@ def test_informer_writer_recovers_when_output_echoes_research_handoff() -> None:
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":false,"question":"","reason":""}'
     )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "research request about Virat Kohli biography",
+            "handoff_message": "Give me a short biography of Virat Kohli",
+        }
+    )
 
     reply = service.chat("session_writer_echo", "Give me a short biography of Virat Kohli")
 
@@ -1374,6 +1454,14 @@ def test_cto_tester_recovers_when_output_echoes_developer_handoff() -> None:
         )
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Write a python program to print hello world",
+        }
+    )
 
     reply = service.chat("session_tester_recovery", "Write a python program to print hello world")
 
@@ -1424,6 +1512,14 @@ def test_developer_future_tense_plan_output_is_rejected_and_repaired() -> None:
         )
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Write a python program to print hello world",
+        }
+    )
 
     reply = service.chat(
         "session_developer_plan_repair", "Write a python program to print hello world"
@@ -1516,6 +1612,14 @@ def test_software_workflow_failure_keeps_completed_developer_done_and_fails_test
         )
 
     service.manager.workflow_runtime.start_software_workflow = _fake_failed_workflow  # type: ignore[method-assign]
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "write a Python script for finding the prime number between 74 and 534.",
+        }
+    )
 
     reply = service.chat(
         "session_runtime_failed",
@@ -1908,6 +2012,14 @@ def test_manager_prefers_saved_active_agents_during_delegation() -> None:
     )
     service.manager._repair_developer_output = lambda **kwargs: kwargs["invalid_output"]
     service.manager.summary_runner = lambda prompt: "Saved agents completed the delegated workflow."
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement and test milestone 5",
+        }
+    )
 
     reply = service.chat("session_saved_agents", "Implement and test milestone 5")
 
@@ -2106,6 +2218,14 @@ def test_developer_temporary_subagent_lifecycle_is_persisted_and_cleaned() -> No
         raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement and test login hardening",
+        }
+    )
 
     reply = service.chat("session_temp_subagents", "Implement and test login hardening")
 
@@ -2425,6 +2545,14 @@ def test_manager_waits_for_user_input_and_resumes_same_request() -> None:
         raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement the API, but I have not chosen the stack yet",
+        }
+    )
 
     waiting_reply = service.chat(
         "session_waiting",
@@ -2490,6 +2618,14 @@ def test_task_controls_cancel_retry_and_manual_unblock() -> None:
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":true,"question":"Choose a framework","reason":"Missing stack decision."}'
     )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement the service once I choose a framework",
+        }
+    )
 
     service.chat("session_controls", "Implement the service once I choose a framework")
     waiting_task = next(
@@ -2553,6 +2689,14 @@ def test_resume_waiting_input_keeps_parent_tasks_waiting_when_more_input_needed(
     }[(profile.role, step)]
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":true,"question":"Still need one more detail","reason":"Missing deployment target."}'
+    )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement service",
+        }
     )
 
     waiting_reply = service.chat("session_waiting_again", "Implement service")
@@ -2619,6 +2763,14 @@ def test_developer_clarification_fallback_uses_paused_brief_without_runner() -> 
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":true,"question":"Should the implementation use Flask or FastAPI?","reason":"Framework decision is required before coding."}'
     )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement a simple hello world API, but I have not decided whether it should use Flask or FastAPI yet. Ask me before choosing.",
+        }
+    )
 
     waiting_reply = service.chat(
         "session_waiting_fallback",
@@ -2664,6 +2816,14 @@ def test_clarification_prompt_requires_input_on_explicit_user_intervention() -> 
         )
 
     service.manager.clarification_runner = _clarification_runner
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement a simple hello world API, but I have not decided whether it should use Flask or FastAPI yet. Ask me before choosing.",
+        }
+    )
 
     waiting_reply = service.chat(
         "session_waiting_prompt_enforced",
@@ -2736,6 +2896,14 @@ def test_waiting_input_prompt_is_persisted_as_chanakya_message() -> None:
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":true,"question":"Should the implementation target Flask or FastAPI?","reason":"Framework choice required."}'
     )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement the API",
+        }
+    )
 
     reply = service.chat("session_waiting_message", "Implement the API")
 
@@ -2793,6 +2961,14 @@ def test_main_chat_composer_resumes_single_waiting_task() -> None:
         raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement the API, but I have not chosen the stack yet",
+        }
+    )
 
     waiting_reply = service.chat(
         "session_waiting_autoresume",
@@ -2823,6 +2999,29 @@ def test_classic_complex_request_creates_and_reuses_active_work() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    _router_calls: list[str] = []
+
+    def _dynamic_router(prompt: str) -> str:
+        _router_calls.append(prompt)
+        if len(_router_calls) == 1:
+            return json.dumps(
+                {
+                    "action": "create_new_work",
+                    "confidence": 0.95,
+                    "reason": "new report request",
+                    "handoff_message": "Write a report on climate change",
+                }
+            )
+        return json.dumps(
+            {
+                "action": "continue_active_work",
+                "confidence": 0.95,
+                "reason": "follow-up to active report work",
+                "handoff_message": "Add a short conclusion to it",
+            }
+        )
+
+    service.classic_router_runner = _dynamic_router
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_informer","selected_role":"informer","reason":"report work","execution_mode":"information_delivery"}'
     )
@@ -2879,6 +3078,14 @@ def test_classic_active_work_keeps_user_message_before_transfer_notice() -> None
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement and test login rate limiting",
+        }
+    )
     service.manager.execute = lambda **kwargs: ManagerRunResult(
         text="Completed by specialist.",
         workflow_type=WORKFLOW_SOFTWARE,
@@ -2906,6 +3113,14 @@ def test_waiting_input_cancel_intent_stops_active_work_task() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement the API",
+        }
+    )
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
@@ -2940,6 +3155,14 @@ def test_resumed_clarification_reaches_tester_recovery_prompt() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "software implementation request",
+            "handoff_message": "Implement the API, but I have not chosen the stack yet",
+        }
+    )
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
@@ -3001,6 +3224,29 @@ def test_classic_unrelated_complex_request_replaces_active_work() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    _router_calls: list[str] = []
+
+    def _dynamic_router(prompt: str) -> str:
+        _router_calls.append(prompt)
+        if len(_router_calls) == 1:
+            return json.dumps(
+                {
+                    "action": "create_new_work",
+                    "confidence": 0.95,
+                    "reason": "software implementation request",
+                    "handoff_message": "Implement a login API",
+                }
+            )
+        return json.dumps(
+            {
+                "action": "create_new_work",
+                "confidence": 0.95,
+                "reason": "fundamentally different task",
+                "handoff_message": "Build a database migration tool",
+            }
+        )
+
+    service.classic_router_runner = _dynamic_router
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
@@ -3048,6 +3294,14 @@ def test_classic_pronoun_followup_without_recent_active_context_stays_main_chat(
         cast(MAFRuntime, _RuntimeStub(chanakya)),
         AgentManager(store, store.Session, manager_profile),
     )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "direct",
+            "confidence": 0.90,
+            "reason": "simple arithmetic follow-up, not related to stale active work",
+            "handoff_message": "",
+        }
+    )
 
     store.create_work(work_id="cwork_stale", title="Stale active work", description="")
     store.set_active_classic_work(
@@ -3093,6 +3347,14 @@ def test_classic_pronoun_followup_with_recent_active_context_routes_to_active_wo
         store,
         cast(MAFRuntime, _RuntimeStub(chanakya)),
         AgentManager(store, store.Session, manager_profile),
+    )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "continue_active_work",
+            "confidence": 0.95,
+            "reason": "follow-up to active report work",
+            "handoff_message": "Now add one more paragraph to it",
+        }
     )
 
     store.create_work(work_id="cwork_recent", title="Recent active work", description="")
@@ -3149,6 +3411,29 @@ def test_classic_new_task_intent_replaces_old_active_work() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    _router_calls: list[str] = []
+
+    def _dynamic_router(prompt: str) -> str:
+        _router_calls.append(prompt)
+        if len(_router_calls) == 1:
+            return json.dumps(
+                {
+                    "action": "create_new_work",
+                    "confidence": 0.95,
+                    "reason": "software implementation request",
+                    "handoff_message": "Implement a login API",
+                }
+            )
+        return json.dumps(
+            {
+                "action": "create_new_work",
+                "confidence": 0.95,
+                "reason": "explicitly different task",
+                "handoff_message": "This is a different task: build a database migration tool",
+            }
+        )
+
+    service.classic_router_runner = _dynamic_router
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
@@ -3195,6 +3480,14 @@ def test_classic_delegate_previous_request_uses_previous_main_chat_message() -> 
         store,
         cast(MAFRuntime, _RuntimeStub(chanakya)),
         AgentManager(store, store.Session, manager_profile),
+    )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "user wants to delegate previous request to manager",
+            "handoff_message": "What is the latest Chrome version?",
+        }
     )
 
     store.create_work(work_id="cwork_old", title="Old active work", description="")
@@ -3446,6 +3739,29 @@ def test_classic_unrelated_request_replacement_cleans_workspace_and_runtime_stat
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
+    _router_calls: list[str] = []
+
+    def _dynamic_router(prompt: str) -> str:
+        _router_calls.append(prompt)
+        if len(_router_calls) == 1:
+            return json.dumps(
+                {
+                    "action": "create_new_work",
+                    "confidence": 0.95,
+                    "reason": "software implementation request",
+                    "handoff_message": "Implement a login API",
+                }
+            )
+        return json.dumps(
+            {
+                "action": "create_new_work",
+                "confidence": 0.95,
+                "reason": "fundamentally different task",
+                "handoff_message": "Build a database migration tool",
+            }
+        )
+
+    service.classic_router_runner = _dynamic_router
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
