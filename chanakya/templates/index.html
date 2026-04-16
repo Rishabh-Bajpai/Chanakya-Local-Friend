@@ -2238,6 +2238,7 @@
         await syncActiveWorkForSession(sessionId);
       }
       renderTrace(data);
+      showRouterFailureDialogIfNeeded(data);
       if (data.route === "delegated_manager" && !delegationNoticeWatcher.hasNotified()) {
         appendMessage("assistant", delegationNoticeText, "", { badge: "Delegated" });
         if (typeof onAssistantMessage === "function") {
@@ -2336,6 +2337,29 @@
         }
       } catch {
       }
+    }
+
+    function showRouterFailureDialogIfNeeded(responsePayload) {
+      const failure = responsePayload && responsePayload.metadata && responsePayload.metadata.router_failure;
+      if (!failure || typeof failure !== "object") {
+        return;
+      }
+      const routerInput = String(failure.input || "").trim();
+      const routerOutput = String(failure.output || "").trim();
+      const errors = Array.isArray(failure.errors) ? failure.errors : [];
+      const errorText = errors.length ? errors.join("; ") : "unknown router error";
+      const message = [
+        "Classic router failed. Falling back to direct response.",
+        "",
+        `Errors: ${errorText}`,
+        "",
+        "Router input:",
+        routerInput || "(empty)",
+        "",
+        "Router output:",
+        routerOutput || "(empty)",
+      ].join("\n");
+      window.alert(message);
     }
 
       if (chatBackendSelect) {

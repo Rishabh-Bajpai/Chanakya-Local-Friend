@@ -149,13 +149,15 @@ _CLASSIC_DELEGATE_PREVIOUS_MARKERS = (
     "hand off",
     "handoff",
 )
+_CLASSIC_ROUTER_MIN_DELEGATION_CONFIDENCE = 0.25
 _CLASSIC_ROUTER_HISTORY_WINDOW = 12
 _CLASSIC_ROUTER_SYSTEM_PROMPT = (
     "You are a routing planner for Chanakya classic chat. Decide exactly one action.\n"
     "Output valid JSON ONLY with this schema:\n"
     '{"action":"direct|continue_active_work|create_new_work","confidence":0.0,"reason":"...","handoff_message":"..."}\n'
     "Rules:\n"
-    "- Choose direct when Chanakya can answer quickly using its own tools/capabilities.\n"
+    "- Choose direct ONLY for trivial, single-turn requests (greetings, simple math, quick factual checks, short rewrites).\n"
+    "- If a request involves software/code/script generation, implementation, debugging, testing, file/workspace saving, multi-step execution, or explicit delegation intent, do NOT choose direct.\n"
     "- Choose continue_active_work only when user is clearly continuing the active task.\n"
     "- Choose create_new_work when user starts a different request or asks to delegate prior context into manager workflow.\n"
     "- If the user explicitly asks to delegate, hand off, call an agent, or involve Agent Manager, NEVER choose direct. "
@@ -831,6 +833,7 @@ class ChatService:
         session_id: str,
         message: str,
         active_work: dict[str, Any] | None,
+        diagnostics: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "action": "direct",
@@ -838,6 +841,8 @@ class ChatService:
             "reason": "router_fallback_direct",
             "handoff_message": "",
             "source": "fallback",
+            "router_failed": True,
+            "router_diagnostics": diagnostics or {},
         }
 
     def _classic_router_test_decision(
@@ -926,6 +931,7 @@ class ChatService:
         )
         parsed: dict[str, Any] | None = None
         last_raw = ""
+        errors: list[str] = []
         for attempt in range(2):
             try:
                 attempt_prompt = prompt
@@ -952,7 +958,9 @@ class ChatService:
                 parsed = self._validate_classic_router_payload(payload)
                 if parsed is not None:
                     break
+                errors.append("invalid_router_schema")
             except Exception as exc:
+                errors.append(str(exc))
                 debug_log(
                     "classic_router_error",
                     {
@@ -962,12 +970,80 @@ class ChatService:
                     },
                 )
         if parsed is None:
+            diagnostics = {
+                "router_input": prompt,
+                "router_output": last_raw,
+                "errors": errors,
+            }
             return self._classic_router_fallback_decision(
                 session_id=session_id,
                 message=message,
                 active_work=active_work,
+                diagnostics=diagnostics,
             )
-        decision = {**parsed, "source": "llm"}
+        if (
+            parsed.get("action") in {"continue_active_work", "create_new_work"}
+            and float(parsed.get("confidence") or 0.0) < _CLASSIC_ROUTER_MIN_DELEGATION_CONFIDENCE
+        ):
+            try:
+                retry_prompt = (
+                    f"{prompt}\n\n"
+                    f"Previous decision: {json.dumps(parsed)}\n"
+                    "The previous delegation confidence is low. Re-evaluate and return JSON only. "
+                    "If uncertain, choose direct."
+                )
+                retry_raw = self._run_classic_router_prompt(
+                    retry_prompt,
+                    model_id=model_id,
+                    backend=backend,
+                    a2a_url=a2a_url,
+                    a2a_remote_agent=a2a_remote_agent,
+                    a2a_model_provider=a2a_model_provider,
+                    a2a_model_id=a2a_model_id,
+                )
+                retry_payload = self._parse_json_object_relaxed(retry_raw)
+                retry_parsed = (
+                    self._validate_classic_router_payload(retry_payload)
+                    if isinstance(retry_payload, dict)
+                    else None
+                )
+                if retry_parsed is not None:
+                    parsed = retry_parsed
+                    last_raw = retry_raw
+                    errors.append("low_confidence_retry_applied")
+                else:
+                    errors.append("low_confidence_retry_invalid_schema")
+            except Exception as exc:
+                errors.append(f"low_confidence_retry_error:{exc}")
+        if (
+            parsed.get("action") in {"continue_active_work", "create_new_work"}
+            and float(parsed.get("confidence") or 0.0) < _CLASSIC_ROUTER_MIN_DELEGATION_CONFIDENCE
+        ):
+            diagnostics = {
+                "router_input": prompt,
+                "router_output": last_raw,
+                "errors": [
+                    *errors,
+                    f"low_confidence_delegation:{parsed.get('confidence')}",
+                    f"proposed_action:{parsed.get('action')}",
+                    f"reason:{parsed.get('reason')}",
+                ],
+            }
+            return self._classic_router_fallback_decision(
+                session_id=session_id,
+                message=message,
+                active_work=active_work,
+                diagnostics=diagnostics,
+            )
+        decision = {
+            **parsed,
+            "source": "llm",
+            "router_trace": {
+                "input": prompt,
+                "output": last_raw,
+                "errors": errors,
+            },
+        }
         if decision["action"] == "continue_active_work" and active_work is None:
             decision["action"] = "create_new_work"
         if decision["action"] != "direct" and not decision.get("handoff_message"):
@@ -1187,6 +1263,7 @@ class ChatService:
             str(active_work["work_session_id"]),
             message,
             work_id=str(active_work["work_id"]),
+            force_manager_execution=True,
             model_id=model_id,
             backend=backend,
             a2a_url=a2a_url,
@@ -1295,6 +1372,8 @@ class ChatService:
         a2a_model_id: str | None = None,
     ) -> ChatReply:
         backend = normalize_runtime_backend(backend)
+        classic_router_failure: dict[str, Any] | None = None
+        classic_router_decision: dict[str, Any] | None = None
         if work_id is None:
             active_work = self.store.get_active_classic_work(session_id)
             active_work_session_id = (
@@ -1395,6 +1474,26 @@ class ChatService:
                 )
                 action = str(decision.get("action") or "direct")
                 handoff_message = str(decision.get("handoff_message") or "").strip() or message
+                classic_router_decision = {
+                    "action": action,
+                    "confidence": decision.get("confidence"),
+                    "reason": decision.get("reason"),
+                    "source": decision.get("source"),
+                    "trace": decision.get("router_trace"),
+                }
+                self.store.log_event(
+                    "classic_router_decision",
+                    {
+                        "session_id": session_id,
+                        "action": action,
+                        "confidence": decision.get("confidence"),
+                        "reason": decision.get("reason"),
+                        "source": decision.get("source"),
+                    },
+                )
+                if bool(decision.get("router_failed")):
+                    diagnostics = decision.get("router_diagnostics")
+                    classic_router_failure = diagnostics if isinstance(diagnostics, dict) else {}
 
                 if action in {"continue_active_work", "create_new_work"}:
                     if action == "create_new_work":
@@ -1439,6 +1538,8 @@ class ChatService:
             message,
             work_id=work_id,
             allow_manager_delegation=work_id is not None,
+            classic_router_failure=classic_router_failure,
+            classic_router_decision=classic_router_decision,
             model_id=model_id,
             backend=backend,
             a2a_url=a2a_url,
@@ -1454,6 +1555,9 @@ class ChatService:
         *,
         work_id: str | None = None,
         allow_manager_delegation: bool = True,
+        force_manager_execution: bool = False,
+        classic_router_failure: dict[str, Any] | None = None,
+        classic_router_decision: dict[str, Any] | None = None,
         model_id: str | None = None,
         backend: str | None = None,
         a2a_url: str | None = None,
@@ -1558,21 +1662,36 @@ class ChatService:
 
         try:
             use_manager = False
+            manager_invoked = False
             if self.manager is not None and allow_manager_delegation:
-                triage = self._triage_message(message, work_id=work_id)
-                use_manager = triage == "delegate"
-                self.store.create_task_event(
-                    session_id=session_id,
-                    request_id=request_id,
-                    task_id=root_task_id,
-                    event_type="triage_completed",
-                    payload={
-                        "decision": triage,
-                        "use_manager": use_manager,
-                    },
-                )
+                if force_manager_execution:
+                    use_manager = True
+                    self.store.create_task_event(
+                        session_id=session_id,
+                        request_id=request_id,
+                        task_id=root_task_id,
+                        event_type="triage_completed",
+                        payload={
+                            "decision": "forced_delegate",
+                            "use_manager": True,
+                        },
+                    )
+                else:
+                    triage = self._triage_message(message, work_id=work_id)
+                    use_manager = triage == "delegate"
+                    self.store.create_task_event(
+                        session_id=session_id,
+                        request_id=request_id,
+                        task_id=root_task_id,
+                        event_type="triage_completed",
+                        payload={
+                            "decision": triage,
+                            "use_manager": use_manager,
+                        },
+                    )
 
             if use_manager:
+                manager_invoked = True
                 manager_work_id = work_id
                 if manager_work_id is None:
                     active_classic_work = self.store.get_active_classic_work(session_id)
@@ -1663,6 +1782,7 @@ class ChatService:
                     a2a_model_id=a2a_model_id,
                     prompt_addendum=self._runtime_prompt_addendum_for_mode(work_id=work_id),
                 )
+                manager_invoked = False
         except Exception as exc:
             finished_at = now_iso()
             self.store.update_request(request_id, status=REQUEST_STATUS_FAILED)
@@ -1840,7 +1960,23 @@ class ChatService:
                 else [],
                 "waiting_task_id": waiting_task_id,
                 "input_prompt": input_prompt,
+                "manager_invoked": manager_invoked,
+                "execution_path": "manager" if manager_invoked else "direct_runtime",
             }
+            if classic_router_failure and work_id is None:
+                response_metadata["router_failure"] = {
+                    "input": str(classic_router_failure.get("router_input") or ""),
+                    "output": str(classic_router_failure.get("router_output") or ""),
+                    "errors": list(classic_router_failure.get("errors") or []),
+                }
+            if classic_router_decision and work_id is None:
+                response_metadata["router_decision"] = {
+                    "action": classic_router_decision.get("action"),
+                    "confidence": classic_router_decision.get("confidence"),
+                    "reason": classic_router_decision.get("reason"),
+                    "source": classic_router_decision.get("source"),
+                    "trace": classic_router_decision.get("trace"),
+                }
             if manager_result is not None:
                 for key in (
                     "model",

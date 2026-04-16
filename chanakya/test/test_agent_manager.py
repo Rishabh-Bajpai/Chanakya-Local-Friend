@@ -3348,6 +3348,83 @@ def test_classic_router_direct_action_does_not_delegate_complex_request_without_
     assert store.get_active_classic_work("session_router_direct_complex") is None
 
 
+def test_classic_router_failure_falls_back_to_direct_with_diagnostics() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    runtime = _RuntimeStub(chanakya)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, runtime),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    service.classic_router_runner = lambda prompt: "this is not json"
+
+    reply = service.chat("session_router_failure", "write a Python script for sorting numbers")
+
+    assert reply.route == "direct_answer"
+    assert reply.work_id is None
+    assert isinstance(reply.metadata, dict)
+    failure = reply.metadata.get("router_failure")
+    assert isinstance(failure, dict)
+    assert str(failure.get("output") or "") == "this is not json"
+    assert "Current user message:" in str(failure.get("input") or "")
+
+
+def test_classic_router_low_confidence_delegation_falls_back_to_direct() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    runtime = _RuntimeStub(chanakya)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, runtime),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.0,
+            "reason": "uncertain",
+            "handoff_message": "Delegate this",
+        }
+    )
+
+    reply = service.chat("session_router_low_conf", "hi")
+
+    assert reply.route == "direct_answer"
+    assert reply.work_id is None
+    assert isinstance(reply.metadata, dict)
+    failure = reply.metadata.get("router_failure")
+    assert isinstance(failure, dict)
+    assert "low_confidence_delegation" in ";".join(list(failure.get("errors") or []))
+
+
+def test_classic_router_delegation_forces_manager_execution_path() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    runtime = _RuntimeStub(chanakya)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, runtime),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    service.classic_router_runner = lambda prompt: json.dumps(
+        {
+            "action": "create_new_work",
+            "confidence": 0.95,
+            "reason": "explicit delegation",
+            "handoff_message": "Say hello and ask how to help.",
+        }
+    )
+
+    reply = service.chat("session_router_force_manager", "hi")
+
+    assert reply.route == "delegated_manager"
+    assert reply.work_id is not None
+    assert isinstance(reply.metadata, dict)
+    assert reply.metadata.get("manager_invoked") is True
+    assert reply.metadata.get("execution_path") == "manager"
+
+
 def test_classic_unrelated_request_replacement_cleans_workspace_and_runtime_state(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
