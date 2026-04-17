@@ -250,7 +250,7 @@ def create_app() -> Flask:
             force_subagents_enabled=force_subagents_enabled(),
         )
 
-    def render_work_page() -> str:
+    def render_work_page(*, initial_work_id: str | None = None) -> str:
         return render_template(
             "work.html",
             air_dashboard_url=get_air_dashboard_url(),
@@ -259,11 +259,17 @@ def create_app() -> Flask:
             a2a_agent_url=get_a2a_agent_url(),
             a2a_gui_enabled=get_a2a_gui_enabled(),
             force_subagents_enabled=force_subagents_enabled(),
+            initial_work_id=initial_work_id,
         )
 
     @app.get("/work")
     def work() -> str:
-        return render_work_page()
+        requested_work_id = str(request.args.get("work_id") or "").strip() or None
+        return render_work_page(initial_work_id=requested_work_id)
+
+    @app.get("/work/<work_id>")
+    def work_detail(work_id: str) -> str:
+        return render_work_page(initial_work_id=work_id)
 
     @app.get("/agent")
     def agent() -> str:
@@ -911,9 +917,11 @@ def create_app() -> Flask:
     def api_pending_messages() -> Any:
         work_id = request.args.get("work_id")
         since = request.args.get("since")
-        include_acknowledged = request.args.get(
-            "include_acknowledged", "false"
-        ).lower() in ("true", "1", "yes")
+        include_acknowledged = request.args.get("include_acknowledged", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
         notifications = store.work_notifications.list_pending(
             work_id=work_id if work_id else None,
             include_acknowledged=include_acknowledged,

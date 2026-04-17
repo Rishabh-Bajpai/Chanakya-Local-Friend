@@ -235,3 +235,14 @@ def test_api_ack_returns_404_for_missing(tmp_path: Any, monkeypatch: pytest.Monk
         assert resp.status_code == 404
         data = resp.get_json()
         assert "error" in data
+
+
+def test_work_detail_route_renders_work_page_with_requested_work_id(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = _build_app(tmp_path, monkeypatch)
+    with app.test_client() as client:
+        resp = client.get("/work/work_123")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert 'const INITIAL_WORK_ID = "work_123";' in body

@@ -929,6 +929,7 @@
       const airVoiceStatus = document.getElementById("airVoiceStatus");
       const conversationQueueStatus = document.getElementById("conversationQueueStatus");
       const historyList = document.getElementById("historyList");
+      const INITIAL_WORK_ID = {{ initial_work_id|tojson }};
       const deleteWorkButton = document.getElementById("deleteWorkButton");
 
       const WORK_STORAGE_KEY = "chanakya-active-work";
@@ -2513,6 +2514,11 @@
         resetWorkView();
         await loadWorks();
         await syncActiveWorkFromSession();
+        const requestedWorkId = typeof INITIAL_WORK_ID === "string" ? INITIAL_WORK_ID.trim() : "";
+        if (requestedWorkId && works.some((work) => work.id === requestedWorkId)) {
+          await selectWork(requestedWorkId);
+          return;
+        }
         const saved = loadSavedWork();
         if (saved && works.some((work) => work.id === saved)) {
           await selectWork(saved);
