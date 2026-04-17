@@ -2175,43 +2175,94 @@
       if (!normalized) {
         return nodes;
       }
-      const blocks = normalized.split(/\n{2,}/);
-      blocks.forEach((block) => {
-        const trimmed = block.trim();
-        if (!trimmed) {
-          return;
+      const lines = normalized.split("\n");
+      const isBlank = (line) => !line || !line.trim();
+      const isRule = (line) => /^(-{3,}|\*{3,}|_{3,})$/.test(line.trim());
+      const isAtxHeading = (line) => /^(#{1,6})\s+(.+)$/.test(line.trim());
+      const isSetextUnderline = (line) => /^(=+|-+)\s*$/.test(line.trim());
+      const isTableDelimiter = (line) => /^\s*\|?\s*[:-]+[-| :]*\|?\s*$/.test(line.trim());
+      const isUnorderedItem = (line) => /^\s*[-*+]\s+/.test(line);
+      const isOrderedItem = (line) => /^\s*\d+\.\s+/.test(line);
+      const isIndentedItem = (line) => /^\s{2,}\S/.test(line);
+      const isTableStart = (index) => (
+        index + 1 < lines.length
+        && lines[index].includes("|")
+        && isTableDelimiter(lines[index + 1])
+      );
+      const isSectionLikeNumberedLine = (index) => (
+        /^\d+\.\s+[A-Z]/.test(lines[index].trim())
+        && index + 1 < lines.length
+        && !isOrderedItem(lines[index + 1])
+        && !isIndentedItem(lines[index + 1])
+      );
+      const isSpecialStart = (index) => {
+        const line = lines[index];
+        if (isBlank(line)) {
+          return true;
         }
-        const lines = trimmed.split("\n");
-        if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+        if (isRule(line) || isAtxHeading(line) || isTableStart(index)) {
+          return true;
+        }
+        if (index + 1 < lines.length && !isBlank(line) && isSetextUnderline(lines[index + 1])) {
+          return true;
+        }
+        if (isUnorderedItem(line) || isOrderedItem(line) || isIndentedItem(line) || isSectionLikeNumberedLine(index)) {
+          return true;
+        }
+        return false;
+      };
+
+      let index = 0;
+      while (index < lines.length) {
+        const line = lines[index];
+        const trimmed = line.trim();
+        if (isBlank(line)) {
+          index += 1;
+          continue;
+        }
+        if (isRule(line)) {
           nodes.push(document.createElement("hr"));
-          return;
+          index += 1;
+          continue;
         }
-        const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
-        if (headingMatch) {
-          const level = headingMatch[1].length;
-          const heading = document.createElement(`h${level}`);
-          heading.innerHTML = renderInlineMarkdown(headingMatch[2].trim());
+        const atxHeading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (atxHeading) {
+          const heading = document.createElement(`h${atxHeading[1].length}`);
+          heading.innerHTML = renderInlineMarkdown(atxHeading[2].trim());
           nodes.push(heading);
-          return;
+          index += 1;
+          continue;
         }
-        if (
-          lines.length >= 2
-          && lines[0].includes("|")
-          && /^\s*\|?\s*[:-]+[-| :]*\|?\s*$/.test(lines[1])
-        ) {
+        if (index + 1 < lines.length && !isBlank(line) && isSetextUnderline(lines[index + 1])) {
+          const underline = lines[index + 1].trim();
+          const heading = document.createElement(underline.startsWith("=") ? "h1" : "h2");
+          heading.innerHTML = renderInlineMarkdown(trimmed);
+          nodes.push(heading);
+          index += 2;
+          continue;
+        }
+        if (isSectionLikeNumberedLine(index)) {
+          const heading = document.createElement("h2");
+          heading.innerHTML = renderInlineMarkdown(trimmed);
+          nodes.push(heading);
+          index += 1;
+          continue;
+        }
+        if (isTableStart(index)) {
           const table = document.createElement("table");
           const thead = document.createElement("thead");
           const tbody = document.createElement("tbody");
           const headerRow = document.createElement("tr");
-          lines[0].split("|").map((cell) => cell.trim()).filter(Boolean).forEach((cell) => {
+          lines[index].split("|").map((cell) => cell.trim()).filter(Boolean).forEach((cell) => {
             const th = document.createElement("th");
             th.innerHTML = renderInlineMarkdown(cell);
             headerRow.appendChild(th);
           });
           thead.appendChild(headerRow);
-          lines.slice(2).forEach((line) => {
+          index += 2;
+          while (index < lines.length && !isBlank(lines[index]) && lines[index].includes("|")) {
             const row = document.createElement("tr");
-            line.split("|").map((cell) => cell.trim()).filter(Boolean).forEach((cell) => {
+            lines[index].split("|").map((cell) => cell.trim()).filter(Boolean).forEach((cell) => {
               const td = document.createElement("td");
               td.innerHTML = renderInlineMarkdown(cell);
               row.appendChild(td);
@@ -2219,38 +2270,54 @@
             if (row.children.length) {
               tbody.appendChild(row);
             }
-          });
+            index += 1;
+          }
           table.appendChild(thead);
           if (tbody.children.length) {
             table.appendChild(tbody);
           }
           nodes.push(table);
-          return;
+          continue;
         }
-        if (lines.every((line) => /^\s*[-*+]\s+/.test(line))) {
-          const list = document.createElement("ul");
-          lines.forEach((line) => {
+        if (isUnorderedItem(line) || isOrderedItem(line) || isIndentedItem(line)) {
+          const ordered = isOrderedItem(line);
+          const list = document.createElement(ordered ? "ol" : "ul");
+          while (index < lines.length) {
+            const current = lines[index];
+            if (isBlank(current)) {
+              break;
+            }
+            let itemText = "";
+            if (ordered && isOrderedItem(current)) {
+              itemText = current.replace(/^\s*\d+\.\s+/, "");
+            } else if (!ordered && isUnorderedItem(current)) {
+              itemText = current.replace(/^\s*[-*+]\s+/, "");
+            } else if (!ordered && isIndentedItem(current)) {
+              itemText = current.trim();
+            } else {
+              break;
+            }
             const item = document.createElement("li");
-            item.innerHTML = renderInlineMarkdown(line.replace(/^\s*[-*+]\s+/, ""));
+            item.innerHTML = renderInlineMarkdown(itemText);
             list.appendChild(item);
-          });
+            index += 1;
+          }
           nodes.push(list);
-          return;
+          continue;
         }
-        if (lines.every((line) => /^\s*\d+\.\s+/.test(line))) {
-          const list = document.createElement("ol");
-          lines.forEach((line) => {
-            const item = document.createElement("li");
-            item.innerHTML = renderInlineMarkdown(line.replace(/^\s*\d+\.\s+/, ""));
-            list.appendChild(item);
-          });
-          nodes.push(list);
-          return;
+        const paragraphLines = [];
+        while (index < lines.length && !isBlank(lines[index]) && !isSpecialStart(index)) {
+          paragraphLines.push(lines[index].trim());
+          index += 1;
+        }
+        if (!paragraphLines.length) {
+          paragraphLines.push(trimmed);
+          index += 1;
         }
         const paragraph = document.createElement("p");
-        paragraph.innerHTML = lines.map((line) => renderInlineMarkdown(line)).join("<br>");
+        paragraph.innerHTML = paragraphLines.map((entry) => renderInlineMarkdown(entry)).join("<br>");
         nodes.push(paragraph);
-      });
+      }
       return nodes;
     }
 
