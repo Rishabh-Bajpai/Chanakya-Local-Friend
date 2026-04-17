@@ -265,6 +265,111 @@
         background: linear-gradient(180deg, #262a2d, #1f2225);
         border: 1px solid rgba(97, 120, 129, 0.24);
       }
+      .msg-body {
+        min-width: 0;
+      }
+      .rendered-markdown {
+        display: grid;
+        gap: 10px;
+      }
+      .rendered-markdown > * {
+        margin: 0;
+      }
+      .rendered-markdown p,
+      .rendered-markdown li {
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+      .rendered-markdown ul,
+      .rendered-markdown ol {
+        margin: 0;
+        padding-left: 22px;
+        display: grid;
+        gap: 6px;
+      }
+      .rendered-markdown hr {
+        border: 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      .rendered-markdown h1,
+      .rendered-markdown h2,
+      .rendered-markdown h3,
+      .rendered-markdown h4,
+      .rendered-markdown h5,
+      .rendered-markdown h6 {
+        line-height: 1.2;
+      }
+      .rendered-markdown h1 {
+        font-size: 26px;
+      }
+      .rendered-markdown h2 {
+        font-size: 22px;
+      }
+      .rendered-markdown h3 {
+        font-size: 19px;
+      }
+      .rendered-markdown h4,
+      .rendered-markdown h5,
+      .rendered-markdown h6 {
+        font-size: 16px;
+      }
+      .rendered-markdown code {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 0.92em;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 0.1em 0.4em;
+      }
+      .rendered-code-block {
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        overflow: hidden;
+        background: #151618;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+      .code-language-label {
+        padding: 8px 12px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #d7b2a7;
+        background: rgba(216, 107, 74, 0.12);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .rendered-code-block pre {
+        margin: 0;
+        padding: 14px;
+        overflow-x: auto;
+        white-space: pre;
+        line-height: 1.5;
+      }
+      .rendered-code-block pre code {
+        display: block;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        border-radius: 0;
+        font-size: 13px;
+      }
+      .rendered-markdown table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      .rendered-markdown th,
+      .rendered-markdown td {
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 8px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .rendered-markdown th {
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .rendered-markdown a {
+        color: #8ecbff;
+      }
       .composer {
         border-top: 1px solid var(--line);
         padding: 14px;
@@ -1333,10 +1438,158 @@
         await selectWork(targetWorkId);
       }
 
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function renderInlineMarkdown(text) {
+        let html = escapeHtml(text || "");
+        html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+        html = html.replace(/(^|\W)\*([^*]+)\*(?=\W|$)/g, '$1<em>$2</em>');
+        html = html.replace(/(^|\W)_([^_]+)_(?=\W|$)/g, '$1<em>$2</em>');
+        return html;
+      }
+
+      function buildCodeBlock(code, language) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "rendered-code-block";
+        if (language) {
+          const label = document.createElement("div");
+          label.className = "code-language-label";
+          label.textContent = language;
+          wrapper.appendChild(label);
+        }
+        const pre = document.createElement("pre");
+        const codeNode = document.createElement("code");
+        if (language) {
+          codeNode.className = `language-${language.toLowerCase()}`;
+        }
+        codeNode.textContent = code;
+        pre.appendChild(codeNode);
+        wrapper.appendChild(pre);
+        return wrapper;
+      }
+
+      function parseMarkdownBlocks(text) {
+        const nodes = [];
+        const normalized = String(text || "").replace(/\r\n?/g, "\n").trim();
+        if (!normalized) {
+          return nodes;
+        }
+        const blocks = normalized.split(/\n{2,}/);
+        blocks.forEach((block) => {
+          const trimmed = block.trim();
+          if (!trimmed) {
+            return;
+          }
+          const lines = trimmed.split("\n");
+          if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+            nodes.push(document.createElement("hr"));
+            return;
+          }
+          const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+          if (headingMatch) {
+            const level = headingMatch[1].length;
+            const heading = document.createElement(`h${level}`);
+            heading.innerHTML = renderInlineMarkdown(headingMatch[2].trim());
+            nodes.push(heading);
+            return;
+          }
+          if (
+            lines.length >= 2
+            && lines[0].includes("|")
+            && /^\s*\|?\s*[:-]+[-| :]*\|?\s*$/.test(lines[1])
+          ) {
+            const table = document.createElement("table");
+            const thead = document.createElement("thead");
+            const tbody = document.createElement("tbody");
+            const headerRow = document.createElement("tr");
+            lines[0].split("|").map((cell) => cell.trim()).filter(Boolean).forEach((cell) => {
+              const th = document.createElement("th");
+              th.innerHTML = renderInlineMarkdown(cell);
+              headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            lines.slice(2).forEach((line) => {
+              const row = document.createElement("tr");
+              line.split("|").map((cell) => cell.trim()).filter(Boolean).forEach((cell) => {
+                const td = document.createElement("td");
+                td.innerHTML = renderInlineMarkdown(cell);
+                row.appendChild(td);
+              });
+              if (row.children.length) {
+                tbody.appendChild(row);
+              }
+            });
+            table.appendChild(thead);
+            if (tbody.children.length) {
+              table.appendChild(tbody);
+            }
+            nodes.push(table);
+            return;
+          }
+          if (lines.every((line) => /^\s*[-*+]\s+/.test(line))) {
+            const list = document.createElement("ul");
+            lines.forEach((line) => {
+              const item = document.createElement("li");
+              item.innerHTML = renderInlineMarkdown(line.replace(/^\s*[-*+]\s+/, ""));
+              list.appendChild(item);
+            });
+            nodes.push(list);
+            return;
+          }
+          if (lines.every((line) => /^\s*\d+\.\s+/.test(line))) {
+            const list = document.createElement("ol");
+            lines.forEach((line) => {
+              const item = document.createElement("li");
+              item.innerHTML = renderInlineMarkdown(line.replace(/^\s*\d+\.\s+/, ""));
+              list.appendChild(item);
+            });
+            nodes.push(list);
+            return;
+          }
+          const paragraph = document.createElement("p");
+          paragraph.innerHTML = lines.map((line) => renderInlineMarkdown(line)).join("<br>");
+          nodes.push(paragraph);
+        });
+        return nodes;
+      }
+
+      function renderMarkdownContent(text) {
+        const host = document.createElement("div");
+        host.className = "rendered-markdown";
+        const normalized = String(text || "").replace(/\r\n?/g, "\n");
+        const blockPattern = /```([^\n`]*)\n([\s\S]*?)```/g;
+        let lastIndex = 0;
+        let match;
+        while ((match = blockPattern.exec(normalized)) !== null) {
+          const [fullMatch, rawLanguage, rawCode] = match;
+          const prefix = normalized.slice(lastIndex, match.index);
+          parseMarkdownBlocks(prefix).forEach((node) => host.appendChild(node));
+          host.appendChild(buildCodeBlock(rawCode.replace(/\n$/, ""), rawLanguage.trim()));
+          lastIndex = match.index + fullMatch.length;
+        }
+        parseMarkdownBlocks(normalized.slice(lastIndex)).forEach((node) => host.appendChild(node));
+        if (!host.childNodes.length) {
+          const fallback = document.createElement("p");
+          fallback.textContent = text || "";
+          host.appendChild(fallback);
+        }
+        return host;
+      }
+
       function appendChatMessage(role, content) {
         const node = document.createElement("div");
         node.className = `msg ${role}`;
-        node.textContent = content;
+        const body = document.createElement("div");
+        body.className = "msg-body";
+        body.appendChild(renderMarkdownContent(content));
+        node.appendChild(body);
         chatLog.appendChild(node);
         chatLog.scrollTop = chatLog.scrollHeight;
         return node;
@@ -1345,7 +1598,12 @@
       function getLatestAssistantMessageText() {
         const nodes = Array.from(chatLog.querySelectorAll(".msg.assistant"));
         const last = nodes[nodes.length - 1];
-        return last ? last.textContent || "" : "";
+        if (!last) {
+          return "";
+        }
+        const clone = last.cloneNode(true);
+        clone.querySelectorAll(".code-language-label").forEach((node) => node.remove());
+        return clone.textContent || "";
       }
 
       function setConversationQueueStatus(text, isError = false) {
