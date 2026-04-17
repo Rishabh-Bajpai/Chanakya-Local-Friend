@@ -1092,6 +1092,102 @@
         grid-template-columns: 1fr;
       }
     }
+
+    .work-notifications-bar {
+      display: none;
+      background: #1a1a2e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      margin: 8px 0;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    .work-notifications-bar.has-notifications {
+      display: block;
+    }
+    .work-notifications-bar .wn-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .work-notifications-bar .wn-badge {
+      background: #e74c3c;
+      color: #fff;
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .work-notifications-bar .wn-badge.completed {
+      background: #27ae60;
+    }
+    .work-notifications-bar .wn-items {
+      display: none;
+      margin-top: 8px;
+    }
+    .work-notifications-bar.expanded .wn-items {
+      display: block;
+    }
+    .work-notifications-bar .wn-item {
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .work-notifications-bar .wn-item .wn-type-icon {
+      flex-shrink: 0;
+      font-size: 14px;
+    }
+    .work-notifications-bar .wn-item .wn-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .work-notifications-bar .wn-item .wn-title {
+      font-weight: 600;
+      color: #eee;
+      margin-bottom: 2px;
+    }
+    .work-notifications-bar .wn-item .wn-text {
+      color: #aaa;
+      font-size: 12px;
+      word-break: break-word;
+    }
+    .work-notifications-bar .wn-item .wn-actions {
+      flex-shrink: 0;
+      display: flex;
+      gap: 4px;
+    }
+    .work-notifications-bar .wn-item .wn-actions button {
+      font-size: 11px;
+      padding: 2px 8px;
+      border: 1px solid #555;
+      border-radius: 3px;
+      background: #222;
+      color: #ccc;
+      cursor: pointer;
+    }
+    .work-notifications-bar .wn-item .wn-actions button:hover {
+      background: #333;
+    }
+    .work-notifications-bar .wn-item .wn-actions a {
+      font-size: 11px;
+      padding: 2px 8px;
+      border: 1px solid #555;
+      border-radius: 3px;
+      background: #222;
+      color: #7ecfff;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .work-notifications-bar .wn-item .wn-actions a:hover {
+      background: #333;
+    }
   </style>
 </head>
 
@@ -1214,6 +1310,13 @@
         </details>
       </div>
       <div id="chatLog" class="chat-log"></div>
+      <div id="workNotificationsBar" class="work-notifications-bar">
+        <div class="wn-header" onclick="toggleWorkNotifications()">
+          <span>📋 Work Notifications</span>
+          <span id="wnBadge" class="wn-badge">0</span>
+        </div>
+        <div id="wnItems" class="wn-items"></div>
+      </div>
       <form id="chatForm" class="composer">
         <input id="messageInput" type="text" placeholder="Talk to Chanakya..." required />
         <button type="submit">Send</button>
@@ -2318,138 +2421,6 @@
       }
     }
 
-    function startDelegationNoticeWatcher(targetSessionId, assistantCountBefore, options = {}) {
-      const { onAssistantMessage, delegationNoticeText } = options;
-      if (!targetSessionId) {
-        return {
-          stop() {},
-          hasNotified() {
-            return false;
-          },
-        };
-      }
-      let stopped = false;
-      let notified = false;
-      const run = async () => {
-        while (!stopped && !notified) {
-          try {
-            const response = await fetchWithTimeout(
-              `/api/sessions/${encodeURIComponent(targetSessionId)}`,
-              {},
-              4000
-            );
-            const payload = await readJsonResponse(response);
-            if (response.ok) {
-              const messages = Array.isArray(payload.messages) ? payload.messages : [];
-              const assistantMessages = messages.filter((message) => String(message.role || "") === "assistant");
-              const newAssistantMessages = assistantMessages.slice(assistantCountBefore);
-              const hasDelegationNotice = newAssistantMessages.some(
-                (message) => (
-                  String(message.route || "") === "delegation_notice"
-                  && !message?.metadata?.delegated_background_busy
-                )
-              );
-              const hasBusyDelegationNotice = newAssistantMessages.some(
-                (message) => (
-                  String(message.route || "") === "delegation_notice"
-                  && Boolean(message?.metadata?.delegated_background_busy)
-                )
-              );
-              if (hasDelegationNotice) {
-                notified = true;
-                appendMessage("assistant", delegationNoticeText, "", { badge: "Delegated" });
-                if (isVoiceDeliveryMode() && airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
-                  await airVoiceController.speakAssistantMessageAndWait(delegationNoticeText);
-                } else if (typeof onAssistantMessage === "function") {
-                  await onAssistantMessage(delegationNoticeText);
-                }
-                setConversationQueueStatus("Work transferred to an expert. Waiting for result...");
-                break;
-              }
-              if (hasBusyDelegationNotice) {
-                stopped = true;
-                break;
-              }
-            }
-          } catch {
-          }
-          await delay(700);
-        }
-      };
-      void run();
-      return {
-        stop() {
-          stopped = true;
-        },
-        hasNotified() {
-          return notified;
-        },
-      };
-    }
-
-    function startClassicDelegatedCompletionWatcher(targetSessionId, assistantCountBefore, options = {}) {
-      const { onAssistantMessage } = options;
-      if (!targetSessionId) {
-        return { stop() {} };
-      }
-      let stopped = false;
-      const run = async () => {
-        while (!stopped) {
-          try {
-            const response = await fetchWithTimeout(
-              `/api/sessions/${encodeURIComponent(targetSessionId)}`,
-              {},
-              6000
-            );
-            const payload = await readJsonResponse(response);
-            if (response.ok) {
-              const messages = Array.isArray(payload.messages) ? payload.messages : [];
-              const assistantMessages = messages.filter((message) => String(message.role || "") === "assistant");
-              const newAssistantMessages = assistantMessages.slice(assistantCountBefore);
-              const completionMessages = newAssistantMessages.filter((message) => {
-                const route = String(message.route || "");
-                return route === "classic_work_completion" || route === "waiting_input_prompt";
-              });
-              if (completionMessages.length) {
-                renderChatHistory(messages);
-                await refreshSidePanels();
-                completionMessages.forEach((item) => {
-                });
-                for (const item of completionMessages) {
-                  const text = String(item.content || "");
-                  if (text) {
-                    await deliverAssistantText(text, { onAssistantMessage, alreadyRendered: true, metadata: item.metadata || null });
-                  }
-                }
-                const latestCompletion = completionMessages[completionMessages.length - 1] || null;
-                const pendingCount = Number(latestCompletion?.metadata?.pending_delivery_count || 0);
-                if (pendingCount > 0) {
-                  setConversationQueueStatus(
-                    `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
-                  );
-                  await pollNextConversationMessages(targetSessionId, { onAssistantMessage });
-                } else {
-                  setConversationQueueStatus("Delegated work finished.");
-                }
-                if (airVoiceController) {
-                  airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
-                }
-                return;
-              }
-            }
-          } catch {
-          }
-          await delay(900);
-        }
-      };
-      void run();
-      return {
-        stop() {
-          stopped = true;
-        },
-      };
-    }
-
     async function submitChatMessage(message, options = {}) {
       const { onAssistantMessage, voiceMode = false } = options;
       if (voiceMode) {
@@ -2457,12 +2428,6 @@
       }
       beginAssistantTurn();
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
-      const assistantCountBefore = chatLog.querySelectorAll(".message.assistant").length;
-      const delegationNoticeText = "Transferring your work to an expert. This may take a bit longer.";
-      const delegationNoticeWatcher = startDelegationNoticeWatcher(sessionId, assistantCountBefore, {
-        onAssistantMessage,
-        delegationNoticeText,
-      });
       try {
         let response;
         try {
@@ -2481,13 +2446,13 @@
             }),
           });
         } catch (error) {
-          delegationNoticeWatcher.stop();
           if (!isRecoverableNetworkError(error)) {
             throw error;
           }
           if (!sessionId) {
             throw new Error("Connection interrupted before session assignment. Please retry.");
           }
+          const assistantCountBefore = chatLog.querySelectorAll(".message.assistant").length;
           const recovered = await recoverChatAfterDisconnect(
             sessionId,
             assistantCountBefore,
@@ -2499,45 +2464,12 @@
           throw new Error("Connection interrupted before the reply arrived.");
         }
         const data = await readJsonResponse(response);
-        delegationNoticeWatcher.stop();
         if (!response.ok) {
           throw new Error(data.error || "Request failed");
         }
         sessionId = data.session_id;
         storeSessionId(sessionId);
-        const activeWorkIdFromResponse =
-          (typeof data.work_id === "string" && data.work_id.trim())
-          || (typeof data.metadata?.active_work_id === "string" && data.metadata.active_work_id.trim())
-          || "";
-        if (activeWorkIdFromResponse) {
-          storeActiveWorkId(activeWorkIdFromResponse);
-        } else {
-          await syncActiveWorkForSession(sessionId);
-        }
         renderTrace(data);
-        showRouterFailureDialogIfNeeded(data);
-        if (data.route === "delegated_manager" && data.metadata?.delegated_background_started && !delegationNoticeWatcher.hasNotified()) {
-          appendMessage("assistant", delegationNoticeText, "", { badge: "Delegated" });
-          await deliverAssistantText(delegationNoticeText, { onAssistantMessage, alreadyRendered: true, metadata: data.metadata || null });
-        }
-        if (data.metadata?.delegated_background_started) {
-          setConversationQueueStatus("Work transferred to an expert. Waiting for result...");
-          startClassicDelegatedCompletionWatcher(data.session_id, assistantCountBefore, {
-            onAssistantMessage,
-          });
-          await refreshSidePanels();
-          if (airVoiceController) {
-            airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
-          }
-          return data;
-        }
-        if (data.metadata?.delegated_background_busy) {
-          const busyText = String(data.message || (data.messages && data.messages[0] && data.messages[0].text) || "");
-          if (busyText) {
-            await deliverAssistantText(busyText, { onAssistantMessage, metadata: data.metadata || null });
-          }
-          return data;
-        }
         const messages = Array.isArray(data.messages) && data.messages.length
           ? data.messages
           : [{ text: data.message || "", delay_ms: 0 }];
@@ -2630,29 +2562,6 @@
         }
       } catch {
       }
-    }
-
-    function showRouterFailureDialogIfNeeded(responsePayload) {
-      const failure = responsePayload && responsePayload.metadata && responsePayload.metadata.router_failure;
-      if (!failure || typeof failure !== "object") {
-        return;
-      }
-      const routerInput = String(failure.input || "").trim();
-      const routerOutput = String(failure.output || "").trim();
-      const errors = Array.isArray(failure.errors) ? failure.errors : [];
-      const errorText = errors.length ? errors.join("; ") : "unknown router error";
-      const message = [
-        "Classic router failed. Falling back to direct response.",
-        "",
-        `Errors: ${errorText}`,
-        "",
-        "Router input:",
-        routerInput || "(empty)",
-        "",
-        "Router output:",
-        routerOutput || "(empty)",
-      ].join("\n");
-      window.alert(message);
     }
 
       if (chatBackendSelect) {
@@ -3791,6 +3700,91 @@
       setNotificationStatus(error instanceof Error ? error.message : String(error), true);
     });
     loadSessionHistory();
+
+    // ---------- Work Notification Polling ----------
+    let _wnPollTimer = null;
+    const WN_POLL_INTERVAL = 10000;
+
+    function toggleWorkNotifications() {
+      const bar = document.getElementById("workNotificationsBar");
+      if (bar) {
+        bar.classList.toggle("expanded");
+      }
+    }
+    window.toggleWorkNotifications = toggleWorkNotifications;
+
+    async function pollWorkNotifications() {
+      try {
+        const response = await fetch("/api/works/pending-messages");
+        if (!response.ok) return;
+        const data = await response.json();
+        const notifications = Array.isArray(data.notifications) ? data.notifications : [];
+        renderWorkNotifications(notifications);
+      } catch {
+        // silently ignore polling errors
+      }
+    }
+
+    function renderWorkNotifications(notifications) {
+      const bar = document.getElementById("workNotificationsBar");
+      const badge = document.getElementById("wnBadge");
+      const container = document.getElementById("wnItems");
+      if (!bar || !badge || !container) return;
+
+      if (!notifications.length) {
+        bar.classList.remove("has-notifications");
+        bar.classList.remove("expanded");
+        container.innerHTML = "";
+        return;
+      }
+
+      bar.classList.add("has-notifications");
+      const hasInput = notifications.some(n => n.notification_type === "input_required");
+      badge.textContent = String(notifications.length);
+      badge.className = "wn-badge" + (hasInput ? "" : " completed");
+
+      container.innerHTML = notifications.map(n => {
+        const icon = n.notification_type === "input_required" ? "⏳"
+          : n.notification_type === "completed" ? "✅" : "❌";
+        const workUrl = n.target_url || `/work/${n.work_id || ""}`;
+        return `<div class="wn-item" data-id="${n.id}">
+          <span class="wn-type-icon">${icon}</span>
+          <div class="wn-body">
+            <div class="wn-title">${escapeHtml(n.title || "Work update")}</div>
+            <div class="wn-text">${escapeHtml(n.text || "")}</div>
+          </div>
+          <div class="wn-actions">
+            <a href="${escapeHtml(workUrl)}">Open</a>
+            <button onclick="ackWorkNotification('${n.id}')">Dismiss</button>
+          </div>
+        </div>`;
+      }).join("");
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    async function ackWorkNotification(notificationId) {
+      try {
+        await fetch(`/api/works/pending-messages/${encodeURIComponent(notificationId)}/ack`, {
+          method: "POST",
+        });
+        await pollWorkNotifications();
+      } catch {
+        // ignore
+      }
+    }
+    window.ackWorkNotification = ackWorkNotification;
+
+    function startWorkNotificationPolling() {
+      if (_wnPollTimer) return;
+      pollWorkNotifications();
+      _wnPollTimer = setInterval(pollWorkNotifications, WN_POLL_INTERVAL);
+    }
+    startWorkNotificationPolling();
 
     // ---------- SSE-driven auto-refresh ----------
     let _sseRefreshTimer = null;

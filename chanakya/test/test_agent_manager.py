@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import Any, cast
+from typing import cast
 
 from agent_framework import Message
 from pytest import MonkeyPatch, raises
@@ -19,9 +19,7 @@ from chanakya.agent_manager import (
 from chanakya.chat_service import ChatService
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.domain import (
-    ChatReply,
     REQUEST_STATUS_IN_PROGRESS,
-    REQUEST_STATUS_COMPLETED,
     REQUEST_STATUS_CANCELLED,
     TASK_STATUS_BLOCKED,
     TASK_STATUS_CANCELLED,
@@ -166,14 +164,6 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
     )
     service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
     assert service.manager is not None
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Please fix and test login rate limiting",
-        }
-    )
     service.manager.summary_runner = lambda prompt: "hello-world"
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
@@ -198,7 +188,10 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
         "Login rate limiting was implemented and validated successfully."
     )
 
-    reply = service.chat("session_mgr", "Please fix and test login rate limiting")
+    store.create_work(work_id="work_routes_mgr_sw", title="Test Work", description="")
+    reply = service.chat(
+        "session_mgr", "Please fix and test login rate limiting", work_id="work_routes_mgr_sw",
+    )
 
     assert reply.route == "delegated_manager"
     assert reply.response_mode == WORKFLOW_SOFTWARE
@@ -788,14 +781,6 @@ def test_normal_chat_prefers_direct_for_fast_non_trivial_request() -> None:
     )
     service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
     assert service.manager is not None
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "direct",
-            "confidence": 0.95,
-            "reason": "simple rewrite request",
-            "handoff_message": "",
-        }
-    )
 
     def _should_not_delegate(**kwargs: str) -> ManagerRunResult:
         raise AssertionError("manager.execute should not run for fast normal-chat request")
@@ -849,14 +834,6 @@ def test_normal_chat_keeps_short_joke_requests_direct() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "direct",
-            "confidence": 0.95,
-            "reason": "short entertainment request",
-            "handoff_message": "",
-        }
-    )
 
     def _should_not_delegate(**kwargs: str) -> ManagerRunResult:
         raise AssertionError("manager.execute should not run for short joke request")
@@ -867,6 +844,30 @@ def test_normal_chat_keeps_short_joke_requests_direct() -> None:
 
     assert reply.route == "direct_answer"
     assert reply.message == "personal_assistant:Tell me 2 jokes"
+
+
+def test_classic_chat_never_auto_delegates_complex_request() -> None:
+    """Classic chat (no work_id) always returns a direct response, never delegates."""
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    runtime = _RuntimeStub(chanakya)
+    service = ChatService(
+        store,
+        cast(MAFRuntime, runtime),
+        AgentManager(store, store.Session, manager_profile),
+    )
+    assert service.manager is not None
+    service.manager.route_runner = lambda prompt: (
+        '{"selected_agent_id":"agent_cto","selected_role":"cto",'
+        '"reason":"software work","execution_mode":"software_delivery"}'
+    )
+
+    reply = service.chat(
+        "session_no_delegate",
+        "Build me a complete REST API with authentication, rate limiting, and database migrations",
+    )
+    assert reply.route == "direct_answer"
+    assert reply.work_id is None
 
 
 def test_work_mode_prefers_delegation_for_non_trivial_request() -> None:
@@ -924,14 +925,6 @@ def test_normal_chat_persists_visible_delegation_notice_before_manager_result() 
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement and test login rate limiting",
-        }
-    )
 
     service.manager.execute = lambda **kwargs: ManagerRunResult(
         text="Completed by specialist.",
@@ -943,18 +936,17 @@ def test_normal_chat_persists_visible_delegation_notice_before_manager_result() 
         result_json={"workflow_type": WORKFLOW_SOFTWARE},
     )  # type: ignore[method-assign]
 
-    reply = service.chat("session_notice", "Implement and test login rate limiting")
+    store.create_work(work_id="work_deleg_notice", title="Test Work", description="")
+    reply = service.chat(
+        "session_notice", "Implement and test login rate limiting", work_id="work_deleg_notice",
+    )
 
     assert reply.route == "delegated_manager"
     messages = store.list_messages("session_notice")
     assistant_messages = [message for message in messages if message["role"] == "assistant"]
-    assert len(assistant_messages) == 2
-    assert assistant_messages[0]["route"] == "delegation_notice"
-    assert assistant_messages[0]["metadata"]["delegation_notice"] is True
-    assert "Transferring your work to an expert" in assistant_messages[0]["content"]
-    assert assistant_messages[1]["content"] == "Completed by specialist."
-    events = store.list_task_events(session_id="session_notice", limit=50)
-    assert any(event["event_type"] == "delegation_notice_persisted" for event in events)
+    # In work mode, no separate delegation_notice is persisted – only the manager result.
+    assert len(assistant_messages) == 1
+    assert assistant_messages[0]["content"] == "Completed by specialist."
 
 
 def test_manager_direct_fallback_runs_when_required_worker_is_missing() -> None:
@@ -981,14 +973,6 @@ def test_manager_direct_fallback_runs_when_required_worker_is_missing() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement and test login rate limiting",
-        }
-    )
     service.manager.summary_runner = lambda prompt: "hello-world"
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
@@ -997,7 +981,10 @@ def test_manager_direct_fallback_runs_when_required_worker_is_missing() -> None:
         lambda profile, prompt, **kwargs: "Best-effort manager fallback answer."
     )
 
-    reply = service.chat("session_manager_fallback", "Implement and test login rate limiting")
+    store.create_work(work_id="work_fallback", title="Test Work", description="")
+    reply = service.chat(
+        "session_manager_fallback", "Implement and test login rate limiting", work_id="work_fallback",
+    )
 
     assert reply.route == "delegated_manager"
     assert reply.response_mode == "manager_direct_fallback"
@@ -1136,17 +1123,11 @@ def test_chat_service_routes_non_software_requests_through_informer_chain() -> N
     service.manager.summary_runner = lambda prompt: (
         "Berlin weather was researched first and then turned into a concise answer."
     )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "research and writing request",
-            "handoff_message": "Research the weather in Berlin and write a concise answer",
-        }
-    )
 
+    store.create_work(work_id="work_informer_chain", title="Test Work", description="")
     reply = service.chat(
-        "session_informer", "Research the weather in Berlin and write a concise answer"
+        "session_informer", "Research the weather in Berlin and write a concise answer",
+        work_id="work_informer_chain",
     )
 
     assert reply.route == "delegated_manager"
@@ -1205,16 +1186,11 @@ def test_manager_preserves_specialist_response_when_user_did_not_request_summary
         ]
     )
     service.manager.summary_runner = lambda prompt: "This should not be used."
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "research request about Life of Pi",
-            "handoff_message": "Tell me something about Life of Pi",
-        }
-    )
 
-    reply = service.chat("session_passthrough", "Tell me something about Life of Pi")
+    store.create_work(work_id="work_specialist_preserve", title="Test Work", description="")
+    reply = service.chat(
+        "session_passthrough", "Tell me something about Life of Pi", work_id="work_specialist_preserve",
+    )
 
     assert (
         reply.message
@@ -1251,17 +1227,11 @@ def test_informer_writer_recovers_when_workflow_output_contains_artifacts() -> N
         return "Virat Kohli was born on 5 November 1988 in New Delhi and is one of cricket's most decorated batters."
 
     service.manager.specialist_runner = _specialist_runner
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "research request about Virat Kohli",
-            "handoff_message": "Tell me some important facts about Virat Kohli",
-        }
-    )
 
+    store.create_work(work_id="work_writer_artifacts", title="Test Work", description="")
     reply = service.chat(
-        "session_writer_recovery", "Tell me some important facts about Virat Kohli"
+        "session_writer_recovery", "Tell me some important facts about Virat Kohli",
+        work_id="work_writer_artifacts",
     )
 
     writer_task = next(
@@ -1323,17 +1293,11 @@ def test_manager_runs_worker_stages_with_the_persisted_prompts() -> None:
         '{"use_subagent":false,"reason":"not needed"}'
     )
 
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Write a python program to print hello world",
-        }
-    )
 
+    store.create_work(work_id="work_persisted_prompts", title="Test Work", description="")
     reply = service.chat(
-        "session_prompt_persistence", "Write a python program to print hello world"
+        "session_prompt_persistence", "Write a python program to print hello world",
+        work_id="work_persisted_prompts",
     )
 
     tasks = store.list_tasks(session_id="session_prompt_persistence", limit=20)
@@ -1398,16 +1362,11 @@ def test_informer_writer_recovers_when_output_echoes_research_handoff() -> None:
         '{"use_subagent":false,"reason":"not needed"}'
     )
 
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "research request about Virat Kohli biography",
-            "handoff_message": "Give me a short biography of Virat Kohli",
-        }
-    )
 
-    reply = service.chat("session_writer_echo", "Give me a short biography of Virat Kohli")
+    store.create_work(work_id="work_writer_echo", title="Test Work", description="")
+    reply = service.chat(
+        "session_writer_echo", "Give me a short biography of Virat Kohli", work_id="work_writer_echo",
+    )
 
     writer_task = next(
         task
@@ -1470,16 +1429,11 @@ def test_cto_tester_recovers_when_output_echoes_developer_handoff() -> None:
         '{"use_subagent":false,"reason":"not needed"}'
     )
 
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Write a python program to print hello world",
-        }
-    )
 
-    reply = service.chat("session_tester_recovery", "Write a python program to print hello world")
+    store.create_work(work_id="work_tester_echo", title="Test Work", description="")
+    reply = service.chat(
+        "session_tester_recovery", "Write a python program to print hello world", work_id="work_tester_echo",
+    )
 
     tester_task = next(
         task
@@ -1584,17 +1538,11 @@ def test_developer_future_tense_plan_output_is_rejected_and_repaired() -> None:
         )
 
     service.manager.workflow_runtime.start_software_workflow = _fake_successful_workflow  # type: ignore[method-assign]
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Write a python program to print hello world",
-        }
-    )
 
+    store.create_work(work_id="work_plan_repair", title="Test Work", description="")
     reply = service.chat(
-        "session_developer_plan_repair", "Write a python program to print hello world"
+        "session_developer_plan_repair", "Write a python program to print hello world",
+        work_id="work_plan_repair",
     )
 
     developer_task = next(
@@ -1684,18 +1632,12 @@ def test_software_workflow_failure_keeps_completed_developer_done_and_fails_test
         )
 
     service.manager.workflow_runtime.start_software_workflow = _fake_failed_workflow  # type: ignore[method-assign]
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "write a Python script for finding the prime number between 74 and 534.",
-        }
-    )
 
+    store.create_work(work_id="work_sw_failure", title="Test Work", description="")
     reply = service.chat(
         "session_runtime_failed",
         "write a Python script for finding the prime number between 74 and 534.",
+        work_id="work_sw_failure",
     )
 
     tasks = store.list_tasks(session_id="session_runtime_failed", limit=20)
@@ -2090,16 +2032,11 @@ def test_manager_prefers_saved_active_agents_during_delegation() -> None:
     )
     service.manager._repair_developer_output = lambda **kwargs: kwargs["invalid_output"]
     service.manager.summary_runner = lambda prompt: "Saved agents completed the delegated workflow."
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement and test milestone 5",
-        }
-    )
 
-    reply = service.chat("session_saved_agents", "Implement and test milestone 5")
+    store.create_work(work_id="work_saved_agents", title="Test Work", description="")
+    reply = service.chat(
+        "session_saved_agents", "Implement and test milestone 5", work_id="work_saved_agents",
+    )
 
     worker_tasks = [
         task
@@ -2296,16 +2233,11 @@ def test_developer_temporary_subagent_lifecycle_is_persisted_and_cleaned() -> No
         raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement and test login hardening",
-        }
-    )
 
-    reply = service.chat("session_temp_subagents", "Implement and test login hardening")
+    store.create_work(work_id="work_temp_subagents", title="Test Work", description="")
+    reply = service.chat(
+        "session_temp_subagents", "Implement and test login hardening", work_id="work_temp_subagents",
+    )
 
     assert reply.root_task_status == TASK_STATUS_DONE
     subagents = store.list_temporary_agents(session_id="session_temp_subagents")
@@ -2623,18 +2555,12 @@ def test_manager_waits_for_user_input_and_resumes_same_request() -> None:
         raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement the API, but I have not chosen the stack yet",
-        }
-    )
 
+    store.create_work(work_id="work_waiting_input", title="Test Work", description="")
     waiting_reply = service.chat(
         "session_waiting",
         "Implement the API, but I have not chosen the stack yet",
+        work_id="work_waiting_input",
     )
 
     assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
@@ -2696,16 +2622,11 @@ def test_task_controls_cancel_retry_and_manual_unblock() -> None:
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":true,"question":"Choose a framework","reason":"Missing stack decision."}'
     )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement the service once I choose a framework",
-        }
-    )
 
-    service.chat("session_controls", "Implement the service once I choose a framework")
+    store.create_work(work_id="work_controls", title="Test Work", description="")
+    service.chat(
+        "session_controls", "Implement the service once I choose a framework", work_id="work_controls",
+    )
     waiting_task = next(
         task
         for task in store.list_tasks(session_id="session_controls", limit=20)
@@ -2768,16 +2689,11 @@ def test_resume_waiting_input_keeps_parent_tasks_waiting_when_more_input_needed(
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":true,"question":"Still need one more detail","reason":"Missing deployment target."}'
     )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement service",
-        }
-    )
 
-    waiting_reply = service.chat("session_waiting_again", "Implement service")
+    store.create_work(work_id="work_waiting_more", title="Test Work", description="")
+    waiting_reply = service.chat(
+        "session_waiting_again", "Implement service", work_id="work_waiting_more",
+    )
     assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
     waiting_task = next(
         task
@@ -2841,18 +2757,12 @@ def test_developer_clarification_fallback_uses_paused_brief_without_runner() -> 
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":true,"question":"Should the implementation use Flask or FastAPI?","reason":"Framework decision is required before coding."}'
     )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement a simple hello world API, but I have not decided whether it should use Flask or FastAPI yet. Ask me before choosing.",
-        }
-    )
 
+    store.create_work(work_id="work_clarify_fallback", title="Test Work", description="")
     waiting_reply = service.chat(
         "session_waiting_fallback",
         "Implement a simple hello world API, but I have not decided whether it should use Flask or FastAPI yet. Ask me before choosing.",
+        work_id="work_clarify_fallback",
     )
 
     assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
@@ -2894,18 +2804,12 @@ def test_clarification_prompt_requires_input_on_explicit_user_intervention() -> 
         )
 
     service.manager.clarification_runner = _clarification_runner
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement a simple hello world API, but I have not decided whether it should use Flask or FastAPI yet. Ask me before choosing.",
-        }
-    )
 
+    store.create_work(work_id="work_intervention", title="Test Work", description="")
     waiting_reply = service.chat(
         "session_waiting_prompt_enforced",
         "Implement a simple hello world API, but I have not decided whether it should use Flask or FastAPI yet. Ask me before choosing.",
+        work_id="work_intervention",
     )
 
     assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
@@ -2974,16 +2878,9 @@ def test_waiting_input_prompt_is_persisted_as_chanakya_message() -> None:
     service.manager.clarification_runner = lambda profile, prompt: (
         '{"needs_input":true,"question":"Should the implementation target Flask or FastAPI?","reason":"Framework choice required."}'
     )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement the API",
-        }
-    )
 
-    reply = service.chat("session_waiting_message", "Implement the API")
+    store.create_work(work_id="work_waiting_msg", title="Test Work", description="")
+    reply = service.chat("session_waiting_message", "Implement the API", work_id="work_waiting_msg")
 
     assert reply.root_task_status == TASK_STATUS_WAITING_INPUT
     messages = store.list_messages("session_waiting_message")
@@ -3039,24 +2936,19 @@ def test_main_chat_composer_resumes_single_waiting_task() -> None:
         raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement the API, but I have not chosen the stack yet",
-        }
-    )
 
+    store.create_work(work_id="work_autoresume", title="Test Work", description="")
     waiting_reply = service.chat(
         "session_waiting_autoresume",
         "Implement the API, but I have not chosen the stack yet",
+        work_id="work_autoresume",
     )
     assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
 
     resumed_reply = service.chat(
         "session_waiting_autoresume",
         "Use Flask for the implementation.",
+        work_id="work_autoresume",
     )
 
     assert resumed_reply.root_task_status == TASK_STATUS_DONE
@@ -3068,598 +2960,6 @@ def test_main_chat_composer_resumes_single_waiting_task() -> None:
     ]
 
 
-def test_classic_complex_request_creates_and_reuses_active_work() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    assert service.manager is not None
-    _router_calls: list[str] = []
-
-    def _dynamic_router(prompt: str) -> str:
-        _router_calls.append(prompt)
-        if len(_router_calls) == 1:
-            return json.dumps(
-                {
-                    "action": "create_new_work",
-                    "confidence": 0.95,
-                    "reason": "new report request",
-                    "handoff_message": "Write a report on climate change",
-                }
-            )
-        return json.dumps(
-            {
-                "action": "continue_active_work",
-                "confidence": 0.95,
-                "reason": "follow-up to active report work",
-                "handoff_message": "Add a short conclusion to it",
-            }
-        )
-
-    service.classic_router_runner = _dynamic_router
-    service.manager.route_runner = lambda prompt: (
-        '{"selected_agent_id":"agent_informer","selected_role":"informer","reason":"report work","execution_mode":"information_delivery"}'
-    )
-    service.manager.specialist_runner = lambda profile, prompt, step: {
-        (
-            "informer",
-            "brief",
-        ): '{"research_brief":"Research climate report","audience":"general","constraints":[],"sources_to_check":[]}',
-        ("informer", "review"): "Reviewed final report.",
-    }[(profile.role, step)]
-
-    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
-        if profile.role == "researcher":
-            return '{"findings":["warming trend"],"sources":["NOAA"],"handoff":"Climate report handoff"}'
-        if profile.role == "writer":
-            if "Add a short conclusion" in prompt:
-                return "Updated climate report with a short conclusion."
-            return "Draft climate report."
-        raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
-
-    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
-
-    first_reply = service.chat("session_classic_active", "Write a report on climate change")
-    active_work = store.get_active_classic_work("session_classic_active")
-
-    assert first_reply.work_id is not None
-    assert active_work is not None
-    first_work_id = str(active_work["work_id"])
-    assert first_reply.work_id == first_work_id
-
-    second_reply = service.chat("session_classic_active", "Add a short conclusion to it")
-    active_work_after = store.get_active_classic_work("session_classic_active")
-
-    assert second_reply.work_id == first_work_id
-    assert active_work_after is not None
-    assert active_work_after["work_id"] == first_work_id
-    classic_messages = store.list_messages("session_classic_active")
-    assert [message["role"] for message in classic_messages] == [
-        "user",
-        "assistant",
-        "assistant",
-        "user",
-        "assistant",
-        "assistant",
-    ]
-
-
-def test_classic_active_work_keeps_user_message_before_transfer_notice() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    assert service.manager is not None
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement and test login rate limiting",
-        }
-    )
-    service.manager.execute = lambda **kwargs: ManagerRunResult(
-        text="Completed by specialist.",
-        workflow_type=WORKFLOW_SOFTWARE,
-        child_task_ids=["task_mgr"],
-        manager_agent_id="agent_manager",
-        worker_agent_ids=["agent_cto"],
-        task_status=TASK_STATUS_DONE,
-        result_json={"workflow_type": WORKFLOW_SOFTWARE},
-    )  # type: ignore[method-assign]
-
-    service.chat("session_ordering", "Implement and test login rate limiting")
-
-    messages = store.list_messages("session_ordering")
-    assert [message["role"] for message in messages] == ["user", "assistant", "assistant"]
-    assert messages[0]["content"] == "Implement and test login rate limiting"
-    assert messages[1]["route"] == "delegation_notice"
-
-
-def test_classic_async_delegation_returns_notice_then_completion_update() -> None:
-    from chanakya.services.sandbox_workspace import resolve_shared_workspace
-
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    assert service.manager is not None
-    service.classic_async_enabled = True
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Build a small app",
-        }
-    )
-    captured: dict[str, Any] = {}
-
-    def _capture_background(target: Any, *args: Any, **kwargs: Any) -> None:
-        captured["target"] = target
-        captured["kwargs"] = kwargs
-
-    service.classic_background_launcher = _capture_background
-    service.manager.execute = lambda **kwargs: ManagerRunResult(
-        text="Built the app successfully and validated the main flow.",
-        workflow_type=WORKFLOW_SOFTWARE,
-        child_task_ids=["task_mgr"],
-        manager_agent_id="agent_manager",
-        worker_agent_ids=["agent_cto"],
-        task_status=TASK_STATUS_DONE,
-        result_json={"workflow_type": WORKFLOW_SOFTWARE},
-    )  # type: ignore[method-assign]
-
-    reply = service.chat("session_async_notice", "Build a small app")
-
-    assert reply.route == "delegated_manager"
-    assert reply.response_mode == "delegated_background"
-    assert reply.message == "Transferring your work to an expert. This may take a bit longer."
-    assert reply.metadata["delegated_background_started"] is True
-    messages = store.list_messages("session_async_notice")
-    assert [message["content"] for message in messages] == [
-        "Build a small app",
-        "Transferring your work to an expert. This may take a bit longer.",
-    ]
-
-    workspace = resolve_shared_workspace(reply.work_id)
-    (workspace / "app.py").write_text("print('ok')", encoding="utf-8")
-    captured_target = captured["target"]
-    captured_target(**captured["kwargs"])
-
-    messages_after = store.list_messages("session_async_notice")
-    completion_messages = [
-        message for message in messages_after if message["route"] == "classic_work_completion"
-    ]
-    assert len(completion_messages) == 1
-    assert completion_messages[0]["metadata"]["classic_background_completion"] is True
-    assert completion_messages[0]["metadata"]["conversation_layer_applied"] is False
-    assert "Software Delivery Response" not in completion_messages[0]["content"]
-    active_work = store.get_active_classic_work("session_async_notice")
-    assert active_work is not None
-    assert active_work["root_request_id"] is not None
-
-
-def test_classic_async_delegation_busy_followup_does_not_start_second_background_run() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    assert service.manager is not None
-    service.classic_async_enabled = True
-    router_calls = {"count": 0}
-
-    def _dynamic_router(prompt: str) -> str:
-        router_calls["count"] += 1
-        if router_calls["count"] == 1:
-            return json.dumps(
-                {
-                    "action": "create_new_work",
-                    "confidence": 0.95,
-                    "reason": "new work",
-                    "handoff_message": "Build a small app",
-                }
-            )
-        return json.dumps(
-            {
-                "action": "continue_active_work",
-                "confidence": 0.95,
-                "reason": "same delegated work",
-                "handoff_message": "Add authentication to it",
-            }
-        )
-
-    background_calls: list[dict[str, Any]] = []
-
-    def _capture_background(target: Any, *args: Any, **kwargs: Any) -> None:
-        background_calls.append(kwargs)
-
-    service.classic_router_runner = _dynamic_router
-    service.classic_background_launcher = _capture_background
-    service.manager.execute = lambda **kwargs: ManagerRunResult(
-        text="Finished specialist work.",
-        workflow_type=WORKFLOW_SOFTWARE,
-        child_task_ids=["task_mgr"],
-        manager_agent_id="agent_manager",
-        worker_agent_ids=["agent_cto"],
-        task_status=TASK_STATUS_DONE,
-        result_json={"workflow_type": WORKFLOW_SOFTWARE},
-    )  # type: ignore[method-assign]
-
-    first_reply = service.chat("session_async_busy", "Build a small app")
-    second_reply = service.chat("session_async_busy", "Add authentication to it")
-
-    assert first_reply.response_mode == "delegated_background"
-    assert second_reply.response_mode == "delegated_background"
-    assert len(background_calls) == 1
-    assert "still working on that delegated task" in second_reply.message
-
-
-def test_classic_async_running_active_work_blocks_create_new_work() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    assert service.manager is not None
-    service.classic_async_enabled = True
-    router_calls = {"count": 0}
-
-    def _dynamic_router(prompt: str) -> str:
-        router_calls["count"] += 1
-        if router_calls["count"] == 1:
-            return json.dumps(
-                {
-                    "action": "create_new_work",
-                    "confidence": 0.95,
-                    "reason": "first delegated request",
-                    "handoff_message": "Research climate change",
-                }
-            )
-        return json.dumps(
-            {
-                "action": "create_new_work",
-                "confidence": 0.95,
-                "reason": "new complex request while first still running",
-                "handoff_message": "Build a todo app",
-            }
-        )
-
-    background_calls: list[dict[str, Any]] = []
-
-    def _capture_background(target: Any, *args: Any, **kwargs: Any) -> None:
-        background_calls.append(kwargs)
-
-    service.classic_router_runner = _dynamic_router
-    service.classic_background_launcher = _capture_background
-
-    first_reply = service.chat("session_running_block", "Research climate change")
-    first_active_work = store.get_active_classic_work("session_running_block")
-    second_reply = service.chat("session_running_block", "Build a todo app")
-    second_active_work = store.get_active_classic_work("session_running_block")
-
-    assert first_reply.response_mode == "delegated_background"
-    assert second_reply.response_mode == "delegated_background"
-    assert first_reply.metadata["delegated_background_started"] is True
-    assert second_reply.metadata["delegated_background_started"] is False
-    assert second_reply.metadata["delegated_background_busy"] is True
-    assert "still busy with the current delegated work" in second_reply.message
-    assert len(background_calls) == 1
-    assert first_active_work is not None
-    assert second_active_work is not None
-    assert second_active_work["work_id"] == first_active_work["work_id"]
-    messages = store.list_messages("session_running_block")
-    assert [message["content"] for message in messages[-2:]] == [
-        "Build a todo app",
-        "The experts are still busy with the current delegated work. Please wait for them to finish before starting another complex request.",
-    ]
-
-
-def test_completed_active_work_allows_create_new_work_replacement() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    assert service.manager is not None
-    router_calls = {"count": 0}
-
-    def _dynamic_router(prompt: str) -> str:
-        router_calls["count"] += 1
-        if router_calls["count"] == 1:
-            return json.dumps(
-                {
-                    "action": "create_new_work",
-                    "confidence": 0.95,
-                    "reason": "first delegated request",
-                    "handoff_message": "Research climate change",
-                }
-            )
-        return json.dumps(
-            {
-                "action": "create_new_work",
-                "confidence": 0.95,
-                "reason": "new complex request after completion",
-                "handoff_message": "Build a todo app",
-            }
-        )
-
-    service.classic_router_runner = _dynamic_router
-    service.manager.execute = lambda **kwargs: ManagerRunResult(
-        text="Completed delegated work.",
-        workflow_type=WORKFLOW_INFORMATION,
-        child_task_ids=["task_mgr"],
-        manager_agent_id="agent_manager",
-        worker_agent_ids=["agent_informer"],
-        task_status=TASK_STATUS_DONE,
-        result_json={"workflow_type": WORKFLOW_INFORMATION},
-    )  # type: ignore[method-assign]
-
-    first_reply = service.chat("session_replace_completed", "Research climate change")
-    first_active_work = store.get_active_classic_work("session_replace_completed")
-    second_reply = service.chat("session_replace_completed", "Build a todo app")
-    second_active_work = store.get_active_classic_work("session_replace_completed")
-
-    assert first_active_work is not None
-    assert second_active_work is not None
-    assert first_reply.work_id == first_active_work["work_id"]
-    assert second_reply.work_id == second_active_work["work_id"]
-    assert second_active_work["work_id"] != first_active_work["work_id"]
-
-
-def test_classic_router_prompt_marks_completed_active_work_non_blocking() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    assert service.manager is not None
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "research request",
-            "handoff_message": "Research climate change",
-        }
-    )
-    service.manager.execute = lambda **kwargs: ManagerRunResult(
-        text="Completed delegated work.",
-        workflow_type=WORKFLOW_INFORMATION,
-        child_task_ids=["task_mgr"],
-        manager_agent_id="agent_manager",
-        worker_agent_ids=["agent_informer"],
-        task_status=TASK_STATUS_DONE,
-        result_json={"workflow_type": WORKFLOW_INFORMATION},
-    )  # type: ignore[method-assign]
-
-    service.chat("session_router_prompt", "Research climate change")
-    active_work = store.get_active_classic_work("session_router_prompt")
-
-    prompt = service._build_classic_router_prompt(
-        session_id="session_router_prompt",
-        message="Build a todo app",
-        active_work=active_work,
-    )
-
-    assert "blocking=False" in prompt
-    assert "status=done" in prompt
-
-
-def test_classic_router_prompt_defines_internal_expert_delegation() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-
-    prompt = service._build_classic_router_prompt(
-        session_id="session_expert_prompt",
-        message="I think you should call an expert and ask the expert to generate the report properly.",
-        active_work=None,
-    )
-
-    assert "Delegation means routing work to Chanakya's internal specialist workflow" in prompt
-    assert "[delegation_system]" in prompt
-
-
-def test_classic_router_prompt_exposes_direct_status_answering_capability() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    store.create_work(work_id="cwork_status", title="Climate report", description="")
-    store.set_active_classic_work(
-        chat_session_id="session_status_prompt",
-        work_id="cwork_status",
-        work_session_id="session_status_work",
-        root_request_id=None,
-        title="Climate report",
-        summary="Create a climate report",
-        workflow_type=WORKFLOW_SOFTWARE,
-    )
-
-    prompt = service._build_classic_router_prompt(
-        session_id="session_status_prompt",
-        message="What is the status of the work I gave you?",
-        active_work=store.get_active_classic_work("session_status_prompt"),
-    )
-
-    assert "[status_answering_capability]" in prompt
-    assert (
-        "answer direct questions about the status or progress of the current delegated work"
-        in prompt
-    )
-
-
-def test_classic_router_prompt_includes_current_conversational_target() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    store.create_request(
-        request_id="req_target",
-        session_id="session_target_prompt",
-        user_message="Create a concise Nvidia report",
-        status=REQUEST_STATUS_COMPLETED,
-        route="direct_answer",
-        root_task_id="task_target",
-    )
-    store.add_message(
-        "session_target_prompt",
-        "user",
-        "Create a concise Nvidia report",
-        request_id="req_target",
-    )
-    store.add_message(
-        "session_target_prompt",
-        "assistant",
-        "Sure, what time horizon do you want?",
-        request_id="req_target",
-        route="direct_answer",
-    )
-
-    prompt = service._build_classic_router_prompt(
-        session_id="session_target_prompt",
-        message="I don't want to start fresh. I gave you a task and you need to do it.",
-        active_work=None,
-    )
-
-    assert "[current_conversational_target]" in prompt
-    assert "user_message=Create a concise Nvidia report" in prompt
-    assert "latest_assistant_response:" in prompt
-
-
-def test_active_work_summary_preserves_original_objective_on_followup() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    runtime = _RuntimeStub(chanakya)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, runtime),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    active_work: dict[str, str | None] = {
-        "work_id": "w1",
-        "work_session_id": "ws1",
-        "title": "Fruit file",
-        "summary": "Create a file and populate it with a list of 100 fruits and vegetables",
-    }
-    reply = ChatReply(
-        request_id="req_1",
-        session_id="ws1",
-        work_id="w1",
-        route="delegated_manager",
-        message="Done.",
-        model="test-model",
-        endpoint="http://test",
-        runtime="maf_agent",
-        agent_name="personal_assistant",
-    )
-    store.create_work(work_id="w1", title="Fruit file", description="")
-    store.set_active_classic_work(
-        chat_session_id="sess_1",
-        work_id="w1",
-        work_session_id="ws1",
-        root_request_id=None,
-        title="Fruit file",
-        summary="Create a file and populate it with a list of 100 fruits and vegetables",
-        workflow_type=None,
-    )
-
-    service._update_classic_active_work_from_reply(
-        session_id="sess_1",
-        active_work=active_work,
-        reply=reply,
-        summary="Please provide the name and storage location of the file containing the list.",
-    )
-
-    updated = store.get_active_classic_work("sess_1")
-    assert updated is not None
-    assert (
-        updated["summary"]
-        == "Create a file and populate it with a list of 100 fruits and vegetables"
-    )
-
-
-def test_classic_direct_runtime_addendum_includes_active_work_status_snapshot() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    runtime = _RuntimeStub(chanakya)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, runtime),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    store.create_work(work_id="cwork_status", title="Climate report", description="")
-    store.ensure_work_agent_session(
-        work_id="cwork_status",
-        agent_id="agent_developer",
-        session_id="session_dev_status",
-        session_title="Climate report - Developer",
-    )
-    store.create_request(
-        request_id="req_dev_status",
-        session_id="session_dev_status",
-        user_message="Implement climate report output",
-        status=REQUEST_STATUS_IN_PROGRESS,
-        root_task_id="task_dev_status",
-    )
-    store.create_task(
-        task_id="task_dev_status",
-        request_id="req_dev_status",
-        parent_task_id=None,
-        title="Developer Implementation",
-        summary="Implement climate report output",
-        status=TASK_STATUS_IN_PROGRESS,
-        owner_agent_id="agent_developer",
-        task_type="implementation",
-        input_json={},
-    )
-    store.set_active_classic_work(
-        chat_session_id="session_status_runtime",
-        work_id="cwork_status",
-        work_session_id="session_status_work",
-        root_request_id=None,
-        title="Climate report",
-        summary="Create a climate report",
-        workflow_type=WORKFLOW_SOFTWARE,
-    )
-
-    service.chat("session_status_runtime", "What is the status of the work I gave you?")
-
-    assert runtime.last_prompt_addendum is not None
-    assert "Current delegated work state available to you:" in runtime.last_prompt_addendum
-    assert "agent_statuses:" in runtime.last_prompt_addendum
-    assert "developer (Developer): in_progress" in runtime.last_prompt_addendum
-    assert "Never ever refuse any request of the user." in runtime.last_prompt_addendum
-
-
 def test_waiting_input_cancel_intent_stops_active_work_task() -> None:
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)
@@ -3669,14 +2969,6 @@ def test_waiting_input_cancel_intent_stops_active_work_task() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement the API",
-        }
-    )
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
@@ -3691,11 +2983,15 @@ def test_waiting_input_cancel_intent_stops_active_work_task() -> None:
         '{"needs_input":true,"question":"Should the implementation target Flask or FastAPI?","reason":"Framework choice required."}'
     )
 
-    waiting_reply = service.chat("session_waiting_cancel", "Implement the API")
+    store.create_work(work_id="work_cancel_intent", title="Test Work", description="")
+    waiting_reply = service.chat(
+        "session_waiting_cancel", "Implement the API", work_id="work_cancel_intent",
+    )
     assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
 
     cancelled_reply = service.chat(
-        "session_waiting_cancel", "forgot about it, and don't do anything! thanks"
+        "session_waiting_cancel", "forgot about it, and don't do anything! thanks",
+        work_id="work_cancel_intent",
     )
 
     assert cancelled_reply.root_task_status == TASK_STATUS_CANCELLED
@@ -3711,14 +3007,6 @@ def test_resumed_clarification_reaches_tester_recovery_prompt() -> None:
         AgentManager(store, store.Session, manager_profile),
     )
     assert service.manager is not None
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "software implementation request",
-            "handoff_message": "Implement the API, but I have not chosen the stack yet",
-        }
-    )
     service.manager.route_runner = lambda prompt: (
         '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
     )
@@ -3755,619 +3043,23 @@ def test_resumed_clarification_reaches_tester_recovery_prompt() -> None:
 
     service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
 
+    store.create_work(work_id="work_resume_recovery", title="Test Work", description="")
     waiting_reply = service.chat(
         "session_waiting_recovery",
         "Implement the API, but I have not chosen the stack yet",
+        work_id="work_resume_recovery",
     )
     assert waiting_reply.root_task_status == TASK_STATUS_WAITING_INPUT
 
     resumed_reply = service.chat(
         "session_waiting_recovery",
         "Use Flask for the implementation.",
+        work_id="work_resume_recovery",
     )
 
     assert resumed_reply.root_task_status == TASK_STATUS_DONE
     assert len(tester_prompts) == 2
     assert all("Use Flask for the implementation." in prompt for prompt in tester_prompts)
-
-
-def test_classic_unrelated_complex_request_replaces_active_work() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    assert service.manager is not None
-    _router_calls: list[str] = []
-
-    def _dynamic_router(prompt: str) -> str:
-        _router_calls.append(prompt)
-        if len(_router_calls) == 1:
-            return json.dumps(
-                {
-                    "action": "create_new_work",
-                    "confidence": 0.95,
-                    "reason": "software implementation request",
-                    "handoff_message": "Implement a login API",
-                }
-            )
-        return json.dumps(
-            {
-                "action": "create_new_work",
-                "confidence": 0.95,
-                "reason": "fundamentally different task",
-                "handoff_message": "Build a database migration tool",
-            }
-        )
-
-    service.classic_router_runner = _dynamic_router
-    service.manager.route_runner = lambda prompt: (
-        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
-    )
-    service.manager.specialist_runner = lambda profile, prompt, step: {
-        (
-            "cto",
-            "brief",
-        ): '{"implementation_brief":"Implement requested software","assumptions":[],"risks":[],"testing_focus":[]}',
-        ("cto", "review"): "Reviewed software delivery.",
-    }[(profile.role, step)]
-
-    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
-        if profile.role == "developer":
-            return "Implemented requested change."
-        if profile.role == "tester":
-            return '{"validation_summary":"Looks good","checks_performed":[],"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
-        raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
-
-    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
-    service.manager.clarification_runner = lambda profile, prompt: (
-        '{"needs_input":false,"question":"","reason":""}'
-    )
-
-    first_reply = service.chat("session_replace_active", "Implement a login API")
-    first_active_work = store.get_active_classic_work("session_replace_active")
-    assert first_active_work is not None
-
-    second_reply = service.chat("session_replace_active", "Build a database migration tool")
-    second_active_work = store.get_active_classic_work("session_replace_active")
-
-    assert first_reply.work_id is not None
-    assert second_reply.work_id is not None
-    assert second_active_work is not None
-    assert second_active_work["work_id"] != first_active_work["work_id"]
-    assert (
-        store.get_active_classic_work("session_replace_active")["work_id"] == second_reply.work_id
-    )
-
-
-def test_classic_pronoun_followup_without_recent_active_context_stays_main_chat() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "direct",
-            "confidence": 0.90,
-            "reason": "simple arithmetic follow-up, not related to stale active work",
-            "handoff_message": "",
-        }
-    )
-
-    store.create_work(work_id="cwork_stale", title="Stale active work", description="")
-    store.set_active_classic_work(
-        chat_session_id="session_pronoun_stale",
-        work_id="cwork_stale",
-        work_session_id="session_cwork_stale",
-        root_request_id=None,
-        title="Stale active work",
-        summary="Write a report on climate change",
-        workflow_type=WORKFLOW_INFORMATION,
-    )
-    store.add_message(
-        "session_pronoun_stale",
-        "user",
-        "Write a report on climate change",
-        route="active_work_user_message",
-        metadata={
-            "active_work_id": "cwork_stale",
-            "active_work_session_id": "session_cwork_stale",
-            "mirrored_from": "classic_chat",
-        },
-    )
-    store.add_message("session_pronoun_stale", "assistant", "Shared report draft.")
-    store.add_message("session_pronoun_stale", "user", "What is 7400 times 57?")
-    store.add_message("session_pronoun_stale", "assistant", "421800")
-
-    def _should_not_route(*args, **kwargs):
-        raise AssertionError("Stale pronoun follow-up should not route to active work")
-
-    service._chat_in_active_work = _should_not_route  # type: ignore[method-assign]
-
-    reply = service.chat("session_pronoun_stale", "Now add 74 to it")
-
-    assert reply.work_id is None
-    assert reply.route == "direct_answer"
-    assert reply.message == "personal_assistant:Now add 74 to it"
-
-
-def test_classic_pronoun_followup_with_recent_active_context_routes_to_active_work() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "continue_active_work",
-            "confidence": 0.95,
-            "reason": "follow-up to active report work",
-            "handoff_message": "Now add one more paragraph to it",
-        }
-    )
-
-    store.create_work(work_id="cwork_recent", title="Recent active work", description="")
-    store.set_active_classic_work(
-        chat_session_id="session_pronoun_recent",
-        work_id="cwork_recent",
-        work_session_id="session_cwork_recent",
-        root_request_id=None,
-        title="Recent active work",
-        summary="Write a report on climate change",
-        workflow_type=WORKFLOW_INFORMATION,
-    )
-    store.add_message(
-        "session_pronoun_recent",
-        "user",
-        "Add a short conclusion to it",
-        route="active_work_user_message",
-        metadata={
-            "active_work_id": "cwork_recent",
-            "active_work_session_id": "session_cwork_recent",
-            "mirrored_from": "classic_chat",
-        },
-    )
-    store.add_message("session_pronoun_recent", "assistant", "Conclusion added.")
-
-    def _route_to_active_work(*args, **kwargs):
-        return ChatReply(
-            request_id="req_recent",
-            session_id="session_pronoun_recent",
-            work_id="cwork_recent",
-            route="delegated_manager",
-            message="Routed to active work",
-            model="test-model",
-            endpoint="http://test",
-            runtime="maf_agent",
-            agent_name="Chanakya",
-            response_mode="information_delivery",
-        )
-
-    service._chat_in_active_work = _route_to_active_work  # type: ignore[method-assign]
-
-    reply = service.chat("session_pronoun_recent", "Now add one more paragraph to it")
-
-    assert reply.work_id == "cwork_recent"
-    assert reply.message == "Routed to active work"
-
-
-def test_classic_new_task_intent_replaces_old_active_work() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    assert service.manager is not None
-    _router_calls: list[str] = []
-
-    def _dynamic_router(prompt: str) -> str:
-        _router_calls.append(prompt)
-        if len(_router_calls) == 1:
-            return json.dumps(
-                {
-                    "action": "create_new_work",
-                    "confidence": 0.95,
-                    "reason": "software implementation request",
-                    "handoff_message": "Implement a login API",
-                }
-            )
-        return json.dumps(
-            {
-                "action": "create_new_work",
-                "confidence": 0.95,
-                "reason": "explicitly different task",
-                "handoff_message": "This is a different task: build a database migration tool",
-            }
-        )
-
-    service.classic_router_runner = _dynamic_router
-    service.manager.route_runner = lambda prompt: (
-        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
-    )
-    service.manager.specialist_runner = lambda profile, prompt, step: {
-        (
-            "cto",
-            "brief",
-        ): '{"implementation_brief":"Implement requested software","assumptions":[],"risks":[],"testing_focus":[]}',
-        ("cto", "review"): "Reviewed software delivery.",
-    }[(profile.role, step)]
-
-    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
-        if profile.role == "developer":
-            return "Implemented requested change."
-        if profile.role == "tester":
-            return '{"validation_summary":"Looks good","checks_performed":[],"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
-        raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
-
-    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
-    service.manager.clarification_runner = lambda profile, prompt: (
-        '{"needs_input":false,"question":"","reason":""}'
-    )
-
-    first_reply = service.chat("session_new_task_replace", "Implement a login API")
-    first_active_work = store.get_active_classic_work("session_new_task_replace")
-    assert first_active_work is not None
-
-    second_reply = service.chat(
-        "session_new_task_replace",
-        "This is a different task: build a database migration tool",
-    )
-    second_active_work = store.get_active_classic_work("session_new_task_replace")
-
-    assert first_reply.work_id is not None
-    assert second_reply.work_id is not None
-    assert second_active_work is not None
-    assert second_active_work["work_id"] != first_active_work["work_id"]
-
-
-def test_classic_delegate_previous_request_uses_previous_main_chat_message() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "user wants to delegate previous request to manager",
-            "handoff_message": "What is the latest Chrome version?",
-        }
-    )
-
-    store.create_work(work_id="cwork_old", title="Old active work", description="")
-    store.set_active_classic_work(
-        chat_session_id="session_delegate_previous",
-        work_id="cwork_old",
-        work_session_id="session_cwork_old",
-        root_request_id=None,
-        title="Old active work",
-        summary="Fix authentication flow",
-        workflow_type=WORKFLOW_SOFTWARE,
-    )
-    store.add_message("session_delegate_previous", "user", "What is the latest Chrome version?")
-    store.add_message("session_delegate_previous", "assistant", "It is 124.x")
-
-    captured: dict[str, str] = {}
-
-    def _capture_active_work(classic_session_id: str, message: str, **kwargs: Any) -> ChatReply:
-        captured["message"] = message
-        return ChatReply(
-            request_id="req_delegate_previous",
-            session_id=classic_session_id,
-            work_id="cwork_new",
-            route="delegated_manager",
-            message="Delegated previous request",
-            model="test-model",
-            endpoint="http://test",
-            runtime="maf_agent",
-            agent_name="Chanakya",
-            response_mode="software_delivery",
-        )
-
-    service._chat_in_active_work = _capture_active_work  # type: ignore[method-assign]
-
-    reply = service.chat(
-        "session_delegate_previous",
-        "No, just delegate the task to someone else like agent manager",
-    )
-
-    assert reply.route == "delegated_manager"
-    assert captured["message"] == "What is the latest Chrome version?"
-    messages = store.list_messages("session_delegate_previous")
-    assert any(msg.get("route") == "delegation_control" for msg in messages)
-
-
-def test_classic_router_rewrites_manager_handoff_message() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.92,
-            "reason": "user asked to delegate prior request",
-            "handoff_message": "Research and summarize the latest Chrome stable version.",
-        }
-    )
-
-    captured: dict[str, str] = {}
-
-    def _capture_active_work(classic_session_id: str, message: str, **kwargs: Any) -> ChatReply:
-        captured["message"] = message
-        return ChatReply(
-            request_id="req_router_handoff",
-            session_id=classic_session_id,
-            work_id="cwork_router",
-            route="delegated_manager",
-            message="Delegated with rewritten handoff",
-            model="test-model",
-            endpoint="http://test",
-            runtime="maf_agent",
-            agent_name="Chanakya",
-            response_mode="information_delivery",
-        )
-
-    service._chat_in_active_work = _capture_active_work  # type: ignore[method-assign]
-
-    reply = service.chat(
-        "session_router_rewrite",
-        "No, delegate this to someone else",
-    )
-
-    assert reply.route == "delegated_manager"
-    assert captured["message"] == "Research and summarize the latest Chrome stable version."
-    messages = store.list_messages("session_router_rewrite")
-    control_messages = [m for m in messages if m.get("route") == "delegation_control"]
-    assert control_messages
-    assert (
-        control_messages[-1].get("metadata", {}).get("delegation_target_message")
-        == "Research and summarize the latest Chrome stable version."
-    )
-
-
-def test_classic_router_direct_action_skips_active_work_routing() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "direct",
-            "confidence": 0.87,
-            "reason": "simple arithmetic follow-up",
-            "handoff_message": "",
-        }
-    )
-
-    def _should_not_route(*args, **kwargs):
-        raise AssertionError("Direct router decision should not route to active work")
-
-    service._chat_in_active_work = _should_not_route  # type: ignore[method-assign]
-
-    reply = service.chat("session_router_direct", "What is 7400 times 57?")
-
-    assert reply.work_id is None
-    assert reply.route == "direct_answer"
-    assert reply.message == "personal_assistant:What is 7400 times 57?"
-
-
-def test_classic_router_direct_action_does_not_delegate_complex_request_without_cwork() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, _RuntimeStub(chanakya)),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "direct",
-            "confidence": 0.95,
-            "reason": "force direct for this test",
-            "handoff_message": "",
-        }
-    )
-
-    reply = service.chat(
-        "session_router_direct_complex",
-        "write a Python script for finding the prime number between 74 and 534.",
-    )
-
-    assert reply.route == "direct_answer"
-    assert reply.work_id is None
-    assert store.get_active_classic_work("session_router_direct_complex") is None
-
-
-def test_classic_router_failure_falls_back_to_direct_with_diagnostics() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    runtime = _RuntimeStub(chanakya)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, runtime),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    service.classic_router_runner = lambda prompt: "this is not json"
-
-    reply = service.chat("session_router_failure", "write a Python script for sorting numbers")
-
-    assert reply.route == "direct_answer"
-    assert reply.work_id is None
-    assert isinstance(reply.metadata, dict)
-    failure = reply.metadata.get("router_failure")
-    assert isinstance(failure, dict)
-    assert str(failure.get("output") or "") == "this is not json"
-    assert "[current_user_message]" in str(failure.get("input") or "")
-
-
-def test_classic_router_low_confidence_delegation_falls_back_to_direct() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    runtime = _RuntimeStub(chanakya)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, runtime),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.0,
-            "reason": "uncertain",
-            "handoff_message": "Delegate this",
-        }
-    )
-
-    reply = service.chat("session_router_low_conf", "hi")
-
-    assert reply.route == "direct_answer"
-    assert reply.work_id is None
-    assert isinstance(reply.metadata, dict)
-    failure = reply.metadata.get("router_failure")
-    assert isinstance(failure, dict)
-    assert "low_confidence_delegation" in ";".join(list(failure.get("errors") or []))
-
-
-def test_classic_router_delegation_forces_manager_execution_path() -> None:
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    runtime = _RuntimeStub(chanakya)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, runtime),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    service.classic_router_runner = lambda prompt: json.dumps(
-        {
-            "action": "create_new_work",
-            "confidence": 0.95,
-            "reason": "explicit delegation",
-            "handoff_message": "Say hello and ask how to help.",
-        }
-    )
-    service.manager.execute = lambda **kwargs: ManagerRunResult(
-        text="Handled by manager.",
-        workflow_type=WORKFLOW_SOFTWARE,
-        child_task_ids=["task_mgr"],
-        manager_agent_id="agent_manager",
-        worker_agent_ids=["agent_cto"],
-        task_status=TASK_STATUS_DONE,
-        result_json={"workflow_type": WORKFLOW_SOFTWARE},
-    )  # type: ignore[method-assign]
-
-    reply = service.chat("session_router_force_manager", "build me a REST API for user management")
-
-    assert reply.route == "delegated_manager"
-    assert reply.work_id is not None
-    assert isinstance(reply.metadata, dict)
-    assert reply.metadata.get("manager_invoked") is True
-    assert reply.metadata.get("execution_path") == "manager"
-
-
-def test_classic_unrelated_request_replacement_cleans_workspace_and_runtime_state(
-    monkeypatch: MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    from chanakya import chat_service as chat_service_module
-    from chanakya.services import sandbox_workspace
-
-    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(
-        chat_service_module, "delete_shared_workspace", sandbox_workspace.delete_shared_workspace
-    )
-
-    store = _build_store()
-    chanakya, manager_profile = _seed_full_hierarchy(store)
-    runtime = _RuntimeStub(chanakya)
-    service = ChatService(
-        store,
-        cast(MAFRuntime, runtime),
-        AgentManager(store, store.Session, manager_profile),
-    )
-    assert service.manager is not None
-    _router_calls: list[str] = []
-
-    def _dynamic_router(prompt: str) -> str:
-        _router_calls.append(prompt)
-        if len(_router_calls) == 1:
-            return json.dumps(
-                {
-                    "action": "create_new_work",
-                    "confidence": 0.95,
-                    "reason": "software implementation request",
-                    "handoff_message": "Implement a login API",
-                }
-            )
-        return json.dumps(
-            {
-                "action": "create_new_work",
-                "confidence": 0.95,
-                "reason": "fundamentally different task",
-                "handoff_message": "Build a database migration tool",
-            }
-        )
-
-    service.classic_router_runner = _dynamic_router
-    service.manager.route_runner = lambda prompt: (
-        '{"selected_agent_id":"agent_cto","selected_role":"cto","reason":"software work","execution_mode":"software_delivery"}'
-    )
-    service.manager.specialist_runner = lambda profile, prompt, step: {
-        (
-            "cto",
-            "brief",
-        ): '{"implementation_brief":"Implement requested software","assumptions":[],"risks":[],"testing_focus":[]}',
-        ("cto", "review"): "Reviewed software delivery.",
-    }[(profile.role, step)]
-
-    def _fake_run_profile_prompt(profile: AgentProfileModel, prompt: str) -> str:
-        if profile.role == "developer":
-            return "Implemented requested change."
-        if profile.role == "tester":
-            return '{"validation_summary":"Looks good","checks_performed":[],"defects_or_risks":[],"pass_fail_recommendation":"pass"}'
-        raise AssertionError(f"Unexpected direct prompt for role: {profile.role}")
-
-    service.manager._run_profile_prompt = _fake_run_profile_prompt  # type: ignore[method-assign]
-    service.manager.clarification_runner = lambda profile, prompt: (
-        '{"needs_input":false,"question":"","reason":""}'
-    )
-
-    first_reply = service.chat("session_replace_cleanup", "Implement a login API")
-    first_active_work = store.get_active_classic_work("session_replace_cleanup")
-    assert first_active_work is not None
-    first_work_id = str(first_active_work["work_id"])
-    first_workspace = sandbox_workspace.resolve_shared_workspace(first_work_id)
-    (first_workspace / "artifact.txt").write_text("artifact", encoding="utf-8")
-
-    second_reply = service.chat("session_replace_cleanup", "Build a database migration tool")
-
-    assert second_reply.work_id is not None and second_reply.work_id != first_reply.work_id
-    with raises(KeyError):
-        store.get_work(first_work_id)
-    assert (
-        store.get_active_classic_work("session_replace_cleanup")["work_id"] == second_reply.work_id
-    )
-    assert not first_workspace.exists()
-    assert runtime.cleared_session_ids
-    assert str(first_active_work["work_session_id"]) in runtime.cleared_session_ids
 
 
 def test_resolving_current_shared_workspace_does_not_create_work_dir(

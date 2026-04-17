@@ -113,6 +113,15 @@
       ],
       "transport": "stdio",
       "env": {}
+    },
+    "mcp_work_tools": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_work_tools_server"
+      ],
+      "transport": "stdio",
+      "env": {}
     }
   }
 }

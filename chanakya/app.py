@@ -4,7 +4,6 @@ import json
 import queue
 import re
 import threading
-import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -16,15 +15,15 @@ from chanakya.agent.runtime import MAFRuntime, normalize_runtime_backend
 from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
 from chanakya.config import (
+    force_subagents_enabled,
     get_a2a_agent_url,
     get_a2a_gui_enabled,
     get_air_dashboard_url,
     get_air_server_url,
     get_air_status_url,
-    get_ntfy_default_server_url,
-    force_subagents_enabled,
     get_data_dir,
     get_database_url,
+    get_ntfy_default_server_url,
     load_local_env,
 )
 from chanakya.db import build_engine, build_session_factory, init_database
@@ -33,7 +32,6 @@ from chanakya.domain import make_id, now_iso
 from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
-from chanakya.services.sandbox_workspace import delete_shared_workspace, get_shared_workspace_root
 from chanakya.services.a2a_discovery import discover_a2a_options
 from chanakya.services.ntfy import (
     NtfyClient,
@@ -41,7 +39,7 @@ from chanakya.services.ntfy import (
     build_ntfy_qr_svg,
     is_valid_ntfy_topic,
 )
-from chanakya.services.sandbox_workspace import get_shared_workspace_root
+from chanakya.services.sandbox_workspace import delete_shared_workspace, get_shared_workspace_root
 from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
 
@@ -908,6 +906,27 @@ def create_app() -> Flask:
                 },
             }
         )
+
+    @app.get("/api/works/pending-messages")
+    def api_pending_messages() -> Any:
+        work_id = request.args.get("work_id")
+        since = request.args.get("since")
+        include_acknowledged = request.args.get(
+            "include_acknowledged", "false"
+        ).lower() in ("true", "1", "yes")
+        notifications = store.work_notifications.list_pending(
+            work_id=work_id if work_id else None,
+            include_acknowledged=include_acknowledged,
+            since=since if since else None,
+        )
+        return jsonify({"notifications": notifications})
+
+    @app.post("/api/works/pending-messages/<message_id>/ack")
+    def api_ack_pending_message(message_id: str) -> Any:
+        success = store.work_notifications.acknowledge(message_id)
+        if not success:
+            return jsonify({"error": "Notification not found"}), 404
+        return jsonify({"ok": True, "id": message_id})
 
     @app.post("/api/agents")
     def api_create_agent() -> Any:

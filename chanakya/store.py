@@ -23,6 +23,7 @@ from chanakya.model import (
     ToolInvocationModel,
     WorkAgentSessionModel,
     WorkModel,
+    WorkNotificationModel,
 )
 
 
@@ -1142,6 +1143,109 @@ class ClassicActiveWorkRepository:
             session.commit()
 
 
+class WorkNotificationRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def create_notification(
+        self,
+        *,
+        notification_id: str,
+        work_id: str,
+        notification_type: str,
+        title: str,
+        text: str,
+        target_url: str | None = None,
+    ) -> dict[str, Any]:
+        ts = now_iso()
+        record = WorkNotificationModel(
+            id=notification_id,
+            work_id=work_id,
+            notification_type=notification_type,
+            title=title,
+            text=text,
+            target_url=target_url,
+            acknowledged=False,
+            created_at=ts,
+        )
+        with session_scope(self.Session) as session:
+            session.add(record)
+            session.commit()
+        return {
+            "id": notification_id,
+            "work_id": work_id,
+            "notification_type": notification_type,
+            "title": title,
+            "text": text,
+            "target_url": target_url,
+            "acknowledged": False,
+            "created_at": ts,
+        }
+
+    def list_pending(
+        self,
+        *,
+        work_id: str | None = None,
+        include_acknowledged: bool = False,
+        since: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = (
+                select(WorkNotificationModel)
+                .order_by(WorkNotificationModel.created_at.desc())
+                .limit(limit)
+            )
+            if not include_acknowledged:
+                stmt = stmt.where(
+                    WorkNotificationModel.acknowledged.is_(False)
+                )
+            if work_id is not None:
+                stmt = stmt.where(WorkNotificationModel.work_id == work_id)
+            if since is not None:
+                stmt = stmt.where(
+                    WorkNotificationModel.created_at > since
+                )
+            rows = session.scalars(stmt).all()
+            result = [
+                {
+                    "id": r.id,
+                    "work_id": r.work_id,
+                    "notification_type": r.notification_type,
+                    "title": r.title,
+                    "text": r.text,
+                    "target_url": r.target_url,
+                    "acknowledged": r.acknowledged,
+                    "created_at": r.created_at,
+                }
+                for r in rows
+            ]
+        result.reverse()
+        return result
+
+    def acknowledge(self, notification_id: str) -> bool:
+        with session_scope(self.Session) as session:
+            row = session.get(WorkNotificationModel, notification_id)
+            if row is None:
+                return False
+            row.acknowledged = True
+            session.commit()
+        return True
+
+    def acknowledge_all_for_work(self, work_id: str) -> int:
+        with session_scope(self.Session) as session:
+            stmt = (
+                select(WorkNotificationModel)
+                .where(WorkNotificationModel.work_id == work_id)
+                .where(WorkNotificationModel.acknowledged.is_(False))
+            )
+            rows = session.scalars(stmt).all()
+            for row in rows:
+                row.acknowledged = True
+            session.commit()
+        return len(rows)
+
+
 class TemporaryAgentRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
@@ -1227,6 +1331,7 @@ class ChanakyaStore:
         self.tools = ToolInvocationRepository(session_factory)
         self.agents = AgentProfileRepository(session_factory)
         self.temporary_agents = TemporaryAgentRepository(session_factory)
+        self.work_notifications = WorkNotificationRepository(session_factory)
 
     def create_work(
         self,
@@ -1296,6 +1401,11 @@ class ChanakyaStore:
                 )
             session.execute(
                 delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
+            )
+            session.execute(
+                delete(WorkNotificationModel).where(
+                    WorkNotificationModel.work_id == work_id
+                )
             )
             session.execute(
                 delete(ClassicActiveWorkModel).where(ClassicActiveWorkModel.work_id == work_id)

@@ -262,6 +262,23 @@ class AgentProfileModel(Base):
         }
 
 
+class WorkNotificationModel(Base):
+    __tablename__ = "work_notifications"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    work_id: Mapped[str] = mapped_column(
+        ForeignKey("works.id"), nullable=False, index=True
+    )
+    notification_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    target_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    acknowledged: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, index=True
+    )
+    created_at: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+
 class TemporaryAgentModel(Base):
     __tablename__ = "temporary_agents"
 
