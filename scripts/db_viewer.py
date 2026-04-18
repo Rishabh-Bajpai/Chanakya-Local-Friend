@@ -14,11 +14,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from chanakya.config import get_database_url, load_local_env
 from chanakya.model import (
+    AgentSessionContextModel,
     AgentProfileModel,
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
+    ClassicActiveWorkModel,
+    NotificationSettingsModel,
     RequestModel,
+    RuntimeConfigModel,
     TaskEventModel,
     TaskModel,
     TemporaryAgentModel,
@@ -45,6 +49,8 @@ Session = sessionmaker(bind=engine)
 app = create_viewer_app()
 
 MODELS = {
+    "AgentSessionContextModel": AgentSessionContextModel,
+    "RuntimeConfigModel": RuntimeConfigModel,
     "RequestModel": RequestModel,
     "TaskModel": TaskModel,
     "TaskEventModel": TaskEventModel,
@@ -54,8 +60,10 @@ MODELS = {
     "AppEventModel": AppEventModel,
     "ToolInvocationModel": ToolInvocationModel,
     "AgentProfileModel": AgentProfileModel,
+    "NotificationSettingsModel": NotificationSettingsModel,
     "WorkModel": WorkModel,
     "WorkAgentSessionModel": WorkAgentSessionModel,
+    "ClassicActiveWorkModel": ClassicActiveWorkModel,
 }
 
 
@@ -159,7 +167,8 @@ VIEWER_HTML = """
         <h2>{{ current_model }}</h2>
         <p style="margin-top: 0; color: #b8b8b8;">
           Tip: user chat history lives in <code>ChatMessageModel</code>; delegated agent activity is mostly in
-          <code>RequestModel</code>, <code>TaskModel</code>, <code>TaskEventModel</code>, <code>ToolInvocationModel</code>, and <code>TemporaryAgentModel</code>.
+          <code>RequestModel</code>, <code>TaskModel</code>, <code>TaskEventModel</code>, <code>ToolInvocationModel</code>, and <code>TemporaryAgentModel</code>. Runtime configuration and work tracking live in
+          <code>RuntimeConfigModel</code>, <code>WorkModel</code>, <code>WorkAgentSessionModel</code>, and <code>ClassicActiveWorkModel</code>.
         </p>
         
         <div class="action-bar">

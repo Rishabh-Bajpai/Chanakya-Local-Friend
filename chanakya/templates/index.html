@@ -1878,6 +1878,8 @@
     let airVoiceController = null;
     let availableTools = [];
     let a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+    let a2aDiscoveryHealthy = false;
+    let a2aDiscoveryError = "";
     let appliedRuntimeConfig = null;
     const STORAGE_KEY = "chanakya-active-session";
     const WORK_STORAGE_KEY = "chanakya-active-work";
@@ -1918,6 +1920,13 @@
       } finally {
         window.clearTimeout(timer);
       }
+    }
+
+    function createClientSessionId() {
+      const token = typeof window.crypto?.randomUUID === "function"
+        ? window.crypto.randomUUID().replace(/-/g, "")
+        : `${Date.now()}${Math.random().toString(16).slice(2)}`;
+      return `session_${token}`;
     }
 
     function getSelectedChatBackend() {
@@ -2043,6 +2052,14 @@
       a2aDiscoveryStatus.style.color = isError ? "#e74c3c" : "#8e8882";
     }
 
+    function canUseA2A() {
+      return a2aDiscoveryHealthy;
+    }
+
+    function getA2AUnavailableMessage() {
+      return a2aDiscoveryError || "A2A is unavailable because the bridge could not be reached.";
+    }
+
     function setA2ASelectLoading(isLoading) {
       [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((select) => {
         if (!select) {
@@ -2106,8 +2123,10 @@
       const url = String(DEFAULT_A2A_URL || "").trim();
       if (!url) {
         a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+        a2aDiscoveryHealthy = false;
+        a2aDiscoveryError = "A2A bridge URL is not configured.";
         applyA2ADiscoveryOptions(settings);
-        setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
+        setA2ADiscoveryStatus(a2aDiscoveryError, true);
         return;
       }
       setA2ASelectLoading(true);
@@ -2123,14 +2142,18 @@
           providers: Array.isArray(payload.providers) ? payload.providers : [],
           models: Array.isArray(payload.models) ? payload.models : [],
         };
+        a2aDiscoveryHealthy = true;
+        a2aDiscoveryError = "";
         applyA2ADiscoveryOptions(settings);
         setA2ADiscoveryStatus(
           `Loaded ${a2aDiscoveredOptions.remote_agents.length} agent${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
         );
       } catch (error) {
         a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+        a2aDiscoveryHealthy = false;
+        a2aDiscoveryError = String(error && error.message ? error.message : error);
         applyA2ADiscoveryOptions(settings);
-        setA2ADiscoveryStatus(String(error && error.message ? error.message : error), true);
+        setA2ADiscoveryStatus(a2aDiscoveryError, true);
       }
     }
 
@@ -2158,6 +2181,13 @@
       if (runtimeConfigsEqual(appliedRuntimeConfig, pendingConfig)) {
         updateRuntimeConfigDirtyState();
         return appliedRuntimeConfig;
+      }
+      if (pendingConfig.backend === "a2a") {
+        await refreshA2AOptions(pendingConfig);
+        if (!canUseA2A()) {
+          updateRuntimeConfigDirtyState();
+          throw new Error(getA2AUnavailableMessage());
+        }
       }
       if (runtimeConfigApplyButton) {
         runtimeConfigApplyButton.disabled = true;
@@ -2758,6 +2788,53 @@
       return null;
     }
 
+    function isTransientFetchError(error) {
+      const message = error instanceof Error ? error.message : String(error || "");
+      return error instanceof TypeError || /networkerror|failed to fetch|load failed/i.test(message);
+    }
+
+    async function fetchSessionMessages(targetSessionId) {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}`);
+      if (!response.ok) {
+        return null;
+      }
+      const data = await response.json();
+      return Array.isArray(data.messages) ? data.messages : [];
+    }
+
+    async function recoverSubmittedChat(targetSessionId, baselineMessageCount) {
+      setConversationQueueStatus("Connection dropped while waiting for reply. Recovering saved messages...");
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        try {
+          const messages = await fetchSessionMessages(targetSessionId);
+          if (Array.isArray(messages) && messages.length > baselineMessageCount) {
+            renderChatHistory(messages);
+            await refreshSidePanels();
+            const assistantMessages = messages.filter((item) => item.role === "assistant");
+            const latestAssistant = assistantMessages[assistantMessages.length - 1];
+            const pendingCount = Number(latestAssistant?.metadata?.pending_delivery_count || 0);
+            if (pendingCount > 0) {
+              setConversationQueueStatus(
+                `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+              );
+            } else {
+              setConversationQueueStatus(assistantMessages.length ? "" : "Request is still being processed...");
+            }
+            return {
+              session_id: targetSessionId,
+              message: latestAssistant?.content || "",
+              messages: latestAssistant ? [{ text: latestAssistant.content || "", delay_ms: 0 }] : [],
+              metadata: latestAssistant?.metadata || {},
+            };
+          }
+        } catch {
+          // Keep polling; the backend may still be finalizing the persisted response.
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      }
+      return null;
+    }
+
     async function pauseConversationReplies() {
       pauseVoiceQueueState();
       if (!sessionId) {
@@ -2924,43 +3001,42 @@
       }
       beginAssistantTurn();
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
+      if (runtimeConfig.backend === "a2a" && !canUseA2A()) {
+        throw new Error(getA2AUnavailableMessage());
+      }
+      const targetSessionId = sessionId || createClientSessionId();
+      const baselineMessageCount = chatLog.childElementCount;
+      sessionId = targetSessionId;
+      storeSessionId(sessionId);
+      let response;
       try {
-        let response;
-        try {
-          response = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              session_id: sessionId,
-              message,
-              model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
-              backend: runtimeConfig.backend,
-              a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
-              a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
-              a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
-              a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
-              conversation_tone_instruction: runtimeConfig.conversation_tone_instruction,
-              tts_instruction: runtimeConfig.tts_instruction,
-            }),
-          });
-        } catch (error) {
-          if (!isRecoverableNetworkError(error)) {
-            throw error;
-          }
-          if (!sessionId) {
-            throw new Error("Connection interrupted before session assignment. Please retry.");
-          }
-          const assistantCountBefore = chatLog.querySelectorAll(".message.assistant").length;
-          const recovered = await recoverChatAfterDisconnect(
-            sessionId,
-            assistantCountBefore,
-            { onAssistantMessage }
-          );
-          if (recovered) {
-            return recovered;
-          }
-          throw new Error("Connection interrupted before the reply arrived.");
+        response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: targetSessionId,
+            message,
+            model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
+            backend: runtimeConfig.backend,
+            a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
+            a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
+            a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
+            a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
+            conversation_tone_instruction: runtimeConfig.conversation_tone_instruction,
+            tts_instruction: runtimeConfig.tts_instruction,
+          }),
+        });
+      } catch (error) {
+        if (!isTransientFetchError(error)) {
+          throw error;
         }
+        const recovered = await recoverSubmittedChat(targetSessionId, baselineMessageCount);
+        if (recovered) {
+          return recovered;
+        }
+        throw error;
+      }
+      try {
         const data = await readJsonResponse(response);
         if (!response.ok) {
           throw new Error(data.error || "Request failed");
@@ -4031,15 +4107,15 @@
       await refreshToolTraces();
     }
 
-    async function loadSessionHistory() {
+    async function loadSessionHistory(targetSessionId = null) {
       await refreshToolAvailability();
-      const storedSessionId = loadStoredSessionId();
-      if (!storedSessionId) {
+      const resolvedSessionId = targetSessionId || loadStoredSessionId();
+      if (!resolvedSessionId) {
         renderChatHistory([]);
         await refreshSidePanels();
         return;
       }
-      sessionId = storedSessionId;
+      sessionId = resolvedSessionId;
       const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
       if (!response.ok) {
         sessionId = null;
@@ -4296,6 +4372,16 @@
       if (_sseRefreshTimer) return;
       _sseRefreshTimer = setTimeout(async () => {
         _sseRefreshTimer = null;
+        if (sessionId) {
+          try {
+            const messages = await fetchSessionMessages(sessionId);
+            if (Array.isArray(messages)) {
+              renderChatHistory(messages);
+            }
+          } catch {
+            // Keep the current transcript if the history sync races with reconnects.
+          }
+        }
         await refreshSidePanels();
       }, 400); // debounce: coalesce rapid events
     }

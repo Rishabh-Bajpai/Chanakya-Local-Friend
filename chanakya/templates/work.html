@@ -1066,6 +1066,8 @@
       const CHAT_RECOVERY_MAX_WAIT_MS = 180000;
       const CHAT_RECOVERY_POLL_MS = 1500;
       let activeWorkId = null;
+      let a2aDiscoveryHealthy = false;
+      let a2aDiscoveryError = "";
       let works = [];
       let slideshowTimer = null;
       let workLiveRefreshTimer = null;
@@ -1225,6 +1227,14 @@
         a2aDiscoveryStatus.style.color = isError ? "#e74c3c" : "#8e8882";
       }
 
+      function canUseA2A() {
+        return a2aDiscoveryHealthy;
+      }
+
+      function getA2AUnavailableMessage() {
+        return a2aDiscoveryError || "A2A is unavailable because the bridge could not be reached.";
+      }
+
       function setA2ASelectLoading(isLoading) {
         [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((select) => {
           if (!select) {
@@ -1287,8 +1297,10 @@
         const url = String(DEFAULT_A2A_URL || "").trim();
         if (!url) {
           a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+          a2aDiscoveryHealthy = false;
+          a2aDiscoveryError = "A2A bridge URL is not configured.";
           applyA2ADiscoveryOptions(settings);
-          setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
+          setA2ADiscoveryStatus(a2aDiscoveryError, true);
           return;
         }
         setA2ASelectLoading(true);
@@ -1304,14 +1316,18 @@
             providers: Array.isArray(payload.providers) ? payload.providers : [],
             models: Array.isArray(payload.models) ? payload.models : [],
           };
+          a2aDiscoveryHealthy = true;
+          a2aDiscoveryError = "";
           applyA2ADiscoveryOptions(settings);
           setA2ADiscoveryStatus(
             `Loaded ${a2aDiscoveredOptions.remote_agents.length} agent${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
           );
         } catch (error) {
           a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+          a2aDiscoveryHealthy = false;
+          a2aDiscoveryError = String(error && error.message ? error.message : error);
           applyA2ADiscoveryOptions(settings);
-          setA2ADiscoveryStatus(String(error && error.message ? error.message : error), true);
+          setA2ADiscoveryStatus(a2aDiscoveryError, true);
         }
       }
 
@@ -1339,6 +1355,13 @@
         if (runtimeConfigsEqual(appliedRuntimeConfig, pendingConfig)) {
           updateRuntimeConfigDirtyState();
           return appliedRuntimeConfig;
+        }
+        if (pendingConfig.backend === "a2a") {
+          await refreshA2AOptions(pendingConfig);
+          if (!canUseA2A()) {
+            updateRuntimeConfigDirtyState();
+            throw new Error(getA2AUnavailableMessage());
+          }
         }
         if (runtimeConfigApplyButton) {
           runtimeConfigApplyButton.disabled = true;
@@ -1807,6 +1830,52 @@
         return null;
       }
 
+      function isTransientFetchError(error) {
+        const message = error instanceof Error ? error.message : String(error || "");
+        return error instanceof TypeError || /networkerror|failed to fetch|load failed/i.test(message);
+      }
+
+      function extractChanakyaMessages(agentHistories) {
+        const chanakyaHistory = (agentHistories || []).find((item) => item.agent_id === "agent_chanakya");
+        return Array.isArray(chanakyaHistory?.messages) ? chanakyaHistory.messages : [];
+      }
+
+      async function recoverSubmittedWorkChat(workId, baselineMessageCount) {
+        setConversationQueueStatus("Connection dropped while waiting for reply. Recovering saved messages...");
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          try {
+            const response = await fetch(
+              `/api/works/${encodeURIComponent(workId)}/history?task_limit=3000&event_limit=8000&request_limit=4000`
+            );
+            if (response.ok) {
+              const data = await response.json();
+              const messages = extractChanakyaMessages(data.agent_histories || []);
+              if (messages.length > baselineMessageCount) {
+                renderChatFromHistory(data.agent_histories || []);
+                cachedAgentHistories = data.agent_histories || [];
+                cachedTaskFlow = data.task_flow || [];
+                cachedTasks = data.tasks || [];
+                cachedRequests = data.requests || [];
+                renderAgentHistories(cachedAgentHistories, cachedTaskFlow, cachedTasks, cachedRequests);
+                const assistantMessages = messages.filter((item) => item.role === "assistant");
+                const latestAssistant = assistantMessages[assistantMessages.length - 1];
+                setConversationQueueStatus(assistantMessages.length ? "" : "Request is still being processed...");
+                return {
+                  session_id: data.work?.session_id || null,
+                  message: latestAssistant?.content || "",
+                  messages: latestAssistant ? [{ text: latestAssistant.content || "", delay_ms: 0 }] : [],
+                  metadata: latestAssistant?.metadata || {},
+                };
+              }
+            }
+          } catch {
+            // Keep polling; the backend may still be finalizing the persisted response.
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        }
+        return null;
+      }
+
       async function pauseConversationReplies() {
         pauseVoiceQueueState();
         if (!activeWorkId) {
@@ -1982,7 +2051,10 @@
         }
         const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
         const workIdAtSubmit = activeWorkId;
-        const assistantCountBefore = chatLog.querySelectorAll(".msg.assistant").length;
+        if (runtimeConfig.backend === "a2a" && !canUseA2A()) {
+          throw new Error(getA2AUnavailableMessage());
+        }
+        const baselineMessageCount = chatLog.childElementCount;
         let response;
         try {
           response = await fetch("/api/chat", {
@@ -2000,18 +2072,14 @@
             }),
           });
         } catch (error) {
-          if (!isRecoverableNetworkError(error)) {
+          if (!isTransientFetchError(error)) {
             throw error;
           }
-          const recovered = await recoverWorkChatAfterDisconnect(
-            workIdAtSubmit,
-            assistantCountBefore,
-            { onAssistantMessage }
-          );
+          const recovered = await recoverSubmittedWorkChat(workIdAtSubmit, baselineMessageCount);
           if (recovered) {
             return recovered;
           }
-          throw new Error("Connection interrupted before the reply arrived.");
+          throw error;
         }
         const data = await readJsonResponse(response);
         if (!response.ok) {
@@ -2728,8 +2796,8 @@
         if (!background) {
           chatTitle.textContent = data.work.title;
           chatSubtitle.textContent = data.work.description || "Work-scoped chat with Chanakya.";
-          renderChatFromHistory(data.agent_histories || []);
         }
+        renderChatFromHistory(data.agent_histories || []);
         cachedAgentHistories = data.agent_histories || [];
         cachedTaskFlow = data.task_flow || [];
         cachedTasks = data.tasks || [];

@@ -131,27 +131,36 @@ class ChatService:
         a2a_model_id: str | None = None,
         prompt_addendum: str | None = None,
     ) -> Any:
+        runtime_kwargs: dict[str, Any] = {"request_id": request_id}
+        if model_id is not None:
+            runtime_kwargs["model_id"] = model_id
+        if backend is not None:
+            runtime_kwargs["backend"] = backend
+        if a2a_url is not None:
+            runtime_kwargs["a2a_url"] = a2a_url
+        if a2a_remote_agent is not None:
+            runtime_kwargs["a2a_remote_agent"] = a2a_remote_agent
+        if a2a_model_provider is not None:
+            runtime_kwargs["a2a_model_provider"] = a2a_model_provider
+        if a2a_model_id is not None:
+            runtime_kwargs["a2a_model_id"] = a2a_model_id
+        if prompt_addendum is not None:
+            runtime_kwargs["prompt_addendum"] = prompt_addendum
         try:
-            return self.runtime.run(
-                session_id,
-                message,
-                request_id=request_id,
-                model_id=model_id,
-                backend=backend,
-                a2a_url=a2a_url,
-                a2a_remote_agent=a2a_remote_agent,
-                a2a_model_provider=a2a_model_provider,
-                a2a_model_id=a2a_model_id,
-                prompt_addendum=prompt_addendum,
-            )
+            return self.runtime.run(session_id, message, **runtime_kwargs)
         except TypeError:
+            fallback_kwargs = dict(runtime_kwargs)
+            for key in (
+                "backend",
+                "a2a_url",
+                "a2a_remote_agent",
+                "a2a_model_provider",
+                "a2a_model_id",
+                "prompt_addendum",
+            ):
+                fallback_kwargs.pop(key, None)
             try:
-                return self.runtime.run(
-                    session_id,
-                    message,
-                    request_id=request_id,
-                    model_id=model_id,
-                )
+                return self.runtime.run(session_id, message, **fallback_kwargs)
             except TypeError:
                 return self.runtime.run(session_id, message, request_id=request_id)
 
