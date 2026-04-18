@@ -51,6 +51,52 @@ def _build_chat_service(
     return ChatService(store, runtime, manager)
 
 
+def _create_work(
+    store: ChanakyaStore,
+    *,
+    title: str,
+    description: str | None = None,
+) -> dict[str, Any]:
+    cleaned_title = title.strip()
+    if not cleaned_title:
+        return {"ok": False, "error": "title is required"}
+
+    cleaned_description = (description or "").strip() or None
+    work_id = make_id("work")
+    store.create_work(
+        work_id=work_id,
+        title=cleaned_title,
+        description=cleaned_description,
+        status="active",
+    )
+    active_profiles = [profile for profile in store.list_agent_profiles() if profile.is_active]
+    for profile in active_profiles:
+        store.ensure_work_agent_session(
+            work_id=work_id,
+            agent_id=profile.id,
+            session_id=make_id("session"),
+            session_title=f"{cleaned_title} - {profile.name}",
+        )
+    store.log_event(
+        "work_created",
+        {
+            "work_id": work_id,
+            "title": cleaned_title,
+            "description": cleaned_description,
+            "agent_session_count": len(active_profiles),
+            "source": "mcp_work_tools",
+        },
+    )
+    return {
+        "ok": True,
+        "id": work_id,
+        "title": cleaned_title,
+        "description": cleaned_description,
+        "status": "active",
+        "agent_session_count": len(active_profiles),
+    }
+
+
 def _send_message_to_work(
     store: ChanakyaStore,
     chat_service: Any,
@@ -94,14 +140,27 @@ def _build_work_tools_server() -> FastMCP:
     chat_service = _build_chat_service(store, session_factory)
 
     @mcp.tool()
-    def list_works(limit: int = 20) -> dict[str, Any]:
-        """List all work items with their current status.
+    def create_work(title: str, description: str = "") -> dict[str, Any]:
+        """Create a new work item.
+
+        Use this only when the user explicitly asks to create a new work item.
+        This only creates the work and its per-agent sessions.
+        """
+        return _create_work(store, title=title, description=description)
+
+    @mcp.tool()
+    def list_works(limit: int = 20, status: str = "active") -> dict[str, Any]:
+        """List work items with their current status.
+
+        By default this returns active works so classic chat can inspect the
+        currently available work queue. Pass an empty status to list all works.
 
         Returns a list of works sorted by creation time (newest first).
         Each work includes id, title, description, status, and timestamps.
         """
         bounded = max(1, min(limit, 100))
-        works = store.list_works(limit=bounded)
+        filtered_status = status.strip() or None
+        works = store.list_works(limit=bounded, status=filtered_status)
         return {"ok": True, "works": works, "count": len(works)}
 
     @mcp.tool()

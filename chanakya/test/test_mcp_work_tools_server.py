@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.domain import ChatReply, TASK_STATUS_IN_PROGRESS
-from chanakya.services.mcp_work_tools_server import _send_message_to_work
+from chanakya.model import AgentProfileModel
+from chanakya.services.mcp_work_tools_server import _create_work, _send_message_to_work
 from chanakya.store import ChanakyaStore
 
 
@@ -31,6 +32,80 @@ class _DummyChatService:
             root_task_id="task_123",
             root_task_status=TASK_STATUS_IN_PROGRESS,
         )
+
+
+def _seed_active_agents(store: ChanakyaStore) -> None:
+    store.create_agent_profile(
+        AgentProfileModel.from_seed(
+            {
+                "id": "agent_chanakya",
+                "name": "Chanakya",
+                "role": "personal_assistant",
+                "system_prompt": "prompt",
+                "personality": "calm",
+                "tool_ids": [],
+                "workspace": "main",
+                "heartbeat_enabled": False,
+                "heartbeat_interval_seconds": 300,
+                "heartbeat_file_path": None,
+                "is_active": True,
+            }
+        )
+    )
+    store.create_agent_profile(
+        AgentProfileModel.from_seed(
+            {
+                "id": "agent_manager",
+                "name": "Agent Manager",
+                "role": "manager",
+                "system_prompt": "prompt",
+                "personality": "structured",
+                "tool_ids": [],
+                "workspace": "manager",
+                "heartbeat_enabled": False,
+                "heartbeat_interval_seconds": 300,
+                "heartbeat_file_path": None,
+                "is_active": True,
+            }
+        )
+    )
+
+
+def test_create_work_creates_active_work_and_agent_sessions() -> None:
+    store = _build_store()
+    _seed_active_agents(store)
+
+    result = _create_work(store, title="New Work", description="Ship it")
+
+    assert result["ok"] is True
+    assert result["title"] == "New Work"
+    assert result["description"] == "Ship it"
+    assert result["status"] == "active"
+    assert result["agent_session_count"] == 2
+    work_id = result["id"]
+    work = store.get_work(work_id)
+    assert work.title == "New Work"
+    assert work.status == "active"
+    sessions = store.list_work_agent_sessions(work_id)
+    assert len(sessions) == 2
+
+
+def test_create_work_rejects_empty_title() -> None:
+    store = _build_store()
+
+    result = _create_work(store, title="   ", description="ignored")
+
+    assert result == {"ok": False, "error": "title is required"}
+
+
+def test_list_works_can_filter_to_active_status() -> None:
+    store = _build_store()
+    store.create_work(work_id="work_active", title="Active", description="", status="active")
+    store.create_work(work_id="work_done", title="Done", description="", status="done")
+
+    active = store.list_works(status="active")
+
+    assert [item["id"] for item in active] == ["work_active"]
 
 
 def test_send_message_to_work_routes_through_chat_service() -> None:

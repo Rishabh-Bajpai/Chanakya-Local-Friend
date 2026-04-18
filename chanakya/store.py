@@ -929,11 +929,12 @@ class WorkRepository:
             )
             session.commit()
 
-    def list_works(self, *, limit: int = 100) -> list[dict[str, Any]]:
+    def list_works(self, *, limit: int = 100, status: str | None = None) -> list[dict[str, Any]]:
         with session_scope(self.Session) as session:
-            rows = session.scalars(
-                select(WorkModel).order_by(WorkModel.updated_at.desc()).limit(limit)
-            ).all()
+            stmt = select(WorkModel).order_by(WorkModel.updated_at.desc()).limit(limit)
+            if status is not None:
+                stmt = stmt.where(WorkModel.status == status)
+            rows = session.scalars(stmt).all()
         records = [
             {
                 "id": row.id,
@@ -1348,8 +1349,8 @@ class ChanakyaStore:
             status=status,
         )
 
-    def list_works(self, *, limit: int = 100) -> list[dict[str, Any]]:
-        return self.works.list_works(limit=limit)
+    def list_works(self, *, limit: int = 100, status: str | None = None) -> list[dict[str, Any]]:
+        return self.works.list_works(limit=limit, status=status)
 
     def get_work(self, work_id: str) -> WorkModel:
         return self.works.get_work(work_id)

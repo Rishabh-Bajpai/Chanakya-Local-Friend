@@ -33,6 +33,7 @@ from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
 from chanakya.services.a2a_discovery import discover_a2a_options
+from chanakya.services.mcp_work_tools_server import _create_work
 from chanakya.services.ntfy import (
     NtfyClient,
     NtfyNotificationDispatcher,
@@ -664,49 +665,24 @@ def create_app() -> Flask:
             description = _parse_optional_string(payload, "description") or None
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
-        work_id = make_id("work")
-        store.create_work(
-            work_id=work_id,
-            title=title,
-            description=description,
-            status="active",
-        )
-        active_profiles = [profile for profile in store.list_agent_profiles() if profile.is_active]
-        for profile in active_profiles:
-            store.ensure_work_agent_session(
-                work_id=work_id,
-                agent_id=profile.id,
-                session_id=make_id("session"),
-                session_title=f"{title} - {profile.name}",
-            )
-        store.log_event(
-            "work_created",
-            {
-                "work_id": work_id,
-                "title": title,
-                "description": description,
-                "agent_session_count": len(active_profiles),
-            },
-        )
-        return jsonify(
-            {
-                "id": work_id,
-                "title": title,
-                "description": description,
-                "status": "active",
-                "agent_session_count": len(active_profiles),
-            }
-        ), 201
+        result = _create_work(store, title=title, description=description)
+        if not result.get("ok"):
+            return jsonify({"error": result.get("error") or "Work creation failed"}), 400
+        return jsonify({key: value for key, value in result.items() if key != "ok"}), 201
 
     @app.get("/api/works")
     def api_list_works() -> Any:
         raw_limit = request.args.get("limit", "100")
+        raw_status = request.args.get("status")
         try:
             limit = int(raw_limit)
         except (TypeError, ValueError):
             limit = 100
         limit = max(1, min(limit, 500))
-        works = store.list_works(limit=limit)
+        status = str(raw_status).strip() if raw_status is not None else None
+        if status == "":
+            status = None
+        works = store.list_works(limit=limit, status=status)
         return jsonify({"works": works})
 
     @app.delete("/api/works/<work_id>")
