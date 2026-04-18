@@ -47,6 +47,8 @@ class RuntimeConfigModel(Base):
     a2a_remote_agent: Mapped[str | None] = mapped_column(String, nullable=True)
     a2a_model_provider: Mapped[str | None] = mapped_column(String, nullable=True)
     a2a_model_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    conversation_tone_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tts_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
     updated_at: Mapped[str] = mapped_column(String, nullable=False)
 

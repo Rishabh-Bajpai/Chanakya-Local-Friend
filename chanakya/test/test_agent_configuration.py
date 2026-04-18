@@ -123,6 +123,8 @@ class _ChatServiceCaptureStub:
         a2a_remote_agent: str | None = None,
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
+        conversation_tone_instruction: str | None = None,
+        tts_instruction: str | None = None,
     ) -> ChatReply:
         self.calls.append(
             {
@@ -135,6 +137,8 @@ class _ChatServiceCaptureStub:
                 "a2a_remote_agent": a2a_remote_agent,
                 "a2a_model_provider": a2a_model_provider,
                 "a2a_model_id": a2a_model_id,
+                "conversation_tone_instruction": conversation_tone_instruction,
+                "tts_instruction": tts_instruction,
             }
         )
         return ChatReply(
@@ -383,6 +387,8 @@ def test_api_runtime_config_persists_shared_settings(
             "a2a_remote_agent": "build",
             "a2a_model_provider": "lmstudio",
             "a2a_model_id": "qwen/qwen3.5-9b",
+            "conversation_tone_instruction": "Dry and direct.",
+            "tts_instruction": "Use crisp spoken phrasing.",
         },
     )
 
@@ -392,6 +398,8 @@ def test_api_runtime_config_persists_shared_settings(
     assert updated["a2a_remote_agent"] == "build"
     assert updated["a2a_model_provider"] == "lmstudio"
     assert updated["a2a_model_id"] == "qwen/qwen3.5-9b"
+    assert updated["conversation_tone_instruction"] == "Dry and direct."
+    assert updated["tts_instruction"] == "Use crisp spoken phrasing."
     assert updated["a2a_url"] == app_module.get_a2a_agent_url()
 
     get_response = client.get("/api/runtime-config")
@@ -399,6 +407,8 @@ def test_api_runtime_config_persists_shared_settings(
     fetched = get_response.get_json()
     assert fetched["backend"] == "a2a"
     assert fetched["a2a_remote_agent"] == "build"
+    assert fetched["conversation_tone_instruction"] == "Dry and direct."
+    assert fetched["tts_instruction"] == "Use crisp spoken phrasing."
 
 
 def test_api_chat_uses_applied_runtime_config_when_request_omits_it(
@@ -424,6 +434,8 @@ def test_api_chat_uses_applied_runtime_config_when_request_omits_it(
             "a2a_remote_agent": "planner",
             "a2a_model_provider": "lmstudio",
             "a2a_model_id": "qwen/qwen3.5-9b",
+            "conversation_tone_instruction": "Dry and precise.",
+            "tts_instruction": "Keep it easy to speak.",
         },
     )
     assert config_response.status_code == 200
@@ -443,6 +455,47 @@ def test_api_chat_uses_applied_runtime_config_when_request_omits_it(
     assert captured[0].calls[0]["a2a_remote_agent"] == "planner"
     assert captured[0].calls[0]["a2a_model_provider"] == "lmstudio"
     assert captured[0].calls[0]["a2a_model_id"] == "qwen/qwen3.5-9b"
+    assert captured[0].calls[0]["conversation_tone_instruction"] == "Dry and precise."
+    assert captured[0].calls[0]["tts_instruction"] == "Keep it easy to speak."
+
+
+def test_api_chat_request_overrides_stored_conversation_preferences(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: list[_ChatServiceCaptureStub] = []
+
+    def _build_chat_service(store, runtime, manager):
+        stub = _ChatServiceCaptureStub(store, runtime, manager)
+        captured.append(stub)
+        return stub
+
+    monkeypatch.setattr(app_module, "ChatService", _build_chat_service)
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    client.post(
+        "/api/runtime-config",
+        json={
+            "backend": "local",
+            "conversation_tone_instruction": "Stored tone.",
+            "tts_instruction": "Stored tts.",
+        },
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "session_id": "session_runtime_override",
+            "message": "override preferences",
+            "conversation_tone_instruction": "Request tone.",
+            "tts_instruction": "Request tts.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured[0].calls[0]["conversation_tone_instruction"] == "Request tone."
+    assert captured[0].calls[0]["tts_instruction"] == "Request tts."
 
 
 def test_api_a2a_options_returns_discovered_agents_and_models(

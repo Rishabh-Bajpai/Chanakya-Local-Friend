@@ -1398,6 +1398,17 @@
                 {% if a2a_gui_enabled %}
                 <p class="control-group-note">In A2A mode, Chanakya sends the next chat turn through the configured endpoint and can include remote agent and model overrides. The selected A2A agent applies to both direct replies and conversation-layer follow-ups.</p>
                 {% endif %}
+                <div class="runtime-textareas">
+                  <label>
+                    Conversation Tone
+                    <textarea id="conversationToneInstructionInput" placeholder="Optional instruction for the conversational voice and style of classic-chat delivery."></textarea>
+                  </label>
+                  <label>
+                    TTS Instruction
+                    <textarea id="ttsInstructionInput" placeholder="Optional instruction for TTS-friendly formatting and spoken delivery."></textarea>
+                  </label>
+                </div>
+                <p class="control-group-note">These apply to future classic-chat conversation-layer delivery, shaping how Chanakya phrases replies and formats them for spoken output.</p>
                 <div class="air-controls">
                   <button id="runtimeConfigApplyButton" class="air-button" type="button">Apply Changes</button>
                 </div>
@@ -1706,6 +1717,8 @@
     const a2aAgentInput = document.getElementById("a2aAgentInput");
     const a2aModelProviderInput = document.getElementById("a2aModelProviderInput");
     const a2aModelIdInput = document.getElementById("a2aModelIdInput");
+    const conversationToneInstructionInput = document.getElementById("conversationToneInstructionInput");
+    const ttsInstructionInput = document.getElementById("ttsInstructionInput");
     const runtimeConfigApplyButton = document.getElementById("runtimeConfigApplyButton");
     const runtimeConfigStatus = document.getElementById("runtimeConfigStatus");
     const a2aDiscoveryStatus = document.getElementById("a2aDiscoveryStatus");
@@ -1769,6 +1782,7 @@
     const RUNTIME_CONFIG_SYNC_KEY = "chanakya-runtime-config-sync";
     const DEFAULT_A2A_URL = {{ a2a_agent_url | tojson }};
     const A2A_GUI_ENABLED = {{ a2a_gui_enabled | tojson }};
+    const CONVERSATION_PREFERENCE_DEFAULTS = {{ conversation_preferences_defaults | tojson }};
     const CHAT_RECOVERY_MAX_WAIT_MS = 180000;
     const CHAT_RECOVERY_POLL_MS = 1500;
 
@@ -1823,6 +1837,12 @@
         a2a_remote_agent: A2A_GUI_ENABLED && typeof normalized.a2a_remote_agent === "string" && normalized.a2a_remote_agent.trim() ? normalized.a2a_remote_agent.trim() : null,
         a2a_model_provider: A2A_GUI_ENABLED && typeof normalized.a2a_model_provider === "string" && normalized.a2a_model_provider.trim() ? normalized.a2a_model_provider.trim() : null,
         a2a_model_id: A2A_GUI_ENABLED && typeof normalized.a2a_model_id === "string" && normalized.a2a_model_id.trim() ? normalized.a2a_model_id.trim() : null,
+        conversation_tone_instruction: typeof normalized.conversation_tone_instruction === "string" && normalized.conversation_tone_instruction.trim()
+          ? normalized.conversation_tone_instruction.trim()
+          : (CONVERSATION_PREFERENCE_DEFAULTS.conversation_tone_instruction || null),
+        tts_instruction: typeof normalized.tts_instruction === "string" && normalized.tts_instruction.trim()
+          ? normalized.tts_instruction.trim()
+          : (CONVERSATION_PREFERENCE_DEFAULTS.tts_instruction || null),
       };
     }
 
@@ -1834,6 +1854,12 @@
         a2a_remote_agent: A2A_GUI_ENABLED && a2aAgentInput && a2aAgentInput.value.trim() ? a2aAgentInput.value.trim() : null,
         a2a_model_provider: A2A_GUI_ENABLED && a2aModelProviderInput && a2aModelProviderInput.value.trim() ? a2aModelProviderInput.value.trim() : null,
         a2a_model_id: A2A_GUI_ENABLED && a2aModelIdInput && a2aModelIdInput.value.trim() ? a2aModelIdInput.value.trim() : null,
+        conversation_tone_instruction: conversationToneInstructionInput && conversationToneInstructionInput.value.trim()
+          ? conversationToneInstructionInput.value.trim()
+          : null,
+        tts_instruction: ttsInstructionInput && ttsInstructionInput.value.trim()
+          ? ttsInstructionInput.value.trim()
+          : null,
       });
     }
 
@@ -1859,6 +1885,12 @@
       }
       if (a2aModelIdInput) {
         a2aModelIdInput.value = normalized.a2a_model_id || "";
+      }
+      if (conversationToneInstructionInput) {
+        conversationToneInstructionInput.value = normalized.conversation_tone_instruction || "";
+      }
+      if (ttsInstructionInput) {
+        ttsInstructionInput.value = normalized.tts_instruction || "";
       }
       updateRuntimeConfigState();
     }
@@ -2805,6 +2837,8 @@
               a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
               a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
               a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
+              conversation_tone_instruction: runtimeConfig.conversation_tone_instruction,
+              tts_instruction: runtimeConfig.tts_instruction,
             }),
           });
         } catch (error) {
@@ -2944,6 +2978,12 @@
       [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((node) => {
         if (node) {
           node.addEventListener("change", updateRuntimeConfigDirtyState);
+          node.addEventListener("blur", updateRuntimeConfigDirtyState);
+        }
+      });
+      [conversationToneInstructionInput, ttsInstructionInput].forEach((node) => {
+        if (node) {
+          node.addEventListener("input", updateRuntimeConfigDirtyState);
           node.addEventListener("blur", updateRuntimeConfigDirtyState);
         }
       });

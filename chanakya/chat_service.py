@@ -227,6 +227,8 @@ class ChatService:
         model_id: str | None,
         request_id: str | None,
         runtime_metadata: dict[str, Any] | None = None,
+        conversation_tone_instruction: str | None = None,
+        tts_instruction: str | None = None,
     ) -> ConversationLayerResult | None:
         if not assistant_message.strip():
             return None
@@ -264,6 +266,8 @@ class ChatService:
                 a2a_model_provider=str(conversation_runtime.get("a2a_model_provider") or "").strip()
                 or None,
                 a2a_model_id=str(conversation_runtime.get("a2a_model_id") or "").strip() or None,
+                conversation_tone_instruction=conversation_tone_instruction,
+                tts_instruction=tts_instruction,
                 metadata={
                     **conversation_runtime,
                     "source": "chanakya_conversation_layer",
@@ -425,6 +429,8 @@ class ChatService:
         a2a_remote_agent: str | None = None,
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
+        conversation_tone_instruction: str | None = None,
+        tts_instruction: str | None = None,
     ) -> ChatReply:
         backend = normalize_runtime_backend(backend)
 
@@ -452,6 +458,8 @@ class ChatService:
             a2a_remote_agent=a2a_remote_agent,
             a2a_model_provider=a2a_model_provider,
             a2a_model_id=a2a_model_id,
+            conversation_tone_instruction=conversation_tone_instruction,
+            tts_instruction=tts_instruction,
         )
 
     @staticmethod
@@ -545,6 +553,8 @@ class ChatService:
         a2a_remote_agent: str | None = None,
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
+        conversation_tone_instruction: str | None = None,
+        tts_instruction: str | None = None,
     ) -> ChatReply:
         request_id = make_id("req")
         root_task_id = make_id("task")
@@ -976,6 +986,8 @@ class ChatService:
                     model_id=model_id,
                     request_id=request_id,
                     runtime_metadata=response_metadata,
+                    conversation_tone_instruction=conversation_tone_instruction,
+                    tts_instruction=tts_instruction,
                 )
             if conversation_result is not None:
                 response_metadata = {**response_metadata, **conversation_result.metadata}

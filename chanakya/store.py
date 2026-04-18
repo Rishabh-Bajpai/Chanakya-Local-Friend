@@ -246,6 +246,8 @@ class RuntimeConfigRepository:
                 "a2a_remote_agent": row.a2a_remote_agent,
                 "a2a_model_provider": row.a2a_model_provider,
                 "a2a_model_id": row.a2a_model_id,
+                "conversation_tone_instruction": row.conversation_tone_instruction,
+                "tts_instruction": row.tts_instruction,
                 "created_at": row.created_at,
                 "updated_at": row.updated_at,
             }
@@ -259,6 +261,8 @@ class RuntimeConfigRepository:
         a2a_remote_agent: str | None,
         a2a_model_provider: str | None,
         a2a_model_id: str | None,
+        conversation_tone_instruction: str | None,
+        tts_instruction: str | None,
     ) -> dict[str, Any]:
         timestamp = now_iso()
         with session_scope(self.Session) as session:
@@ -272,6 +276,8 @@ class RuntimeConfigRepository:
                     a2a_remote_agent=a2a_remote_agent,
                     a2a_model_provider=a2a_model_provider,
                     a2a_model_id=a2a_model_id,
+                    conversation_tone_instruction=conversation_tone_instruction,
+                    tts_instruction=tts_instruction,
                     created_at=timestamp,
                     updated_at=timestamp,
                 )
@@ -283,6 +289,8 @@ class RuntimeConfigRepository:
                 row.a2a_remote_agent = a2a_remote_agent
                 row.a2a_model_provider = a2a_model_provider
                 row.a2a_model_id = a2a_model_id
+                row.conversation_tone_instruction = conversation_tone_instruction
+                row.tts_instruction = tts_instruction
                 row.updated_at = timestamp
             session.commit()
             return {
@@ -292,6 +300,8 @@ class RuntimeConfigRepository:
                 "a2a_remote_agent": row.a2a_remote_agent,
                 "a2a_model_provider": row.a2a_model_provider,
                 "a2a_model_id": row.a2a_model_id,
+                "conversation_tone_instruction": row.conversation_tone_instruction,
+                "tts_instruction": row.tts_instruction,
                 "created_at": row.created_at,
                 "updated_at": row.updated_at,
             }
@@ -1434,6 +1444,8 @@ class ChanakyaStore:
         a2a_remote_agent: str | None,
         a2a_model_provider: str | None,
         a2a_model_id: str | None,
+        conversation_tone_instruction: str | None,
+        tts_instruction: str | None,
     ) -> dict[str, Any]:
         return self.runtime_config.set(
             backend=backend,
@@ -1442,6 +1454,8 @@ class ChanakyaStore:
             a2a_remote_agent=a2a_remote_agent,
             a2a_model_provider=a2a_model_provider,
             a2a_model_id=a2a_model_id,
+            conversation_tone_instruction=conversation_tone_instruction,
+            tts_instruction=tts_instruction,
         )
 
     def save_agent_session_context(

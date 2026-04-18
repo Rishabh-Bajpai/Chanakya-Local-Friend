@@ -14,6 +14,7 @@ from chanakya.agent.profile_files import default_heartbeat_relative_path, ensure
 from chanakya.agent.runtime import MAFRuntime, normalize_runtime_backend
 from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
+from chanakya.conversation_layer_support import get_conversation_preference_defaults
 from chanakya.config import (
     force_subagents_enabled,
     get_a2a_agent_url,
@@ -48,6 +49,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 
 
 def _default_runtime_config() -> dict[str, Any]:
+    defaults = get_conversation_preference_defaults()
     return {
         "backend": "local",
         "model_id": None,
@@ -55,6 +57,8 @@ def _default_runtime_config() -> dict[str, Any]:
         "a2a_remote_agent": None,
         "a2a_model_provider": None,
         "a2a_model_id": None,
+        "conversation_tone_instruction": defaults["conversation_tone_instruction"],
+        "tts_instruction": defaults["tts_instruction"],
     }
 
 
@@ -67,6 +71,8 @@ def _normalize_runtime_config(record: dict[str, Any] | None) -> dict[str, Any]:
         "a2a_remote_agent",
         "a2a_model_provider",
         "a2a_model_id",
+        "conversation_tone_instruction",
+        "tts_instruction",
     ):
         value = config.get(key)
         if value is None:
@@ -86,6 +92,10 @@ def _parse_runtime_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
     a2a_remote_agent = _parse_optional_string(payload, "a2a_remote_agent") or None
     a2a_model_provider = _parse_optional_string(payload, "a2a_model_provider") or None
     a2a_model_id = _parse_optional_string(payload, "a2a_model_id") or None
+    conversation_tone_instruction = (
+        _parse_optional_string(payload, "conversation_tone_instruction") or None
+    )
+    tts_instruction = _parse_optional_string(payload, "tts_instruction") or None
     return {
         "backend": backend,
         "model_id": model_id,
@@ -93,6 +103,8 @@ def _parse_runtime_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "a2a_remote_agent": a2a_remote_agent,
         "a2a_model_provider": a2a_model_provider,
         "a2a_model_id": a2a_model_id,
+        "conversation_tone_instruction": conversation_tone_instruction,
+        "tts_instruction": tts_instruction,
     }
 
 
@@ -249,6 +261,7 @@ def create_app() -> Flask:
             a2a_agent_url=get_a2a_agent_url(),
             a2a_gui_enabled=get_a2a_gui_enabled(),
             force_subagents_enabled=force_subagents_enabled(),
+            conversation_preferences_defaults=get_conversation_preference_defaults(),
         )
 
     def render_work_page(*, initial_work_id: str | None = None) -> str:
@@ -340,6 +353,22 @@ def create_app() -> Flask:
         )
         if a2a_model_id == "":
             a2a_model_id = None
+        raw_conversation_tone_instruction = payload.get("conversation_tone_instruction")
+        conversation_tone_instruction = (
+            str(raw_conversation_tone_instruction).strip()
+            if raw_conversation_tone_instruction is not None
+            else runtime_config["conversation_tone_instruction"]
+        )
+        if conversation_tone_instruction == "":
+            conversation_tone_instruction = None
+        raw_tts_instruction = payload.get("tts_instruction")
+        tts_instruction = (
+            str(raw_tts_instruction).strip()
+            if raw_tts_instruction is not None
+            else runtime_config["tts_instruction"]
+        )
+        if tts_instruction == "":
+            tts_instruction = None
         debug_log(
             "api_chat_request",
             {
@@ -351,6 +380,8 @@ def create_app() -> Flask:
                 "a2a_remote_agent": a2a_remote_agent,
                 "a2a_model_provider": a2a_model_provider,
                 "a2a_model_id": a2a_model_id,
+                "conversation_tone_instruction": conversation_tone_instruction,
+                "tts_instruction": tts_instruction,
                 "message": message,
                 "has_existing_session": bool(payload.get("session_id")),
             },
@@ -369,6 +400,8 @@ def create_app() -> Flask:
                 a2a_remote_agent=a2a_remote_agent,
                 a2a_model_provider=a2a_model_provider,
                 a2a_model_id=a2a_model_id,
+                conversation_tone_instruction=conversation_tone_instruction,
+                tts_instruction=tts_instruction,
             )
         except Exception as exc:
             debug_log(
@@ -416,6 +449,8 @@ def create_app() -> Flask:
                 "backend": normalized["backend"],
                 "model_id": normalized["model_id"],
                 "a2a_model_id": normalized["a2a_model_id"],
+                "conversation_tone_instruction": normalized["conversation_tone_instruction"],
+                "tts_instruction": normalized["tts_instruction"],
             },
         )
         return jsonify(normalized)
