@@ -48,9 +48,9 @@ Required values:
 
 ```bash
 OPENAI_BASE_URL="http://192.168.1.51:1234/v1"
-OPENAI_CHAT_MODEL_ID="google/gemma-4-26b-a4b"
+OPENAI_CHAT_MODEL_ID="qwen/qwen3.6-35b-a3b"
 OPENAI_API_KEY="lm-studio"
-DATABASE_URL="sqlite:////home/rishabh/github_projects/chanakya_conversation_layer/chanakya.db"
+DATABASE_URL="sqlite:////home/rishabh/github_projects/chanakya_conersation_layer/chanakya.db"
 CHANAKYA_DEBUG=true
 ```
 
@@ -58,7 +58,7 @@ Optional conversation-layer model values:
 
 ```bash
 CONVERSATION_OPENAI_BASE_URL="http://192.168.1.51:1234/v1"
-CONVERSATION_OPENAI_CHAT_MODEL_ID="google/gemma-4-26b-a4b"
+CONVERSATION_OPENAI_CHAT_MODEL_ID="qwen/qwen3.6-35b-a3b"
 CONVERSATION_OPENAI_API_KEY="lm-studio"
 ```
 
@@ -137,6 +137,35 @@ The JSON response includes:
 - `messages`: ordered assistant message chunks with `delay_ms`
 - `metadata`: current routing/planner/debug fields
 
+Conversation-layer delivery preferences can be passed per request under `metadata.conversation_preferences`.
+This is where client apps can test different delivery prompts such as conversational tone or TTS-model formatting instructions.
+In this repo's Flask host app, the browser UI at `http://127.0.0.1:5000/` sets these fields from the GUI and sends them through the core app request metadata. Other apps using the SDK should set the same fields in their own request-building code.
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:5000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id":"demo",
+    "message":"tell me 5 jokes",
+    "metadata": {
+      "conversation_preferences": {
+        "conversation_tone_instruction": "The user likes dry, mildly sarcastic replies.",
+        "tts_instruction": "Use expressive tags like <cough> sparingly when they improve delivery."
+      }
+    }
+  }'
+```
+
+If these fields are omitted, the wrapper uses generic defaults.
+
+You can inspect the supported conversation-layer preference fields and defaults at:
+
+```bash
+curl http://127.0.0.1:5000/runtime/options
+```
+
 ## SDK Usage
 
 To use the conversation layer in your own projects as an SDK (wrapping any local or A2A agent), see the detailed guide: **[Using the Conversation Layer as an SDK](docs/sdk_usage.md)**.
@@ -166,6 +195,13 @@ wrapped_agent = with_conversation_layer(
 ```
 
 `with_conversation_layer(...)` returns a normal `ConversationWrapper`, so the raw agent remains inspectable as `wrapped_agent.agent`.
+
+The wrapper also exposes runtime metadata for host apps:
+
+```python
+options = wrapped_agent.runtime_options()
+print(options["conversation_preferences"]["supported_fields"])
+```
 
 Inspect transcript history:
 

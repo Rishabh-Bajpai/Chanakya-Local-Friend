@@ -101,7 +101,7 @@ The rest of the app stays the same.
 
 - `CHATFLASH_MODEL_BASE_URL` - default `http://192.168.1.51:1234/v1`
 - `CHATFLASH_MODEL_API_KEY` - default `na`
-- `CHATFLASH_MODEL_ID` - default `google/gemma-4-26b-a4b`
+- `CHATFLASH_MODEL_ID` - default `qwen/qwen3.6-35b-a3b`
 
 ## Troubleshooting
 

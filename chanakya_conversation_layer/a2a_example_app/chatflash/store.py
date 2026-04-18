@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .models import MessageRecord, SessionRecord
 
 
 def utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class SessionStore:
@@ -53,7 +53,9 @@ class SessionStore:
             ).fetchall()
         return [self._session_from_row(row) for row in rows]
 
-    def create_session(self, agent_id: str, title: str = "New conversation") -> SessionRecord:
+    def create_session(
+        self, agent_id: str, title: str = "New conversation"
+    ) -> SessionRecord:
         session_id = uuid.uuid4().hex
         now = utcnow()
         with self._connect() as conn:
@@ -65,7 +67,9 @@ class SessionStore:
 
     def get_session(self, session_id: str) -> SessionRecord:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
         if row is None:
             raise KeyError(f"Unknown session: {session_id}")
         return self._session_from_row(row)
@@ -88,7 +92,9 @@ class SessionStore:
             )
         return self.get_session(session_id)
 
-    def set_remote_context(self, session_id: str, remote_context_id: str | None) -> SessionRecord:
+    def set_remote_context(
+        self, session_id: str, remote_context_id: str | None
+    ) -> SessionRecord:
         now = utcnow()
         with self._connect() as conn:
             conn.execute(
