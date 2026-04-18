@@ -5,6 +5,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Chanakya</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
   <style>
     :root {
       --bg: #121212;
@@ -209,6 +210,178 @@
       min-height: 0;
     }
 
+    .control-deck {
+      margin-top: 18px;
+      border: 1px solid rgba(216, 107, 74, 0.22);
+      border-radius: 18px;
+      background:
+        linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(58, 138, 135, 0.04)),
+        rgba(255, 255, 255, 0.02);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      overflow: hidden;
+    }
+
+    .control-deck summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 16px 18px;
+    }
+
+    .control-deck summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .control-deck-titlebar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .control-deck-kicker {
+      margin: 0 0 4px;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #d7b2a7;
+    }
+
+    .control-deck h3 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.1;
+    }
+
+    .control-deck p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      max-width: 60ch;
+    }
+
+    .control-deck-toggle {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-size: 16px;
+    }
+
+    .control-deck[open] .control-deck-toggle::before {
+      content: "-";
+    }
+
+    .control-deck:not([open]) .control-deck-toggle::before {
+      content: "+";
+    }
+
+    .control-deck-body {
+      padding: 0 18px 18px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 14px;
+    }
+
+    .control-group {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.12);
+    }
+
+    .control-group-title {
+      margin: 0;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #d0cbc5;
+    }
+
+    .control-group-note {
+      margin: -4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .air-links,
+    .air-controls,
+    .air-models,
+    .runtime-models {
+      display: grid;
+      gap: 8px;
+    }
+
+    .air-controls {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .air-links,
+    .runtime-models {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .air-models label,
+    .runtime-models label {
+      display: grid;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .air-models select,
+    .runtime-models select {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #454545;
+      background: #1a1a1a;
+      color: var(--text);
+      padding: 8px 10px;
+      font: inherit;
+    }
+
+    .air-button,
+    .air-link {
+      border: 1px solid #494949;
+      border-radius: 10px;
+      padding: 9px 12px;
+      background: #242424;
+      color: var(--text);
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      font: inherit;
+    }
+
+    .air-button[data-state="recording"] {
+      background: #5a2d20;
+      border-color: #d86b4a;
+    }
+
+    .air-status {
+      min-height: 18px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .air-status[data-state="error"] {
+      color: var(--red);
+    }
+
     .hero {
       padding: 18px 20px 8px;
     }
@@ -304,10 +477,151 @@
       border: 1px solid #383838;
     }
 
+    .message-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: #f3d38f;
+      background: rgba(243, 211, 143, 0.12);
+      border: 1px solid rgba(243, 211, 143, 0.3);
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-bottom: 8px;
+    }
+
     .meta {
       margin-top: 8px;
       font-size: 12px;
       color: var(--muted);
+    }
+
+    .message-body {
+      min-width: 0;
+    }
+
+    .rendered-markdown {
+      display: grid;
+      gap: 10px;
+    }
+
+    .rendered-markdown>* {
+      margin: 0;
+    }
+
+    .rendered-markdown p,
+    .rendered-markdown li {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .rendered-markdown ul,
+    .rendered-markdown ol {
+      margin: 0;
+      padding-left: 22px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .rendered-markdown hr {
+      border: 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .rendered-markdown h1,
+    .rendered-markdown h2,
+    .rendered-markdown h3,
+    .rendered-markdown h4,
+    .rendered-markdown h5,
+    .rendered-markdown h6 {
+      line-height: 1.2;
+    }
+
+    .rendered-markdown h1 {
+      font-size: 26px;
+    }
+
+    .rendered-markdown h2 {
+      font-size: 22px;
+    }
+
+    .rendered-markdown h3 {
+      font-size: 19px;
+    }
+
+    .rendered-markdown h4,
+    .rendered-markdown h5,
+    .rendered-markdown h6 {
+      font-size: 16px;
+    }
+
+    .rendered-markdown code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.92em;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 0.1em 0.4em;
+    }
+
+    .rendered-code-block {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 14px;
+      overflow: hidden;
+      background: #151618;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .code-language-label {
+      padding: 8px 12px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #d7b2a7;
+      background: rgba(216, 107, 74, 0.12);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .rendered-code-block pre {
+      margin: 0;
+      padding: 14px;
+      overflow-x: auto;
+      white-space: pre;
+      line-height: 1.5;
+      background: transparent;
+    }
+
+    .rendered-code-block pre code {
+      display: block;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      border-radius: 0;
+      font-size: 13px;
+    }
+
+    .rendered-markdown table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .rendered-markdown th,
+    .rendered-markdown td {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .rendered-markdown th {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .rendered-markdown a {
+      color: #8ecbff;
     }
 
     .composer {
@@ -755,6 +1069,35 @@
       color: var(--muted);
     }
 
+    .notification-qr {
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.02);
+      display: grid;
+      gap: 10px;
+    }
+
+    .notification-qr[hidden] {
+      display: none;
+    }
+
+    .notification-qr img {
+      width: 180px;
+      height: 180px;
+      border-radius: 10px;
+      background: #ffffff;
+      padding: 8px;
+    }
+
+    .notification-link {
+      color: var(--accent);
+      text-decoration: none;
+      overflow-wrap: anywhere;
+      font-size: 12px;
+    }
+
     .sandbox-guide {
       display: grid;
       gap: 12px;
@@ -822,6 +1165,248 @@
         grid-template-columns: 1fr;
       }
     }
+
+    .runtime-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      width: fit-content;
+      padding: 7px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #d5d0ca;
+    }
+
+    .runtime-chip::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--ink);
+      box-shadow: 0 0 10px rgba(58, 138, 135, 0.5);
+    }
+
+    .control-field-hint {
+      margin: -2px 0 0;
+      color: #8e8882;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .control-group.is-disabled {
+      opacity: 0.6;
+    }
+
+    .control-group.is-disabled .runtime-models input,
+    .control-group.is-disabled .runtime-models select {
+      cursor: not-allowed;
+    }
+
+    .runtime-textareas {
+      display: grid;
+      gap: 12px;
+      margin-top: 2px;
+    }
+
+    .runtime-pref-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+        rgba(10, 10, 10, 0.22);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .runtime-pref-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .runtime-pref-title {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #efeae3;
+    }
+
+    .runtime-pref-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(90, 169, 230, 0.28);
+      background: rgba(90, 169, 230, 0.1);
+      color: #b9daf2;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .runtime-pref-copy {
+      margin: 0;
+      color: #a8a19a;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .runtime-textareas textarea {
+      width: 100%;
+      min-height: 88px;
+      resize: vertical;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(8, 8, 8, 0.68);
+      color: var(--text);
+      padding: 11px 12px;
+      font: inherit;
+      line-height: 1.5;
+      transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+    }
+
+    .runtime-textareas textarea::placeholder {
+      color: #7f7872;
+    }
+
+    .runtime-textareas textarea:hover {
+      border-color: rgba(255, 255, 255, 0.16);
+      background: rgba(12, 12, 12, 0.76);
+    }
+
+    .runtime-textareas textarea:focus {
+      outline: none;
+      border-color: rgba(90, 169, 230, 0.58);
+      box-shadow: 0 0 0 3px rgba(90, 169, 230, 0.14);
+      background: rgba(14, 14, 14, 0.82);
+    }
+
+    .runtime-pref-footnote {
+      margin: -2px 0 0;
+      color: #8e8882;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 1100px) {
+      .control-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .air-controls,
+      .air-links,
+      .runtime-models {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .work-notifications-bar {
+      display: none;
+      background: #1a1a2e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      margin: 8px 0;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    .work-notifications-bar.has-notifications {
+      display: block;
+    }
+    .work-notifications-bar .wn-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .work-notifications-bar .wn-badge {
+      background: #e74c3c;
+      color: #fff;
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .work-notifications-bar .wn-badge.completed {
+      background: #27ae60;
+    }
+    .work-notifications-bar .wn-items {
+      display: none;
+      margin-top: 8px;
+    }
+    .work-notifications-bar.expanded .wn-items {
+      display: block;
+    }
+    .work-notifications-bar .wn-item {
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .work-notifications-bar .wn-item .wn-type-icon {
+      flex-shrink: 0;
+      font-size: 14px;
+    }
+    .work-notifications-bar .wn-item .wn-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .work-notifications-bar .wn-item .wn-title {
+      font-weight: 600;
+      color: #eee;
+      margin-bottom: 2px;
+    }
+    .work-notifications-bar .wn-item .wn-text {
+      color: #aaa;
+      font-size: 12px;
+      word-break: break-word;
+    }
+    .work-notifications-bar .wn-item .wn-actions {
+      flex-shrink: 0;
+      display: flex;
+      gap: 4px;
+    }
+    .work-notifications-bar .wn-item .wn-actions button {
+      font-size: 11px;
+      padding: 2px 8px;
+      border: 1px solid #555;
+      border-radius: 3px;
+      background: #222;
+      color: #ccc;
+      cursor: pointer;
+    }
+    .work-notifications-bar .wn-item .wn-actions button:hover {
+      background: #333;
+    }
+    .work-notifications-bar .wn-item .wn-actions a {
+      font-size: 11px;
+      padding: 2px 8px;
+      border: 1px solid #555;
+      border-radius: 3px;
+      background: #222;
+      color: #7ecfff;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .work-notifications-bar .wn-item .wn-actions a:hover {
+      background: #333;
+    }
   </style>
 </head>
 
@@ -856,8 +1441,122 @@
           Chanakya uses external MCP tools (calculator, fetch) when needed.
           Tool selections, inputs, outputs, and errors are traced in the panel on the right.
         </p>
+        <details class="control-deck" open>
+          <summary>
+            <div class="control-deck-titlebar">
+              <div>
+                <p class="control-deck-kicker">Control Deck</p>
+                <h3>Voice, models, and runtime</h3>
+                <p>Keep AIR voice controls and chat routing in one place. Use Apply Changes to update future requests across the app.</p>
+              </div>
+              <span class="control-deck-toggle" aria-hidden="true"></span>
+            </div>
+          </summary>
+          <div class="control-deck-body">
+            <div class="control-grid">
+              <section class="control-group">
+                <p class="control-group-title">Chat Runtime</p>
+                <div class="runtime-chip">Active chat path</div>
+                <div class="runtime-models">
+                  <label>
+                    Backend
+                    <select id="chatBackendSelect">
+                      <option value="local">Local OpenAI-compatible via AIR</option>
+                      {% if a2a_gui_enabled %}
+                      <option value="a2a">A2A</option>
+                      {% endif %}
+                    </select>
+                  </label>
+                  <label>
+                    Chanakya Model
+                    <select id="airLlmModel"></select>
+                  </label>
+                  {% if a2a_gui_enabled %}
+                  <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
+                  <label>
+                    A2A Agent Override
+                    <select id="a2aAgentInput"></select>
+                  </label>
+                  <label>
+                    A2A Model Provider
+                    <select id="a2aModelProviderInput"></select>
+                  </label>
+                  <label>
+                    A2A Model
+                    <select id="a2aModelIdInput"></select>
+                  </label>
+                  {% endif %}
+                </div>
+                {% if a2a_gui_enabled %}
+                <p class="control-group-note">In A2A mode, Chanakya sends the next chat turn through the configured endpoint and can include remote agent and model overrides. The selected A2A agent applies to both direct replies and conversation-layer follow-ups.</p>
+                {% endif %}
+                <div class="runtime-textareas">
+                  <div class="runtime-pref-card">
+                    <div class="runtime-pref-head">
+                      <p class="runtime-pref-title">Conversation Tone</p>
+                      <span class="runtime-pref-badge">Default Loaded</span>
+                    </div>
+                    <p class="runtime-pref-copy">Controls the voice and style of Chanakya's delivered classic-chat replies.</p>
+                    <textarea id="conversationToneInstructionInput" placeholder="Optional instruction for the conversational voice and style of classic-chat delivery."></textarea>
+                    <p class="runtime-pref-footnote">Best for nudging warmth, formality, directness, or personality without changing the actual answer.</p>
+                  </div>
+                  <div class="runtime-pref-card">
+                    <div class="runtime-pref-head">
+                      <p class="runtime-pref-title">TTS Instruction</p>
+                      <span class="runtime-pref-badge">Voice Ready</span>
+                    </div>
+                    <p class="runtime-pref-copy">Shapes phrasing so replies sound cleaner and more natural when spoken aloud.</p>
+                    <textarea id="ttsInstructionInput" placeholder="Optional instruction for TTS-friendly formatting and spoken delivery."></textarea>
+                    <p class="runtime-pref-footnote">Use this for pacing, spoken clarity, expressive markup, or avoiding awkward punctuation patterns.</p>
+                  </div>
+                </div>
+                <p class="control-group-note">These apply to future classic-chat conversation-layer delivery, shaping how Chanakya phrases replies and formats them for spoken output.</p>
+                <div class="air-controls">
+                  <button id="runtimeConfigApplyButton" class="air-button" type="button">Apply Changes</button>
+                </div>
+                <p id="runtimeConfigStatus" class="control-field-hint"></p>
+                {% if a2a_gui_enabled %}
+                <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
+                {% endif %}
+              </section>
+              <section class="control-group">
+                <p class="control-group-title">AIR Voice</p>
+                <div class="air-links">
+                  <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
+                  <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
+                </div>
+                <div class="air-models">
+                  <label>
+                    STT Model
+                    <select id="airSttModel"></select>
+                  </label>
+                  <label>
+                    TTS Model
+                    <select id="airTtsModel"></select>
+                  </label>
+                </div>
+              </section>
+            </div>
+            <div class="air-controls">
+              <button id="airMicButton" class="air-button" type="button">Mic</button>
+              <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
+              <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
+              <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
+              <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
+            </div>
+            <div id="airVoiceStatus" class="air-status"></div>
+            <div id="conversationQueueStatus" class="air-status"></div>
+          </div>
+        </details>
       </div>
       <div id="chatLog" class="chat-log"></div>
+      <div id="workNotificationsBar" class="work-notifications-bar">
+        <div class="wn-header" onclick="toggleWorkNotifications()">
+          <span>📋 Work Notifications</span>
+          <span id="wnBadge" class="wn-badge">0</span>
+        </div>
+        <div id="wnItems" class="wn-items"></div>
+      </div>
       <form id="chatForm" class="composer">
         <input id="messageInput" type="text" placeholder="Talk to Chanakya..." required />
         <button type="submit">Send</button>
@@ -974,6 +1673,49 @@
         </div>
       </div>
 
+      <div class="panel section" data-panel="phone-notifications">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Phone Notifications</h2>
+            <p>Send request completion, failure, and input-needed updates to your phone via ntfy.</p>
+          </div>
+          <button type="button" class="detach-button" data-detach-panel="phone-notifications" title="Open in new tab"
+            aria-label="Open Phone Notifications in new tab">&#x2197;</button>
+        </div>
+        <div class="section-body">
+          <form id="notificationForm" class="agent-editor">
+            <div class="agent-flags">
+              <label><input id="notificationEnabled" type="checkbox" /> Enable phone notifications</label>
+              <label><input id="notificationIncludePreview" type="checkbox" checked /> Include short result summary</label>
+            </div>
+            <label>
+              Server URL
+              <input id="notificationServerUrl" type="text" placeholder="https://ntfy.sh" />
+            </label>
+            <label>
+              Topic
+              <input id="notificationTopic" type="text" placeholder="chanakya-..." />
+            </label>
+            <p class="status-text">Install the ntfy app, subscribe to this topic once on your phone, then send a test notification.</p>
+            <div class="form-actions">
+              <button id="notificationSaveButton" type="submit">Save Settings</button>
+              <button id="notificationGenerateButton" type="button" class="button-secondary">Generate Topic</button>
+              <button id="notificationDeleteButton" type="button" class="button-secondary">Delete Topic</button>
+              <button id="notificationTestButton" type="button" class="button-secondary">Send Test</button>
+              <span id="notificationStatus" class="status-text"></span>
+            </div>
+            <div id="notificationQrCard" class="notification-qr" hidden>
+              <div>
+                <strong>Android onboarding QR</strong>
+                <p class="status-text">Scan this with the ntfy app installed to open and subscribe to the topic directly.</p>
+              </div>
+              <img id="notificationQrImage" alt="ntfy topic QR code" />
+              <a id="notificationDeepLink" class="notification-link" href="#"></a>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <div class="panel section" data-panel="persistent-agents">
         <div class="section-header">
           <div class="section-copy">
@@ -1039,10 +1781,51 @@
     </section>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-css.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-clike.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-jsx.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-tsx.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-sql.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-cpp.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-go.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-rust.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markdown.min.js"></script>
+  <script src="{{ url_for('static', filename='js/air_voice.js') }}"></script>
   <script>
+    const AIR_SERVER_URL = {{ air_server_url | tojson }};
     const chatForm = document.getElementById("chatForm");
     const messageInput = document.getElementById("messageInput");
     const chatLog = document.getElementById("chatLog");
+    const airLlmModel = document.getElementById("airLlmModel");
+    const airSttModel = document.getElementById("airSttModel");
+    const airTtsModel = document.getElementById("airTtsModel");
+    const airMicButton = document.getElementById("airMicButton");
+    const airVoiceLoopButton = document.getElementById("airVoiceLoopButton");
+    const airSpeakButton = document.getElementById("airSpeakButton");
+    const airPauseRepliesButton = document.getElementById("airPauseRepliesButton");
+    const airRefreshModelsButton = document.getElementById("airRefreshModelsButton");
+    const chatBackendSelect = document.getElementById("chatBackendSelect");
+    const a2aRefreshOptionsButton = document.getElementById("a2aRefreshOptionsButton");
+    const a2aAgentInput = document.getElementById("a2aAgentInput");
+    const a2aModelProviderInput = document.getElementById("a2aModelProviderInput");
+    const a2aModelIdInput = document.getElementById("a2aModelIdInput");
+    const conversationToneInstructionInput = document.getElementById("conversationToneInstructionInput");
+    const ttsInstructionInput = document.getElementById("ttsInstructionInput");
+    const runtimeConfigApplyButton = document.getElementById("runtimeConfigApplyButton");
+    const runtimeConfigStatus = document.getElementById("runtimeConfigStatus");
+    const a2aDiscoveryStatus = document.getElementById("a2aDiscoveryStatus");
+    const airVoiceStatus = document.getElementById("airVoiceStatus");
+    const conversationQueueStatus = document.getElementById("conversationQueueStatus");
     const requestTrace = document.getElementById("requestTrace");
     const toolTraceList = document.getElementById("toolTraceList");
     const taskList = document.getElementById("taskList");
@@ -1050,6 +1833,18 @@
     const taskProgress = document.getElementById("taskProgress");
     const taskProgressSummary = document.getElementById("taskProgressSummary");
     const subagentList = document.getElementById("subagentList");
+    const notificationForm = document.getElementById("notificationForm");
+    const notificationEnabled = document.getElementById("notificationEnabled");
+    const notificationIncludePreview = document.getElementById("notificationIncludePreview");
+    const notificationServerUrl = document.getElementById("notificationServerUrl");
+    const notificationTopic = document.getElementById("notificationTopic");
+    const notificationGenerateButton = document.getElementById("notificationGenerateButton");
+    const notificationDeleteButton = document.getElementById("notificationDeleteButton");
+    const notificationTestButton = document.getElementById("notificationTestButton");
+    const notificationStatus = document.getElementById("notificationStatus");
+    const notificationQrCard = document.getElementById("notificationQrCard");
+    const notificationQrImage = document.getElementById("notificationQrImage");
+    const notificationDeepLink = document.getElementById("notificationDeepLink");
     const agentList = document.getElementById("agentList");
     const agentForm = document.getElementById("agentForm");
     const agentName = document.getElementById("agentName");
@@ -1074,13 +1869,368 @@
       "tasks": "Tasks",
       "task-timeline": "Task Timeline",
       "temporary-subagents": "Temporary Subagents",
+      "phone-notifications": "Phone Notifications",
       "persistent-agents": "Persistent Agents",
     };
 
     let sessionId = null;
     let selectedAgentId = null;
+    let airVoiceController = null;
     let availableTools = [];
+    let a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+    let a2aDiscoveryHealthy = false;
+    let a2aDiscoveryError = "";
+    let appliedRuntimeConfig = null;
     const STORAGE_KEY = "chanakya-active-session";
+    const WORK_STORAGE_KEY = "chanakya-active-work";
+    const RUNTIME_CONFIG_SYNC_KEY = "chanakya-runtime-config-sync";
+    const DEFAULT_A2A_URL = {{ a2a_agent_url | tojson }};
+    const A2A_GUI_ENABLED = {{ a2a_gui_enabled | tojson }};
+    const CONVERSATION_PREFERENCE_DEFAULTS = {{ conversation_preferences_defaults | tojson }};
+    const CHAT_RECOVERY_MAX_WAIT_MS = 180000;
+    const CHAT_RECOVERY_POLL_MS = 1500;
+
+    function delay(ms) {
+      return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
+    function isRecoverableNetworkError(error) {
+      if (!(error instanceof Error)) {
+        return false;
+      }
+      const text = String(error.message || "").toLowerCase();
+      return (
+        error.name === "TypeError"
+        || text.includes("networkerror")
+        || text.includes("failed to fetch")
+        || text.includes("load failed")
+        || text.includes("network request failed")
+        || text.includes("aborted")
+      );
+    }
+
+    async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, {
+          ...options,
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timer);
+      }
+    }
+
+    function createClientSessionId() {
+      const token = typeof window.crypto?.randomUUID === "function"
+        ? window.crypto.randomUUID().replace(/-/g, "")
+        : `${Date.now()}${Math.random().toString(16).slice(2)}`;
+      return `session_${token}`;
+    }
+
+    function getSelectedChatBackend() {
+      if (!A2A_GUI_ENABLED) {
+        return "local";
+      }
+      const value = chatBackendSelect ? chatBackendSelect.value : "local";
+      return value === "a2a" ? "a2a" : "local";
+    }
+
+    function normalizeRuntimeConfig(config) {
+      const normalized = config || {};
+      return {
+        backend: A2A_GUI_ENABLED && normalized.backend === "a2a" ? "a2a" : "local",
+        model_id: typeof normalized.model_id === "string" && normalized.model_id.trim() ? normalized.model_id.trim() : null,
+        a2a_url: A2A_GUI_ENABLED
+          ? (typeof normalized.a2a_url === "string" && normalized.a2a_url.trim() ? normalized.a2a_url.trim() : (DEFAULT_A2A_URL || null))
+          : null,
+        a2a_remote_agent: A2A_GUI_ENABLED && typeof normalized.a2a_remote_agent === "string" && normalized.a2a_remote_agent.trim() ? normalized.a2a_remote_agent.trim() : null,
+        a2a_model_provider: A2A_GUI_ENABLED && typeof normalized.a2a_model_provider === "string" && normalized.a2a_model_provider.trim() ? normalized.a2a_model_provider.trim() : null,
+        a2a_model_id: A2A_GUI_ENABLED && typeof normalized.a2a_model_id === "string" && normalized.a2a_model_id.trim() ? normalized.a2a_model_id.trim() : null,
+        conversation_tone_instruction: typeof normalized.conversation_tone_instruction === "string" && normalized.conversation_tone_instruction.trim()
+          ? normalized.conversation_tone_instruction.trim()
+          : (CONVERSATION_PREFERENCE_DEFAULTS.conversation_tone_instruction || null),
+        tts_instruction: typeof normalized.tts_instruction === "string" && normalized.tts_instruction.trim()
+          ? normalized.tts_instruction.trim()
+          : (CONVERSATION_PREFERENCE_DEFAULTS.tts_instruction || null),
+      };
+    }
+
+    function collectPendingRuntimeConfig() {
+      return normalizeRuntimeConfig({
+        backend: getSelectedChatBackend(),
+        model_id: airLlmModel && airLlmModel.value.trim() ? airLlmModel.value.trim() : null,
+        a2a_url: A2A_GUI_ENABLED ? (DEFAULT_A2A_URL || null) : null,
+        a2a_remote_agent: A2A_GUI_ENABLED && a2aAgentInput && a2aAgentInput.value.trim() ? a2aAgentInput.value.trim() : null,
+        a2a_model_provider: A2A_GUI_ENABLED && a2aModelProviderInput && a2aModelProviderInput.value.trim() ? a2aModelProviderInput.value.trim() : null,
+        a2a_model_id: A2A_GUI_ENABLED && a2aModelIdInput && a2aModelIdInput.value.trim() ? a2aModelIdInput.value.trim() : null,
+        conversation_tone_instruction: conversationToneInstructionInput && conversationToneInstructionInput.value.trim()
+          ? conversationToneInstructionInput.value.trim()
+          : null,
+        tts_instruction: ttsInstructionInput && ttsInstructionInput.value.trim()
+          ? ttsInstructionInput.value.trim()
+          : null,
+      });
+    }
+
+    function runtimeConfigsEqual(left, right) {
+      const a = normalizeRuntimeConfig(left);
+      const b = normalizeRuntimeConfig(right);
+      return JSON.stringify(a) === JSON.stringify(b);
+    }
+
+    function applyRuntimeConfigToControls(config) {
+      const normalized = normalizeRuntimeConfig(config);
+      if (chatBackendSelect) {
+        chatBackendSelect.value = normalized.backend;
+      }
+      if (airLlmModel && normalized.model_id) {
+        airLlmModel.value = normalized.model_id;
+      }
+      if (a2aAgentInput) {
+        a2aAgentInput.value = normalized.a2a_remote_agent || "";
+      }
+      if (a2aModelProviderInput) {
+        a2aModelProviderInput.value = normalized.a2a_model_provider || "";
+      }
+      if (a2aModelIdInput) {
+        a2aModelIdInput.value = normalized.a2a_model_id || "";
+      }
+      if (conversationToneInstructionInput) {
+        conversationToneInstructionInput.value = normalized.conversation_tone_instruction || "";
+      }
+      if (ttsInstructionInput) {
+        ttsInstructionInput.value = normalized.tts_instruction || "";
+      }
+      updateRuntimeConfigState();
+    }
+
+    function setRuntimeConfigStatus(text, isError = false) {
+      if (!runtimeConfigStatus) {
+        return;
+      }
+      runtimeConfigStatus.textContent = text || "";
+      runtimeConfigStatus.style.color = isError ? "#e74c3c" : "#8e8882";
+    }
+
+    function describeRuntimeConfig(config) {
+      const normalized = normalizeRuntimeConfig(config);
+      if (normalized.backend === "a2a") {
+        const parts = ["A2A"];
+        if (normalized.a2a_remote_agent) {
+          parts.push(`agent ${normalized.a2a_remote_agent}`);
+        }
+        if (normalized.a2a_model_provider && normalized.a2a_model_id) {
+          parts.push(`${normalized.a2a_model_provider}/${normalized.a2a_model_id}`);
+        } else if (normalized.a2a_model_id) {
+          parts.push(normalized.a2a_model_id);
+        }
+        return parts.join(" | ");
+      }
+      return normalized.model_id ? `Local | ${normalized.model_id}` : "Local";
+    }
+
+    function updateRuntimeConfigDirtyState() {
+      const hasPendingChanges = !runtimeConfigsEqual(appliedRuntimeConfig, collectPendingRuntimeConfig());
+      if (runtimeConfigApplyButton) {
+        runtimeConfigApplyButton.disabled = !hasPendingChanges;
+      }
+      const appliedSummary = describeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
+      setRuntimeConfigStatus(
+        hasPendingChanges
+          ? `Unapplied changes. Applied now: ${appliedSummary}`
+          : `Applied for future requests: ${appliedSummary}`
+      );
+    }
+
+    function setA2ADiscoveryStatus(text, isError = false) {
+      if (!a2aDiscoveryStatus) {
+        return;
+      }
+      a2aDiscoveryStatus.textContent = text || "";
+      a2aDiscoveryStatus.style.color = isError ? "#e74c3c" : "#8e8882";
+    }
+
+    function canUseA2A() {
+      return a2aDiscoveryHealthy;
+    }
+
+    function getA2AUnavailableMessage() {
+      return a2aDiscoveryError || "A2A is unavailable because the bridge could not be reached.";
+    }
+
+    function setA2ASelectLoading(isLoading) {
+      [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((select) => {
+        if (!select) {
+          return;
+        }
+        if (isLoading) {
+          select.replaceChildren();
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "Loading...";
+          select.appendChild(option);
+          select.value = "";
+        }
+      });
+    }
+
+    function setSelectOptions(select, values, selectedValue, placeholder, labels = {}) {
+      if (!select) {
+        return;
+      }
+      const items = Array.from(new Set((values || []).filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim())));
+      if (selectedValue && !items.includes(selectedValue)) {
+        items.unshift(selectedValue);
+      }
+      select.replaceChildren();
+      const placeholderOption = document.createElement("option");
+      placeholderOption.value = "";
+      placeholderOption.textContent = placeholder;
+      select.appendChild(placeholderOption);
+      items.forEach((item) => {
+        const option = document.createElement("option");
+        option.value = item;
+        option.textContent = labels[item] || item;
+        select.appendChild(option);
+      });
+      select.value = selectedValue && items.includes(selectedValue) ? selectedValue : "";
+    }
+
+    function syncA2AModelOptions(sourceConfig = null) {
+      const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
+      const provider = settings.a2a_model_provider;
+      const modelItems = (a2aDiscoveredOptions.models || []).filter((item) => !provider || item.provider === provider);
+      const labels = Object.fromEntries(modelItems.map((item) => [item.id, `${item.label} (${item.provider})`]));
+      setSelectOptions(a2aModelIdInput, modelItems.map((item) => item.id), settings.a2a_model_id, "Select A2A model", labels);
+    }
+
+    function applyA2ADiscoveryOptions(sourceConfig = null) {
+      const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
+      const providers = a2aDiscoveredOptions.providers || [];
+      setSelectOptions(a2aAgentInput, a2aDiscoveredOptions.remote_agents || [], settings.a2a_remote_agent, "Select A2A agent");
+      setSelectOptions(a2aModelProviderInput, providers, settings.a2a_model_provider, "Select model provider");
+      syncA2AModelOptions(settings);
+      updateRuntimeConfigDirtyState();
+    }
+
+    async function refreshA2AOptions(sourceConfig = null) {
+      if (!A2A_GUI_ENABLED) {
+        return;
+      }
+      const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
+      const url = String(DEFAULT_A2A_URL || "").trim();
+      if (!url) {
+        a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+        a2aDiscoveryHealthy = false;
+        a2aDiscoveryError = "A2A bridge URL is not configured.";
+        applyA2ADiscoveryOptions(settings);
+        setA2ADiscoveryStatus(a2aDiscoveryError, true);
+        return;
+      }
+      setA2ASelectLoading(true);
+      setA2ADiscoveryStatus("Loading A2A agents and models...");
+      try {
+        const response = await fetch(`/api/a2a/options?url=${encodeURIComponent(url)}`);
+        const payload = await readJsonResponse(response);
+        if (!response.ok) {
+          throw new Error(payload.error || "Failed to load A2A options");
+        }
+        a2aDiscoveredOptions = {
+          remote_agents: Array.isArray(payload.remote_agents) ? payload.remote_agents : [],
+          providers: Array.isArray(payload.providers) ? payload.providers : [],
+          models: Array.isArray(payload.models) ? payload.models : [],
+        };
+        a2aDiscoveryHealthy = true;
+        a2aDiscoveryError = "";
+        applyA2ADiscoveryOptions(settings);
+        setA2ADiscoveryStatus(
+          `Loaded ${a2aDiscoveredOptions.remote_agents.length} agent${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
+        );
+      } catch (error) {
+        a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
+        a2aDiscoveryHealthy = false;
+        a2aDiscoveryError = String(error && error.message ? error.message : error);
+        applyA2ADiscoveryOptions(settings);
+        setA2ADiscoveryStatus(a2aDiscoveryError, true);
+      }
+    }
+
+    async function loadAppliedRuntimeConfig(options = {}) {
+      const { silent = false } = options;
+      if (!silent) {
+        setRuntimeConfigStatus("Loading applied settings...");
+      }
+      const response = await fetch("/api/runtime-config");
+      const payload = await readJsonResponse(response);
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to load runtime settings");
+      }
+      appliedRuntimeConfig = normalizeRuntimeConfig(payload);
+      applyRuntimeConfigToControls(appliedRuntimeConfig);
+      if (A2A_GUI_ENABLED && appliedRuntimeConfig.backend === "a2a") {
+        await refreshA2AOptions(appliedRuntimeConfig);
+      }
+      updateRuntimeConfigDirtyState();
+      return appliedRuntimeConfig;
+    }
+
+    async function applyRuntimeConfigChanges() {
+      const pendingConfig = collectPendingRuntimeConfig();
+      if (runtimeConfigsEqual(appliedRuntimeConfig, pendingConfig)) {
+        updateRuntimeConfigDirtyState();
+        return appliedRuntimeConfig;
+      }
+      if (pendingConfig.backend === "a2a") {
+        await refreshA2AOptions(pendingConfig);
+        if (!canUseA2A()) {
+          updateRuntimeConfigDirtyState();
+          throw new Error(getA2AUnavailableMessage());
+        }
+      }
+      if (runtimeConfigApplyButton) {
+        runtimeConfigApplyButton.disabled = true;
+      }
+      setRuntimeConfigStatus("Applying settings...");
+      const response = await fetch("/api/runtime-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pendingConfig),
+      });
+      const payload = await readJsonResponse(response);
+      if (!response.ok) {
+        updateRuntimeConfigDirtyState();
+        throw new Error(payload.error || "Failed to apply runtime settings");
+      }
+      appliedRuntimeConfig = normalizeRuntimeConfig(payload);
+      applyRuntimeConfigToControls(appliedRuntimeConfig);
+      if (A2A_GUI_ENABLED && appliedRuntimeConfig.backend === "a2a") {
+        await refreshA2AOptions(appliedRuntimeConfig);
+      }
+      try {
+        window.localStorage.setItem(RUNTIME_CONFIG_SYNC_KEY, JSON.stringify({ updatedAt: Date.now() }));
+      } catch {
+      }
+      updateRuntimeConfigDirtyState();
+      return appliedRuntimeConfig;
+    }
+
+    function updateRuntimeConfigState() {
+      const runtimeGroup = chatBackendSelect ? chatBackendSelect.closest(".control-group") : null;
+      const usingA2A = getSelectedChatBackend() === "a2a";
+      if (airLlmModel) {
+        airLlmModel.disabled = usingA2A;
+      }
+      [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput, a2aRefreshOptionsButton].forEach((node) => {
+        if (node) {
+          node.disabled = !usingA2A;
+        }
+      });
+      if (runtimeGroup) {
+        runtimeGroup.classList.toggle("is-disabled", false);
+      }
+    }
 
     function loadCollapsedPanels() {
       try {
@@ -1173,10 +2323,233 @@
       });
     }
 
-    function appendMessage(role, text, meta) {
+    function renderInlineMarkdown(text) {
+      let html = escapeHtml(text || "");
+      html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+      html = html.replace(/(^|\W)\*([^*]+)\*(?=\W|$)/g, '$1<em>$2</em>');
+      html = html.replace(/(^|\W)_([^_]+)_(?=\W|$)/g, '$1<em>$2</em>');
+      return html;
+    }
+
+    function buildCodeBlock(code, language) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "rendered-code-block";
+      if (language) {
+        const label = document.createElement("div");
+        label.className = "code-language-label";
+        label.textContent = language;
+        wrapper.appendChild(label);
+      }
+      const pre = document.createElement("pre");
+      const codeNode = document.createElement("code");
+      if (language) {
+        codeNode.className = `language-${language.toLowerCase()}`;
+      }
+      codeNode.textContent = code;
+      pre.appendChild(codeNode);
+      wrapper.appendChild(pre);
+      return wrapper;
+    }
+
+    function parseMarkdownBlocks(text) {
+      const nodes = [];
+      const normalized = String(text || "").replace(/\r\n?/g, "\n").trim();
+      if (!normalized) {
+        return nodes;
+      }
+      const lines = normalized.split("\n");
+      const isBlank = (line) => !line || !line.trim();
+      const isRule = (line) => /^(-{3,}|\*{3,}|_{3,})$/.test(line.trim());
+      const isAtxHeading = (line) => /^(#{1,6})\s+(.+)$/.test(line.trim());
+      const isSetextUnderline = (line) => /^(=+|-+)\s*$/.test(line.trim());
+      const isTableDelimiter = (line) => /^\s*\|?\s*[:-]+[-| :]*\|?\s*$/.test(line.trim());
+      const isUnorderedItem = (line) => /^\s*[-*+]\s+/.test(line);
+      const isOrderedItem = (line) => /^\s*\d+\.\s+/.test(line);
+      const isIndentedItem = (line) => /^\s{2,}\S/.test(line);
+      const isTableStart = (index) => (
+        index + 1 < lines.length
+        && lines[index].includes("|")
+        && isTableDelimiter(lines[index + 1])
+      );
+      const isSectionLikeNumberedLine = (index) => (
+        /^\d+\.\s+[A-Z]/.test(lines[index].trim())
+        && index + 1 < lines.length
+        && !isOrderedItem(lines[index + 1])
+        && !isIndentedItem(lines[index + 1])
+      );
+      const isSpecialStart = (index) => {
+        const line = lines[index];
+        if (isBlank(line)) {
+          return true;
+        }
+        if (isRule(line) || isAtxHeading(line) || isTableStart(index)) {
+          return true;
+        }
+        if (index + 1 < lines.length && !isBlank(line) && isSetextUnderline(lines[index + 1])) {
+          return true;
+        }
+        if (isUnorderedItem(line) || isOrderedItem(line) || isIndentedItem(line) || isSectionLikeNumberedLine(index)) {
+          return true;
+        }
+        return false;
+      };
+
+      let index = 0;
+      while (index < lines.length) {
+        const line = lines[index];
+        const trimmed = line.trim();
+        if (isBlank(line)) {
+          index += 1;
+          continue;
+        }
+        if (isRule(line)) {
+          nodes.push(document.createElement("hr"));
+          index += 1;
+          continue;
+        }
+        const atxHeading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (atxHeading) {
+          const heading = document.createElement(`h${atxHeading[1].length}`);
+          heading.innerHTML = renderInlineMarkdown(atxHeading[2].trim());
+          nodes.push(heading);
+          index += 1;
+          continue;
+        }
+        if (index + 1 < lines.length && !isBlank(line) && isSetextUnderline(lines[index + 1])) {
+          const underline = lines[index + 1].trim();
+          const heading = document.createElement(underline.startsWith("=") ? "h1" : "h2");
+          heading.innerHTML = renderInlineMarkdown(trimmed);
+          nodes.push(heading);
+          index += 2;
+          continue;
+        }
+        if (isSectionLikeNumberedLine(index)) {
+          const heading = document.createElement("h2");
+          heading.innerHTML = renderInlineMarkdown(trimmed);
+          nodes.push(heading);
+          index += 1;
+          continue;
+        }
+        if (isTableStart(index)) {
+          const table = document.createElement("table");
+          const thead = document.createElement("thead");
+          const tbody = document.createElement("tbody");
+          const headerRow = document.createElement("tr");
+          lines[index].split("|").map((cell) => cell.trim()).filter(Boolean).forEach((cell) => {
+            const th = document.createElement("th");
+            th.innerHTML = renderInlineMarkdown(cell);
+            headerRow.appendChild(th);
+          });
+          thead.appendChild(headerRow);
+          index += 2;
+          while (index < lines.length && !isBlank(lines[index]) && lines[index].includes("|")) {
+            const row = document.createElement("tr");
+            lines[index].split("|").map((cell) => cell.trim()).filter(Boolean).forEach((cell) => {
+              const td = document.createElement("td");
+              td.innerHTML = renderInlineMarkdown(cell);
+              row.appendChild(td);
+            });
+            if (row.children.length) {
+              tbody.appendChild(row);
+            }
+            index += 1;
+          }
+          table.appendChild(thead);
+          if (tbody.children.length) {
+            table.appendChild(tbody);
+          }
+          nodes.push(table);
+          continue;
+        }
+        if (isUnorderedItem(line) || isOrderedItem(line) || isIndentedItem(line)) {
+          const ordered = isOrderedItem(line);
+          const list = document.createElement(ordered ? "ol" : "ul");
+          while (index < lines.length) {
+            const current = lines[index];
+            if (isBlank(current)) {
+              break;
+            }
+            let itemText = "";
+            if (ordered && isOrderedItem(current)) {
+              itemText = current.replace(/^\s*\d+\.\s+/, "");
+            } else if (!ordered && isUnorderedItem(current)) {
+              itemText = current.replace(/^\s*[-*+]\s+/, "");
+            } else if (!ordered && isIndentedItem(current)) {
+              itemText = current.trim();
+            } else {
+              break;
+            }
+            const item = document.createElement("li");
+            item.innerHTML = renderInlineMarkdown(itemText);
+            list.appendChild(item);
+            index += 1;
+          }
+          nodes.push(list);
+          continue;
+        }
+        const paragraphLines = [];
+        while (index < lines.length && !isBlank(lines[index]) && !isSpecialStart(index)) {
+          paragraphLines.push(lines[index].trim());
+          index += 1;
+        }
+        if (!paragraphLines.length) {
+          paragraphLines.push(trimmed);
+          index += 1;
+        }
+        const paragraph = document.createElement("p");
+        paragraph.innerHTML = paragraphLines.map((entry) => renderInlineMarkdown(entry)).join("<br>");
+        nodes.push(paragraph);
+      }
+      return nodes;
+    }
+
+    function renderMarkdownContent(text) {
+      const host = document.createElement("div");
+      host.className = "rendered-markdown";
+      const normalized = String(text || "").replace(/\r\n?/g, "\n");
+      const blockPattern = /```([^\n`]*)\n([\s\S]*?)```/g;
+      let lastIndex = 0;
+      let match;
+      while ((match = blockPattern.exec(normalized)) !== null) {
+        const [fullMatch, rawLanguage, rawCode] = match;
+        const prefix = normalized.slice(lastIndex, match.index);
+        parseMarkdownBlocks(prefix).forEach((node) => host.appendChild(node));
+        host.appendChild(buildCodeBlock(rawCode.replace(/\n$/, ""), rawLanguage.trim()));
+        lastIndex = match.index + fullMatch.length;
+      }
+      parseMarkdownBlocks(normalized.slice(lastIndex)).forEach((node) => host.appendChild(node));
+      if (!host.childNodes.length) {
+        const fallback = document.createElement("p");
+        fallback.textContent = text || "";
+        host.appendChild(fallback);
+      }
+      return host;
+    }
+
+    function highlightRenderedCode(container) {
+      if (!container || !window.Prism || typeof window.Prism.highlightAllUnder !== "function") {
+        return;
+      }
+      window.Prism.highlightAllUnder(container);
+    }
+
+    function appendMessage(role, text, meta, options = {}) {
+      const { badge } = options;
       const node = document.createElement("div");
       node.className = `message ${role}`;
-      node.textContent = text;
+      if (badge) {
+        const badgeNode = document.createElement("div");
+        badgeNode.className = "message-badge";
+        badgeNode.textContent = badge;
+        node.appendChild(badgeNode);
+      }
+      const bodyNode = document.createElement("div");
+      bodyNode.className = "message-body";
+      bodyNode.appendChild(renderMarkdownContent(text));
+      node.appendChild(bodyNode);
       if (meta) {
         const metaNode = document.createElement("div");
         metaNode.className = "meta";
@@ -1184,7 +2557,537 @@
         node.appendChild(metaNode);
       }
       chatLog.appendChild(node);
+      highlightRenderedCode(bodyNode);
       chatLog.scrollTop = chatLog.scrollHeight;
+      return node;
+    }
+
+    function messageBadgeForHistoryItem(item) {
+      if (!item || !item.route) {
+        return "";
+      }
+      if (item.route === "delegation_notice") {
+        return "Delegated";
+      }
+      if (item.route === "delegation_control") {
+        return "Delegation Control";
+      }
+      return "";
+    }
+
+    function getLatestAssistantMessageText() {
+      const nodes = Array.from(chatLog.querySelectorAll(".message.assistant"));
+      const last = nodes[nodes.length - 1];
+      if (!last) {
+        return "";
+      }
+      const metaNode = last.querySelector(".meta");
+      if (!metaNode) {
+        return last.textContent || "";
+      }
+      const clone = last.cloneNode(true);
+      const cloneMeta = clone.querySelector(".meta");
+      if (cloneMeta) {
+        cloneMeta.remove();
+      }
+      clone.querySelectorAll(".code-language-label").forEach((node) => node.remove());
+      return clone.textContent || "";
+    }
+
+    function setConversationQueueStatus(text, isError = false) {
+      if (!conversationQueueStatus) {
+        return;
+      }
+      conversationQueueStatus.textContent = text || "";
+      conversationQueueStatus.dataset.state = isError ? "error" : "idle";
+    }
+
+    let voiceQueuePaused = false;
+    let voiceQueueGeneration = 0;
+    const deferredVoiceNotifications = [];
+    let deferredVoiceNotificationsTimer = null;
+    let assistantTurnPendingCount = 0;
+    let currentDeferredVoiceNotification = null;
+
+    function isVoiceDeliveryMode() {
+      return Boolean(airVoiceController && typeof airVoiceController.isVoiceModeEnabled === "function"
+        && airVoiceController.isVoiceModeEnabled());
+    }
+
+    function resetVoiceQueueState() {
+      voiceQueuePaused = false;
+      voiceQueueGeneration += 1;
+    }
+
+    function pauseVoiceQueueState() {
+      voiceQueuePaused = true;
+      voiceQueueGeneration += 1;
+    }
+
+    function hasActiveVoiceInteraction() {
+      return Boolean(
+        assistantTurnPendingCount > 0
+        ||
+        airVoiceController
+        && typeof airVoiceController.isInteractionActive === "function"
+        && airVoiceController.isInteractionActive()
+      );
+    }
+
+    function beginAssistantTurn() {
+      assistantTurnPendingCount += 1;
+    }
+
+    function endAssistantTurn() {
+      assistantTurnPendingCount = Math.max(0, assistantTurnPendingCount - 1);
+      if (deferredVoiceNotifications.length) {
+        scheduleDeferredVoiceNotifications();
+      }
+    }
+
+    function requeueCurrentDeferredVoiceNotification() {
+      if (!currentDeferredVoiceNotification) {
+        return;
+      }
+      if (!currentDeferredVoiceNotification.requeued) {
+        currentDeferredVoiceNotification.requeued = true;
+        deferredVoiceNotifications.unshift(currentDeferredVoiceNotification);
+      }
+      currentDeferredVoiceNotification = null;
+      if (airVoiceController && typeof airVoiceController.stopSpeechAndInvalidate === "function") {
+        airVoiceController.stopSpeechAndInvalidate();
+      }
+    }
+
+    function scheduleDeferredVoiceNotifications() {
+      if (deferredVoiceNotificationsTimer || !deferredVoiceNotifications.length) {
+        return;
+      }
+      const tick = async () => {
+        if (!deferredVoiceNotifications.length) {
+          deferredVoiceNotificationsTimer = null;
+          return;
+        }
+        if (hasActiveVoiceInteraction()) {
+          deferredVoiceNotificationsTimer = window.setTimeout(tick, 400);
+          return;
+        }
+        const nextItem = deferredVoiceNotifications.shift();
+        deferredVoiceNotificationsTimer = null;
+        currentDeferredVoiceNotification = nextItem || null;
+        if (currentDeferredVoiceNotification) {
+          currentDeferredVoiceNotification.requeued = false;
+        }
+        if (nextItem && isVoiceDeliveryMode() && airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
+          const completed = await airVoiceController.speakAssistantMessageAndWait(nextItem.text);
+          if (!completed && currentDeferredVoiceNotification && !currentDeferredVoiceNotification.requeued) {
+            deferredVoiceNotifications.unshift(currentDeferredVoiceNotification);
+          }
+        } else if (nextItem && typeof nextItem.onAssistantMessage === "function") {
+          await nextItem.onAssistantMessage(nextItem.text);
+        }
+        currentDeferredVoiceNotification = null;
+        if (deferredVoiceNotifications.length) {
+          scheduleDeferredVoiceNotifications();
+        }
+      };
+      deferredVoiceNotificationsTimer = window.setTimeout(tick, 400);
+    }
+
+    async function deliverAssistantText(text, options = {}) {
+      const { onAssistantMessage, alreadyRendered = false, metadata = null } = options;
+      if (!text) {
+        return;
+      }
+      if (!alreadyRendered) {
+        appendMessage("assistant", text);
+      }
+      const isBackgroundCompletion = Boolean(metadata && metadata.completion_notification);
+      if (isBackgroundCompletion && hasActiveVoiceInteraction()) {
+        deferredVoiceNotifications.push({ text, onAssistantMessage });
+        scheduleDeferredVoiceNotifications();
+        return;
+      }
+      if (!isBackgroundCompletion && currentDeferredVoiceNotification) {
+        requeueCurrentDeferredVoiceNotification();
+      }
+      if (isVoiceDeliveryMode() && airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
+        await airVoiceController.speakAssistantMessageAndWait(text);
+        return;
+      }
+      if (typeof onAssistantMessage === "function") {
+        await onAssistantMessage(text);
+      }
+    }
+
+    async function readJsonResponse(response) {
+      const raw = await response.text();
+      if (!raw) {
+        return {};
+      }
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return { error: raw.trim() || `HTTP ${response.status}` };
+      }
+    }
+
+    async function recoverChatAfterDisconnect(targetSessionId, assistantCountBefore, options = {}) {
+      const { onAssistantMessage } = options;
+      const deadline = Date.now() + CHAT_RECOVERY_MAX_WAIT_MS;
+      setConversationQueueStatus("Connection interrupted. Waiting for the assistant response...");
+      while (Date.now() < deadline) {
+        try {
+          const response = await fetchWithTimeout(
+            `/api/sessions/${encodeURIComponent(targetSessionId)}`,
+            {},
+            10000
+          );
+          const payload = await readJsonResponse(response);
+          if (response.ok) {
+            const messages = Array.isArray(payload.messages) ? payload.messages : [];
+            const assistantMessages = messages.filter((message) => String(message.role || "") === "assistant");
+            if (assistantMessages.length > assistantCountBefore) {
+              const newAssistantMessages = assistantMessages.slice(assistantCountBefore);
+              const latestMeaningfulAssistant = [...newAssistantMessages]
+                .reverse()
+                .find((item) => String(item.route || "") !== "delegation_notice");
+              if (!latestMeaningfulAssistant) {
+                setConversationQueueStatus(
+                  "Request transferred to active work. Waiting for generated response..."
+                );
+                await delay(CHAT_RECOVERY_POLL_MS);
+                continue;
+              }
+              renderChatHistory(messages);
+              await refreshSidePanels();
+              const latestAssistantText = String(latestMeaningfulAssistant.content || "");
+              if (latestAssistantText && typeof onAssistantMessage === "function") {
+                onAssistantMessage(latestAssistantText);
+              }
+              setConversationQueueStatus("Recovered assistant response after reconnect.");
+              if (airVoiceController) {
+                airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
+              }
+              await syncActiveWorkForSession(targetSessionId);
+              return {
+                recovered: true,
+                session_id: targetSessionId,
+                message: latestAssistantText,
+              };
+            }
+          }
+        } catch {
+        }
+        await delay(CHAT_RECOVERY_POLL_MS);
+      }
+      setConversationQueueStatus(
+        "Connection dropped before the response reached the browser. The request may still complete; refresh if needed.",
+        true
+      );
+      return null;
+    }
+
+    function isTransientFetchError(error) {
+      const message = error instanceof Error ? error.message : String(error || "");
+      return error instanceof TypeError || /networkerror|failed to fetch|load failed/i.test(message);
+    }
+
+    async function fetchSessionMessages(targetSessionId) {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(targetSessionId)}`);
+      if (!response.ok) {
+        return null;
+      }
+      const data = await response.json();
+      return Array.isArray(data.messages) ? data.messages : [];
+    }
+
+    async function recoverSubmittedChat(targetSessionId, baselineMessageCount) {
+      setConversationQueueStatus("Connection dropped while waiting for reply. Recovering saved messages...");
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        try {
+          const messages = await fetchSessionMessages(targetSessionId);
+          if (Array.isArray(messages) && messages.length > baselineMessageCount) {
+            renderChatHistory(messages);
+            await refreshSidePanels();
+            const assistantMessages = messages.filter((item) => item.role === "assistant");
+            const latestAssistant = assistantMessages[assistantMessages.length - 1];
+            const pendingCount = Number(latestAssistant?.metadata?.pending_delivery_count || 0);
+            if (pendingCount > 0) {
+              setConversationQueueStatus(
+                `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+              );
+            } else {
+              setConversationQueueStatus(assistantMessages.length ? "" : "Request is still being processed...");
+            }
+            return {
+              session_id: targetSessionId,
+              message: latestAssistant?.content || "",
+              messages: latestAssistant ? [{ text: latestAssistant.content || "", delay_ms: 0 }] : [],
+              metadata: latestAssistant?.metadata || {},
+            };
+          }
+        } catch {
+          // Keep polling; the backend may still be finalizing the persisted response.
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      }
+      return null;
+    }
+
+    async function pauseConversationReplies() {
+      pauseVoiceQueueState();
+      if (!sessionId) {
+        setConversationQueueStatus("No active session to pause.", true);
+        return;
+      }
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/pause`, {
+        method: "POST",
+      });
+      const payload = await readJsonResponse(response);
+      if (!response.ok) {
+        throw new Error(payload.error || "Pause failed");
+      }
+      setConversationQueueStatus(
+        isVoiceDeliveryMode()
+          ? "Paused queued assistant speech after the current message."
+          : "Paused queued assistant replies."
+      );
+    }
+
+    async function runVoiceConversationMessages(targetSessionId, options = {}) {
+      const { onAssistantMessage } = options;
+      const generation = voiceQueueGeneration;
+      let consecutiveFailures = 0;
+      while (generation === voiceQueueGeneration && !voiceQueuePaused) {
+        let response;
+        let payload;
+        try {
+          response = await fetchWithTimeout(
+            `/api/sessions/${encodeURIComponent(targetSessionId)}/next-message`,
+            {},
+            15000
+          );
+          payload = await readJsonResponse(response);
+        } catch (error) {
+          if (isRecoverableNetworkError(error) && consecutiveFailures < 12) {
+            consecutiveFailures += 1;
+            setConversationQueueStatus("Connection hiccup while waiting for queued replies. Retrying...");
+            await delay(Math.min(5000, 500 * consecutiveFailures));
+            continue;
+          }
+          throw error;
+        }
+        if (!response.ok) {
+          if ([502, 503, 504, 522, 524].includes(Number(response.status)) && consecutiveFailures < 12) {
+            consecutiveFailures += 1;
+            setConversationQueueStatus("Assistant is still running. Retrying...");
+            await delay(Math.min(5000, 500 * consecutiveFailures));
+            continue;
+          }
+          throw new Error(payload.error || "Next message failed");
+        }
+        consecutiveFailures = 0;
+        if (payload.status === "delivered" && payload.message) {
+          const text = payload.message.text || "";
+          if (text) {
+            await deliverAssistantText(text, { onAssistantMessage });
+          }
+          const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+          if (voiceQueuePaused || generation !== voiceQueueGeneration) {
+            setConversationQueueStatus("Queued assistant speech paused.");
+            break;
+          }
+          setConversationQueueStatus(
+            pendingCount > 0
+              ? `Assistant has ${pendingCount} queued spoken follow-up${pendingCount === 1 ? "" : "s"}.`
+              : "Assistant finished replying."
+          );
+          continue;
+        }
+        if (payload.status === "waiting") {
+          const waitMs = Math.max(Number(payload.retry_after_ms || 500), 250);
+          const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+          setConversationQueueStatus(
+            pendingCount > 0
+              ? `Assistant is pacing ${pendingCount} queued spoken follow-up${pendingCount === 1 ? "" : "s"}.`
+              : "Assistant is thinking..."
+          );
+          await delay(Math.min(waitMs, 1000));
+          continue;
+        }
+        if (payload.status === "paused") {
+          setConversationQueueStatus("Queued assistant speech paused.");
+          break;
+        }
+        setConversationQueueStatus(voiceQueuePaused ? "Queued assistant speech paused." : "");
+        break;
+      }
+    }
+
+    async function pollNextConversationMessages(targetSessionId, options = {}) {
+      if (isVoiceDeliveryMode()) {
+        await runVoiceConversationMessages(targetSessionId, options);
+        return;
+      }
+      const { onAssistantMessage } = options;
+      let consecutiveFailures = 0;
+      while (true) {
+        let response;
+        let payload;
+        try {
+          response = await fetchWithTimeout(
+            `/api/sessions/${encodeURIComponent(targetSessionId)}/next-message`,
+            {},
+            15000
+          );
+          payload = await readJsonResponse(response);
+        } catch (error) {
+          if (isRecoverableNetworkError(error) && consecutiveFailures < 12) {
+            consecutiveFailures += 1;
+            setConversationQueueStatus("Connection hiccup while waiting for queued replies. Retrying...");
+            await delay(Math.min(5000, 500 * consecutiveFailures));
+            continue;
+          }
+          throw error;
+        }
+        if (!response.ok) {
+          if ([502, 503, 504, 522, 524].includes(Number(response.status)) && consecutiveFailures < 12) {
+            consecutiveFailures += 1;
+            setConversationQueueStatus("Assistant is still running. Retrying...");
+            await delay(Math.min(5000, 500 * consecutiveFailures));
+            continue;
+          }
+          throw new Error(payload.error || "Next message failed");
+        }
+        consecutiveFailures = 0;
+          if (payload.status === "delivered" && payload.message) {
+            const text = payload.message.text || "";
+            if (text) {
+            await deliverAssistantText(text, { onAssistantMessage });
+            }
+          const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+          setConversationQueueStatus(
+            pendingCount > 0
+              ? `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+              : "Assistant finished replying."
+          );
+          continue;
+        }
+        if (payload.status === "waiting") {
+          const waitMs = Math.max(Number(payload.retry_after_ms || 500), 250);
+          const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
+          setConversationQueueStatus(
+            pendingCount > 0
+              ? `Assistant is pacing ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+              : "Assistant is thinking..."
+          );
+          await new Promise((resolve) => window.setTimeout(resolve, Math.min(waitMs, 1000)));
+          continue;
+        }
+        if (payload.status === "paused") {
+          setConversationQueueStatus("Queued assistant replies paused.");
+          break;
+        }
+        setConversationQueueStatus("");
+        break;
+      }
+    }
+
+    async function submitChatMessage(message, options = {}) {
+      const { onAssistantMessage, voiceMode = false } = options;
+      if (voiceMode) {
+        resetVoiceQueueState();
+      }
+      beginAssistantTurn();
+      const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
+      if (runtimeConfig.backend === "a2a" && !canUseA2A()) {
+        throw new Error(getA2AUnavailableMessage());
+      }
+      const targetSessionId = sessionId || createClientSessionId();
+      const baselineMessageCount = chatLog.childElementCount;
+      sessionId = targetSessionId;
+      storeSessionId(sessionId);
+      let response;
+      try {
+        response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: targetSessionId,
+            message,
+            model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
+            backend: runtimeConfig.backend,
+            a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
+            a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
+            a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
+            a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
+            conversation_tone_instruction: runtimeConfig.conversation_tone_instruction,
+            tts_instruction: runtimeConfig.tts_instruction,
+          }),
+        });
+      } catch (error) {
+        if (!isTransientFetchError(error)) {
+          throw error;
+        }
+        const recovered = await recoverSubmittedChat(targetSessionId, baselineMessageCount);
+        if (recovered) {
+          return recovered;
+        }
+        throw error;
+      }
+      try {
+        const data = await readJsonResponse(response);
+        if (!response.ok) {
+          throw new Error(data.error || "Request failed");
+        }
+        sessionId = data.session_id;
+        storeSessionId(sessionId);
+        renderTrace(data);
+        const messages = Array.isArray(data.messages) && data.messages.length
+          ? data.messages
+          : [{ text: data.message || "", delay_ms: 0 }];
+        for (const item of messages) {
+          const text = item.text || "";
+          if (!text) {
+            continue;
+          }
+          await deliverAssistantText(text, { onAssistantMessage, metadata: data.metadata || null });
+        }
+        if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
+          const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
+          setConversationQueueStatus(
+            `Assistant has ${pendingCount} queued follow-up${pendingCount === 1 ? "" : "s"}.`
+          );
+          try {
+            await pollNextConversationMessages(data.session_id, { onAssistantMessage });
+          } catch (error) {
+            const shouldRecover = isRecoverableNetworkError(error)
+              || (error instanceof Error && /next message failed/i.test(error.message));
+            if (!shouldRecover) {
+              throw error;
+            }
+            const assistantCountNow = chatLog.querySelectorAll(".message.assistant").length;
+            const recovered = await recoverChatAfterDisconnect(
+              data.session_id,
+              assistantCountNow,
+              { onAssistantMessage }
+            );
+            if (!recovered) {
+              throw new Error("Connection interrupted while waiting for queued replies.");
+            }
+          }
+        } else {
+          setConversationQueueStatus("");
+        }
+        await refreshSidePanels();
+        if (airVoiceController) {
+          airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
+        }
+        return data;
+      } finally {
+        endAssistantTurn();
+      }
     }
 
     function loadStoredSessionId() {
@@ -1205,6 +3108,104 @@
       }
     }
 
+    function storeActiveWorkId(value) {
+      try {
+        if (value) {
+          window.localStorage.setItem(WORK_STORAGE_KEY, value);
+        }
+      } catch {
+        return;
+      }
+    }
+
+    async function syncActiveWorkForSession(targetSessionId) {
+      if (!targetSessionId) {
+        return;
+      }
+      try {
+        const response = await fetch(
+          `/api/sessions/${encodeURIComponent(targetSessionId)}/active-work`
+        );
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        const workId = String(data?.active_work?.work_id || "").trim();
+        if (workId) {
+          storeActiveWorkId(workId);
+        }
+      } catch {
+      }
+    }
+
+      if (chatBackendSelect) {
+        if (!A2A_GUI_ENABLED) {
+          chatBackendSelect.value = "local";
+          chatBackendSelect.disabled = true;
+        }
+        chatBackendSelect.addEventListener("change", async () => {
+          updateRuntimeConfigState();
+          if (getSelectedChatBackend() === "a2a") {
+            await refreshA2AOptions(collectPendingRuntimeConfig());
+          }
+        updateRuntimeConfigDirtyState();
+      });
+    }
+
+    {
+      [a2aAgentInput, a2aModelProviderInput, a2aModelIdInput].forEach((node) => {
+        if (node) {
+          node.addEventListener("change", updateRuntimeConfigDirtyState);
+          node.addEventListener("blur", updateRuntimeConfigDirtyState);
+        }
+      });
+      [conversationToneInstructionInput, ttsInstructionInput].forEach((node) => {
+        if (node) {
+          node.addEventListener("input", updateRuntimeConfigDirtyState);
+          node.addEventListener("blur", updateRuntimeConfigDirtyState);
+        }
+      });
+      if (a2aModelProviderInput) {
+        a2aModelProviderInput.addEventListener("change", () => {
+          syncA2AModelOptions(collectPendingRuntimeConfig());
+        });
+      }
+      if (a2aRefreshOptionsButton) {
+        a2aRefreshOptionsButton.addEventListener("click", () => refreshA2AOptions(collectPendingRuntimeConfig()));
+      }
+      if (runtimeConfigApplyButton) {
+        runtimeConfigApplyButton.addEventListener("click", async () => {
+          try {
+            await applyRuntimeConfigChanges();
+          } catch (error) {
+            setRuntimeConfigStatus(String(error && error.message ? error.message : error), true);
+          }
+        });
+      }
+      if (airLlmModel) {
+        airLlmModel.addEventListener("change", updateRuntimeConfigDirtyState);
+      }
+      updateRuntimeConfigState();
+      if (A2A_GUI_ENABLED) {
+        applyA2ADiscoveryOptions(appliedRuntimeConfig);
+        if (String(DEFAULT_A2A_URL || "").trim()) {
+          refreshA2AOptions(appliedRuntimeConfig);
+        } else {
+          setA2ADiscoveryStatus("A2A bridge URL is not configured.", true);
+        }
+      }
+    }
+
+    window.addEventListener("storage", async (event) => {
+      if (event.key === RUNTIME_CONFIG_SYNC_KEY) {
+        try {
+          await loadAppliedRuntimeConfig({ silent: true });
+        } catch (error) {
+          setRuntimeConfigStatus(String(error && error.message ? error.message : error), true);
+        }
+      }
+    });
+
     function replaceChildren(node, children) {
       node.replaceChildren(...children);
     }
@@ -1212,6 +3213,111 @@
     function setAgentFormStatus(text, isError = false) {
       agentFormStatus.textContent = text || "";
       agentFormStatus.style.color = isError ? "var(--red)" : "var(--muted)";
+    }
+
+    function setNotificationStatus(text, isError = false) {
+      notificationStatus.textContent = text || "";
+      notificationStatus.style.color = isError ? "var(--red)" : "var(--muted)";
+    }
+
+    function generateTopic() {
+      const bytes = new Uint8Array(12);
+      window.crypto.getRandomValues(bytes);
+      return `chanakya-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+    }
+
+    function buildNotificationDeepLink(serverUrl, topic) {
+      try {
+        const parsed = new URL(serverUrl || "https://ntfy.sh");
+        return topic ? `ntfy://${parsed.host}/${encodeURIComponent(topic)}` : "";
+      } catch {
+        return "";
+      }
+    }
+
+    function buildNotificationQrUrl(serverUrl, topic) {
+      if (!topic) {
+        return "";
+      }
+      const params = new URLSearchParams({
+        server_url: serverUrl || "https://ntfy.sh",
+        topic,
+      });
+      return `/api/notifications/ntfy/qr.svg?${params.toString()}`;
+    }
+
+    function renderNotificationQr(settings) {
+      const deepLink = settings.deep_link || "";
+      if (!deepLink) {
+        notificationQrCard.hidden = true;
+        notificationQrImage.removeAttribute("src");
+        notificationDeepLink.textContent = "";
+        notificationDeepLink.href = "#";
+        return;
+      }
+      notificationQrCard.hidden = false;
+      notificationQrImage.src = buildNotificationQrUrl(
+        notificationServerUrl.value.trim() || settings.server_url || "https://ntfy.sh",
+        notificationTopic.value.trim() || settings.topic || "",
+      );
+      notificationDeepLink.href = deepLink;
+      notificationDeepLink.textContent = deepLink;
+    }
+
+    function applyNotificationSettings(settings) {
+      notificationEnabled.checked = Boolean(settings.enabled);
+      notificationIncludePreview.checked = settings.include_message_preview !== false;
+      notificationServerUrl.value = settings.server_url || "https://ntfy.sh";
+      notificationTopic.value = settings.topic || "";
+      renderNotificationQr(settings);
+    }
+
+    async function loadNotificationSettings() {
+      const response = await fetch("/api/notifications/ntfy");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to load notification settings");
+      }
+      applyNotificationSettings(data);
+    }
+
+    async function saveNotificationSettings() {
+      const payload = {
+        enabled: notificationEnabled.checked,
+        include_message_preview: notificationIncludePreview.checked,
+        server_url: notificationServerUrl.value.trim(),
+        topic: notificationTopic.value.trim(),
+      };
+      const response = await fetch("/api/notifications/ntfy", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to save notification settings");
+      }
+      applyNotificationSettings(data);
+      return data;
+    }
+
+    async function sendTestNotification() {
+      const response = await fetch("/api/notifications/ntfy/test", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to send test notification");
+      }
+      return data;
+    }
+
+    async function deleteNotificationTopic() {
+      const response = await fetch("/api/notifications/ntfy", { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to delete topic");
+      }
+      applyNotificationSettings(data);
+      return data;
     }
 
     function getSelectedToolIds() {
@@ -1299,7 +3405,12 @@
         if (item.route) meta.push(`route=${item.route}`);
         if (item.request_id) meta.push(`request=${item.request_id}`);
         if (item.metadata && item.metadata.runtime) meta.push(`runtime=${item.metadata.runtime}`);
-        appendMessage(item.role === "user" ? "user" : "assistant", item.content, meta.join(" "));
+        appendMessage(
+          item.role === "user" ? "user" : "assistant",
+          item.content,
+          meta.join(" "),
+          { badge: messageBadgeForHistoryItem(item) }
+        );
       });
     }
 
@@ -1322,8 +3433,14 @@
         root_task_id: data.root_task_id,
         root_task_status: data.root_task_status,
         runtime: data.runtime,
+        core_agent_backend: data.metadata?.core_agent_backend || null,
+        conversation_layer_backend: data.metadata?.conversation_layer_backend || null,
         model: data.model,
         endpoint: data.endpoint,
+        a2a_remote_agent: data.metadata?.a2a_remote_agent || null,
+        conversation_layer_a2a_remote_agent: data.metadata?.conversation_layer_a2a_remote_agent || null,
+        a2a_model_provider: data.metadata?.a2a_model_provider || null,
+        a2a_model_id: data.metadata?.a2a_model_id || null,
         tool_calls_used: data.tool_calls_used,
       }, null, 2);
       card.appendChild(pre);
@@ -1990,16 +4107,16 @@
       await refreshToolTraces();
     }
 
-    async function loadSessionHistory() {
+    async function loadSessionHistory(targetSessionId = null) {
       await refreshToolAvailability();
-      const storedSessionId = loadStoredSessionId();
-      if (!storedSessionId) {
+      const resolvedSessionId = targetSessionId || loadStoredSessionId();
+      if (!resolvedSessionId) {
         renderChatHistory([]);
         await refreshSidePanels();
         return;
       }
-      sessionId = storedSessionId;
-      const response = await fetch(`/api/sessions/${sessionId}`);
+      sessionId = resolvedSessionId;
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
       if (!response.ok) {
         sessionId = null;
         renderChatHistory([]);
@@ -2008,6 +4125,7 @@
       }
       const data = await response.json();
       renderChatHistory(data.messages || []);
+      await syncActiveWorkForSession(sessionId);
       await refreshSidePanels();
     }
 
@@ -2018,20 +4136,12 @@
       appendMessage("user", message);
       messageInput.value = "";
 
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, message }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        appendMessage("assistant", data.error || "Request failed");
+      try {
+        await submitChatMessage(message);
+      } catch (error) {
+        appendMessage("assistant", error instanceof Error ? error.message : String(error));
         return;
       }
-      sessionId = data.session_id;
-      storeSessionId(sessionId);
-      renderTrace(data);
-      await loadSessionHistory();
     });
 
     agentForm.addEventListener("submit", async (event) => {
@@ -2061,11 +4171,200 @@
       resetAgentForm();
     });
 
+    notificationForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setNotificationStatus("Saving notification settings...");
+      try {
+        await saveNotificationSettings();
+        setNotificationStatus("Saved phone notification settings.");
+      } catch (error) {
+        setNotificationStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    });
+
+    notificationGenerateButton.addEventListener("click", () => {
+      notificationTopic.value = generateTopic();
+      renderNotificationQr({
+        deep_link: buildNotificationDeepLink(notificationServerUrl.value.trim(), notificationTopic.value),
+      });
+      setNotificationStatus("Generated a new random topic. Save it, then scan the QR code or subscribe in the ntfy app before testing.");
+    });
+
+    notificationDeleteButton.addEventListener("click", async () => {
+      setNotificationStatus("Deleting saved topic...");
+      try {
+        await deleteNotificationTopic();
+        setNotificationStatus("Deleted the saved ntfy topic.");
+      } catch (error) {
+        setNotificationStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    });
+
+    notificationServerUrl.addEventListener("input", () => {
+      renderNotificationQr({
+        deep_link: buildNotificationDeepLink(notificationServerUrl.value.trim(), notificationTopic.value.trim()),
+      });
+    });
+
+    notificationTopic.addEventListener("input", () => {
+      renderNotificationQr({
+        deep_link: buildNotificationDeepLink(notificationServerUrl.value.trim(), notificationTopic.value.trim()),
+      });
+    });
+
+    notificationTestButton.addEventListener("click", async () => {
+      setNotificationStatus("Sending test notification...");
+      try {
+        await sendTestNotification();
+        setNotificationStatus("Test notification sent.");
+      } catch (error) {
+        setNotificationStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    });
+
     applyDetachedView();
     setupCollapseButtons();
     setupDetachButtons();
     resetAgentForm();
+    airVoiceController = window.createAirVoiceController({
+      baseUrl: AIR_SERVER_URL,
+      llmModelSelect: airLlmModel,
+      sttModelSelect: airSttModel,
+      ttsModelSelect: airTtsModel,
+      recordButton: airMicButton,
+      continuousButton: airVoiceLoopButton,
+      speakButton: airSpeakButton,
+      statusNode: airVoiceStatus,
+      submitText: async (text, options = {}) => {
+        const { onAssistantMessage } = options;
+        appendMessage("user", text, "voice transcript");
+        const data = await submitChatMessage(text, {
+          voiceMode: true,
+          onAssistantMessage: (content) => {
+            if (typeof onAssistantMessage === "function") {
+              return onAssistantMessage(content);
+            }
+            return undefined;
+          },
+        });
+        return data.message || "";
+      },
+      getLatestAssistantText: getLatestAssistantMessageText,
+      onTranscript: (text) => {
+        messageInput.value = text;
+      },
+      beforeRecordStart: async ({ isPlaybackActive }) => {
+        if (currentDeferredVoiceNotification) {
+          requeueCurrentDeferredVoiceNotification();
+        }
+        if (!isPlaybackActive) {
+          return;
+        }
+        await pauseConversationReplies();
+      },
+    });
+    airRefreshModelsButton.addEventListener("click", () => airVoiceController.fetchModels());
+    airPauseRepliesButton.addEventListener("click", async () => {
+      try {
+        await pauseConversationReplies();
+      } catch (error) {
+        setConversationQueueStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    });
+    airVoiceController.fetchModels()
+      .then(() => loadAppliedRuntimeConfig())
+      .catch((error) => {
+        setRuntimeConfigStatus(error instanceof Error ? error.message : String(error), true);
+      });
+    loadNotificationSettings().catch((error) => {
+      setNotificationStatus(error instanceof Error ? error.message : String(error), true);
+    });
     loadSessionHistory();
+
+    // ---------- Work Notification Polling ----------
+    let _wnPollTimer = null;
+    const WN_POLL_INTERVAL = 10000;
+
+    function toggleWorkNotifications() {
+      const bar = document.getElementById("workNotificationsBar");
+      if (bar) {
+        bar.classList.toggle("expanded");
+      }
+    }
+    window.toggleWorkNotifications = toggleWorkNotifications;
+
+    async function pollWorkNotifications() {
+      try {
+        const response = await fetch("/api/works/pending-messages");
+        if (!response.ok) return;
+        const data = await response.json();
+        const notifications = Array.isArray(data.notifications) ? data.notifications : [];
+        renderWorkNotifications(notifications);
+      } catch {
+        // silently ignore polling errors
+      }
+    }
+
+    function renderWorkNotifications(notifications) {
+      const bar = document.getElementById("workNotificationsBar");
+      const badge = document.getElementById("wnBadge");
+      const container = document.getElementById("wnItems");
+      if (!bar || !badge || !container) return;
+
+      if (!notifications.length) {
+        bar.classList.remove("has-notifications");
+        bar.classList.remove("expanded");
+        container.innerHTML = "";
+        return;
+      }
+
+      bar.classList.add("has-notifications");
+      const hasInput = notifications.some(n => n.notification_type === "input_required");
+      badge.textContent = String(notifications.length);
+      badge.className = "wn-badge" + (hasInput ? "" : " completed");
+
+      container.innerHTML = notifications.map(n => {
+        const icon = n.notification_type === "input_required" ? "⏳"
+          : n.notification_type === "completed" ? "✅" : "❌";
+        const workUrl = n.target_url || `/work/${n.work_id || ""}`;
+        return `<div class="wn-item" data-id="${n.id}">
+          <span class="wn-type-icon">${icon}</span>
+          <div class="wn-body">
+            <div class="wn-title">${escapeHtml(n.title || "Work update")}</div>
+            <div class="wn-text">${escapeHtml(n.text || "")}</div>
+          </div>
+          <div class="wn-actions">
+            <a href="${escapeHtml(workUrl)}">Open</a>
+            <button onclick="ackWorkNotification('${n.id}')">Dismiss</button>
+          </div>
+        </div>`;
+      }).join("");
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    async function ackWorkNotification(notificationId) {
+      try {
+        await fetch(`/api/works/pending-messages/${encodeURIComponent(notificationId)}/ack`, {
+          method: "POST",
+        });
+        await pollWorkNotifications();
+      } catch {
+        // ignore
+      }
+    }
+    window.ackWorkNotification = ackWorkNotification;
+
+    function startWorkNotificationPolling() {
+      if (_wnPollTimer) return;
+      pollWorkNotifications();
+      _wnPollTimer = setInterval(pollWorkNotifications, WN_POLL_INTERVAL);
+    }
+    startWorkNotificationPolling();
 
     // ---------- SSE-driven auto-refresh ----------
     let _sseRefreshTimer = null;
@@ -2073,17 +4372,17 @@
       if (_sseRefreshTimer) return;
       _sseRefreshTimer = setTimeout(async () => {
         _sseRefreshTimer = null;
-        await refreshSidePanels();
-        // Also refresh chat messages for assistant responses
         if (sessionId) {
           try {
-            const res = await fetch(`/api/sessions/${sessionId}`);
-            if (res.ok) {
-              const data = await res.json();
-              renderChatHistory(data.messages || []);
+            const messages = await fetchSessionMessages(sessionId);
+            if (Array.isArray(messages)) {
+              renderChatHistory(messages);
             }
-          } catch { }
+          } catch {
+            // Keep the current transcript if the history sync races with reconnects.
+          }
         }
+        await refreshSidePanels();
       }, 400); // debounce: coalesce rapid events
     }
 

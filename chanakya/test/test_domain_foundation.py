@@ -58,10 +58,39 @@ class _RuntimeStub:
         )
         self.should_fail = should_fail
 
-    def runtime_metadata(self) -> dict[str, str | None]:
-        return {"model": "test-model", "endpoint": "http://test", "runtime": "maf_agent"}
+    def runtime_metadata(
+        self,
+        model_id: str | None = None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
+    ) -> dict[str, str | None]:
+        selected_backend = backend or "local"
+        return {
+            "model": a2a_model_id if selected_backend == "a2a" else "test-model",
+            "endpoint": a2a_url if selected_backend == "a2a" else "http://test",
+            "runtime": "maf_agent",
+            "backend": selected_backend,
+            "a2a_remote_agent": a2a_remote_agent if selected_backend == "a2a" else None,
+            "a2a_model_provider": a2a_model_provider if selected_backend == "a2a" else None,
+            "a2a_model_id": a2a_model_id if selected_backend == "a2a" else None,
+        }
 
-    def run(self, session_id: str, text: str, *, request_id: str) -> _RunResult:
+    def run(
+        self,
+        session_id: str,
+        text: str,
+        *,
+        request_id: str,
+        model_id: str | None = None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
+    ) -> _RunResult:
         if self.should_fail:
             raise RuntimeError("runtime exploded")
         return _RunResult(
@@ -109,6 +138,208 @@ def test_chat_persists_request_root_task_and_timeline() -> None:
     messages = store.list_messages("session_1")
     assert [message["role"] for message in messages] == ["user", "assistant"]
     assert messages[1]["metadata"]["root_task_id"] == reply.root_task_id
+
+
+def test_chat_post_processes_visible_assistant_message() -> None:
+    class _PostProcessorStub:
+        enabled = True
+
+        def wrap_reply(
+            self,
+            *,
+            session_id: str,
+            user_message: str,
+            assistant_message: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            conversation_tone_instruction: str | None = None,
+            tts_instruction: str | None = None,
+            metadata: dict[str, str] | None = None,
+        ):
+            return type(
+                "Wrapped",
+                (),
+                {
+                    "response": f"layered:{assistant_message}",
+                    "messages": [{"text": f"layered:{assistant_message}", "delay_ms": 0}],
+                    "metadata": {"pending_delivery_count": 0, "source": "conversation_layer"},
+                },
+            )()
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub()))
+    service._conversation_layer = _PostProcessorStub()  # type: ignore[attr-defined]
+
+    reply = service.chat("session_layered", "Explain recursion")
+
+    messages = store.list_messages("session_layered")
+    assert messages[1]["content"] == "layered:reply:Explain recursion"
+    assert messages[1]["metadata"]["conversation_layer_applied"] is True
+    assert reply.message == "layered:reply:Explain recursion"
+
+
+def test_chat_passes_a2a_backend_into_conversation_layer() -> None:
+    class _PostProcessorStub:
+        enabled = True
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def wrap_reply(
+            self,
+            *,
+            session_id: str,
+            user_message: str,
+            assistant_message: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            conversation_tone_instruction: str | None = None,
+            tts_instruction: str | None = None,
+            metadata: dict[str, str] | None = None,
+        ):
+            self.calls.append(
+                {
+                    "session_id": session_id,
+                    "backend": backend,
+                    "model_id": model_id,
+                    "a2a_url": a2a_url,
+                    "a2a_remote_agent": a2a_remote_agent,
+                    "a2a_model_provider": a2a_model_provider,
+                    "a2a_model_id": a2a_model_id,
+                    "conversation_tone_instruction": conversation_tone_instruction,
+                    "tts_instruction": tts_instruction,
+                    "metadata": metadata,
+                }
+            )
+            return type(
+                "Wrapped",
+                (),
+                {
+                    "response": f"layered:{assistant_message}",
+                    "messages": [{"text": f"layered:{assistant_message}", "delay_ms": 0}],
+                    "metadata": {
+                        "pending_delivery_count": 0,
+                        "source": "conversation_layer",
+                        "conversation_layer_backend": backend,
+                    },
+                },
+            )()
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub()))
+    layer = _PostProcessorStub()
+    service._conversation_layer = layer  # type: ignore[attr-defined]
+
+    reply = service.chat(
+        "session_a2a_layer",
+        "Explain recursion",
+        backend="a2a",
+        a2a_url="http://127.0.0.1:18770",
+        a2a_remote_agent="planner",
+        a2a_model_provider="lmstudio",
+        a2a_model_id="qwen/qwen3.5-9b",
+    )
+
+    assert layer.calls[0]["backend"] == "a2a"
+    assert reply.metadata["conversation_layer_backend"] == "a2a"
+
+
+def test_chat_passes_conversation_preferences_into_conversation_layer() -> None:
+    class _PostProcessorStub:
+        enabled = True
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def wrap_reply(
+            self,
+            *,
+            session_id: str,
+            user_message: str,
+            assistant_message: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            conversation_tone_instruction: str | None = None,
+            tts_instruction: str | None = None,
+            metadata: dict[str, str] | None = None,
+        ):
+            self.calls.append(
+                {
+                    "conversation_tone_instruction": conversation_tone_instruction,
+                    "tts_instruction": tts_instruction,
+                }
+            )
+            return type(
+                "Wrapped",
+                (),
+                {
+                    "response": assistant_message,
+                    "messages": [{"text": assistant_message, "delay_ms": 0}],
+                    "metadata": {"pending_delivery_count": 0, "source": "conversation_layer"},
+                },
+            )()
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub()))
+    layer = _PostProcessorStub()
+    service._conversation_layer = layer  # type: ignore[attr-defined]
+
+    service.chat(
+        "session_tone_layer",
+        "Explain recursion",
+        conversation_tone_instruction="Dry but kind.",
+        tts_instruction="Speak clearly with short phrases.",
+    )
+
+    assert layer.calls[0]["conversation_tone_instruction"] == "Dry but kind."
+    assert layer.calls[0]["tts_instruction"] == "Speak clearly with short phrases."
+
+
+def test_chat_backend_falls_back_for_legacy_runtime_run_signature() -> None:
+    class _LegacyRuntimeStub(_RuntimeStub):
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+        ) -> _RunResult:
+            if self.should_fail:
+                raise RuntimeError("runtime exploded")
+            return _RunResult(
+                text=f"legacy:{text}",
+                response_mode="direct_answer",
+                tool_traces=[],
+            )
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _LegacyRuntimeStub()))
+
+    reply = service.chat(
+        "session_legacy_backend",
+        "Hi",
+        backend="a2a",
+        a2a_url="http://127.0.0.1:18770",
+        a2a_remote_agent="planner",
+        a2a_model_provider="lmstudio",
+        a2a_model_id="qwen/qwen3.5-9b",
+    )
+
+    assert reply.message == "legacy:Hi"
+    assert reply.request_status == REQUEST_STATUS_COMPLETED
 
 
 def test_chat_failure_marks_request_and_task_failed() -> None:

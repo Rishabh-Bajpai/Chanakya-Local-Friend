@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from agent_framework import Message
@@ -17,7 +18,7 @@ from chanakya.config import (
     get_long_running_agent_request_timeout_seconds,
     get_subagent_group_chat_round_multiplier,
 )
-from chanakya.debug import debug_log
+from chanakya.debug import debug_log, with_transient_retry
 from chanakya.domain import make_id, now_iso
 from chanakya.model import AgentProfileModel, TemporaryAgentModel
 from chanakya.services.async_loop import run_in_maf_loop
@@ -202,11 +203,31 @@ class WorkerSubagentOrchestrator:
         *,
         store: ChanakyaStore,
         session_factory: sessionmaker[Session],
-        client: OpenAIChatClient,
+        client: OpenAIChatClient | None = None,
+        client_factory: Callable[[], OpenAIChatClient] | None = None,
+        backend_getter: Callable[[], str] | None = None,
+        profile_runner_async: Callable[..., Awaitable[str]] | None = None,
     ) -> None:
         self.store = store
         self.session_factory = session_factory
-        self.client = client
+        self._client = client
+        self._client_factory = client_factory
+        self._backend_getter = backend_getter
+        self._profile_runner_async = profile_runner_async
+
+    @property
+    def client(self) -> OpenAIChatClient:
+        """Return the active client, preferring the factory when available."""
+        if self._client_factory is not None:
+            return self._client_factory()
+        assert self._client is not None, "Either client or client_factory must be provided"
+        return self._client
+
+    @property
+    def backend(self) -> str:
+        if self._backend_getter is None:
+            return "local"
+        return str(self._backend_getter() or "local").strip().lower() or "local"
 
     def execute(
         self,
@@ -427,6 +448,14 @@ class WorkerSubagentOrchestrator:
         plan: WorkerSubagentPlan,
         created_agents: list[CreatedTemporaryAgent],
     ) -> list[str]:
+        if self.backend == "a2a":
+            return await self._run_group_chat_via_profile_runner_async(
+                worker_profile=worker_profile,
+                message=message,
+                effective_prompt=effective_prompt,
+                plan=plan,
+                created_agents=created_agents,
+            )
         worker_agent, _ = build_profile_agent(
             worker_profile,
             self.session_factory,
@@ -490,12 +519,15 @@ class WorkerSubagentOrchestrator:
             "- No one should ask clarifying questions in this workflow.\n"
         )
         timeout_seconds = self._resolve_worker_timeout_seconds(message, effective_prompt)
-        result = await asyncio.wait_for(
-            workflow.run(
-                message=Message(role="user", text=kickoff),
-                include_status_events=True,
+        result = await with_transient_retry(
+            lambda: asyncio.wait_for(
+                workflow.run(
+                    message=Message(role="user", text=kickoff),
+                    include_status_events=True,
+                ),
+                timeout=timeout_seconds,
             ),
-            timeout=timeout_seconds,
+            label=f"subagent_group_chat:{worker_profile.id}",
         )
         outputs = self._extract_stage_outputs(result)
         if not outputs:
@@ -509,6 +541,87 @@ class WorkerSubagentOrchestrator:
                 "planned_turns": len(sequence),
             },
         )
+        return outputs
+
+    async def _run_group_chat_via_profile_runner_async(
+        self,
+        *,
+        worker_profile: AgentProfileModel,
+        message: str,
+        effective_prompt: str,
+        plan: WorkerSubagentPlan,
+        created_agents: list[CreatedTemporaryAgent],
+    ) -> list[str]:
+        if self._profile_runner_async is None:
+            raise RuntimeError("A2A subagent execution requires a profile runner")
+        worker_intro = await self._profile_runner_async(
+            worker_profile,
+            (
+                f"Parent request: {message}\n\n"
+                f"Your execution prompt: {effective_prompt}\n\n"
+                f"Delegation goal: {plan.goal}\n\n"
+                "Decompose the work for the named helpers and state the exact scoped task for each. "
+                "Do not ask questions."
+            ),
+            include_history=False,
+            store=False,
+            use_work_session=False,
+        )
+        outputs = [worker_intro]
+        helper_outputs: list[tuple[str, str]] = []
+        for item in created_agents:
+            temporary_profile = AgentProfileModel(
+                id=item.record.id,
+                name=item.record.name,
+                role=item.record.role,
+                system_prompt=item.record.system_prompt,
+                personality=f"temporary helper for {worker_profile.name}",
+                tool_ids_json=item.record.tool_ids_json,
+                workspace=item.record.workspace,
+                heartbeat_enabled=False,
+                heartbeat_interval_seconds=300,
+                heartbeat_file_path=None,
+                is_active=True,
+                created_at=item.record.created_at,
+                updated_at=item.record.updated_at,
+            )
+            helper_prompt = (
+                f"Parent request: {message}\n\n"
+                f"Parent worker prompt: {effective_prompt}\n\n"
+                f"Parent worker delegation note:\n{worker_intro}\n\n"
+                f"Your purpose: {item.record.purpose}\n"
+                f"Expected output: {item.record.metadata_json.get('expected_output', '')}\n\n"
+                "Return only your scoped result with no extra commentary."
+            )
+            helper_output = await self._profile_runner_async(
+                temporary_profile,
+                helper_prompt,
+                include_history=False,
+                store=False,
+                use_work_session=False,
+            )
+            helper_outputs.append((item.record.name, helper_output))
+            outputs.append(helper_output)
+        synthesis_chunks = [
+            f"Parent request: {message}",
+            f"Your execution prompt: {effective_prompt}",
+            f"Delegation goal: {plan.goal}",
+            f"Your earlier delegation note:\n{worker_intro}",
+            "Helper outputs:",
+        ]
+        for helper_name, helper_output in helper_outputs:
+            synthesis_chunks.append(f"{helper_name}:\n{helper_output}")
+        synthesis_chunks.append(
+            "Produce the final worker result for the parent task. Do not ask questions."
+        )
+        final_output = await self._profile_runner_async(
+            worker_profile,
+            "\n\n".join(synthesis_chunks),
+            include_history=False,
+            store=False,
+            use_work_session=False,
+        )
+        outputs.append(final_output)
         return outputs
 
     def _resolve_worker_timeout_seconds(self, message: str, effective_prompt: str) -> int:

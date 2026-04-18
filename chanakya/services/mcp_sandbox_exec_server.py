@@ -118,7 +118,19 @@ def _run_in_sandbox(
     timeout_seconds: int,
 ) -> dict[str, object]:
     runtime = _select_runtime()
-    workspace = resolve_shared_workspace(work_id)
+    try:
+        workspace = resolve_shared_workspace(work_id, allow_create_missing_classic=False)
+    except (ValueError, PermissionError, FileNotFoundError) as exc:
+        return {
+            "ok": False,
+            "exit_code": None,
+            "output": str(exc),
+            "truncated": False,
+            "timed_out": False,
+            "workspace": "",
+            "runtime": runtime.engine,
+            "image": image,
+        }
     try:
         _ensure_workspace_writable(workspace)
     except PermissionError as exc:
@@ -195,7 +207,20 @@ def execute_python(
 ) -> dict[str, object]:
     """Execute Python code only inside an isolated shared sandbox workspace."""
     safe_name = Path(filename).name or "snippet.py"
-    workspace = resolve_shared_workspace(work_id)
+    try:
+        workspace = resolve_shared_workspace(work_id, allow_create_missing_classic=False)
+    except (ValueError, PermissionError, FileNotFoundError) as exc:
+        runtime = _select_runtime()
+        return {
+            "ok": False,
+            "exit_code": None,
+            "output": str(exc),
+            "truncated": False,
+            "timed_out": False,
+            "workspace": "",
+            "runtime": runtime.engine,
+            "image": PYTHON_IMAGE,
+        }
     script_path = workspace / safe_name
     with tempfile.NamedTemporaryFile("w", delete=False, dir=workspace, suffix=".py") as handle:
         handle.write(code)

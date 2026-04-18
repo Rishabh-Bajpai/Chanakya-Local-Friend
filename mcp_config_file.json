@@ -94,6 +94,34 @@
       ],
       "transport": "stdio",
       "env": {}
+    },
+    "mcp_map": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "map"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_timer": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_scheduler_launcher"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_work_tools": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_work_tools_server"
+      ],
+      "transport": "stdio",
+      "env": {}
     }
   }
 }

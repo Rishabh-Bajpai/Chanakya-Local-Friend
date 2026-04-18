@@ -203,6 +203,18 @@ class _DeveloperExecutor(Executor):
             effective_prompt=effective_prompt,
         )
         developer_output = developer_result.text
+        if not developer_output.strip():
+            # Tool-path blank response workaround: the agent framework
+            # sometimes returns an empty assistant message after tool
+            # execution.  Retry the same prompt without tools before
+            # falling through to the full repair path.
+            developer_output = (
+                await asyncio.to_thread(
+                    self.manager._run_profile_prompt_without_tools,
+                    self.developer_profile,
+                    effective_prompt,
+                )
+            ).strip()
         if self.manager._is_invalid_developer_output(developer_output):
             developer_output = await asyncio.to_thread(
                 self.manager._repair_developer_output,

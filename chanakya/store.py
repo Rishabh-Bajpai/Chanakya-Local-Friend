@@ -9,17 +9,21 @@ from chanakya.db import session_scope
 from chanakya.domain import TASK_STATUS_FAILED, now_iso
 from chanakya.model import (
     AgentProfileModel,
+    AgentSessionContextModel,
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
     ClassicActiveWorkModel,
+    NotificationSettingsModel,
     RequestModel,
+    RuntimeConfigModel,
     TaskEventModel,
     TaskModel,
     TemporaryAgentModel,
     ToolInvocationModel,
     WorkAgentSessionModel,
     WorkModel,
+    WorkNotificationModel,
 )
 
 
@@ -101,6 +105,39 @@ class ChatRepository:
             }
             for row in rows
         ]
+
+    def rewrite_latest_assistant_message(
+        self,
+        session_id: str,
+        *,
+        content: str,
+        request_id: str | None = None,
+        metadata_update: dict[str, Any] | None = None,
+    ) -> None:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ChatMessageModel)
+                .where(ChatMessageModel.session_id == session_id)
+                .where(ChatMessageModel.role == "assistant")
+                .order_by(ChatMessageModel.id.desc())
+            ).all()
+            target = None
+            if request_id is not None:
+                for row in rows:
+                    if row.request_id == request_id:
+                        target = row
+                        break
+            if target is None and rows:
+                target = rows[0]
+            if target is None:
+                return
+            target.content = content
+            if metadata_update:
+                target.metadata_json = {**(target.metadata_json or {}), **metadata_update}
+            chat_session = session.get(ChatSessionModel, session_id)
+            if chat_session is not None:
+                chat_session.updated_at = now_iso()
+            session.commit()
 
 
 class EventRepository:
@@ -189,6 +226,231 @@ class EventRepository:
         ]
         records.reverse()
         return records
+
+
+class RuntimeConfigRepository:
+    _ROW_ID = "global"
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def get(self) -> dict[str, Any] | None:
+        with session_scope(self.Session) as session:
+            row = session.get(RuntimeConfigModel, self._ROW_ID)
+            if row is None:
+                return None
+            return {
+                "backend": row.backend,
+                "model_id": row.model_id,
+                "a2a_url": row.a2a_url,
+                "a2a_remote_agent": row.a2a_remote_agent,
+                "a2a_model_provider": row.a2a_model_provider,
+                "a2a_model_id": row.a2a_model_id,
+                "conversation_tone_instruction": row.conversation_tone_instruction,
+                "tts_instruction": row.tts_instruction,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+
+    def set(
+        self,
+        *,
+        backend: str,
+        model_id: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
+        conversation_tone_instruction: str | None,
+        tts_instruction: str | None,
+    ) -> dict[str, Any]:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            row = session.get(RuntimeConfigModel, self._ROW_ID)
+            if row is None:
+                row = RuntimeConfigModel(
+                    id=self._ROW_ID,
+                    backend=backend,
+                    model_id=model_id,
+                    a2a_url=a2a_url,
+                    a2a_remote_agent=a2a_remote_agent,
+                    a2a_model_provider=a2a_model_provider,
+                    a2a_model_id=a2a_model_id,
+                    conversation_tone_instruction=conversation_tone_instruction,
+                    tts_instruction=tts_instruction,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+                session.add(row)
+            else:
+                row.backend = backend
+                row.model_id = model_id
+                row.a2a_url = a2a_url
+                row.a2a_remote_agent = a2a_remote_agent
+                row.a2a_model_provider = a2a_model_provider
+                row.a2a_model_id = a2a_model_id
+                row.conversation_tone_instruction = conversation_tone_instruction
+                row.tts_instruction = tts_instruction
+                row.updated_at = timestamp
+            session.commit()
+            return {
+                "backend": row.backend,
+                "model_id": row.model_id,
+                "a2a_url": row.a2a_url,
+                "a2a_remote_agent": row.a2a_remote_agent,
+                "a2a_model_provider": row.a2a_model_provider,
+                "a2a_model_id": row.a2a_model_id,
+                "conversation_tone_instruction": row.conversation_tone_instruction,
+                "tts_instruction": row.tts_instruction,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+
+
+class NotificationSettingsRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def get_settings(self, channel_type: str) -> NotificationSettingsModel | None:
+        with session_scope(self.Session) as session:
+            row = session.get(NotificationSettingsModel, channel_type)
+        return row
+
+    def upsert_settings(
+        self,
+        *,
+        channel_type: str,
+        server_url: str,
+        topic: str,
+        enabled: bool,
+        include_message_preview: bool,
+    ) -> NotificationSettingsModel:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            row = session.get(NotificationSettingsModel, channel_type)
+            if row is None:
+                row = NotificationSettingsModel(
+                    channel_type=channel_type,
+                    server_url=server_url,
+                    topic=topic,
+                    enabled=enabled,
+                    include_message_preview=include_message_preview,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                )
+                session.add(row)
+            else:
+                row.server_url = server_url
+                row.topic = topic
+                row.enabled = enabled
+                row.include_message_preview = include_message_preview
+                row.updated_at = timestamp
+            session.commit()
+            session.refresh(row)
+        return row
+
+    def delete_settings(self, channel_type: str) -> None:
+        with session_scope(self.Session) as session:
+            row = session.get(NotificationSettingsModel, channel_type)
+            if row is None:
+                return
+            session.delete(row)
+            session.commit()
+
+
+class AgentSessionContextRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    @staticmethod
+    def _storage_session_id(session_id: str, target_key: str | None = None) -> str:
+        if target_key:
+            return f"{session_id}::target::{target_key}"
+        return session_id
+
+    def get(self, session_id: str, *, target_key: str | None = None) -> dict[str, Any]:
+        storage_session_id = self._storage_session_id(session_id, target_key)
+        with session_scope(self.Session) as session:
+            row = session.scalar(
+                select(AgentSessionContextModel).where(
+                    AgentSessionContextModel.session_id == storage_session_id
+                )
+            )
+        if row is None:
+            return {
+                "session_id": session_id,
+                "target_key": target_key,
+                "backend": None,
+                "remote_context_id": None,
+                "remote_agent_url": None,
+            }
+        return {
+            "session_id": session_id,
+            "target_key": target_key,
+            "backend": row.backend,
+            "remote_context_id": row.remote_context_id,
+            "remote_agent_url": row.remote_agent_url,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    def save(
+        self,
+        session_id: str,
+        *,
+        backend: str,
+        remote_context_id: str | None,
+        remote_agent_url: str | None,
+        target_key: str | None = None,
+    ) -> dict[str, Any]:
+        storage_session_id = self._storage_session_id(session_id, target_key)
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            row = session.scalar(
+                select(AgentSessionContextModel).where(
+                    AgentSessionContextModel.session_id == storage_session_id
+                )
+            )
+            if row is None:
+                session.add(
+                    AgentSessionContextModel(
+                        session_id=storage_session_id,
+                        backend=backend,
+                        remote_context_id=remote_context_id,
+                        remote_agent_url=remote_agent_url,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
+                )
+            else:
+                row.backend = backend
+                row.remote_context_id = remote_context_id
+                row.remote_agent_url = remote_agent_url
+                row.updated_at = timestamp
+            session.commit()
+        return self.get(session_id, target_key=target_key)
+
+    def delete(self, session_id: str, *, target_key: str | None = None) -> None:
+        with session_scope(self.Session) as session:
+            if target_key is None:
+                session.execute(
+                    delete(AgentSessionContextModel).where(
+                        AgentSessionContextModel.session_id == session_id
+                    )
+                )
+                session.execute(
+                    delete(AgentSessionContextModel).where(
+                        AgentSessionContextModel.session_id.like(f"{session_id}::target::%")
+                    )
+                )
+            else:
+                storage_session_id = self._storage_session_id(session_id, target_key)
+                session.execute(
+                    delete(AgentSessionContextModel).where(
+                        AgentSessionContextModel.session_id == storage_session_id
+                    )
+                )
+            session.commit()
 
 
 class RequestRepository:
@@ -677,11 +939,12 @@ class WorkRepository:
             )
             session.commit()
 
-    def list_works(self, *, limit: int = 100) -> list[dict[str, Any]]:
+    def list_works(self, *, limit: int = 100, status: str | None = None) -> list[dict[str, Any]]:
         with session_scope(self.Session) as session:
-            rows = session.scalars(
-                select(WorkModel).order_by(WorkModel.updated_at.desc()).limit(limit)
-            ).all()
+            stmt = select(WorkModel).order_by(WorkModel.updated_at.desc()).limit(limit)
+            if status is not None:
+                stmt = stmt.where(WorkModel.status == status)
+            rows = session.scalars(stmt).all()
         records = [
             {
                 "id": row.id,
@@ -891,6 +1154,109 @@ class ClassicActiveWorkRepository:
             session.commit()
 
 
+class WorkNotificationRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    def create_notification(
+        self,
+        *,
+        notification_id: str,
+        work_id: str,
+        notification_type: str,
+        title: str,
+        text: str,
+        target_url: str | None = None,
+    ) -> dict[str, Any]:
+        ts = now_iso()
+        record = WorkNotificationModel(
+            id=notification_id,
+            work_id=work_id,
+            notification_type=notification_type,
+            title=title,
+            text=text,
+            target_url=target_url,
+            acknowledged=False,
+            created_at=ts,
+        )
+        with session_scope(self.Session) as session:
+            session.add(record)
+            session.commit()
+        return {
+            "id": notification_id,
+            "work_id": work_id,
+            "notification_type": notification_type,
+            "title": title,
+            "text": text,
+            "target_url": target_url,
+            "acknowledged": False,
+            "created_at": ts,
+        }
+
+    def list_pending(
+        self,
+        *,
+        work_id: str | None = None,
+        include_acknowledged: bool = False,
+        since: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = (
+                select(WorkNotificationModel)
+                .order_by(WorkNotificationModel.created_at.desc())
+                .limit(limit)
+            )
+            if not include_acknowledged:
+                stmt = stmt.where(
+                    WorkNotificationModel.acknowledged.is_(False)
+                )
+            if work_id is not None:
+                stmt = stmt.where(WorkNotificationModel.work_id == work_id)
+            if since is not None:
+                stmt = stmt.where(
+                    WorkNotificationModel.created_at > since
+                )
+            rows = session.scalars(stmt).all()
+            result = [
+                {
+                    "id": r.id,
+                    "work_id": r.work_id,
+                    "notification_type": r.notification_type,
+                    "title": r.title,
+                    "text": r.text,
+                    "target_url": r.target_url,
+                    "acknowledged": r.acknowledged,
+                    "created_at": r.created_at,
+                }
+                for r in rows
+            ]
+        result.reverse()
+        return result
+
+    def acknowledge(self, notification_id: str) -> bool:
+        with session_scope(self.Session) as session:
+            row = session.get(WorkNotificationModel, notification_id)
+            if row is None:
+                return False
+            row.acknowledged = True
+            session.commit()
+        return True
+
+    def acknowledge_all_for_work(self, work_id: str) -> int:
+        with session_scope(self.Session) as session:
+            stmt = (
+                select(WorkNotificationModel)
+                .where(WorkNotificationModel.work_id == work_id)
+                .where(WorkNotificationModel.acknowledged.is_(False))
+            )
+            rows = session.scalars(stmt).all()
+            for row in rows:
+                row.acknowledged = True
+            session.commit()
+        return len(rows)
+
+
 class TemporaryAgentRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
@@ -964,15 +1330,19 @@ class ChanakyaStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
         self.chat = ChatRepository(session_factory)
+        self.runtime_config = RuntimeConfigRepository(session_factory)
         self.works = WorkRepository(session_factory)
         self.work_agent_sessions = WorkAgentSessionRepository(session_factory)
         self.classic_active_works = ClassicActiveWorkRepository(session_factory)
         self.requests = RequestRepository(session_factory)
         self.tasks = TaskRepository(session_factory)
         self.events = EventRepository(session_factory)
+        self.session_contexts = AgentSessionContextRepository(session_factory)
+        self.notification_settings = NotificationSettingsRepository(session_factory)
         self.tools = ToolInvocationRepository(session_factory)
         self.agents = AgentProfileRepository(session_factory)
         self.temporary_agents = TemporaryAgentRepository(session_factory)
+        self.work_notifications = WorkNotificationRepository(session_factory)
 
     def create_work(
         self,
@@ -989,8 +1359,8 @@ class ChanakyaStore:
             status=status,
         )
 
-    def list_works(self, *, limit: int = 100) -> list[dict[str, Any]]:
-        return self.works.list_works(limit=limit)
+    def list_works(self, *, limit: int = 100, status: str | None = None) -> list[dict[str, Any]]:
+        return self.works.list_works(limit=limit, status=status)
 
     def get_work(self, work_id: str) -> WorkModel:
         return self.works.get_work(work_id)
@@ -1040,15 +1410,75 @@ class ChanakyaStore:
                 session.execute(
                     delete(ChatSessionModel).where(ChatSessionModel.id.in_(session_ids))
                 )
-                session.execute(
-                    delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
+            session.execute(
+                delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
+            )
+            session.execute(
+                delete(WorkNotificationModel).where(
+                    WorkNotificationModel.work_id == work_id
                 )
-                session.execute(
-                    delete(ClassicActiveWorkModel).where(ClassicActiveWorkModel.work_id == work_id)
-                )
+            )
+            session.execute(
+                delete(ClassicActiveWorkModel).where(ClassicActiveWorkModel.work_id == work_id)
+            )
             session.execute(delete(WorkModel).where(WorkModel.id == work_id))
             session.commit()
+        for session_id in session_ids:
+            self.session_contexts.delete(session_id)
         return session_ids
+
+    def get_agent_session_context(
+        self, session_id: str, *, target_key: str | None = None
+    ) -> dict[str, Any]:
+        return self.session_contexts.get(session_id, target_key=target_key)
+
+    def get_runtime_config(self) -> dict[str, Any] | None:
+        return self.runtime_config.get()
+
+    def set_runtime_config(
+        self,
+        *,
+        backend: str,
+        model_id: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
+        conversation_tone_instruction: str | None,
+        tts_instruction: str | None,
+    ) -> dict[str, Any]:
+        return self.runtime_config.set(
+            backend=backend,
+            model_id=model_id,
+            a2a_url=a2a_url,
+            a2a_remote_agent=a2a_remote_agent,
+            a2a_model_provider=a2a_model_provider,
+            a2a_model_id=a2a_model_id,
+            conversation_tone_instruction=conversation_tone_instruction,
+            tts_instruction=tts_instruction,
+        )
+
+    def save_agent_session_context(
+        self,
+        session_id: str,
+        *,
+        backend: str,
+        remote_context_id: str | None,
+        remote_agent_url: str | None,
+        target_key: str | None = None,
+    ) -> dict[str, Any]:
+        return self.session_contexts.save(
+            session_id,
+            backend=backend,
+            remote_context_id=remote_context_id,
+            remote_agent_url=remote_agent_url,
+            target_key=target_key,
+        )
+
+    def delete_agent_session_context(
+        self, session_id: str, *, target_key: str | None = None
+    ) -> None:
+        self.session_contexts.delete(session_id, target_key=target_key)
 
     def get_active_classic_work(self, chat_session_id: str) -> dict[str, Any] | None:
         return self.classic_active_works.get_active_work(chat_session_id)
@@ -1126,6 +1556,21 @@ class ChanakyaStore:
     ) -> None:
         self.chat.add_message(session_id, role, content, request_id, route, metadata)
 
+    def rewrite_latest_assistant_message(
+        self,
+        session_id: str,
+        *,
+        content: str,
+        request_id: str | None = None,
+        metadata_update: dict[str, Any] | None = None,
+    ) -> None:
+        self.chat.rewrite_latest_assistant_message(
+            session_id,
+            content=content,
+            request_id=request_id,
+            metadata_update=metadata_update,
+        )
+
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
         return self.chat.list_messages(session_id)
 
@@ -1134,6 +1579,29 @@ class ChanakyaStore:
 
     def list_events(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.events.list_events(limit)
+
+    def get_notification_settings(self, channel_type: str) -> NotificationSettingsModel | None:
+        return self.notification_settings.get_settings(channel_type)
+
+    def upsert_notification_settings(
+        self,
+        *,
+        channel_type: str,
+        server_url: str,
+        topic: str,
+        enabled: bool,
+        include_message_preview: bool,
+    ) -> NotificationSettingsModel:
+        return self.notification_settings.upsert_settings(
+            channel_type=channel_type,
+            server_url=server_url,
+            topic=topic,
+            enabled=enabled,
+            include_message_preview=include_message_preview,
+        )
+
+    def delete_notification_settings(self, channel_type: str) -> None:
+        self.notification_settings.delete_settings(channel_type)
 
     def create_task_event(
         self,

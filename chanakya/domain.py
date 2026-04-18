@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 from uuid import uuid4
 
 
@@ -49,4 +50,6 @@ class ChatReply:
     requires_input: bool = False
     waiting_task_id: str | None = None
     input_prompt: str | None = None
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=now_iso)

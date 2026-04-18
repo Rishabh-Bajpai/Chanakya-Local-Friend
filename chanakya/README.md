@@ -13,11 +13,15 @@ This is the full implementation tracked in `task.md`.
 source /home/rishabh/miniconda3/etc/profile.d/conda.sh
 conda activate test
 
-# Run the Flask app
-python -m flask --app chanakya.app run --host 0.0.0.0 --port 5000
+# Run Chanakya and AIR together
+./scripts/start_chanakya_air.sh core
+
+# Run Chanakya, AIR, and the A2A stack together
+./scripts/start_chanakya_air.sh core+a2a
 ```
 
-Open `http://localhost:5000` to access the GUI.
+Open `http://localhost:5513` to access the GUI. AIR runs at `http://localhost:5512`.
+When using `core+a2a`, the A2A bridge runs at `http://127.0.0.1:18770`.
 
 ---
 
@@ -224,6 +228,18 @@ MODEL=gpt-4
 
 The app reads `.env` automatically via `config.py`.
 
+Optional chat backend configuration:
+
+```bash
+# Default backend for new page loads: local or a2a
+CHANAKYA_CORE_AGENT_BACKEND=local
+
+# Required when using the A2A backend from the UI
+A2A_AGENT_URL=http://127.0.0.1:18770
+```
+
+The UI now includes a collapsible `Chat Runtime` panel in both chat screens. Changing the backend there applies on the next message without restarting the app.
+
 ### Data Directory
 
 The app creates `chanakya_data/` in the repo root on first run:
@@ -311,10 +327,27 @@ Example:
       "args": ["-m", "chanakya.services.mcp_basic_tools_server", "weather"],
       "transport": "stdio",
       "env": {}
+    },
+    "mcp_map": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "map"],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_timer": {
+      "command": "python",
+      "args": ["-m", "chanakya.services.mcp_scheduler_launcher"],
+      "transport": "stdio",
+      "env": {}
     }
   }
 }
 ```
+
+Notes:
+
+- `mcp_map` uses free OpenStreetMap services through Nominatim and OSRM. Keep usage light and set a real `User-Agent` if you fork this project for broader use.
+- `mcp_timer` bootstraps the public `PhialsBasement/scheduler-mcp` server into `chanakya_data/external_tools/scheduler_mcp` on first launch, then runs it over stdio.
 
 ### Sandboxed Code Execution
 
@@ -370,7 +403,13 @@ The app loads three seed agents on startup from `chanakya/seeds/agents.json`:
 
 ```bash
 conda activate test
-python -m flask --app chanakya.app run --host 0.0.0.0 --port 5000
+./scripts/start_chanakya_air.sh
+```
+
+Stop both services with:
+
+```bash
+./scripts/stop_chanakya_air.sh
 ```
 
 ### Database Utilities
