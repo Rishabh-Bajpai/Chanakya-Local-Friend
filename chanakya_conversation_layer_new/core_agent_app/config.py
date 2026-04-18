@@ -70,7 +70,7 @@ class Config:
     conversation_state_store_ttl_seconds: int = int(
         os.getenv("CONVERSATION_STATE_STORE_TTL_SECONDS", "86400")
     )
-    env_file_path: str = str(PROJECT_ROOT / ".env")
+    env_file_path: str = os.getenv("ENV_FILE_PATH", str(PROJECT_ROOT / ".env"))
 
     def to_flask_config(self) -> dict:
         shared_database_url = self.database_url
