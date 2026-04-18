@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import textwrap
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from conversation_layer.schemas import ChatRequest, ChatResponse, DeliveryMessage
@@ -17,7 +17,7 @@ from conversation_layer.services.working_memory import (
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 @dataclass(slots=True)
@@ -1627,7 +1627,9 @@ class ConversationWrapper:
             try:
                 parsed = datetime.fromisoformat(value)
                 return (
-                    parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+                    parsed
+                    if parsed.tzinfo is not None
+                    else parsed.replace(tzinfo=timezone.utc)
                 )
             except ValueError:
                 pass
