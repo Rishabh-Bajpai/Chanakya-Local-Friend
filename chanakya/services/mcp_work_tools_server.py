@@ -8,6 +8,7 @@ send messages into work sessions, and read pending notifications
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -18,6 +19,7 @@ from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
 from chanakya.config import get_database_url
 from chanakya.db import build_engine, build_session_factory, init_database
+from chanakya.debug import debug_log
 from chanakya.domain import make_id
 from chanakya.seed import load_agent_seeds
 from chanakya.store import ChanakyaStore
@@ -119,18 +121,87 @@ def _send_message_to_work(
         session_id=make_id("session"),
         session_title=f"{work.title} - Chanakya",
     )
-    reply = chat_service.chat(session_id, cleaned_message, work_id=work_id)
+
+    def _run_in_background() -> None:
+        try:
+            chat_service.chat(session_id, cleaned_message, work_id=work_id)
+        except Exception as exc:
+            debug_log(
+                "mcp_work_message_background_failed",
+                {
+                    "work_id": work_id,
+                    "session_id": session_id,
+                    "error": str(exc),
+                },
+            )
+
+    threading.Thread(
+        target=_run_in_background,
+        daemon=True,
+        name=f"work-msg-{work_id}",
+    ).start()
+
     return {
         "ok": True,
         "work_id": work_id,
+        "work_title": work.title,
         "session_id": session_id,
-        "request_id": reply.request_id,
-        "root_task_id": reply.root_task_id,
-        "task_status": reply.root_task_status,
-        "requires_input": reply.requires_input,
-        "input_prompt": reply.input_prompt,
-        "message": "Message delivered to work and processing started.",
-        "result_preview": reply.message,
+        "message": f'Message sent successfully to "{work.title}".',
+    }
+
+
+def _create_work_with_message(
+    store: ChanakyaStore,
+    chat_service: Any,
+    *,
+    title: str,
+    description: str | None = None,
+    message: str,
+) -> dict[str, Any]:
+    if not message.strip():
+        return {"ok": False, "error": "message is required"}
+
+    create_result = _create_work(store, title=title, description=description)
+    if not create_result.get("ok"):
+        return create_result
+
+    send_result = _send_message_to_work(
+        store,
+        chat_service,
+        work_id=str(create_result["id"]),
+        message=message,
+    )
+    if not send_result.get("ok"):
+        return send_result
+
+    return {
+        "ok": True,
+        "id": create_result["id"],
+        "title": create_result["title"],
+        "description": create_result["description"],
+        "status": create_result["status"],
+        "agent_session_count": create_result["agent_session_count"],
+        "session_id": send_result["session_id"],
+        "message": (
+            f'Created work "{create_result["title"]}" and sent the initial request successfully.'
+        ),
+    }
+
+
+def _get_pending_work_messages(
+    store: ChanakyaStore,
+    *,
+    work_id: str = "",
+    include_acknowledged: bool = False,
+) -> dict[str, Any]:
+    notifications = store.work_notifications.list_pending(
+        work_id=work_id if work_id.strip() else None,
+        include_acknowledged=include_acknowledged,
+    )
+    return {
+        "ok": True,
+        "notifications": notifications,
+        "count": len(notifications),
     }
 
 
@@ -147,6 +218,21 @@ def _build_work_tools_server() -> FastMCP:
         This only creates the work and its per-agent sessions.
         """
         return _create_work(store, title=title, description=description)
+
+    @mcp.tool()
+    def create_work_with_message(title: str, description: str = "", message: str = "") -> dict[str, Any]:
+        """Create a new work item and send the initial user request to it.
+
+        Use this when the user explicitly asks to create or start a new work
+        for a specific request and you already know the initial message to send.
+        """
+        return _create_work_with_message(
+            store,
+            chat_service,
+            title=title,
+            description=description,
+            message=message,
+        )
 
     @mcp.tool()
     def list_works(limit: int = 20, status: str = "active") -> dict[str, Any]:
@@ -233,15 +319,27 @@ def _build_work_tools_server() -> FastMCP:
         Returns unacknowledged work notifications (completed tasks,
         input-required prompts, failures). Optionally filter by work_id.
         """
-        notifications = store.work_notifications.list_pending(
-            work_id=work_id if work_id.strip() else None,
+        return _get_pending_work_messages(
+            store,
+            work_id=work_id,
             include_acknowledged=include_acknowledged,
         )
-        return {
-            "ok": True,
-            "notifications": notifications,
-            "count": len(notifications),
-        }
+
+    @mcp.tool()
+    def list_work_notifications(
+        work_id: str = "",
+        include_acknowledged: bool = False,
+    ) -> dict[str, Any]:
+        """List pending work notifications for completed, failed, or blocked work.
+
+        Use this when the user asks for work updates, completed items, pending
+        input requests, or failures across active works.
+        """
+        return _get_pending_work_messages(
+            store,
+            work_id=work_id,
+            include_acknowledged=include_acknowledged,
+        )
 
     return mcp
 
