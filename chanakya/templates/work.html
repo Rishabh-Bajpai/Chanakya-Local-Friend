@@ -2796,8 +2796,8 @@
         if (!background) {
           chatTitle.textContent = data.work.title;
           chatSubtitle.textContent = data.work.description || "Work-scoped chat with Chanakya.";
+          renderChatFromHistory(data.agent_histories || []);
         }
-        renderChatFromHistory(data.agent_histories || []);
         cachedAgentHistories = data.agent_histories || [];
         cachedTaskFlow = data.task_flow || [];
         cachedTasks = data.tasks || [];
