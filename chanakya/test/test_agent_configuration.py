@@ -967,6 +967,47 @@ def test_work_delete_clears_runtime_session_state(
     assert len(cleared) == 2
 
 
+def test_work_delete_api_returns_warning_when_workspace_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    created = client.post(
+        "/api/works",
+        json={"title": "Disposable Work", "description": "delete me"},
+    )
+    work_id = created.get_json()["id"]
+
+    monkeypatch.setattr(
+        app_module,
+        "delete_shared_workspace",
+        lambda current_work_id: {
+            "ok": False,
+            "work_id": current_work_id,
+            "path": f"/tmp/{current_work_id}",
+            "error": "permission denied",
+        },
+    )
+
+    deleted = client.delete(f"/api/works/{work_id}")
+
+    assert deleted.status_code == 200
+    payload = deleted.get_json()
+    assert payload["deleted"] is True
+    assert payload["warning"] == {
+        "code": "workspace_cleanup_failed",
+        "message": "Work deleted, but sandbox workspace cleanup failed.",
+        "workspace": {
+            "ok": False,
+            "work_id": work_id,
+            "path": f"/tmp/{work_id}",
+            "error": "permission denied",
+        },
+    }
+
+
 def test_work_api_preserves_per_agent_memory_for_local_backend(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

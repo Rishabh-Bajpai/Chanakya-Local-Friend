@@ -729,17 +729,35 @@ def create_app() -> Flask:
             return jsonify({"error": message}), 404
         for session_id in deleted_session_ids:
             runtime.clear_session_state(session_id)
-        delete_shared_workspace(work_id)
+        workspace_cleanup = delete_shared_workspace(work_id)
         store.log_event(
             "work_deleted",
             {
                 "work_id": work_id,
                 "session_count": len(deleted_session_ids),
+                "workspace_cleanup_ok": bool(workspace_cleanup.get("ok")),
             },
         )
-        return jsonify(
-            {"deleted": True, "work_id": work_id, "session_count": len(deleted_session_ids)}
-        )
+        response = {
+            "deleted": True,
+            "work_id": work_id,
+            "session_count": len(deleted_session_ids),
+        }
+        if not workspace_cleanup.get("ok"):
+            response["warning"] = {
+                "code": "workspace_cleanup_failed",
+                "message": "Work deleted, but sandbox workspace cleanup failed.",
+                "workspace": workspace_cleanup,
+            }
+            store.log_event(
+                "work_workspace_cleanup_failed",
+                {
+                    "work_id": work_id,
+                    "session_count": len(deleted_session_ids),
+                    "workspace": workspace_cleanup,
+                },
+            )
+        return jsonify(response)
 
     @app.get("/api/a2a/options")
     def api_a2a_options() -> Any:

@@ -217,3 +217,29 @@ def test_seed_agents_include_map_and_timer_tools() -> None:
     assert "mcp_map" not in tool_ids_by_agent["agent_researcher"]
     assert "mcp_timer" not in tool_ids_by_agent["agent_informer"]
     assert "mcp_timer" not in tool_ids_by_agent["agent_researcher"]
+
+
+def test_run_git_uses_repo_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _CompletedProcess:
+        def __init__(self) -> None:
+            self.returncode = 0
+            self.stdout = "ok\n"
+            self.stderr = ""
+
+    def _fake_run(command: list[str], **kwargs: object) -> _CompletedProcess:
+        captured["command"] = command
+        captured["cwd"] = kwargs.get("cwd")
+        return _CompletedProcess()
+
+    monkeypatch.setattr(server.subprocess, "run", _fake_run)
+
+    result = server._run_git(["status", "--short", "--branch"])
+
+    assert captured == {
+        "command": ["git", "status", "--short", "--branch"],
+        "cwd": server.REPO_ROOT,
+    }
+    assert result["ok"] is True
+    assert result["repo_root"] == str(server.REPO_ROOT)

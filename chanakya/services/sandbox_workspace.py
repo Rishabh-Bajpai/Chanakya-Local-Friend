@@ -64,22 +64,30 @@ def resolve_shared_workspace(
     return target
 
 
-def delete_shared_workspace(work_id: str | None) -> None:
+def delete_shared_workspace(work_id: str | None) -> dict[str, str | bool]:
     root = get_shared_workspace_root().resolve()
     safe_work_id = normalize_work_id(work_id)
     target = (root / safe_work_id).resolve()
     if target == root or root not in target.parents:
         raise PermissionError("Resolved sandbox workspace escapes shared root")
-    if target.exists():
-        try:
-            shutil.rmtree(target)
-        except OSError as exc:
-            debug_log(
-                "sandbox_workspace_delete_failed",
-                {
-                    "work_id": safe_work_id,
-                    "path": str(target),
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                },
-            )
+    if not target.exists():
+        return {"ok": True, "work_id": safe_work_id, "path": str(target), "deleted": False}
+    try:
+        shutil.rmtree(target)
+    except OSError as exc:
+        debug_log(
+            "sandbox_workspace_delete_failed",
+            {
+                "work_id": safe_work_id,
+                "path": str(target),
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        )
+        return {
+            "ok": False,
+            "work_id": safe_work_id,
+            "path": str(target),
+            "error": str(exc),
+        }
+    return {"ok": True, "work_id": safe_work_id, "path": str(target), "deleted": True}

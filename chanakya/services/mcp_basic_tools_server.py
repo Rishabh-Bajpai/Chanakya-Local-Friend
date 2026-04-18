@@ -130,10 +130,9 @@ def _lookup_json_path(payload: Any, path: str) -> Any:
 
 
 def _run_git(args: list[str]) -> dict[str, Any]:
-    workspace_root = get_classic_chat_workspace_root()
     result = subprocess.run(
         ["git", *args],
-        cwd=workspace_root,
+        cwd=REPO_ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -144,7 +143,7 @@ def _run_git(args: list[str]) -> dict[str, Any]:
         "ok": result.returncode == 0,
         "returncode": result.returncode,
         "output": _trim(output),
-        "workspace_root": str(workspace_root),
+        "repo_root": str(REPO_ROOT),
     }
 
 
