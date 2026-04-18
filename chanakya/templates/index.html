@@ -1206,6 +1206,98 @@
       cursor: not-allowed;
     }
 
+    .runtime-textareas {
+      display: grid;
+      gap: 12px;
+      margin-top: 2px;
+    }
+
+    .runtime-pref-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+        rgba(10, 10, 10, 0.22);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .runtime-pref-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .runtime-pref-title {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #efeae3;
+    }
+
+    .runtime-pref-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(90, 169, 230, 0.28);
+      background: rgba(90, 169, 230, 0.1);
+      color: #b9daf2;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .runtime-pref-copy {
+      margin: 0;
+      color: #a8a19a;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .runtime-textareas textarea {
+      width: 100%;
+      min-height: 88px;
+      resize: vertical;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(8, 8, 8, 0.68);
+      color: var(--text);
+      padding: 11px 12px;
+      font: inherit;
+      line-height: 1.5;
+      transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+    }
+
+    .runtime-textareas textarea::placeholder {
+      color: #7f7872;
+    }
+
+    .runtime-textareas textarea:hover {
+      border-color: rgba(255, 255, 255, 0.16);
+      background: rgba(12, 12, 12, 0.76);
+    }
+
+    .runtime-textareas textarea:focus {
+      outline: none;
+      border-color: rgba(90, 169, 230, 0.58);
+      box-shadow: 0 0 0 3px rgba(90, 169, 230, 0.14);
+      background: rgba(14, 14, 14, 0.82);
+    }
+
+    .runtime-pref-footnote {
+      margin: -2px 0 0;
+      color: #8e8882;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
     @media (max-width: 1100px) {
       .control-grid {
         grid-template-columns: 1fr;
@@ -1399,14 +1491,24 @@
                 <p class="control-group-note">In A2A mode, Chanakya sends the next chat turn through the configured endpoint and can include remote agent and model overrides. The selected A2A agent applies to both direct replies and conversation-layer follow-ups.</p>
                 {% endif %}
                 <div class="runtime-textareas">
-                  <label>
-                    Conversation Tone
+                  <div class="runtime-pref-card">
+                    <div class="runtime-pref-head">
+                      <p class="runtime-pref-title">Conversation Tone</p>
+                      <span class="runtime-pref-badge">Default Loaded</span>
+                    </div>
+                    <p class="runtime-pref-copy">Controls the voice and style of Chanakya's delivered classic-chat replies.</p>
                     <textarea id="conversationToneInstructionInput" placeholder="Optional instruction for the conversational voice and style of classic-chat delivery."></textarea>
-                  </label>
-                  <label>
-                    TTS Instruction
+                    <p class="runtime-pref-footnote">Best for nudging warmth, formality, directness, or personality without changing the actual answer.</p>
+                  </div>
+                  <div class="runtime-pref-card">
+                    <div class="runtime-pref-head">
+                      <p class="runtime-pref-title">TTS Instruction</p>
+                      <span class="runtime-pref-badge">Voice Ready</span>
+                    </div>
+                    <p class="runtime-pref-copy">Shapes phrasing so replies sound cleaner and more natural when spoken aloud.</p>
                     <textarea id="ttsInstructionInput" placeholder="Optional instruction for TTS-friendly formatting and spoken delivery."></textarea>
-                  </label>
+                    <p class="runtime-pref-footnote">Use this for pacing, spoken clarity, expressive markup, or avoiding awkward punctuation patterns.</p>
+                  </div>
                 </div>
                 <p class="control-group-note">These apply to future classic-chat conversation-layer delivery, shaping how Chanakya phrases replies and formats them for spoken output.</p>
                 <div class="air-controls">
