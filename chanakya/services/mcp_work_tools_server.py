@@ -211,20 +211,15 @@ def _build_work_tools_server() -> FastMCP:
     chat_service = _build_chat_service(store, session_factory)
 
     @mcp.tool()
-    def create_work(title: str, description: str = "") -> dict[str, Any]:
-        """Create a new work item.
-
-        Use this only when the user explicitly asks to create a new work item.
-        This only creates the work and its per-agent sessions.
-        """
-        return _create_work(store, title=title, description=description)
-
-    @mcp.tool()
     def create_work_with_message(title: str, description: str = "", message: str = "") -> dict[str, Any]:
         """Create a new work item and send the initial user request to it.
 
         Use this when the user explicitly asks to create or start a new work
         for a specific request and you already know the initial message to send.
+
+        Do not use this for referential follow-ups to an existing work. For
+        follow-ups like save it, continue it, update it, or put it in the
+        workspace, reuse the existing work and call send_message_to_work.
         """
         return _create_work_with_message(
             store,
@@ -240,6 +235,9 @@ def _build_work_tools_server() -> FastMCP:
 
         By default this returns active works so classic chat can inspect the
         currently available work queue. Pass an empty status to list all works.
+
+        Use the returned work_id values to continue or update existing work via
+        send_message_to_work rather than creating duplicate work items.
 
         Returns a list of works sorted by creation time (newest first).
         Each work includes id, title, description, status, and timestamps.
@@ -296,11 +294,14 @@ def _build_work_tools_server() -> FastMCP:
     def send_message_to_work(work_id: str, message: str) -> dict[str, Any]:
         """Send a message into an existing work's chat session.
 
-        The message is appended to the Chanakya agent session for
-        this work. The work's agent will process it on the next run.
+        The message is appended to the Chanakya agent session for this work and
+        processing is started in the background.
 
-        Use this when the user explicitly asks to communicate with
-        an ongoing work item from classic chat.
+        Use this when the user explicitly asks to communicate with an ongoing
+        work item from classic chat, including when the user refers to a
+        recently listed or notified work by title or work_id.
+
+        Never tell the user the message was sent unless this tool call succeeds.
         """
         return _send_message_to_work(
             store,
@@ -333,7 +334,9 @@ def _build_work_tools_server() -> FastMCP:
         """List pending work notifications for completed, failed, or blocked work.
 
         Use this when the user asks for work updates, completed items, pending
-        input requests, or failures across active works.
+        input requests, or failures across active works. The returned items
+        include work_id values that should be reused when the user asks to send
+        a follow-up message to one of those works.
         """
         return _get_pending_work_messages(
             store,

@@ -2414,7 +2414,7 @@ class AgentManager:
         sandbox_work_id: str,
     ) -> str:
         return (
-            f"Use work_id='{sandbox_work_id}' for sandbox tool calls.\n"
+            f"Use work_id='{sandbox_work_id}' for sandbox and filesystem tool calls.\n"
             f"Sandbox workspace (host path reference): {sandbox_workspace}\n"
             "Inside sandbox tools, /workspace is already the root for this same work session.\n"
             "All agents working on this request must share this sandbox by using the same work_id.\n"
@@ -3626,6 +3626,7 @@ class AgentManager:
             client=self._resolve_client(),
             usage_text=prompt,
             include_history=include_history,
+            prompt_addendum=self._build_active_workspace_prompt_addendum(profile),
         )
         profile_session_id = (
             self._resolve_profile_session_id(profile)
@@ -3666,6 +3667,7 @@ class AgentManager:
                 client=self._resolve_client(),
                 usage_text=seeded_prompt,
                 include_history=False,
+                prompt_addendum=self._build_active_workspace_prompt_addendum(profile),
             )
             fallback_session = (
                 None
@@ -3720,6 +3722,40 @@ class AgentManager:
             chunks.append(f"{role}: {str(item.get('content') or '')}")
         chunks.append(f"User: {user_text}")
         return "\n".join(chunks)
+
+    def _build_active_workspace_prompt_addendum(
+        self,
+        profile: AgentProfileModel,
+    ) -> str | None:
+        if not _ACTIVE_WORK_ID.get():
+            return None
+        tool_ids = set(profile.tool_ids_json or [])
+        if not ({"mcp_filesystem", "mcp_code_execution"} & tool_ids):
+            return None
+        sandbox_work_id = self._resolve_current_sandbox_work_id()
+        sandbox_workspace = self._resolve_current_shared_workspace()
+        lines = [
+            f"Active work context: use work_id='{sandbox_work_id}'.",
+            f"Shared workspace host path: {sandbox_workspace}",
+            "Inside sandbox execution tools, /workspace already points to this same work directory.",
+        ]
+        if "mcp_filesystem" in tool_ids:
+            lines.extend(
+                [
+                    "For filesystem tool calls, always pass the current work_id explicitly.",
+                    f"Use mcp_filesystem_write_text_file(path=..., content=..., work_id='{sandbox_work_id}') to save text files for this work.",
+                    f"Use mcp_filesystem_read_text_file(path=..., work_id='{sandbox_work_id}') and mcp_filesystem_list_directory(path=..., work_id='{sandbox_work_id}') to inspect the same workspace.",
+                    "If you omit work_id, files may go to temp instead of the active work.",
+                ]
+            )
+        if "mcp_code_execution" in tool_ids:
+            lines.extend(
+                [
+                    f"For sandbox execution, always pass work_id='{sandbox_work_id}'.",
+                    "Files written with the filesystem tools for this work_id are visible inside sandbox execution at /workspace/.",
+                ]
+            )
+        return "\n".join(lines)
 
     def _get_a2a_agent(self, selected_url: str) -> Any:
         if not selected_url:
@@ -3776,6 +3812,7 @@ class AgentManager:
             system_prompt = build_profile_agent_config_for_usage(
                 profile,
                 usage_text=prompt,
+                prompt_addendum=self._build_active_workspace_prompt_addendum(profile),
                 repo_root=Path(__file__).resolve().parents[1],
             ).system_prompt
         else:

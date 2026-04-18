@@ -806,6 +806,59 @@ def test_normal_chat_uses_classic_runtime_prompt_addendum_for_direct_runs() -> N
     assert "Optimize for speed and direct completion" in runtime.last_prompt_addendum
 
 
+def test_worker_prompt_addendum_includes_active_workspace_tool_guidance(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    developer_profile = store.get_agent_profile("agent_developer")
+    developer_profile.tool_ids_json = ["mcp_filesystem", "mcp_code_execution"]
+    manager = AgentManager(store, store.Session, manager_profile)
+    store.create_work(work_id="work_tool_guidance", title="Tool Guidance", description="")
+
+    captured: dict[str, str | None] = {"prompt_addendum": None}
+
+    class _FakeAgent:
+        def create_session(self, *, session_id: str | None = None):
+            return type("Session", (), {"session_id": session_id, "state": {}})()
+
+        async def run(self, message, session=None, options=None):
+            return SimpleNamespace(
+                raw_representation={
+                    "message": {"artifacts": [{"parts": [{"type": "text", "text": "saved"}]}]}
+                }
+            )
+
+    def _fake_build_profile_agent(*args, **kwargs):
+        captured["prompt_addendum"] = kwargs.get("prompt_addendum")
+        return _FakeAgent(), object()
+
+    monkeypatch.setattr("chanakya.agent_manager.build_profile_agent", _fake_build_profile_agent)
+
+    tokens = manager.bind_execution_context(
+        session_id="session_tool_guidance",
+        work_id="work_tool_guidance",
+    )
+    try:
+        manager._run_profile_prompt_with_options(
+            developer_profile,
+            "Create a file in the workspace",
+            include_history=False,
+            store=False,
+            use_work_session=False,
+        )
+    finally:
+        manager.reset_execution_context(tokens)
+
+    assert captured["prompt_addendum"] is not None
+    assert "Active work context: use work_id='work_tool_guidance'." in str(
+        captured["prompt_addendum"]
+    )
+    assert "mcp_filesystem_write_text_file" in str(captured["prompt_addendum"])
+    assert "If you omit work_id, files may go to temp" in str(captured["prompt_addendum"])
+
+
 def test_work_mode_uses_work_runtime_prompt_addendum_for_direct_runs() -> None:
     store = _build_store()
     chanakya = _seed_agent(store, "agent_chanakya", "Chanakya", "personal_assistant")
@@ -1889,7 +1942,7 @@ def test_researcher_stage_prompt_requires_actual_findings() -> None:
 
     assert "Return completed research findings" in prompt
     assert "Include facts, references_or_sources, uncertainties, and notes_for_writer" in prompt
-    assert "Use work_id='temp' for sandbox tool calls." in prompt
+    assert "Use work_id='temp' for sandbox and filesystem tool calls." in prompt
     assert "Do not create or write under /workspace/<work_id>/" in prompt
 
 
