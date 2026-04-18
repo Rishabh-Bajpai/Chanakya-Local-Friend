@@ -20,6 +20,7 @@ from pytest import MonkeyPatch
 import chanakya.app as app_module
 from chanakya.agent.runtime import MAFRuntime, normalize_runtime_backend
 from chanakya.app import create_app, _parse_runtime_config_payload, _normalize_runtime_config
+from chanakya.conversation_layer_support import get_conversation_preference_defaults
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.domain import ChatReply
 from chanakya.model import AgentProfileModel
@@ -60,6 +61,8 @@ class _ChatServiceCaptureStub:
         a2a_remote_agent: str | None = None,
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
+        conversation_tone_instruction: str | None = None,
+        tts_instruction: str | None = None,
     ) -> ChatReply:
         self.calls.append(
             {
@@ -72,6 +75,8 @@ class _ChatServiceCaptureStub:
                 "a2a_remote_agent": a2a_remote_agent,
                 "a2a_model_provider": a2a_model_provider,
                 "a2a_model_id": a2a_model_id,
+                "conversation_tone_instruction": conversation_tone_instruction,
+                "tts_instruction": tts_instruction,
             }
         )
         return ChatReply(
@@ -249,9 +254,15 @@ def test_parse_runtime_config_falls_back_to_env_a2a_url(monkeypatch: MonkeyPatch
 
 def test_normalize_runtime_config_fills_defaults_for_none() -> None:
     config = _normalize_runtime_config(None)
+    defaults = get_conversation_preference_defaults()
     assert config["backend"] == "local"
     assert config["model_id"] is None
     assert config["a2a_remote_agent"] is None
+    assert (
+        config["conversation_tone_instruction"]
+        == defaults["conversation_tone_instruction"]
+    )
+    assert config["tts_instruction"] == defaults["tts_instruction"]
 
 
 def test_normalize_runtime_config_preserves_a2a_backend() -> None:
@@ -629,12 +640,16 @@ def test_parse_runtime_config_payload_strips_whitespace() -> None:
             "a2a_remote_agent": "  planner  ",
             "a2a_model_provider": "  lmstudio  ",
             "a2a_model_id": "  qwen3  ",
+            "conversation_tone_instruction": "  Dry tone  ",
+            "tts_instruction": "  Speak naturally  ",
         }
     )
     assert config["backend"] == "a2a"
     assert config["a2a_remote_agent"] == "planner"
     assert config["a2a_model_provider"] == "lmstudio"
     assert config["a2a_model_id"] == "qwen3"
+    assert config["conversation_tone_instruction"] == "Dry tone"
+    assert config["tts_instruction"] == "Speak naturally"
 
 
 def test_parse_runtime_config_payload_empty_strings_become_none() -> None:
@@ -644,11 +659,15 @@ def test_parse_runtime_config_payload_empty_strings_become_none() -> None:
             "a2a_remote_agent": "",
             "a2a_model_provider": "",
             "a2a_model_id": "",
+            "conversation_tone_instruction": "",
+            "tts_instruction": "",
         }
     )
     assert config["a2a_remote_agent"] is None
     assert config["a2a_model_provider"] is None
     assert config["a2a_model_id"] is None
+    assert config["conversation_tone_instruction"] is None
+    assert config["tts_instruction"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -670,6 +689,8 @@ def test_runtime_config_round_trip_preserves_all_fields(
             "a2a_remote_agent": "build",
             "a2a_model_provider": "lmstudio",
             "a2a_model_id": "qwen/qwen3.5-9b",
+            "conversation_tone_instruction": "Friendly and crisp.",
+            "tts_instruction": "Optimize for speech.",
         },
     )
 
@@ -679,6 +700,8 @@ def test_runtime_config_round_trip_preserves_all_fields(
     assert fetched["a2a_remote_agent"] == "build"
     assert fetched["a2a_model_provider"] == "lmstudio"
     assert fetched["a2a_model_id"] == "qwen/qwen3.5-9b"
+    assert fetched["conversation_tone_instruction"] == "Friendly and crisp."
+    assert fetched["tts_instruction"] == "Optimize for speech."
 
 
 def test_runtime_config_switch_back_to_local(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:

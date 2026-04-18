@@ -31,6 +31,21 @@ from conversation_layer.services.working_memory import (  # noqa: E402
 )
 
 
+DEFAULT_CONVERSATION_TONE_INSTRUCTION = (
+    "Use a natural, friendly, conversational tone that feels good in spoken dialogue."
+)
+DEFAULT_TTS_INSTRUCTION = (
+    "Make the text easy for TTS to read naturally. Use clear spoken phrasing and avoid awkward punctuation patterns."
+)
+
+
+def get_conversation_preference_defaults() -> dict[str, str]:
+    return {
+        "conversation_tone_instruction": DEFAULT_CONVERSATION_TONE_INSTRUCTION,
+        "tts_instruction": DEFAULT_TTS_INSTRUCTION,
+    }
+
+
 @dataclass(slots=True)
 class ConversationLayerResult:
     response: str
@@ -113,6 +128,8 @@ class ConversationLayerSupport:
         a2a_remote_agent: str | None = None,
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
+        conversation_tone_instruction: str | None = None,
+        tts_instruction: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> ConversationLayerResult:
         orchestration_agent = self._build_orchestration_agent(
@@ -146,6 +163,16 @@ class ConversationLayerSupport:
                     "conversation_preferences": {
                         "tone": "warm, natural, human",
                         "verbosity": "medium",
+                        **(
+                            {"conversation_tone_instruction": conversation_tone_instruction}
+                            if conversation_tone_instruction
+                            else {}
+                        ),
+                        **(
+                            {"tts_instruction": tts_instruction}
+                            if tts_instruction
+                            else {}
+                        ),
                     },
                 },
             )

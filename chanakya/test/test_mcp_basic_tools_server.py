@@ -4,6 +4,77 @@ from pathlib import Path
 import pytest
 
 from chanakya.services import mcp_basic_tools_server as server
+from chanakya.services import sandbox_workspace
+
+
+def test_filesystem_tools_write_and_read_from_shared_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+
+    result = server._write_text_file("notes/output.txt", "hello", work_id="work_123")
+
+    workspace = sandbox_workspace.resolve_shared_workspace("work_123")
+    assert result["ok"] is True
+    assert result["work_id"] == "work_123"
+    assert result["path"] == "notes/output.txt"
+    assert Path(str(result["workspace_root"])) == workspace
+    assert (workspace / "notes" / "output.txt").read_text(encoding="utf-8") == "hello"
+
+    read_back = server._read_text_file("notes/output.txt", work_id="work_123")
+    assert read_back["content"] == "hello"
+    assert read_back["work_id"] == "work_123"
+
+
+def test_filesystem_tools_are_scoped_by_work_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+
+    server._write_text_file("shared.txt", "alpha", work_id="work_a")
+    server._write_text_file("shared.txt", "beta", work_id="work_b")
+
+    assert server._read_text_file("shared.txt", work_id="work_a")["content"] == "alpha"
+    assert server._read_text_file("shared.txt", work_id="work_b")["content"] == "beta"
+
+
+def test_list_directory_uses_shared_workspace_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    workspace = sandbox_workspace.resolve_shared_workspace("work_list")
+    (workspace / "src").mkdir(parents=True, exist_ok=True)
+    (workspace / "src" / "main.py").write_text("print('hi')", encoding="utf-8")
+
+    result = server._list_directory("src", work_id="work_list")
+
+    assert result["work_id"] == "work_list"
+    assert result["path"] == "src"
+    assert result["entries"] == [
+        {
+            "name": "main.py",
+            "path": "src/main.py",
+            "is_dir": False,
+            "size": 11,
+        }
+    ]
+
+
+def test_filesystem_tools_reject_unknown_classic_workspaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+
+    with pytest.raises(FileNotFoundError):
+        server._write_text_file("notes.txt", "hello", work_id="cwork_missing")
 
 
 def test_http_get_json_failure_trims_with_map_limit(monkeypatch: pytest.MonkeyPatch) -> None:

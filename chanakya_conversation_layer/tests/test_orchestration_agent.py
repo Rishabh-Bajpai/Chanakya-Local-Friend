@@ -57,7 +57,10 @@ def test_orchestration_agent_can_plan_over_a2a_with_opencode_options() -> None:
 
     assert result["messages"][0]["text"] == "planned"
     assert planner._a2a_agent is not None
-    assert planner._a2a_agent.calls[0]["session_id"] == "conversation-layer-planner:qwen-override"
+    assert (
+        planner._a2a_agent.calls[0]["session_id"]
+        == "conversation-layer-planner:qwen-override"
+    )
     assert (
         "[[opencode-options:agent=planner;model_provider=lmstudio;model_id=qwen-override]]"
         in str(planner._a2a_agent.calls[0]["text"])

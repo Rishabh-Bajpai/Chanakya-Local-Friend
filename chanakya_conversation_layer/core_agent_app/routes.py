@@ -17,6 +17,7 @@ def register_routes(app: Flask) -> None:
     @app.get("/runtime/options")
     def runtime_options() -> tuple[dict, int]:
         raw_agent = app.extensions.get("raw_agent")
+        conversation_wrapper = app.extensions.get("conversation_wrapper")
         core_agent_options = (
             raw_agent.runtime_options()
             if raw_agent is not None and hasattr(raw_agent, "runtime_options")
@@ -29,6 +30,12 @@ def register_routes(app: Flask) -> None:
             {
                 "core_agent": core_agent_options,
                 "conversation_orchestration": orchestration_options,
+                "conversation_layer": (
+                    conversation_wrapper.runtime_options()
+                    if conversation_wrapper is not None
+                    and hasattr(conversation_wrapper, "runtime_options")
+                    else {}
+                ),
             }
         ), 200
 

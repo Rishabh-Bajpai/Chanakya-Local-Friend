@@ -112,12 +112,118 @@ def test_wrapper_calls_core_and_queues_remaining_messages(tmp_path):
     ]
     assert "conversation_preferences" not in planner.calls[0]["payload"]
     assert (
-        "Each message should usually be short, conversational, and at most 1 to 3 sentences."
+        "Segmentation rules: split at natural spoken pause points"
+        in planner.calls[1]["instructions"]
+    )
+    assert (
+        "convert the latest core response into the full ordered set of assistant messages to deliver for this turn"
+        in planner.calls[1]["instructions"]
+    )
+    assert (
+        "your job is voice-friendly delivery planning, not answer generation"
+        in planner.calls[1]["instructions"]
+    )
+    assert planner.calls[1]["payload"]["planner_role"] == "lossless_voice_segmentation"
+    assert planner.calls[1]["payload"]["delivery_mode"] == "full_turn_queue_planning"
+    assert (
+        planner.calls[1]["payload"]["conversation_tone_instruction"]
+        == "Use a natural, friendly, conversational tone that feels good in spoken dialogue."
+    )
+    assert (
+        planner.calls[1]["payload"]["tts_instruction"]
+        == "Make the text easy for TTS to read naturally. Use clear spoken phrasing and avoid awkward punctuation patterns."
+    )
+    assert (
+        planner.calls[1]["payload"]["output_schema"]["coverage_assertion"] == "complete"
+    )
+    assert "delivery_plan" in planner.calls[1]["payload"]["output_schema"]
+    assert (
+        "follow the conversation_tone_instruction for delivery tone"
+        in planner.calls[1]["instructions"]
+    )
+    assert (
+        "follow the tts_instruction for speech formatting"
         in planner.calls[1]["instructions"]
     )
     assert (
         "0 to 3 human-sounding future assistant messages"
         not in planner.calls[1]["instructions"]
+    )
+
+
+def test_wrapper_passes_custom_tone_and_tts_instructions(tmp_path):
+    wrapper, _, planner, _ = _build_wrapper(
+        tmp_path,
+        core_text="Raw core answer.",
+        planner_responses=[
+            {
+                "use_core_agent": True,
+                "reasoning": "Need the core agent.",
+                "message_for_core_agent": "hello",
+                "queue_action": "replace",
+            },
+            {
+                "reasoning": "Single message.",
+                "delivery_plan": [
+                    {"text": "It works.", "purpose": "content"},
+                ],
+                "coverage_assertion": "complete",
+            },
+        ],
+    )
+
+    wrapper.handle(
+        ChatRequest(
+            session_id="s1",
+            message="hello",
+            metadata={
+                "conversation_preferences": {
+                    "conversation_tone_instruction": (
+                        "The user likes dry, mildly sarcastic replies."
+                    ),
+                    "tts_instruction": (
+                        "Use expressive tags like <cough> sparingly when they improve delivery."
+                    ),
+                }
+            },
+        )
+    )
+
+    assert (
+        planner.calls[1]["payload"]["conversation_tone_instruction"]
+        == "The user likes dry, mildly sarcastic replies."
+    )
+    assert (
+        planner.calls[1]["payload"]["tts_instruction"]
+        == "Use expressive tags like <cough> sparingly when they improve delivery."
+    )
+
+
+def test_wrapper_runtime_options_expose_conversation_preference_fields(tmp_path):
+    wrapper, _, _, _ = _build_wrapper(
+        tmp_path,
+        core_text="Raw core answer.",
+        planner_responses=[],
+    )
+
+    options = wrapper.runtime_options()
+
+    assert options["conversation_preferences"]["supported_fields"] == [
+        "delay_between_messages_ms",
+        "conversation_tone_instruction",
+        "tts_instruction",
+    ]
+    assert (
+        options["conversation_preferences"]["defaults"]["delay_between_messages_ms"]
+        == 5000
+    )
+    assert (
+        options["conversation_preferences"]["defaults"]["conversation_tone_instruction"]
+        == "Use a natural, friendly, conversational tone that feels good in spoken dialogue."
+    )
+    assert (
+        options["conversation_preferences"]["defaults"]["tts_instruction"]
+        == "Make the text easy for TTS to read naturally. Use clear spoken phrasing and avoid awkward punctuation patterns."
     )
 
 
@@ -853,13 +959,14 @@ def test_numbered_core_response_uses_planner_delivery_plan(tmp_path):
             },
             {
                 "reasoning": "The planner owns delivery chunking for this response.",
-                "messages": [
+                "coverage_assertion": "complete",
+                "delivery_plan": [
                     {
                         "text": "Here’s another fun one: honey never spoils.",
-                        "delay_ms": 0,
+                        "purpose": "intro",
                     },
-                    {"text": "Octopuses have three hearts.", "delay_ms": 5000},
-                    {"text": "Bananas are berries.", "delay_ms": 5000},
+                    {"text": "Octopuses have three hearts.", "purpose": "content"},
+                    {"text": "Bananas are berries.", "purpose": "content"},
                 ],
             },
         ],
@@ -963,6 +1070,28 @@ def test_fallback_split_keeps_numbered_items_intact(tmp_path):
             {
                 "reasoning": "Single long planned message; wrapper should split safely.",
                 "messages": [{"text": core_text, "delay_ms": 0}],
+            },
+            {
+                "reasoning": "Retry with voice-friendly numbered pauses.",
+                "messages": [
+                    {"text": "Sure! Here are 10 random fun facts:", "delay_ms": 0},
+                    {
+                        "text": "1. Honey never spoils - archaeological finds have eaten honey over 3000 years old.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "2. Octopuses have three hearts and nine brains.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "3. The smallest bird, the bee hummingbird, weighs less than a dollar.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "4. Bananas are curved because they grow toward the light.",
+                        "delay_ms": 5000,
+                    },
+                ],
             },
         ],
     )
@@ -1107,6 +1236,31 @@ def test_requested_more_count_trims_overproduced_numbered_items(tmp_path):
                     }
                 ],
             },
+            {
+                "reasoning": "Retry and keep only the requested 5 items.",
+                "messages": [
+                    {
+                        "text": "5. A process of energy transformation that maintains order against entropy.",
+                        "delay_ms": 0,
+                    },
+                    {
+                        "text": "6. A network of cells and genes working together for survival and reproduction.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "7. The ability to adapt, evolve, and respond to environmental changes.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "8. A temporary state of organized complexity in the universe.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "9. A biological phenomenon marked by metabolism, growth, and response.",
+                        "delay_ms": 5000,
+                    },
+                ],
+            },
         ],
     )
 
@@ -1159,6 +1313,23 @@ def test_poem_layout_is_preserved_when_split(tmp_path):
             {
                 "reasoning": "Planner returned one long formatted message.",
                 "messages": [{"text": core_text, "delay_ms": 0}],
+            },
+            {
+                "reasoning": "Retry with stanza-aware spoken pauses.",
+                "messages": [
+                    {
+                        "text": "Of course! Here's a short, original poem for you:\n\n---\n\n**The Whisper of the Wind**\nBeneath the sky so wide and blue,\nWhere clouds drift slow in morning dew,\nA breeze sings soft, a lullaby,\nTo cradled hills and sleeping sky.",
+                        "delay_ms": 0,
+                    },
+                    {
+                        "text": "It dances through the trees at dawn,\nAnd hums where ancient rivers run.\nIt carries dreams from far away-\nLike stars that fall to greet the day.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "So close your eyes, let silence grow,\nAnd feel the world begin to glow.\nFor life is but a song, you see-\nA poem sung by you and me.\n\n---\n\nI hope you enjoyed it!",
+                        "delay_ms": 5000,
+                    },
+                ],
             },
         ],
     )
@@ -1319,6 +1490,19 @@ def test_dangling_number_marker_is_moved_to_next_message(tmp_path):
                     },
                 ],
             },
+            {
+                "reasoning": "Retry without dangling marker.",
+                "messages": [
+                    {
+                        "text": "Some explanation before the next item.",
+                        "delay_ms": 0,
+                    },
+                    {
+                        "text": "**2. Chapter 4, Verse 17 - On Action with Detachment.",
+                        "delay_ms": 5000,
+                    },
+                ],
+            },
         ],
     )
 
@@ -1366,6 +1550,27 @@ def test_long_freeform_core_response_is_not_collapsed_to_intro_line(tmp_path):
                         "text": "Of course! Here's a gentle, meaningful thing you could do today-something that's simple but can make a quiet difference in your day:",
                         "delay_ms": 0,
                     }
+                ],
+            },
+            {
+                "reasoning": "Retry with the full answer segmented for voice.",
+                "messages": [
+                    {
+                        "text": "Of course! Here's a gentle, meaningful thing you could do today-something that's simple but can make a quiet difference in your day: Take 10 minutes to write down three small things you're grateful for-no matter how tiny they seem.",
+                        "delay_ms": 0,
+                    },
+                    {
+                        "text": "It could be the way sunlight hits your window this morning, the smell of coffee brewing, or even just the fact that you got out of bed today.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "Then, if you feel up to it, share one of those things with someone-a friend, a family member, or even just text it to yourself as a reminder.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "It's not about grand gestures-just a little act of noticing what's good, even when life feels heavy. And who knows? That small moment might ripple into something bigger than you expect. You're already doing so much by showing up today.",
+                        "delay_ms": 5000,
+                    },
                 ],
             },
         ],
@@ -1435,6 +1640,35 @@ def test_wrapper_resplits_oversized_planner_message_into_small_chunks(tmp_path):
                     {
                         "text": "Making $10,000 per day is an ambitious and exciting goal-and definitely possible with the right strategy, mindset, and effort. Let's break it down realistically and explore some high-impact paths you could consider. First: Is It Realistic? Yes-but not overnight. Many people achieve this through: - High-income skills - Scalable businesses - Investments or passive income streams Let's look at realistic ways to get close to that goal. 1. Build a High-Income Skill & Freelance If you're skilled in software development, digital marketing, copywriting, or AI/ML engineering, you can charge premium rates. 2. Start an Online Business Build something scalable like e-commerce, SaaS, or digital products. 3. Content Creation & Monetization Build an audience and monetize through ads, sponsors, and products.",
                         "delay_ms": 0,
+                    },
+                    {"text": "1. Pick one path.", "delay_ms": 5000},
+                    {"text": "2. Learn it deeply.", "delay_ms": 5000},
+                    {"text": "3. Launch a small version.", "delay_ms": 5000},
+                    {"text": "4. Scale based on results.", "delay_ms": 5000},
+                ],
+            },
+            {
+                "reasoning": "Retry with voice-sized chunks.",
+                "messages": [
+                    {
+                        "text": "Making $10,000 per day is ambitious, but it can become realistic with the right strategy and a scalable path.",
+                        "delay_ms": 0,
+                    },
+                    {
+                        "text": "First, ground it in reality: people usually reach that level through high-income skills, scalable businesses, or strong investment income-not overnight.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "One route is premium freelancing in software, marketing, copywriting, or AI, where strong skill depth lets you charge high rates.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "Another route is an online business like e-commerce, SaaS, or digital products, because those can scale beyond your direct hours.",
+                        "delay_ms": 5000,
+                    },
+                    {
+                        "text": "A third route is content plus monetization, where audience growth later compounds through ads, sponsors, and products.",
+                        "delay_ms": 5000,
                     },
                     {"text": "1. Pick one path.", "delay_ms": 5000},
                     {"text": "2. Learn it deeply.", "delay_ms": 5000},

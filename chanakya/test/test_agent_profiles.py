@@ -16,7 +16,7 @@ def _build_store() -> ChanakyaStore:
     return ChanakyaStore(session_factory)
 
 
-def test_load_agent_seeds_creates_missing_agents_without_overwriting_existing(
+def test_load_agent_seeds_creates_missing_agents_and_refreshes_existing_profiles(
     tmp_path: Path,
 ) -> None:
     store = _build_store()
@@ -77,14 +77,15 @@ def test_load_agent_seeds_creates_missing_agents_without_overwriting_existing(
     developer = store.get_agent_profile("agent_developer")
     tester = store.get_agent_profile("agent_tester")
 
-    assert developer.name == "Custom Developer"
-    assert developer.system_prompt == "You are the customized developer agent."
-    assert developer.personality == "sharp, fast"
-    assert developer.tool_ids_json == ["mcp_fetch"]
-    assert developer.workspace == "custom-dev-workspace"
-    assert developer.heartbeat_enabled is True
-    assert developer.heartbeat_interval_seconds == 120
+    assert developer.name == "Seed Developer"
+    assert developer.system_prompt == "You are the seeded developer agent."
+    assert developer.personality == "methodical"
+    assert developer.tool_ids_json == []
+    assert developer.workspace == "seed-workspace"
+    assert developer.heartbeat_enabled is False
+    assert developer.heartbeat_interval_seconds == 300
     assert developer.heartbeat_file_path == "chanakya_data/agents/agent_developer/heartbeat.md"
+    assert developer.created_at == "2026-04-01T00:00:00+00:00"
 
     assert tester.name == "Seed Tester"
     assert tester.role == "tester"

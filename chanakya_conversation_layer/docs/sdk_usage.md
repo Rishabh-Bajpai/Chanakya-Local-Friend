@@ -156,6 +156,48 @@ response = wrapped_agent.handle(ChatRequest(session_id="user-123", message="Writ
 print("Initial Delivery:", response.response)
 ```
 
+## Per-Request Delivery Prompt Controls
+
+Client applications can tune the conversation-layer delivery prompt per request through `ChatRequest.metadata["conversation_preferences"]`.
+This is useful for testing different conversational styles and TTS-model-specific formatting instructions without changing the core agent.
+The wrapper only reads these fields. The host application is responsible for surfacing them however it wants, such as a settings panel, stored user preferences, or request-time overrides.
+
+Supported fields include:
+
+- `delay_between_messages_ms`
+- `conversation_tone_instruction`
+- `tts_instruction`
+
+Example:
+
+```python
+response = wrapped_agent.handle(
+    ChatRequest(
+        session_id="user-123",
+        message="Tell me a story.",
+        metadata={
+            "conversation_preferences": {
+                "conversation_tone_instruction": (
+                    "The user likes playful, lightly sarcastic replies."
+                ),
+                "tts_instruction": (
+                    "Use expressive tags like <cough> or <laugh> sparingly when they improve delivery."
+                ),
+            }
+        },
+    )
+)
+```
+
+If either field is omitted, the wrapper falls back to generic defaults.
+
+You can inspect the supported fields and defaults directly from the wrapper:
+
+```python
+options = wrapped_agent.runtime_options()
+print(options["conversation_preferences"])
+```
+
 ---
 
 ## Integrating an A2A Agent

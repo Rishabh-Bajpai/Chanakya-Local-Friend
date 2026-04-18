@@ -16,6 +16,22 @@ class FakeWrapperStateStore:
 class FakeWrapper:
     state_store: FakeWrapperStateStore
 
+    def runtime_options(self) -> dict:
+        return {
+            "conversation_preferences": {
+                "supported_fields": [
+                    "delay_between_messages_ms",
+                    "conversation_tone_instruction",
+                    "tts_instruction",
+                ],
+                "defaults": {
+                    "delay_between_messages_ms": 5000,
+                    "conversation_tone_instruction": "default tone",
+                    "tts_instruction": "default tts",
+                },
+            }
+        }
+
     def handle(self, chat_request: ChatRequest) -> ChatResponse:
         return ChatResponse(
             session_id=chat_request.session_id,
@@ -91,6 +107,13 @@ def test_runtime_options_route_returns_configured_targets(tmp_path):
     assert payload["core_agent"]["targets"][1]["remote_agents"] == ["build", "plan"]
     assert "conversation_orchestration" in payload
     assert "default_model_id" in payload["conversation_orchestration"]
+    assert "conversation_layer" in payload
+    assert (
+        payload["conversation_layer"]["conversation_preferences"]["supported_fields"][
+            -1
+        ]
+        == "tts_instruction"
+    )
 
 
 def test_chat_route_preserves_requested_backend_choice(tmp_path):

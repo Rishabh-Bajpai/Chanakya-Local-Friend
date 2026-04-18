@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import textwrap
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from conversation_layer.schemas import ChatRequest, ChatResponse, DeliveryMessage
@@ -17,17 +17,40 @@ from conversation_layer.services.working_memory import (
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass(slots=True)
 class ConversationWrapper:
     _MAX_DELIVERY_MESSAGE_CHARS = 320
+    _VOICE_RETRY_SENTENCE_THRESHOLD = 3
 
     agent: AgentInterface
     history_provider: Any | None = None
     orchestration_agent: MAFOrchestrationAgent | None = None
     state_store: ResponseStateStore = field(default_factory=InMemoryResponseStateStore)
+
+    def runtime_options(self) -> dict[str, Any]:
+        defaults = self._public_conversation_preferences_defaults()
+        return {
+            "conversation_preferences": {
+                "supported_fields": [
+                    "delay_between_messages_ms",
+                    "conversation_tone_instruction",
+                    "tts_instruction",
+                ],
+                "defaults": defaults,
+                "descriptions": {
+                    "delay_between_messages_ms": "Default pause between queued assistant messages.",
+                    "conversation_tone_instruction": (
+                        "Client-supplied instruction for the conversational voice and style of delivered messages."
+                    ),
+                    "tts_instruction": (
+                        "Client-supplied instruction for TTS-friendly formatting, including model-specific expressive markup if desired."
+                    ),
+                },
+            }
+        }
 
     def handle(self, chat_request: ChatRequest) -> ChatResponse:
         chat_request.validate()
@@ -49,12 +72,18 @@ class ConversationWrapper:
         interrupt_type = str(wm_decision.get("interrupt_type") or "")
         same_topic = bool(wm_decision.get("same_topic", False))
         clear_working_memory = bool(wm_decision.get("clear_working_memory", False))
-        preserve_delivered = bool(wm_decision.get("preserve_delivered_messages", same_topic))
+        preserve_delivered = bool(
+            wm_decision.get("preserve_delivered_messages", same_topic)
+        )
         preserve_pending = bool(wm_decision.get("preserve_pending_messages", False))
-        cancelled_pending_count = 0 if preserve_pending else len(prior_memory.pending_messages)
+        cancelled_pending_count = (
+            0 if preserve_pending else len(prior_memory.pending_messages)
+        )
 
         if clear_working_memory:
-            prior_memory = ResponseScopedWorkingMemory(session_id=chat_request.session_id)
+            prior_memory = ResponseScopedWorkingMemory(
+                session_id=chat_request.session_id
+            )
             queue_was_active = False
             same_topic = False
 
@@ -85,7 +114,9 @@ class ConversationWrapper:
             planned_messages = self._coerce_planned_messages(
                 [item["text"] for item in prior_pending_messages],
                 fallback_text="",
-                delay_between_messages_ms=int(preferences.get("delay_between_messages_ms") or 5000),
+                delay_between_messages_ms=int(
+                    preferences.get("delay_between_messages_ms") or 5000
+                ),
             )
             immediate_messages = []
             queued_messages = list(prior_pending_messages)
@@ -101,45 +132,31 @@ class ConversationWrapper:
             planned_messages = self._coerce_planned_messages(
                 planner_result.get("messages") or [],
                 fallback_text=core_response_text,
-                delay_between_messages_ms=int(preferences.get("delay_between_messages_ms") or 5000),
+                delay_between_messages_ms=int(
+                    preferences.get("delay_between_messages_ms") or 5000
+                ),
             )
-            planned_messages = self._restore_full_core_response_plan(
-                core_response_text,
-                planned_messages,
-                user_message=chat_request.message,
-                core_agent_called=core_agent_called,
+            immediate_messages, queued_messages = self._split_delivery_plan(
+                planned_messages
             )
-            planned_messages = self._enforce_requested_more_count(
-                user_message=chat_request.message,
-                planned_messages=planned_messages,
-                core_response_text=core_response_text,
-                core_agent_called=core_agent_called,
-            )
-            planned_messages = self._enforce_detailed_request_coverage(
-                user_message=chat_request.message,
-                planned_messages=planned_messages,
-                core_response_text=core_response_text,
-                core_agent_called=core_agent_called,
-            )
-            planned_messages = self._refine_planned_messages(
-                planned_messages,
-                delay_between_messages_ms=int(preferences.get("delay_between_messages_ms") or 5000),
-            )
-            planned_messages = self._stitch_dangling_numeric_markers(planned_messages)
-            immediate_messages, queued_messages = self._split_delivery_plan(planned_messages)
 
-        delivered_base = list(prior_memory.delivered_messages) if preserve_delivered else []
+        delivered_base = (
+            list(prior_memory.delivered_messages) if preserve_delivered else []
+        )
         delivered_messages = [*delivered_base, *immediate_messages]
         current_turn_messages = list(immediate_messages)
         memory = ResponseScopedWorkingMemory(
             session_id=chat_request.session_id,
-            topic_state="active" if same_topic or core_response_text.strip() else "idle",
+            topic_state="active"
+            if same_topic or core_response_text.strip()
+            else "idle",
             topic_label=self._topic_label(chat_request.message, core_response_text),
             current_user_message=chat_request.message,
             latest_user_message=chat_request.message,
             latest_user_intent=interrupt_type,
             topic_continuity_confidence=float(
-                wm_decision.get("topic_continuity_confidence") or (1.0 if same_topic else 0.0)
+                wm_decision.get("topic_continuity_confidence")
+                or (1.0 if same_topic else 0.0)
             ),
             latest_core_response=core_response_text,
             planned_messages=planned_messages,
@@ -173,7 +190,8 @@ class ConversationWrapper:
             message.text for message in immediate_messages if message.text.strip()
         )
         selected_orchestration_model = str(
-            (chat_request.metadata or {}).get("conversation_orchestration_model_id") or ""
+            (chat_request.metadata or {}).get("conversation_orchestration_model_id")
+            or ""
         ).strip()
         return ChatResponse(
             session_id=chat_request.session_id,
@@ -194,7 +212,9 @@ class ConversationWrapper:
                 "wm_manager": wm_decision,
                 "conversation_planner": planner_result,
                 "conversation_preferences": preferences,
-                "conversation_orchestration_model_id": (selected_orchestration_model or None),
+                "conversation_orchestration_model_id": (
+                    selected_orchestration_model or None
+                ),
             },
         )
 
@@ -271,13 +291,16 @@ class ConversationWrapper:
             return [text]
 
         sentence_chunks = [
-            sentence.strip() for sentence in text.replace("\n", " ").split(". ") if sentence.strip()
+            sentence.strip()
+            for sentence in text.replace("\n", " ").split(". ")
+            if sentence.strip()
         ]
         if len(sentence_chunks) <= 1:
             return [text]
 
         normalized = [
-            chunk if chunk.endswith((".", "!", "?")) else f"{chunk}." for chunk in sentence_chunks
+            chunk if chunk.endswith((".", "!", "?")) else f"{chunk}."
+            for chunk in sentence_chunks
         ]
         if len(normalized) <= 3:
             return normalized
@@ -353,7 +376,11 @@ class ConversationWrapper:
             if re.match(r"^\d+\.\s+\S+", segment):
                 sentences.append(segment.strip())
                 continue
-            parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", segment) if part.strip()]
+            parts = [
+                part.strip()
+                for part in re.split(r"(?<=[.!?])\s+", segment)
+                if part.strip()
+            ]
             if parts:
                 sentences.extend(parts)
             else:
@@ -370,7 +397,9 @@ class ConversationWrapper:
         return len(non_empty_lines) >= 4
 
     def _split_preserving_layout(self, text: str) -> list[str]:
-        blocks = [block.strip("\n") for block in re.split(r"\n{2,}", text) if block.strip()]
+        blocks = [
+            block.strip("\n") for block in re.split(r"\n{2,}", text) if block.strip()
+        ]
         if not blocks:
             return [text]
 
@@ -480,7 +509,11 @@ class ConversationWrapper:
         user_message: str,
         core_agent_called: bool,
     ) -> list[DeliveryMessage]:
-        if not core_agent_called or not core_response_text.strip() or not planned_messages:
+        if (
+            not core_agent_called
+            or not core_response_text.strip()
+            or not planned_messages
+        ):
             return planned_messages
 
         normalized_core = self._normalize_comparison_text(core_response_text)
@@ -494,7 +527,10 @@ class ConversationWrapper:
         planned_numbered_count = self._numbered_item_count(
             " ".join(message.text for message in planned_messages)
         )
-        if core_numbered_count >= 4 and 0 < planned_numbered_count < core_numbered_count:
+        if (
+            core_numbered_count >= 4
+            and 0 < planned_numbered_count < core_numbered_count
+        ):
             return self._plan_delivery(core_response_text)
 
         coverage_ratio = len(normalized_planned) / len(normalized_core)
@@ -579,7 +615,9 @@ class ConversationWrapper:
             return planned_messages
 
         combined_planned = "\n".join(message.text for message in planned_messages)
-        source_text = combined_planned if combined_planned.strip() else core_response_text
+        source_text = (
+            combined_planned if combined_planned.strip() else core_response_text
+        )
         numbered_items = self._extract_numbered_items(source_text)
         if len(numbered_items) <= requested_more:
             return planned_messages
@@ -640,7 +678,9 @@ class ConversationWrapper:
                 carry_marker = marker
 
             if text:
-                stitched.append(DeliveryMessage(text=text, delay_ms=int(message.delay_ms)))
+                stitched.append(
+                    DeliveryMessage(text=text, delay_ms=int(message.delay_ms))
+                )
 
         if carry_marker and stitched:
             last = stitched[-1]
@@ -673,7 +713,11 @@ class ConversationWrapper:
         core_response_text: str,
         core_agent_called: bool,
     ) -> list[DeliveryMessage]:
-        if not core_agent_called or not planned_messages or not core_response_text.strip():
+        if (
+            not core_agent_called
+            or not planned_messages
+            or not core_response_text.strip()
+        ):
             return planned_messages
         if not self._is_detailed_request(user_message):
             return planned_messages
@@ -714,7 +758,9 @@ class ConversationWrapper:
         except ValueError:
             return 0
 
-    def _rewrite_history(self, session_id: str, planned_messages: list[DeliveryMessage]) -> None:
+    def _rewrite_history(
+        self, session_id: str, planned_messages: list[DeliveryMessage]
+    ) -> None:
         if self.history_provider is None or not hasattr(
             self.history_provider, "rewrite_latest_assistant_turn"
         ):
@@ -749,14 +795,33 @@ class ConversationWrapper:
         return re.sub(r"\s+", " ", (text or "").strip()).lower()
 
     def _conversation_preferences(self, chat_request: ChatRequest) -> dict[str, Any]:
-        preferences = {
+        preferences = self._default_conversation_preferences()
+        preferences.update(
+            (chat_request.metadata or {}).get("conversation_preferences") or {}
+        )
+        return preferences
+
+    def _default_conversation_preferences(self) -> dict[str, Any]:
+        return {
             "tone": "warm, natural, human",
             "verbosity": "medium",
             "delivery_style": "multi_step",
             "delay_between_messages_ms": 5000,
+            "conversation_tone_instruction": (
+                "Use a natural, friendly, conversational tone that feels good in spoken dialogue."
+            ),
+            "tts_instruction": (
+                "Make the text easy for TTS to read naturally. Use clear spoken phrasing and avoid awkward punctuation patterns."
+            ),
         }
-        preferences.update((chat_request.metadata or {}).get("conversation_preferences") or {})
-        return preferences
+
+    def _public_conversation_preferences_defaults(self) -> dict[str, Any]:
+        defaults = self._default_conversation_preferences()
+        return {
+            "delay_between_messages_ms": defaults["delay_between_messages_ms"],
+            "conversation_tone_instruction": defaults["conversation_tone_instruction"],
+            "tts_instruction": defaults["tts_instruction"],
+        }
 
     def _run_wm_manager(
         self,
@@ -787,12 +852,13 @@ class ConversationWrapper:
         }
         instructions = (
             "You are the working-memory manager for a thin conversation delivery layer. "
-            "This memory belongs to the currently active topic and should persist across same-topic follow-ups. "
-            "Classify the latest user message as one of: ack_continue, adapt_remaining, adapt_remaining_with_core, or reset_and_new_query. "
-            "For ack_continue, preserve the same-topic memory and usually avoid a new core-agent call. "
-            "For adapt_remaining, keep already delivered content and adjust only the future undelivered content using the user's latest message. "
-            "For adapt_remaining_with_core, keep the same topic, preserve already delivered content, and call the core agent for new information that should replace or refine only the remaining undelivered content. Use this especially when the user constrains the next pending item, such as 'don't make the next joke about Switzerland'. "
-            "For reset_and_new_query, clear the active-topic working memory and start a new topic. "
+            "The memory belongs to the current topic and should persist across same-topic follow-ups. "
+            "Classify the latest user message as exactly one of: ack_continue, adapt_remaining, adapt_remaining_with_core, or reset_and_new_query. "
+            "ack_continue: the user is asking to continue the current queued answer; usually preserve the queue and avoid a core-agent call. "
+            "adapt_remaining: keep delivered content, keep the same topic, and adjust only future undelivered content using the latest user message. "
+            "adapt_remaining_with_core: keep delivered content, keep the same topic, and call the core agent for new information that should replace or refine only the remaining undelivered content. "
+            "reset_and_new_query: clear active-topic working memory and start a new topic. "
+            "Prefer the smallest intervention that satisfies the latest user message. "
             "Return only valid JSON."
         )
         try:
@@ -803,7 +869,9 @@ class ConversationWrapper:
                 payload=payload,
             )
             return {
-                "interrupt_type": str(result.get("interrupt_type") or fallback["interrupt_type"]),
+                "interrupt_type": str(
+                    result.get("interrupt_type") or fallback["interrupt_type"]
+                ),
                 "same_topic": bool(result.get("same_topic", fallback["same_topic"])),
                 "topic_continuity_confidence": float(
                     result.get(
@@ -816,7 +884,9 @@ class ConversationWrapper:
                 "message_for_core_agent": str(
                     result.get("message_for_core_agent") or chat_request.message
                 ),
-                "queue_action": str(result.get("queue_action") or fallback["queue_action"]),
+                "queue_action": str(
+                    result.get("queue_action") or fallback["queue_action"]
+                ),
                 "clear_working_memory": bool(
                     result.get(
                         "clear_working_memory",
@@ -846,7 +916,9 @@ class ConversationWrapper:
         chat_request: ChatRequest,
         prior_memory: ResponseScopedWorkingMemory,
     ) -> dict[str, Any]:
-        if self._should_force_new_topic(chat_request.message, prior_memory, wm_decision):
+        if self._should_force_new_topic(
+            chat_request.message, prior_memory, wm_decision
+        ):
             return {
                 **wm_decision,
                 "interrupt_type": "reset_and_new_query",
@@ -869,7 +941,10 @@ class ConversationWrapper:
         preserve_pending = bool(wm_decision.get("preserve_pending_messages", False))
         if (
             interrupt_type == "ack_continue"
-            and (preserve_pending or not self._is_ack_continue_message(chat_request.message))
+            and (
+                preserve_pending
+                or not self._is_ack_continue_message(chat_request.message)
+            )
             and not has_pending
         ):
             return {
@@ -910,7 +985,9 @@ class ConversationWrapper:
         if self._contains_followup_cue(normalized):
             return False
 
-        prior_topic = str(prior_memory.topic_label or prior_memory.latest_user_message or "")
+        prior_topic = str(
+            prior_memory.topic_label or prior_memory.latest_user_message or ""
+        )
         if not prior_topic.strip():
             return False
 
@@ -1186,7 +1263,9 @@ class ConversationWrapper:
         core_response_text: str,
         core_agent_called: bool,
     ) -> dict[str, Any]:
-        fallback_messages = [item.to_dict() for item in self._plan_delivery(core_response_text)]
+        fallback_messages = [
+            item.to_dict() for item in self._plan_delivery(core_response_text)
+        ]
         fallback = {
             "reasoning": "Used the fallback delivery planner.",
             "messages": fallback_messages,
@@ -1194,10 +1273,17 @@ class ConversationWrapper:
         if self.orchestration_agent is None:
             return fallback
 
+        base_instructions = self._delivery_planner_instructions()
         payload = {
             "latest_user_message": chat_request.message,
             "user_message": chat_request.message,
+            "planner_role": "lossless_voice_segmentation",
+            "delivery_mode": "full_turn_queue_planning",
             "conversation_preferences": preferences,
+            "conversation_tone_instruction": str(
+                preferences.get("conversation_tone_instruction") or ""
+            ),
+            "tts_instruction": str(preferences.get("tts_instruction") or ""),
             "working_memory": prior_memory.to_dict(),
             "wm_decision": wm_decision,
             "core_agent_called": core_agent_called,
@@ -1206,44 +1292,213 @@ class ConversationWrapper:
             "remaining_summary": prior_memory.remaining_summary,
             "output_schema": {
                 "reasoning": "string",
-                "messages": [
+                "coverage_assertion": "complete",
+                "delivery_plan": [
                     {
                         "text": "string",
+                        "purpose": "intro|content|followup",
                     }
                 ],
             },
         }
-        instructions = (
-            "You are the delivery planner for a thin conversation layer. "
-            "Given the latest user message, working memory, WM decision, and latest core response, produce the next assistant messages that will be sent to the user in order. "
-            "Each message should usually be short, conversational, and at most 1 to 3 sentences. "
-            "The user's latest message is a hard constraint for what comes next. "
-            "Never repeat or restart content that already appears in delivered_summary or delivered_messages. "
-            "For ack_continue, usually preserve the remaining queue and avoid restarting the explanation. "
-            "For adapt_remaining, adjust only future undelivered content using the latest user message. "
-            "For adapt_remaining_with_core, preserve the topic, preserve delivered content, and use the fresh core response to replace or refine only the remaining undelivered content while satisfying the user's constraint on the next pending item. "
-            "For reset_and_new_query, ignore the previous topic and start fresh. "
-            "If the user interrupted while there were pending messages, adjust the next messages so they sound responsive to the interruption while staying grounded in the latest core response. "
-            "Return only user-visible assistant messages. Do not return internal reasoning, routing notes, or hidden summaries. "
-            "Stay direct and to the point. Do not add generic closers like 'Let me know if you need anything else' or similar wrap-up lines unless the user explicitly asked for broader help or next steps. Do not end the topic or invite a topic switch when the user is still constraining the current topic. "
-            "Keep it concise and natural. Return only valid JSON."
-        )
         try:
             result = self._plan_with_orchestration_model(
                 chat_request,
                 task="Conversation delivery planning",
-                instructions=instructions,
+                instructions=base_instructions,
                 payload=payload,
             )
-            messages = result.get("messages") or []
-            if not isinstance(messages, list) or not messages:
+            normalized = self._normalize_planner_result(result, fallback=fallback)
+            if normalized is None:
                 return fallback
-            return {
-                "reasoning": str(result.get("reasoning") or fallback["reasoning"]),
-                "messages": messages,
-            }
+
+            retry_reason = self._planner_retry_reason(
+                user_message=chat_request.message,
+                planner_result=normalized,
+                core_response_text=core_response_text,
+                core_agent_called=core_agent_called,
+            )
+            if not retry_reason:
+                return normalized
+
+            retry_result = self._plan_with_orchestration_model(
+                chat_request,
+                task="Conversation delivery planning",
+                instructions=self._delivery_planner_instructions(
+                    strict_voice_pauses=True
+                ),
+                payload={
+                    **payload,
+                    "retry_feedback": retry_reason,
+                    "previous_delivery_plan": normalized.get("messages") or [],
+                },
+            )
+            retried = self._normalize_planner_result(retry_result, fallback=fallback)
+            return retried or normalized
         except Exception:
             return fallback
+
+    def _delivery_planner_instructions(
+        self, *, strict_voice_pauses: bool = False
+    ) -> str:
+        instructions = (
+            "You are the delivery planner for a thin conversation layer. "
+            "Given the latest user message, working memory, WM decision, and latest core response, convert the latest core response into the full ordered set of assistant messages to deliver for this turn. "
+            "Priority rules: the latest user message is a hard constraint on what comes next; the core response is the authoritative source content for this turn; your job is voice-friendly delivery planning, not answer generation; preserve the substance, scope, and count of the core response unless the latest user message explicitly asks for a shorter or partial answer; return the complete delivery plan for this turn, not just the first message; never repeat or restart content already present in delivered_summary or delivered_messages. "
+            "Segmentation rules: split at natural spoken pause points; usually deliver one atomic idea per message, such as one step, reason, example, warning, list item, or short paragraph; do not merge multiple long points into one message; do not split in the middle of a thought; messages should usually be short, conversational, and at most 1 to 3 sentences. "
+            "Because later messages may be queued, do not front-load multiple future ideas into the first message. "
+            "Adaptation rules: ack_continue usually preserves the remaining queue and avoids restarting; adapt_remaining adjusts only future undelivered content using the latest user message; adapt_remaining_with_core preserves delivered content and uses the fresh core response to replace or refine only the remaining undelivered content; reset_and_new_query ignores the previous topic and starts fresh. "
+            "If the user interrupted while messages were pending, make the next messages responsive to the interruption while staying grounded in the latest core response. "
+            "Style rules: follow the conversation_tone_instruction for delivery tone; follow the tts_instruction for speech formatting; light rewording for speech is allowed, but do not change meaning or reduce coverage; avoid generic wrap-up lines unless the user explicitly asked for broader help or next steps; do not invite a topic switch while the user is still constraining the current topic. "
+            "Return only user-visible assistant messages as valid JSON. "
+            "Set coverage_assertion='complete' only if the delivery plan fully covers everything that should be delivered for this turn. "
+            "Keep it concise and natural."
+        )
+        if strict_voice_pauses:
+            instructions += (
+                " Retry because the previous delivery plan did not segment the response cleanly for spoken pauses. "
+                "Re-segment the response for voice delivery. Prefer shorter turns, avoid messages with several sentences or several numbered points bundled together, and make each boundary feel like a natural place for the speaker to pause and resume."
+            )
+        return instructions
+
+    def _normalize_planner_result(
+        self, result: dict[str, Any], *, fallback: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        raw_messages = result.get("delivery_plan")
+        if raw_messages is None:
+            raw_messages = result.get("messages")
+        messages = raw_messages or []
+        if not isinstance(messages, list) or not messages:
+            return None
+        return {
+            "reasoning": str(result.get("reasoning") or fallback["reasoning"]),
+            "messages": messages,
+        }
+
+    def _planner_retry_reason(
+        self,
+        *,
+        user_message: str,
+        planner_result: dict[str, Any],
+        core_response_text: str,
+        core_agent_called: bool,
+    ) -> str | None:
+        if not core_agent_called:
+            return None
+
+        messages = self._coerce_planned_messages(
+            planner_result.get("messages") or [],
+            fallback_text="",
+            delay_between_messages_ms=0,
+        )
+        if not messages:
+            return "Return at least one user-visible message."
+
+        if self._has_overlong_voice_message(messages):
+            return (
+                "At least one message is too long for a natural spoken pause. "
+                "Split it into smaller voice-friendly beats without losing meaning."
+            )
+
+        if self._contains_multi_point_voice_bundle(messages):
+            return (
+                "At least one message bundles multiple long points together. "
+                "Separate them where a speaker would naturally pause between ideas."
+            )
+
+        if any(self._dangling_numeric_marker(message.text) for message in messages):
+            return (
+                "One message ends with a dangling numbered marker. "
+                "Move that marker onto the following message so the spoken pause sounds natural."
+            )
+
+        if not core_response_text.strip():
+            return None
+
+        normalized_core = self._normalize_comparison_text(core_response_text)
+        normalized_planned = self._normalize_comparison_text(
+            " ".join(message.text for message in messages)
+        )
+        if not normalized_core or not normalized_planned:
+            return None
+
+        coverage_ratio = len(normalized_planned) / len(normalized_core)
+        requested_more = self._requested_more_count(user_message)
+        if requested_more is not None and requested_more > 0:
+            numbered_items = self._extract_numbered_items(
+                "\n".join(message.text for message in messages)
+            )
+            if len(numbered_items) > requested_more:
+                return (
+                    "The plan returned more numbered items than the user requested. "
+                    "Limit the answer to the requested count while keeping natural voice pauses."
+                )
+
+        core_numbered_count = self._numbered_item_count(core_response_text)
+        planned_numbered_count = self._numbered_item_count(normalized_planned)
+        if (
+            core_numbered_count >= 4
+            and 0 < planned_numbered_count < core_numbered_count
+        ):
+            return (
+                "The plan appears to collapse or omit numbered points from the core response. "
+                "Keep the content complete while still segmenting it into natural spoken pauses."
+            )
+
+        if normalized_planned in normalized_core and coverage_ratio < 0.7:
+            return (
+                "The plan only covers a small leading portion of the core response. "
+                "Preserve the full answer and re-segment it for natural spoken pauses."
+            )
+
+        if (
+            self._requires_high_fidelity_preservation(
+                user_message=user_message,
+                core_response_text=core_response_text,
+            )
+            and not self._is_brief_request(user_message)
+            and coverage_ratio < 0.55
+        ):
+            return (
+                "The plan omits too much of the structured source-backed answer. "
+                "Preserve the important content and only change the spoken segmentation."
+            )
+
+        if self._is_detailed_request(user_message) and coverage_ratio < 0.6:
+            return (
+                "The user asked for detail, but the plan compresses the answer too much. "
+                "Keep the richer content and segment it into natural voice-sized messages."
+            )
+
+        return None
+
+    def _has_overlong_voice_message(
+        self, planned_messages: list[DeliveryMessage]
+    ) -> bool:
+        return any(
+            len((message.text or "").strip()) > self._MAX_DELIVERY_MESSAGE_CHARS
+            for message in planned_messages
+        )
+
+    def _contains_multi_point_voice_bundle(
+        self, planned_messages: list[DeliveryMessage]
+    ) -> bool:
+        for message in planned_messages:
+            text = (message.text or "").strip()
+            if not text:
+                continue
+            numbered_points = len(re.findall(r"(?<!\d)\d{1,2}\.\s+", text))
+            if numbered_points >= 2:
+                return True
+            sentence_count = len(
+                [part for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+            )
+            if (
+                sentence_count >= self._VOICE_RETRY_SENTENCE_THRESHOLD
+                and len(text) > 220
+            ):
+                return True
+        return False
 
     def _plan_with_orchestration_model(
         self,
@@ -1256,7 +1511,9 @@ class ConversationWrapper:
         if self.orchestration_agent is None:
             raise RuntimeError("orchestration_agent_not_configured")
         metadata = chat_request.metadata or {}
-        model_id = str(metadata.get("conversation_orchestration_model_id") or "").strip()
+        model_id = str(
+            metadata.get("conversation_orchestration_model_id") or ""
+        ).strip()
         if model_id and hasattr(self.orchestration_agent, "plan_with_model"):
             return self.orchestration_agent.plan_with_model(
                 task=task,
@@ -1314,7 +1571,9 @@ class ConversationWrapper:
         return []
 
     def _summarize_messages(self, messages: list[DeliveryMessage]) -> str:
-        text = " ".join(message.text.strip() for message in messages if message.text.strip())
+        text = " ".join(
+            message.text.strip() for message in messages if message.text.strip()
+        )
         return text[:500]
 
     def _summarize_pending_messages(self, messages: list[dict[str, Any]]) -> str:
@@ -1348,7 +1607,9 @@ class ConversationWrapper:
                 {
                     "text": message.text,
                     "delay_ms": int(message.delay_ms),
-                    "available_at": (now + timedelta(milliseconds=cumulative_delay_ms)).isoformat(),
+                    "available_at": (
+                        now + timedelta(milliseconds=cumulative_delay_ms)
+                    ).isoformat(),
                 }
             )
         if not immediate_messages and queued_messages:
@@ -1365,7 +1626,9 @@ class ConversationWrapper:
         if isinstance(value, str) and value:
             try:
                 parsed = datetime.fromisoformat(value)
-                return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+                return (
+                    parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+                )
             except ValueError:
                 pass
         return _utc_now()

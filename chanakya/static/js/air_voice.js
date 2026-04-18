@@ -12,6 +12,7 @@
       submitText,
       getLatestAssistantText,
       onTranscript,
+      beforeRecordStart,
     } = options;
 
     let mediaRecorder = null;
@@ -25,6 +26,10 @@
     let isPlayingQueue = false;
     let ttsInFlightCount = 0;
     let spokenAssistantSegments = [];
+    let nextAudioTimer = null;
+    const playbackGapMs = 1200;
+    let speechSequenceId = 0;
+    let voiceTurnActive = false;
 
     function setStatus(text, isError = false) {
       if (!statusNode) {
@@ -83,6 +88,10 @@
     }
 
     function stopPlayback() {
+      if (nextAudioTimer) {
+        window.clearTimeout(nextAudioTimer);
+        nextAudioTimer = null;
+      }
       audioQueue = [];
       isPlayingQueue = false;
       if (activeAudio) {
@@ -92,6 +101,23 @@
       }
     }
 
+    async function stopRecordingSilently() {
+      if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        return;
+      }
+      const recorder = mediaRecorder;
+      const stream = recorder.stream;
+      await new Promise((resolve) => {
+        recorder.onstop = () => resolve(null);
+        recorder.stop();
+      });
+      stream.getTracks().forEach((track) => track.stop());
+      mediaRecorder = null;
+      audioChunks = [];
+      recordButton.dataset.state = "idle";
+      recordButton.textContent = continuousMode ? "Listening" : "Mic";
+    }
+
     function normalizeAudioContentType(contentType) {
       if (!contentType) {
         return "audio/mpeg";
@@ -99,18 +125,11 @@
       return contentType.includes("audio/mp3") ? "audio/mpeg" : contentType;
     }
 
-    function splitIntoSpeechChunks(text) {
-      const normalized = text.replace(/\s+/g, " ").trim();
-      if (!normalized) {
-        return [];
-      }
-      const chunks = normalized.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [normalized];
-      return chunks
-        .map((chunk) => chunk.replace(/[*_#`~]/g, "").trim())
-        .filter(Boolean);
-    }
-
     function playNextAudioChunk() {
+      if (nextAudioTimer) {
+        window.clearTimeout(nextAudioTimer);
+        nextAudioTimer = null;
+      }
       if (!audioQueue.length) {
         isPlayingQueue = false;
         activeAudio = null;
@@ -131,20 +150,26 @@
       isPlayingQueue = true;
       const currentChunk = audioQueue.shift();
       activeAudio = new Audio(currentChunk.url);
+      const scheduleNextChunk = () => {
+        nextAudioTimer = window.setTimeout(() => {
+          nextAudioTimer = null;
+          playNextAudioChunk();
+        }, playbackGapMs);
+      };
       activeAudio.onended = () => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        playNextAudioChunk();
+        scheduleNextChunk();
       };
       activeAudio.onerror = () => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        playNextAudioChunk();
+        scheduleNextChunk();
       };
       activeAudio.play().catch(() => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        playNextAudioChunk();
+        scheduleNextChunk();
       });
     }
 
@@ -190,7 +215,8 @@
 
     async function speakText(text) {
       const model = selectedValue(ttsModelSelect);
-      if (!text) {
+      const cleaned = String(text || "").replace(/[*_#`~]/g, "").trim();
+      if (!cleaned) {
         setStatus("No assistant reply available for playback.", true);
         return;
       }
@@ -199,16 +225,10 @@
         return;
       }
       stopPlayback();
-      const chunks = splitIntoSpeechChunks(text);
-      if (!chunks.length) {
-        setStatus("No assistant reply available for playback.", true);
-        return;
-      }
-      setStatus(chunks.length > 1 ? "Streaming speech chunks..." : "Generating speech...");
-      const placeholders = chunks.map(() => ({ url: null, status: "pending" }));
-      audioQueue = placeholders;
-      const synthesisTasks = chunks.map((chunk, index) => synthesizeSpeechChunk(chunk, placeholders[index]));
-      await Promise.allSettled(synthesisTasks);
+      setStatus("Generating speech...");
+      const placeholder = { url: null, status: "pending" };
+      audioQueue = [placeholder];
+      await Promise.allSettled([synthesizeSpeechChunk(cleaned, placeholder)]);
       await new Promise((resolve) => {
         const poll = () => {
           if (ttsInFlightCount === 0 && !isPlayingQueue && !activeAudio && audioQueue.length === 0) {
@@ -221,33 +241,26 @@
       });
     }
 
+    async function speakAssistantMessageAndWait(messageText) {
+      const cleaned = String(messageText || "").trim();
+      if (!cleaned) {
+        return false;
+      }
+      const sequenceId = ++speechSequenceId;
+      await stopRecordingSilently();
+      spokenAssistantSegments.push(cleaned);
+      latestAssistantText = spokenAssistantSegments.join("\n\n");
+      if (!selectedValue(ttsModelSelect)) {
+        return true;
+      }
+      await speakText(cleaned);
+      return sequenceId === speechSequenceId;
+    }
+
     function startAssistantSpeechQueue() {
       stopPlayback();
       latestAssistantText = "";
       spokenAssistantSegments = [];
-    }
-
-    function queueSpeechChunk(text) {
-      const cleaned = text.replace(/[*_#`~]/g, "").trim();
-      if (!cleaned || !selectedValue(ttsModelSelect)) {
-        return;
-      }
-      const placeholder = { url: null, status: "pending" };
-      audioQueue.push(placeholder);
-      setStatus("Streaming speech chunks...");
-      void synthesizeSpeechChunk(cleaned, placeholder).catch((error) => {
-        setStatus(error instanceof Error ? error.message : String(error), true);
-      });
-    }
-
-    function handleAssistantMessageForSpeech(messageText) {
-      const cleaned = String(messageText || "").trim();
-      if (!cleaned) {
-        return;
-      }
-      spokenAssistantSegments.push(cleaned);
-      latestAssistantText = spokenAssistantSegments.join("\n\n");
-      splitIntoSpeechChunks(cleaned).forEach((chunk) => queueSpeechChunk(chunk));
     }
 
     async function waitForSpeechQueueToFinish() {
@@ -285,6 +298,14 @@
     async function startRecording() {
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         return;
+      }
+      if (typeof beforeRecordStart === "function") {
+        await beforeRecordStart({
+          isPlaybackActive: Boolean(activeAudio || audioQueue.length || nextAudioTimer),
+        });
+      }
+      if (activeAudio || audioQueue.length || nextAudioTimer) {
+        stopPlayback();
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioChunks = [];
@@ -328,15 +349,21 @@
       }
       const llmModel = selectedValue(llmModelSelect);
       startAssistantSpeechQueue();
-      const replyText = await submitText(transcript, {
-        llmModel,
-        onAssistantMessage: (assistantMessage) => {
-          handleAssistantMessageForSpeech(assistantMessage);
-        },
-      });
-      latestAssistantText = typeof replyText === "string" ? replyText : "";
-      if (selectedValue(ttsModelSelect)) {
-        await waitForSpeechQueueToFinish();
+      voiceTurnActive = true;
+      try {
+        const replyText = await submitText(transcript, {
+          llmModel,
+          voiceMode: true,
+          onAssistantMessage: async (assistantMessage) => {
+            await speakAssistantMessageAndWait(assistantMessage);
+          },
+        });
+        latestAssistantText = typeof replyText === "string" ? replyText : "";
+        if (selectedValue(ttsModelSelect)) {
+          await waitForSpeechQueueToFinish();
+        }
+      } finally {
+        voiceTurnActive = false;
       }
     }
 
@@ -396,6 +423,8 @@
         if (continuousMode) {
           stopRequested = true;
           continuousMode = false;
+          voiceTurnActive = false;
+          speechSequenceId += 1;
           stopPlayback();
           if (mediaRecorder && mediaRecorder.state !== "inactive") {
             mediaRecorder.stop();
@@ -431,6 +460,30 @@
 
     return {
       fetchModels,
+      isVoiceModeEnabled() {
+        return continuousMode || voiceTurnActive;
+      },
+      isRecordingActive() {
+        return Boolean(mediaRecorder && mediaRecorder.state !== "inactive");
+      },
+      isInteractionActive() {
+        return Boolean(
+          (mediaRecorder && mediaRecorder.state !== "inactive")
+          || voiceTurnActive
+          || activeAudio
+          || audioQueue.length
+          || isPlayingQueue
+          || ttsInFlightCount > 0
+          || nextAudioTimer
+        );
+      },
+      stopSpeechAndInvalidate() {
+        speechSequenceId += 1;
+        stopPlayback();
+      },
+      async speakAssistantMessageAndWait(text) {
+        return speakAssistantMessageAndWait(text);
+      },
       setLatestAssistantText(text) {
         latestAssistantText = text || "";
       },

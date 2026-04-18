@@ -10,6 +10,7 @@ from urllib import error, parse, request
 
 from mcp.server.fastmcp import FastMCP
 from chanakya.config import get_data_dir
+from chanakya.services.sandbox_workspace import resolve_shared_workspace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MAX_TEXT_CHARS = 20000
@@ -38,6 +39,71 @@ def _resolve_path(path: str) -> Path:
     candidate = (workspace_root / raw).resolve()
     candidate.relative_to(workspace_root)
     return candidate
+
+
+def _resolve_filesystem_workspace(work_id: str = "temp") -> Path:
+    return resolve_shared_workspace(work_id, allow_create_missing_classic=False).resolve()
+
+
+def _resolve_filesystem_path(path: str, work_id: str = "temp") -> tuple[Path, Path]:
+    raw = (path or ".").strip()
+    workspace_root = _resolve_filesystem_workspace(work_id)
+    candidate = (workspace_root / raw).resolve()
+    candidate.relative_to(workspace_root)
+    return workspace_root, candidate
+
+
+def _list_directory(path: str = ".", work_id: str = "temp") -> dict[str, Any]:
+    workspace_root, resolved = _resolve_filesystem_path(path, work_id)
+    if not resolved.exists():
+        raise FileNotFoundError(f"Path not found: {path}")
+    if not resolved.is_dir():
+        raise NotADirectoryError(f"Path is not a directory: {path}")
+    entries = []
+    for item in sorted(resolved.iterdir(), key=lambda child: child.name.lower()):
+        entries.append(
+            {
+                "name": item.name,
+                "path": str(item.relative_to(workspace_root)),
+                "is_dir": item.is_dir(),
+                "size": item.stat().st_size if item.is_file() else None,
+            }
+        )
+    return {
+        "path": str(resolved.relative_to(workspace_root)),
+        "workspace_root": str(workspace_root),
+        "work_id": work_id,
+        "entries": entries,
+    }
+
+
+def _read_text_file(path: str, work_id: str = "temp", max_chars: int = MAX_TEXT_CHARS) -> dict[str, Any]:
+    workspace_root, resolved = _resolve_filesystem_path(path, work_id)
+    if not resolved.exists():
+        raise FileNotFoundError(f"Path not found: {path}")
+    if not resolved.is_file():
+        raise IsADirectoryError(f"Path is not a file: {path}")
+    content = resolved.read_text(encoding="utf-8")
+    trimmed = _trim(content, max(1, min(max_chars, MAX_TEXT_CHARS)))
+    return {
+        "path": str(resolved.relative_to(workspace_root)),
+        "workspace_root": str(workspace_root),
+        "work_id": work_id,
+        "content": trimmed,
+    }
+
+
+def _write_text_file(path: str, content: str, work_id: str = "temp") -> dict[str, Any]:
+    workspace_root, resolved = _resolve_filesystem_path(path, work_id)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    resolved.write_text(content, encoding="utf-8")
+    return {
+        "ok": True,
+        "path": str(resolved.relative_to(workspace_root)),
+        "workspace_root": str(workspace_root),
+        "work_id": work_id,
+        "bytes_written": len(content.encode("utf-8")),
+    }
 
 
 def _trim(text: str, limit: int = MAX_TEXT_CHARS) -> str:
@@ -310,52 +376,23 @@ def _build_filesystem_server() -> FastMCP:
     mcp = FastMCP("Chanakya Filesystem Tools", json_response=True)
 
     @mcp.tool()
-    def list_directory(path: str = ".") -> dict[str, Any]:
-        """List files and directories under the classic-chat workspace."""
-        resolved = _resolve_path(path)
-        workspace_root = get_classic_chat_workspace_root()
-        entries = []
-        for item in sorted(resolved.iterdir(), key=lambda child: child.name.lower()):
-            entries.append(
-                {
-                    "name": item.name,
-                    "path": str(item.relative_to(workspace_root)),
-                    "is_dir": item.is_dir(),
-                    "size": item.stat().st_size if item.is_file() else None,
-                }
-            )
-        return {
-            "path": str(resolved.relative_to(workspace_root)),
-            "workspace_root": str(workspace_root),
-            "entries": entries,
-        }
+    def list_directory(path: str = ".", work_id: str = "temp") -> dict[str, Any]:
+        """List files in the shared sandbox workspace for the given work_id."""
+        return _list_directory(path, work_id)
 
     @mcp.tool()
-    def read_text_file(path: str, max_chars: int = MAX_TEXT_CHARS) -> dict[str, Any]:
-        """Read a UTF-8 text file from the classic-chat workspace."""
-        resolved = _resolve_path(path)
-        workspace_root = get_classic_chat_workspace_root()
-        content = resolved.read_text(encoding="utf-8")
-        trimmed = _trim(content, max(1, min(max_chars, MAX_TEXT_CHARS)))
-        return {
-            "path": str(resolved.relative_to(workspace_root)),
-            "workspace_root": str(workspace_root),
-            "content": trimmed,
-        }
+    def read_text_file(
+        path: str,
+        work_id: str = "temp",
+        max_chars: int = MAX_TEXT_CHARS,
+    ) -> dict[str, Any]:
+        """Read a UTF-8 text file from the shared sandbox workspace for the given work_id."""
+        return _read_text_file(path, work_id, max_chars)
 
     @mcp.tool()
-    def write_text_file(path: str, content: str) -> dict[str, Any]:
-        """Write a UTF-8 text file inside the classic-chat workspace."""
-        resolved = _resolve_path(path)
-        workspace_root = get_classic_chat_workspace_root()
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
-        return {
-            "ok": True,
-            "path": str(resolved.relative_to(workspace_root)),
-            "workspace_root": str(workspace_root),
-            "bytes_written": len(content.encode("utf-8")),
-        }
+    def write_text_file(path: str, content: str, work_id: str = "temp") -> dict[str, Any]:
+        """Write a UTF-8 text file inside the shared sandbox workspace for the given work_id."""
+        return _write_text_file(path, content, work_id)
 
     return mcp
 

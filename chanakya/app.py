@@ -4,7 +4,6 @@ import json
 import queue
 import re
 import threading
-import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -15,15 +14,17 @@ from chanakya.agent.profile_files import default_heartbeat_relative_path, ensure
 from chanakya.agent.runtime import MAFRuntime, normalize_runtime_backend
 from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
+from chanakya.conversation_layer_support import get_conversation_preference_defaults
 from chanakya.config import (
+    force_subagents_enabled,
     get_a2a_agent_url,
+    get_a2a_gui_enabled,
     get_air_dashboard_url,
     get_air_server_url,
     get_air_status_url,
-    get_ntfy_default_server_url,
-    force_subagents_enabled,
     get_data_dir,
     get_database_url,
+    get_ntfy_default_server_url,
     load_local_env,
 )
 from chanakya.db import build_engine, build_session_factory, init_database
@@ -32,15 +33,15 @@ from chanakya.domain import make_id, now_iso
 from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
-from chanakya.services.sandbox_workspace import delete_shared_workspace, get_shared_workspace_root
 from chanakya.services.a2a_discovery import discover_a2a_options
+from chanakya.services.mcp_work_tools_server import _create_work
 from chanakya.services.ntfy import (
     NtfyClient,
     NtfyNotificationDispatcher,
     build_ntfy_qr_svg,
     is_valid_ntfy_topic,
 )
-from chanakya.services.sandbox_workspace import get_shared_workspace_root
+from chanakya.services.sandbox_workspace import delete_shared_workspace, get_shared_workspace_root
 from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
 
@@ -48,6 +49,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 
 
 def _default_runtime_config() -> dict[str, Any]:
+    defaults = get_conversation_preference_defaults()
     return {
         "backend": "local",
         "model_id": None,
@@ -55,6 +57,8 @@ def _default_runtime_config() -> dict[str, Any]:
         "a2a_remote_agent": None,
         "a2a_model_provider": None,
         "a2a_model_id": None,
+        "conversation_tone_instruction": defaults["conversation_tone_instruction"],
+        "tts_instruction": defaults["tts_instruction"],
     }
 
 
@@ -67,6 +71,8 @@ def _normalize_runtime_config(record: dict[str, Any] | None) -> dict[str, Any]:
         "a2a_remote_agent",
         "a2a_model_provider",
         "a2a_model_id",
+        "conversation_tone_instruction",
+        "tts_instruction",
     ):
         value = config.get(key)
         if value is None:
@@ -86,6 +92,10 @@ def _parse_runtime_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
     a2a_remote_agent = _parse_optional_string(payload, "a2a_remote_agent") or None
     a2a_model_provider = _parse_optional_string(payload, "a2a_model_provider") or None
     a2a_model_id = _parse_optional_string(payload, "a2a_model_id") or None
+    conversation_tone_instruction = (
+        _parse_optional_string(payload, "conversation_tone_instruction") or None
+    )
+    tts_instruction = _parse_optional_string(payload, "tts_instruction") or None
     return {
         "backend": backend,
         "model_id": model_id,
@@ -93,6 +103,8 @@ def _parse_runtime_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "a2a_remote_agent": a2a_remote_agent,
         "a2a_model_provider": a2a_model_provider,
         "a2a_model_id": a2a_model_id,
+        "conversation_tone_instruction": conversation_tone_instruction,
+        "tts_instruction": tts_instruction,
     }
 
 
@@ -247,22 +259,31 @@ def create_app() -> Flask:
             air_server_url=get_air_server_url(),
             air_status_url=get_air_status_url(),
             a2a_agent_url=get_a2a_agent_url(),
+            a2a_gui_enabled=get_a2a_gui_enabled(),
             force_subagents_enabled=force_subagents_enabled(),
+            conversation_preferences_defaults=get_conversation_preference_defaults(),
         )
 
-    def render_work_page() -> str:
+    def render_work_page(*, initial_work_id: str | None = None) -> str:
         return render_template(
             "work.html",
             air_dashboard_url=get_air_dashboard_url(),
             air_server_url=get_air_server_url(),
             air_status_url=get_air_status_url(),
             a2a_agent_url=get_a2a_agent_url(),
+            a2a_gui_enabled=get_a2a_gui_enabled(),
             force_subagents_enabled=force_subagents_enabled(),
+            initial_work_id=initial_work_id,
         )
 
     @app.get("/work")
     def work() -> str:
-        return render_work_page()
+        requested_work_id = str(request.args.get("work_id") or "").strip() or None
+        return render_work_page(initial_work_id=requested_work_id)
+
+    @app.get("/work/<work_id>")
+    def work_detail(work_id: str) -> str:
+        return render_work_page(initial_work_id=work_id)
 
     @app.get("/agent")
     def agent() -> str:
@@ -332,6 +353,22 @@ def create_app() -> Flask:
         )
         if a2a_model_id == "":
             a2a_model_id = None
+        raw_conversation_tone_instruction = payload.get("conversation_tone_instruction")
+        conversation_tone_instruction = (
+            str(raw_conversation_tone_instruction).strip()
+            if raw_conversation_tone_instruction is not None
+            else runtime_config["conversation_tone_instruction"]
+        )
+        if conversation_tone_instruction == "":
+            conversation_tone_instruction = None
+        raw_tts_instruction = payload.get("tts_instruction")
+        tts_instruction = (
+            str(raw_tts_instruction).strip()
+            if raw_tts_instruction is not None
+            else runtime_config["tts_instruction"]
+        )
+        if tts_instruction == "":
+            tts_instruction = None
         debug_log(
             "api_chat_request",
             {
@@ -343,6 +380,8 @@ def create_app() -> Flask:
                 "a2a_remote_agent": a2a_remote_agent,
                 "a2a_model_provider": a2a_model_provider,
                 "a2a_model_id": a2a_model_id,
+                "conversation_tone_instruction": conversation_tone_instruction,
+                "tts_instruction": tts_instruction,
                 "message": message,
                 "has_existing_session": bool(payload.get("session_id")),
             },
@@ -361,6 +400,8 @@ def create_app() -> Flask:
                 a2a_remote_agent=a2a_remote_agent,
                 a2a_model_provider=a2a_model_provider,
                 a2a_model_id=a2a_model_id,
+                conversation_tone_instruction=conversation_tone_instruction,
+                tts_instruction=tts_instruction,
             )
         except Exception as exc:
             debug_log(
@@ -408,6 +449,8 @@ def create_app() -> Flask:
                 "backend": normalized["backend"],
                 "model_id": normalized["model_id"],
                 "a2a_model_id": normalized["a2a_model_id"],
+                "conversation_tone_instruction": normalized["conversation_tone_instruction"],
+                "tts_instruction": normalized["tts_instruction"],
             },
         )
         return jsonify(normalized)
@@ -433,6 +476,24 @@ def create_app() -> Flask:
             },
         )
         return jsonify({"session_id": session_id, "messages": messages})
+
+    @app.get("/api/sessions/<session_id>/active-work")
+    def api_session_active_work(session_id: str) -> Any:
+        active_work = store.get_active_classic_work(session_id)
+        if active_work is None:
+            return jsonify({"session_id": session_id, "active_work": None})
+        return jsonify(
+            {
+                "session_id": session_id,
+                "active_work": {
+                    "work_id": str(active_work.get("work_id") or ""),
+                    "work_session_id": str(active_work.get("work_session_id") or ""),
+                    "title": str(active_work.get("title") or ""),
+                    "summary": str(active_work.get("summary") or ""),
+                    "workflow_type": str(active_work.get("workflow_type") or ""),
+                },
+            }
+        )
 
     @app.get("/api/events")
     def api_events() -> Any:
@@ -639,49 +700,24 @@ def create_app() -> Flask:
             description = _parse_optional_string(payload, "description") or None
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
-        work_id = make_id("work")
-        store.create_work(
-            work_id=work_id,
-            title=title,
-            description=description,
-            status="active",
-        )
-        active_profiles = [profile for profile in store.list_agent_profiles() if profile.is_active]
-        for profile in active_profiles:
-            store.ensure_work_agent_session(
-                work_id=work_id,
-                agent_id=profile.id,
-                session_id=make_id("session"),
-                session_title=f"{title} - {profile.name}",
-            )
-        store.log_event(
-            "work_created",
-            {
-                "work_id": work_id,
-                "title": title,
-                "description": description,
-                "agent_session_count": len(active_profiles),
-            },
-        )
-        return jsonify(
-            {
-                "id": work_id,
-                "title": title,
-                "description": description,
-                "status": "active",
-                "agent_session_count": len(active_profiles),
-            }
-        ), 201
+        result = _create_work(store, title=title, description=description)
+        if not result.get("ok"):
+            return jsonify({"error": result.get("error") or "Work creation failed"}), 400
+        return jsonify({key: value for key, value in result.items() if key != "ok"}), 201
 
     @app.get("/api/works")
     def api_list_works() -> Any:
         raw_limit = request.args.get("limit", "100")
+        raw_status = request.args.get("status")
         try:
             limit = int(raw_limit)
         except (TypeError, ValueError):
             limit = 100
         limit = max(1, min(limit, 500))
-        works = store.list_works(limit=limit)
+        status = str(raw_status).strip() if raw_status is not None else None
+        if status == "":
+            status = None
+        works = store.list_works(limit=limit, status=status)
         return jsonify({"works": works})
 
     @app.delete("/api/works/<work_id>")
@@ -887,6 +923,29 @@ def create_app() -> Flask:
                 },
             }
         )
+
+    @app.get("/api/works/pending-messages")
+    def api_pending_messages() -> Any:
+        work_id = request.args.get("work_id")
+        since = request.args.get("since")
+        include_acknowledged = request.args.get("include_acknowledged", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        notifications = store.work_notifications.list_pending(
+            work_id=work_id if work_id else None,
+            include_acknowledged=include_acknowledged,
+            since=since if since else None,
+        )
+        return jsonify({"notifications": notifications})
+
+    @app.post("/api/works/pending-messages/<message_id>/ack")
+    def api_ack_pending_message(message_id: str) -> Any:
+        success = store.work_notifications.acknowledge(message_id)
+        if not success:
+            return jsonify({"error": "Notification not found"}), 404
+        return jsonify({"ok": True, "id": message_id})
 
     @app.post("/api/agents")
     def api_create_agent() -> Any:

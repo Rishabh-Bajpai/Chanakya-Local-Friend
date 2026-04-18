@@ -156,6 +156,8 @@ def test_chat_post_processes_visible_assistant_message() -> None:
             a2a_remote_agent: str | None = None,
             a2a_model_provider: str | None = None,
             a2a_model_id: str | None = None,
+            conversation_tone_instruction: str | None = None,
+            tts_instruction: str | None = None,
             metadata: dict[str, str] | None = None,
         ):
             return type(
@@ -199,6 +201,8 @@ def test_chat_passes_a2a_backend_into_conversation_layer() -> None:
             a2a_remote_agent: str | None = None,
             a2a_model_provider: str | None = None,
             a2a_model_id: str | None = None,
+            conversation_tone_instruction: str | None = None,
+            tts_instruction: str | None = None,
             metadata: dict[str, str] | None = None,
         ):
             self.calls.append(
@@ -210,6 +214,8 @@ def test_chat_passes_a2a_backend_into_conversation_layer() -> None:
                     "a2a_remote_agent": a2a_remote_agent,
                     "a2a_model_provider": a2a_model_provider,
                     "a2a_model_id": a2a_model_id,
+                    "conversation_tone_instruction": conversation_tone_instruction,
+                    "tts_instruction": tts_instruction,
                     "metadata": metadata,
                 }
             )
@@ -244,6 +250,61 @@ def test_chat_passes_a2a_backend_into_conversation_layer() -> None:
 
     assert layer.calls[0]["backend"] == "a2a"
     assert reply.metadata["conversation_layer_backend"] == "a2a"
+
+
+def test_chat_passes_conversation_preferences_into_conversation_layer() -> None:
+    class _PostProcessorStub:
+        enabled = True
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def wrap_reply(
+            self,
+            *,
+            session_id: str,
+            user_message: str,
+            assistant_message: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            conversation_tone_instruction: str | None = None,
+            tts_instruction: str | None = None,
+            metadata: dict[str, str] | None = None,
+        ):
+            self.calls.append(
+                {
+                    "conversation_tone_instruction": conversation_tone_instruction,
+                    "tts_instruction": tts_instruction,
+                }
+            )
+            return type(
+                "Wrapped",
+                (),
+                {
+                    "response": assistant_message,
+                    "messages": [{"text": assistant_message, "delay_ms": 0}],
+                    "metadata": {"pending_delivery_count": 0, "source": "conversation_layer"},
+                },
+            )()
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub()))
+    layer = _PostProcessorStub()
+    service._conversation_layer = layer  # type: ignore[attr-defined]
+
+    service.chat(
+        "session_tone_layer",
+        "Explain recursion",
+        conversation_tone_instruction="Dry but kind.",
+        tts_instruction="Speak clearly with short phrases.",
+    )
+
+    assert layer.calls[0]["conversation_tone_instruction"] == "Dry but kind."
+    assert layer.calls[0]["tts_instruction"] == "Speak clearly with short phrases."
 
 
 def test_chat_backend_falls_back_for_legacy_runtime_run_signature() -> None:

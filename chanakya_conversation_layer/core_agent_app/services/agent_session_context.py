@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -78,7 +78,7 @@ class SQLAlchemyAgentSessionContextStore:
                 record.backend = backend
                 record.remote_context_id = remote_context_id
                 record.remote_agent_url = remote_agent_url
-                record.updated_at = datetime.now(timezone.utc)
+                record.updated_at = datetime.now(UTC)
             db.commit()
         return self.get(session_id, target_key=target_key)
 
@@ -97,7 +97,9 @@ class SQLAlchemyAgentSessionContextStore:
                 prefixed_records = (
                     db.execute(
                         select(AgentSessionContextRecord).where(
-                            AgentSessionContextRecord.session_id.like(f"{session_id}::target::%")
+                            AgentSessionContextRecord.session_id.like(
+                                f"{session_id}::target::%"
+                            )
                         )
                     )
                     .scalars()

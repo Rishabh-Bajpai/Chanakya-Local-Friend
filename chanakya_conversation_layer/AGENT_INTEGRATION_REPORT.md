@@ -288,7 +288,7 @@ Do not collapse these into one generic blob. The separation is one of the main p
 
 ```bash
 conda activate test
-PYTHONPATH="/home/rishabh/github_projects/chanakya_conversation_layer" python -m pytest
+PYTHONPATH="/home/rishabh/github_projects/chanakya_conersation_layer" python -m pytest
 ```
 
 ### Run evaluation harness

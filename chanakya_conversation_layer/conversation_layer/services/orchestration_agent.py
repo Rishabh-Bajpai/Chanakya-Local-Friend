@@ -29,9 +29,13 @@ class MAFOrchestrationAgent:
     default_model_id: str | None = None
     a2a_agent_factory: Any | None = None
     _agent: Agent | None = field(init=False, default=None, repr=False)
-    _agent_by_model: dict[str, Agent] = field(init=False, default_factory=dict, repr=False)
+    _agent_by_model: dict[str, Agent] = field(
+        init=False, default_factory=dict, repr=False
+    )
     _a2a_agent: Any | None = field(init=False, default=None, repr=False)
-    _a2a_sessions: dict[str, Any] = field(init=False, default_factory=dict, repr=False)
+    _a2a_sessions: dict[str, Any] = field(
+        init=False, default_factory=dict, repr=False
+    )
 
     def __post_init__(self) -> None:
         if self.runner is None:
@@ -63,8 +67,12 @@ class MAFOrchestrationAgent:
                     ),
                 )
 
-    def plan(self, *, task: str, instructions: str, payload: dict[str, Any]) -> dict[str, Any]:
-        prompt = self._build_prompt(task=task, instructions=instructions, payload=payload)
+    def plan(
+        self, *, task: str, instructions: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        prompt = self._build_prompt(
+            task=task, instructions=instructions, payload=payload
+        )
         raw_text = self._run(prompt)
         return self._parse_result(raw_text)
 
@@ -76,14 +84,18 @@ class MAFOrchestrationAgent:
         payload: dict[str, Any],
         model_id: str | None,
     ) -> dict[str, Any]:
-        prompt = self._build_prompt(task=task, instructions=instructions, payload=payload)
+        prompt = self._build_prompt(
+            task=task, instructions=instructions, payload=payload
+        )
         raw_text = self._run(prompt, model_override=model_id)
         return self._parse_result(raw_text)
 
     async def plan_async(
         self, *, task: str, instructions: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        prompt = self._build_prompt(task=task, instructions=instructions, payload=payload)
+        prompt = self._build_prompt(
+            task=task, instructions=instructions, payload=payload
+        )
         raw_text = await self._run_async(prompt)
         return self._parse_result(raw_text)
 
@@ -91,9 +103,13 @@ class MAFOrchestrationAgent:
         try:
             result = json.loads(raw_text)
         except json.JSONDecodeError as exc:
-            raise OrchestrationAgentError(f"Invalid JSON from orchestration agent: {exc}") from exc
+            raise OrchestrationAgentError(
+                f"Invalid JSON from orchestration agent: {exc}"
+            ) from exc
         if not isinstance(result, dict):
-            raise OrchestrationAgentError("Orchestration agent must return a JSON object")
+            raise OrchestrationAgentError(
+                "Orchestration agent must return a JSON object"
+            )
         return result
 
     def _run(self, prompt: str, *, model_override: str | None = None) -> str:
@@ -136,7 +152,9 @@ class MAFOrchestrationAgent:
             return str(text)
         return str(result)
 
-    def _build_prompt(self, *, task: str, instructions: str, payload: dict[str, Any]) -> str:
+    def _build_prompt(
+        self, *, task: str, instructions: str, payload: dict[str, Any]
+    ) -> str:
         return (
             f"Task: {task}\n"
             f"Instructions:\n{instructions}\n\n"
@@ -173,7 +191,9 @@ class MAFOrchestrationAgent:
         return created
 
     def _a2a_session_for_model(self, model_override: str | None):
-        model_id = str(model_override or "").strip() or str(self.default_model_id or "").strip()
+        model_id = str(model_override or "").strip() or str(
+            self.default_model_id or ""
+        ).strip()
         session_key = model_id or "default"
         session = self._a2a_sessions.get(session_key)
         if session is not None:

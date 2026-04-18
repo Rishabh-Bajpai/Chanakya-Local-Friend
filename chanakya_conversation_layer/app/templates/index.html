@@ -468,6 +468,22 @@
                 <select id="conversation-orchestration-model" name="conversation-orchestration-model"></select>
               </div>
             </div>
+            <div class="controls-grid">
+              <div>
+                <label for="conversation-tone-instruction">Conversation Tone Instruction</label>
+                <textarea id="conversation-tone-instruction" name="conversation-tone-instruction" placeholder="Example: The user likes playful, lightly sarcastic replies."></textarea>
+              </div>
+              <div>
+                <label for="tts-instruction">TTS Instruction</label>
+                <textarea id="tts-instruction" name="tts-instruction" placeholder="Example: Use expressive tags like <laugh> sparingly when they improve delivery."></textarea>
+              </div>
+            </div>
+            <div class="actions">
+              <div class="mini-copy">These settings are sent by the core app as `metadata.conversation_preferences`.</div>
+              <div class="button-row">
+                <button id="reset-prompt-controls-button" class="secondary" type="button">Reset Delivery Prompts</button>
+              </div>
+            </div>
             <div>
               <label for="message">Message</label>
               <textarea id="message" name="message" placeholder="Try: What time is it?"></textarea>
@@ -564,12 +580,16 @@
       const a2aRemoteAgentSelect = document.getElementById("a2a-remote-agent");
       const a2aModelSelect = document.getElementById("a2a-model");
       const conversationOrchestrationModelSelect = document.getElementById("conversation-orchestration-model");
+      const conversationToneInstructionInput = document.getElementById("conversation-tone-instruction");
+      const ttsInstructionInput = document.getElementById("tts-instruction");
+      const resetPromptControlsButton = document.getElementById("reset-prompt-controls-button");
       const messageList = document.getElementById("message-list");
       const coreResponseNode = document.getElementById("core-response");
       const historyList = document.getElementById("history-list");
       const memoryList = document.getElementById("memory-list");
       const sessionList = document.getElementById("session-list");
       const statusNode = document.getElementById("status");
+      const conversationPreferencesStorageKey = "chanakya.conversationPreferences";
       let deliveryPollToken = 0;
       let runtimeOptions = {
         core_agent: {
@@ -580,6 +600,11 @@
         conversation_orchestration: {
           default_model_id: "",
           models: [],
+        },
+        conversation_layer: {
+          conversation_preferences: {
+            defaults: {},
+          },
         },
       };
 
@@ -595,6 +620,41 @@
 
       function renderEmpty(container, text) {
         container.innerHTML = `<div class="empty">${escapeHtml(text)}</div>`;
+      }
+
+      function conversationPreferenceDefaults() {
+        return runtimeOptions?.conversation_layer?.conversation_preferences?.defaults || {};
+      }
+
+      function loadStoredConversationPreferences() {
+        try {
+          const raw = window.localStorage.getItem(conversationPreferencesStorageKey);
+          return raw ? JSON.parse(raw) : {};
+        } catch (error) {
+          return {};
+        }
+      }
+
+      function saveConversationPreferences() {
+        const value = {
+          conversation_tone_instruction: conversationToneInstructionInput.value,
+          tts_instruction: ttsInstructionInput.value,
+        };
+        window.localStorage.setItem(conversationPreferencesStorageKey, JSON.stringify(value));
+      }
+
+      function applyConversationPreferenceInputs(preferences, { persist = false } = {}) {
+        const defaults = conversationPreferenceDefaults();
+        conversationToneInstructionInput.value = preferences.conversation_tone_instruction || defaults.conversation_tone_instruction || "";
+        ttsInstructionInput.value = preferences.tts_instruction || defaults.tts_instruction || "";
+        if (persist) {
+          saveConversationPreferences();
+        }
+      }
+
+      function initializeConversationPreferenceInputs() {
+        const stored = loadStoredConversationPreferences();
+        applyConversationPreferenceInputs(stored, { persist: false });
       }
 
       function backendTargets(backendType) {
@@ -917,6 +977,7 @@
         renderBackendTypeOptions();
         renderBackendTargetOptions();
         renderOrchestrationOptions();
+        initializeConversationPreferenceInputs();
       }
 
       async function loadWorkingMemory() {
@@ -966,6 +1027,10 @@
           if (conversationOrchestrationModelSelect.value) {
             metadata.conversation_orchestration_model_id = conversationOrchestrationModelSelect.value;
           }
+          metadata.conversation_preferences = {
+            conversation_tone_instruction: conversationToneInstructionInput.value.trim(),
+            tts_instruction: ttsInstructionInput.value.trim(),
+          };
           const response = await fetch("/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1059,6 +1124,12 @@
       });
       backendTargetSelect.addEventListener("change", () => {
         renderA2AOptions();
+      });
+      conversationToneInstructionInput.addEventListener("change", saveConversationPreferences);
+      ttsInstructionInput.addEventListener("change", saveConversationPreferences);
+      resetPromptControlsButton.addEventListener("click", () => {
+        applyConversationPreferenceInputs({}, { persist: true });
+        setStatus("Reset delivery prompt controls to runtime defaults.");
       });
 
       sendButton.addEventListener("click", sendMessage);

@@ -75,7 +75,9 @@ def _collect_text(payload: Any) -> str:
     return "\n".join(dict.fromkeys(texts)).strip()
 
 
-def _extract_agent_name_and_prompt(raw_prompt: str, default_agent: str) -> tuple[str, str]:
+def _extract_agent_name_and_prompt(
+    raw_prompt: str, default_agent: str
+) -> tuple[str, str]:
     if raw_prompt.startswith("[[opencode-agent:") and "]]" in raw_prompt:
         header, prompt = raw_prompt.split("]]", 1)
         agent_name = header.replace("[[opencode-agent:", "", 1).strip()
@@ -92,7 +94,9 @@ def _extract_request_options(
 ) -> tuple[str, str, str | None, str | None, bool]:
     lines = raw_prompt.splitlines()
     if not lines or not lines[0].startswith("[[opencode-options:"):
-        agent_name, clean_prompt = _extract_agent_name_and_prompt(raw_prompt, default_agent)
+        agent_name, clean_prompt = _extract_agent_name_and_prompt(
+            raw_prompt, default_agent
+        )
         return (
             agent_name,
             clean_prompt,
@@ -207,7 +211,9 @@ class OpenCodeBridgeAgent(AgentExecutor):
                     default_model_id=self.opencode.model_id,
                 )
             )
-            session = await self.opencode.create_session(f"A2A bridge session ({agent_name})")
+            session = await self.opencode.create_session(
+                f"A2A bridge session ({agent_name})"
+            )
             session_id = session["id"]
 
             message = await self.opencode.send_message(
@@ -230,7 +236,9 @@ class OpenCodeBridgeAgent(AgentExecutor):
                 ],
                 status=TaskStatus(
                     state=TaskState.completed,
-                    message=new_agent_text_message(reply, context.context_id, context.task_id),
+                    message=new_agent_text_message(
+                        reply, context.context_id, context.task_id
+                    ),
                 ),
             )
         except Exception as exc:

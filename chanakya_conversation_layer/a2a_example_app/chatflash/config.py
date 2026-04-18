@@ -16,7 +16,7 @@ class Settings:
         "CHATFLASH_MODEL_BASE_URL", "http://192.168.1.51:1234/v1"
     )
     model_api_key: str = os.getenv("CHATFLASH_MODEL_API_KEY", "na")
-    model_id: str = os.getenv("CHATFLASH_MODEL_ID", "google/gemma-4-26b-a4b")
+    model_id: str = os.getenv("CHATFLASH_MODEL_ID", "qwen/qwen3.6-35b-a3b")
     opencode_http_url: str = os.getenv(
         "CHATFLASH_OPENCODE_HTTP_URL", "http://127.0.0.1:18496"
     )
