@@ -19,6 +19,7 @@ from chanakya.model import (
     ChatMessageModel,
     ChatSessionModel,
     RequestModel,
+    RuntimeConfigModel,
     TaskEventModel,
     TaskModel,
     TemporaryAgentModel,
@@ -42,6 +43,7 @@ TARGET_MODELS = [
     ToolInvocationModel,
     AgentProfileModel,
     TemporaryAgentModel,
+    RuntimeConfigModel,
 ]
 
 

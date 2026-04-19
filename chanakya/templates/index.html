@@ -2931,7 +2931,11 @@
       try {
         return JSON.parse(raw);
       } catch {
-        return { error: raw.trim() || `HTTP ${response.status}` };
+        // Server returned non-JSON (e.g. Flask HTML error page). Strip HTML tags.
+        const stripped = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        const errorText = stripped || `HTTP ${response.status}`;
+        // Keep it concise — cap at a reasonable length
+        return { error: errorText.length > 300 ? errorText.slice(0, 300) + '…' : errorText };
       }
     }
 
@@ -4456,7 +4460,7 @@
       },
       getLatestAssistantText: getLatestAssistantMessageText,
       onTranscript: (text) => {
-        messageInput.value = text;
+        // Transcript is sent directly via submitText; no need to echo into the input box.
       },
       beforeRecordStart: async ({ isPlaybackActive }) => {
         if (currentDeferredVoiceNotification) {
