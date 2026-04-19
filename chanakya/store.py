@@ -11,6 +11,7 @@ from chanakya.model import (
     AgentProfileModel,
     AgentSessionContextModel,
     AppEventModel,
+    ArtifactModel,
     ChatMessageModel,
     ChatSessionModel,
     ClassicActiveWorkModel,
@@ -228,6 +229,90 @@ class EventRepository:
         return records
 
 
+class ArtifactRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    @staticmethod
+    def _to_dict(row: ArtifactModel) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "request_id": row.request_id,
+            "session_id": row.session_id,
+            "work_id": row.work_id,
+            "name": row.name,
+            "path": row.path,
+            "mime_type": row.mime_type,
+            "kind": row.kind,
+            "size_bytes": row.size_bytes,
+            "source_agent_id": row.source_agent_id,
+            "source_agent_name": row.source_agent_name,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    def create_artifact(
+        self,
+        *,
+        artifact_id: str,
+        request_id: str,
+        session_id: str,
+        work_id: str | None,
+        name: str,
+        path: str,
+        mime_type: str | None,
+        kind: str,
+        size_bytes: int,
+        source_agent_id: str | None = None,
+        source_agent_name: str | None = None,
+    ) -> dict[str, Any]:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            row = ArtifactModel(
+                id=artifact_id,
+                request_id=request_id,
+                session_id=session_id,
+                work_id=work_id,
+                name=name,
+                path=path,
+                mime_type=mime_type,
+                kind=kind,
+                size_bytes=size_bytes,
+                source_agent_id=source_agent_id,
+                source_agent_name=source_agent_name,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+            session.add(row)
+            session.commit()
+            return self._to_dict(row)
+
+    def get_artifact(self, artifact_id: str) -> ArtifactModel:
+        with session_scope(self.Session) as session:
+            row = session.get(ArtifactModel, artifact_id)
+            if row is None:
+                raise KeyError(f"Artifact not found: {artifact_id}")
+            return cast(ArtifactModel, row)
+
+    def list_artifacts_for_request(self, request_id: str) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ArtifactModel)
+                .where(ArtifactModel.request_id == request_id)
+                .order_by(ArtifactModel.created_at.asc(), ArtifactModel.id.asc())
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+    def list_artifacts_for_work(self, work_id: str) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ArtifactModel)
+                .where(ArtifactModel.work_id == work_id)
+                .order_by(ArtifactModel.created_at.asc(), ArtifactModel.id.asc())
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+
 class RuntimeConfigRepository:
     _ROW_ID = "global"
 
@@ -261,8 +346,8 @@ class RuntimeConfigRepository:
         a2a_remote_agent: str | None,
         a2a_model_provider: str | None,
         a2a_model_id: str | None,
-        conversation_tone_instruction: str | None,
-        tts_instruction: str | None,
+        conversation_tone_instruction: str | None = None,
+        tts_instruction: str | None = None,
     ) -> dict[str, Any]:
         timestamp = now_iso()
         with session_scope(self.Session) as session:
@@ -1330,6 +1415,7 @@ class ChanakyaStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
         self.chat = ChatRepository(session_factory)
+        self.artifacts = ArtifactRepository(session_factory)
         self.runtime_config = RuntimeConfigRepository(session_factory)
         self.works = WorkRepository(session_factory)
         self.work_agent_sessions = WorkAgentSessionRepository(session_factory)
@@ -1399,6 +1485,9 @@ class ChanakyaStore:
                     delete(ChatMessageModel).where(ChatMessageModel.session_id.in_(session_ids))
                 )
                 session.execute(
+                    delete(ArtifactModel).where(ArtifactModel.session_id.in_(session_ids))
+                )
+                session.execute(
                     delete(ToolInvocationModel).where(
                         ToolInvocationModel.session_id.in_(session_ids)
                     )
@@ -1407,9 +1496,13 @@ class ChanakyaStore:
                     session.execute(delete(TaskModel).where(TaskModel.id.in_(task_ids)))
                 if request_ids:
                     session.execute(delete(RequestModel).where(RequestModel.id.in_(request_ids)))
+                    session.execute(
+                        delete(ArtifactModel).where(ArtifactModel.request_id.in_(request_ids))
+                    )
                 session.execute(
                     delete(ChatSessionModel).where(ChatSessionModel.id.in_(session_ids))
                 )
+            session.execute(delete(ArtifactModel).where(ArtifactModel.work_id == work_id))
             session.execute(
                 delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
             )
@@ -1444,8 +1537,8 @@ class ChanakyaStore:
         a2a_remote_agent: str | None,
         a2a_model_provider: str | None,
         a2a_model_id: str | None,
-        conversation_tone_instruction: str | None,
-        tts_instruction: str | None,
+        conversation_tone_instruction: str | None = None,
+        tts_instruction: str | None = None,
     ) -> dict[str, Any]:
         return self.runtime_config.set(
             backend=backend,
@@ -1573,6 +1666,18 @@ class ChanakyaStore:
 
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
         return self.chat.list_messages(session_id)
+
+    def create_artifact(self, **kwargs: Any) -> dict[str, Any]:
+        return self.artifacts.create_artifact(**kwargs)
+
+    def get_artifact(self, artifact_id: str) -> ArtifactModel:
+        return self.artifacts.get_artifact(artifact_id)
+
+    def list_artifacts_for_request(self, request_id: str) -> list[dict[str, Any]]:
+        return self.artifacts.list_artifacts_for_request(request_id)
+
+    def list_artifacts_for_work(self, work_id: str) -> list[dict[str, Any]]:
+        return self.artifacts.list_artifacts_for_work(work_id)
 
     def log_event(self, event_type: str, payload: dict[str, Any]) -> None:
         self.events.log_event(event_type, payload)

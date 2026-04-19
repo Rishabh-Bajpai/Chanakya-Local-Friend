@@ -2739,8 +2739,28 @@
       window.Prism.highlightAllUnder(container);
     }
 
+    function renderArtifactLinks(artifacts) {
+      if (!Array.isArray(artifacts) || !artifacts.length) {
+        return null;
+      }
+      const container = document.createElement("div");
+      container.className = "message-artifacts";
+      artifacts.forEach((artifact) => {
+        const link = document.createElement("a");
+        link.className = "message-artifact-link";
+        link.href = String(artifact.download_url || "#");
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        const kind = String(artifact.kind || "artifact").trim();
+        const name = String(artifact.name || "download").trim();
+        link.textContent = kind ? `${name} (${kind})` : name;
+        container.appendChild(link);
+      });
+      return container;
+    }
+
     function appendMessage(role, text, meta, options = {}) {
-      const { badge } = options;
+      const { badge, artifacts = [] } = options;
       const node = document.createElement("div");
       node.className = `message ${role}`;
       if (badge) {
@@ -2753,6 +2773,10 @@
       bodyNode.className = "message-body";
       bodyNode.appendChild(renderMarkdownContent(text));
       node.appendChild(bodyNode);
+      const artifactNode = renderArtifactLinks(artifacts);
+      if (artifactNode) {
+        node.appendChild(artifactNode);
+      }
       if (meta) {
         const metaNode = document.createElement("div");
         metaNode.className = "meta";
@@ -2898,12 +2922,12 @@
     }
 
     async function deliverAssistantText(text, options = {}) {
-      const { onAssistantMessage, alreadyRendered = false, metadata = null } = options;
+      const { onAssistantMessage, alreadyRendered = false, metadata = null, artifacts = [] } = options;
       if (!text) {
         return;
       }
       if (!alreadyRendered) {
-        appendMessage("assistant", text);
+        appendMessage("assistant", text, null, { artifacts });
       }
       const isBackgroundCompletion = Boolean(metadata && metadata.completion_notification);
       if (isBackgroundCompletion && hasActiveVoiceInteraction()) {
@@ -3254,12 +3278,16 @@
         const messages = Array.isArray(data.messages) && data.messages.length
           ? data.messages
           : [{ text: data.message || "", delay_ms: 0 }];
-        for (const item of messages) {
+        for (const [index, item] of messages.entries()) {
           const text = item.text || "";
           if (!text) {
             continue;
           }
-          await deliverAssistantText(text, { onAssistantMessage, metadata: data.metadata || null });
+          await deliverAssistantText(text, {
+            onAssistantMessage,
+            metadata: data.metadata || null,
+            artifacts: index === 0 && Array.isArray(data.artifacts) ? data.artifacts : [],
+          });
         }
         if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
           const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
@@ -3616,7 +3644,10 @@
           item.role === "user" ? "user" : "assistant",
           item.content,
           meta.join(" "),
-          { badge: messageBadgeForHistoryItem(item) }
+          {
+            badge: messageBadgeForHistoryItem(item),
+            artifacts: Array.isArray(item.metadata?.artifacts) ? item.metadata.artifacts : [],
+          }
         );
       });
     }

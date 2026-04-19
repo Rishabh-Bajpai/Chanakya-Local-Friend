@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import mimetypes
+import re
+from pathlib import Path
 from typing import Any
 
 from chanakya.agent.runtime import MAFRuntime, normalize_runtime_backend
@@ -25,6 +28,7 @@ from chanakya.domain import (
     now_iso,
 )
 from chanakya.services.ntfy import NtfyNotificationDispatcher, summarize_notification_text
+from chanakya.services.sandbox_workspace import resolve_shared_workspace
 from chanakya.store import ChanakyaStore
 
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
@@ -67,6 +71,101 @@ _WAITING_INPUT_CANCEL_MARKERS = (
     "leave it",
     "ignore it",
 )
+
+_CODE_ARTIFACT_SUFFIXES = {
+    ".py",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".java",
+    ".go",
+    ".rs",
+    ".c",
+    ".cc",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".sh",
+    ".sql",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".html",
+    ".css",
+    ".md",
+}
+
+_REPORT_ARTIFACT_SUFFIXES = {
+    ".md",
+    ".txt",
+    ".html",
+    ".csv",
+}
+
+_CODE_REQUEST_PATTERN = re.compile(
+    r"\b(code|program|script|function|class|implementation|implement|write)\b",
+    re.IGNORECASE,
+)
+_REPORT_REQUEST_PATTERN = re.compile(
+    r"\b(report|research|summary|brief|article|writeup|analysis|document)\b",
+    re.IGNORECASE,
+)
+
+_CODE_BLOCK_PATTERN = re.compile(r"```(?P<lang>[A-Za-z0-9_+-]*)\n(?P<code>.*?)```", re.DOTALL)
+_REPORT_HEADING_PATTERN = re.compile(r"^#{1,6}\s+\S+", re.MULTILINE)
+_REPORT_LIST_PATTERN = re.compile(r"^\s*(?:[-*]|\d+\.)\s+\S+", re.MULTILINE)
+_LANGUAGE_EXTENSION_MAP = {
+    "bash": ".sh",
+    "c": ".c",
+    "cpp": ".cpp",
+    "csharp": ".cs",
+    "css": ".css",
+    "go": ".go",
+    "html": ".html",
+    "java": ".java",
+    "javascript": ".js",
+    "js": ".js",
+    "json": ".json",
+    "markdown": ".md",
+    "md": ".md",
+    "python": ".py",
+    "py": ".py",
+    "rust": ".rs",
+    "sh": ".sh",
+    "sql": ".sql",
+    "text": ".txt",
+    "ts": ".ts",
+    "tsx": ".tsx",
+    "typescript": ".ts",
+    "yaml": ".yaml",
+    "yml": ".yml",
+}
+_REQUEST_LANGUAGE_EXTENSION_PATTERNS = [
+    (re.compile(r"\bpython\b", re.IGNORECASE), ".py"),
+    (re.compile(r"\bjavascript\b|\bnode\b", re.IGNORECASE), ".js"),
+    (re.compile(r"\btypescript\b", re.IGNORECASE), ".ts"),
+    (re.compile(r"\bjava\b", re.IGNORECASE), ".java"),
+    (re.compile(r"\bgo\b|\bgolang\b", re.IGNORECASE), ".go"),
+    (re.compile(r"\brust\b", re.IGNORECASE), ".rs"),
+    (re.compile(r"\bc\+\+\b|\bcpp\b", re.IGNORECASE), ".cpp"),
+    (re.compile(r"\bc#\b|\bcsharp\b", re.IGNORECASE), ".cs"),
+    (re.compile(r"\bhtml\b", re.IGNORECASE), ".html"),
+    (re.compile(r"\bcss\b", re.IGNORECASE), ".css"),
+    (re.compile(r"\bsql\b", re.IGNORECASE), ".sql"),
+    (re.compile(r"\bbash\b|\bshell\b", re.IGNORECASE), ".sh"),
+]
+
+_CODE_SIGNAL_PATTERNS = [
+    re.compile(r"^\s*(from|import)\s+\w+", re.MULTILINE),
+    re.compile(r"^\s*def\s+\w+\s*\(", re.MULTILINE),
+    re.compile(r"^\s*class\s+\w+\s*[:(]", re.MULTILINE),
+    re.compile(r"^\s*(if|for|while|try|with)\b.+:", re.MULTILINE),
+    re.compile(r"^\s*return\b", re.MULTILINE),
+    re.compile(r"\bconsole\.log\s*\("),
+    re.compile(r"\bfunction\s+\w+\s*\("),
+    re.compile(r"\{\s*\n.*\n\}", re.DOTALL),
+]
 
 class ChatService:
     def __init__(
@@ -164,10 +263,348 @@ class ChatService:
             except TypeError:
                 return self.runtime.run(session_id, message, request_id=request_id)
 
-    def _runtime_prompt_addendum_for_mode(self, *, session_id: str, work_id: str | None) -> str:
-        if work_id is not None:
-            return _WORK_MODE_RUNTIME_PROMPT_ADDENDUM
-        return _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM
+    @staticmethod
+    def _artifact_workspace_scope_id(*, request_id: str, work_id: str | None) -> str:
+        return work_id or request_id
+
+    def _snapshot_workspace_files(
+        self,
+        *,
+        request_id: str,
+        work_id: str | None,
+    ) -> dict[str, tuple[int, int]]:
+        workspace = resolve_shared_workspace(
+            self._artifact_workspace_scope_id(request_id=request_id, work_id=work_id),
+            create=True,
+        )
+        snapshot: dict[str, tuple[int, int]] = {}
+        for path in workspace.rglob("*"):
+            if not path.is_file():
+                continue
+            stat = path.stat()
+            snapshot[str(path.relative_to(workspace).as_posix())] = (
+                int(stat.st_size),
+                int(stat.st_mtime_ns),
+            )
+        return snapshot
+
+    @staticmethod
+    def _artifact_kind_for_path(path: str) -> str:
+        suffix = Path(path).suffix.lower()
+        if suffix in _CODE_ARTIFACT_SUFFIXES and suffix != ".md":
+            return "code"
+        if suffix in _REPORT_ARTIFACT_SUFFIXES:
+            return "report"
+        return "text"
+
+    @staticmethod
+    def _artifact_response_payload(record: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **record,
+            "download_url": f"/api/artifacts/{record['id']}/download",
+            "detail_url": f"/api/artifacts/{record['id']}",
+        }
+
+    @staticmethod
+    def _infer_requested_artifact_kind(
+        user_message: str,
+        workflow_type: str | None,
+    ) -> str | None:
+        if workflow_type == "information_delivery":
+            return "report"
+        if _CODE_REQUEST_PATTERN.search(user_message):
+            return "code"
+        if _REPORT_REQUEST_PATTERN.search(user_message):
+            return "report"
+        return None
+
+    @staticmethod
+    def _infer_requested_code_extension(user_message: str) -> str:
+        for pattern, extension in _REQUEST_LANGUAGE_EXTENSION_PATTERNS:
+            if pattern.search(user_message):
+                return extension
+        return ".txt"
+
+    @staticmethod
+    def _looks_like_code(text: str) -> bool:
+        stripped = text.strip()
+        if not stripped:
+            return False
+        if stripped.startswith("{") or stripped.startswith("["):
+            return False
+        if "```" in stripped:
+            return True
+        line_count = len([line for line in stripped.splitlines() if line.strip()])
+        signal_count = sum(1 for pattern in _CODE_SIGNAL_PATTERNS if pattern.search(stripped))
+        if signal_count >= 2:
+            return True
+        return signal_count >= 1 and line_count >= 4
+
+    def _collect_request_artifacts(
+        self,
+        *,
+        request_id: str,
+        session_id: str,
+        work_id: str | None,
+        before_snapshot: dict[str, tuple[int, int]],
+        source_agent_id: str | None,
+        source_agent_name: str | None,
+    ) -> list[dict[str, Any]]:
+        workspace = resolve_shared_workspace(
+            self._artifact_workspace_scope_id(request_id=request_id, work_id=work_id),
+            create=True,
+        )
+        artifacts: list[dict[str, Any]] = []
+        for path in sorted(workspace.rglob("*")):
+            if not path.is_file():
+                continue
+            relative_path = path.relative_to(workspace).as_posix()
+            stat = path.stat()
+            current_state = (int(stat.st_size), int(stat.st_mtime_ns))
+            if before_snapshot.get(relative_path) == current_state:
+                continue
+            mime_type, _ = mimetypes.guess_type(path.name)
+            record = self.store.create_artifact(
+                artifact_id=make_id("artifact"),
+                request_id=request_id,
+                session_id=session_id,
+                work_id=work_id,
+                name=path.name,
+                path=relative_path,
+                mime_type=mime_type,
+                kind=self._artifact_kind_for_path(relative_path),
+                size_bytes=int(stat.st_size),
+                source_agent_id=source_agent_id,
+                source_agent_name=source_agent_name,
+            )
+            artifacts.append(self._artifact_response_payload(record))
+        return artifacts
+
+    @staticmethod
+    def _fallback_extension_for_language(language: str) -> str:
+        return _LANGUAGE_EXTENSION_MAP.get(language.strip().lower(), ".txt")
+
+    def _materialize_response_artifacts(
+        self,
+        *,
+        request_id: str,
+        session_id: str,
+        work_id: str | None,
+        source_text: str,
+        source_agent_id: str | None,
+        source_agent_name: str | None,
+        workflow_type: str | None,
+        desired_kind: str | None = None,
+        preferred_extension: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if not source_text.strip():
+            return []
+        workspace = resolve_shared_workspace(
+            self._artifact_workspace_scope_id(request_id=request_id, work_id=work_id),
+            create=True,
+        )
+        artifacts: list[dict[str, Any]] = []
+        code_blocks = list(_CODE_BLOCK_PATTERN.finditer(source_text))
+        if code_blocks:
+            for index, match in enumerate(code_blocks, start=1):
+                code = str(match.group("code") or "").strip()
+                if not code:
+                    continue
+                language = str(match.group("lang") or "").strip().lower()
+                extension = self._fallback_extension_for_language(language)
+                filename = f"generated_artifact_{index}{extension}"
+                file_path = workspace / filename
+                file_path.write_text(code + "\n", encoding="utf-8")
+                mime_type, _ = mimetypes.guess_type(filename)
+                record = self.store.create_artifact(
+                    artifact_id=make_id("artifact"),
+                    request_id=request_id,
+                    session_id=session_id,
+                    work_id=work_id,
+                    name=filename,
+                    path=filename,
+                    mime_type=mime_type,
+                    kind="code",
+                    size_bytes=file_path.stat().st_size,
+                    source_agent_id=source_agent_id,
+                    source_agent_name=source_agent_name,
+                )
+                artifacts.append(self._artifact_response_payload(record))
+            return artifacts
+        should_capture_report = (
+            workflow_type == "information_delivery"
+            or len(source_text) >= 500
+            and (
+                _REPORT_HEADING_PATTERN.search(source_text) is not None
+                or _REPORT_LIST_PATTERN.search(source_text) is not None
+                or source_text.count("\n") >= 8
+            )
+        )
+        if desired_kind == "code":
+            if not self._looks_like_code(source_text):
+                return []
+            filename = f"generated_artifact_1{preferred_extension or '.txt'}"
+            file_path = workspace / filename
+            file_path.write_text(source_text.strip() + "\n", encoding="utf-8")
+            mime_type, _ = mimetypes.guess_type(filename)
+            record = self.store.create_artifact(
+                artifact_id=make_id("artifact"),
+                request_id=request_id,
+                session_id=session_id,
+                work_id=work_id,
+                name=filename,
+                path=filename,
+                mime_type=mime_type,
+                kind="code",
+                size_bytes=file_path.stat().st_size,
+                source_agent_id=source_agent_id,
+                source_agent_name=source_agent_name,
+            )
+            return [self._artifact_response_payload(record)]
+        if not should_capture_report and desired_kind != "report":
+            return []
+        filename = "generated_report.md"
+        file_path = workspace / filename
+        file_path.write_text(source_text.strip() + "\n", encoding="utf-8")
+        record = self.store.create_artifact(
+            artifact_id=make_id("artifact"),
+            request_id=request_id,
+            session_id=session_id,
+            work_id=work_id,
+            name=filename,
+            path=filename,
+            mime_type="text/markdown",
+            kind="report",
+            size_bytes=file_path.stat().st_size,
+            source_agent_id=source_agent_id,
+            source_agent_name=source_agent_name,
+        )
+        return [self._artifact_response_payload(record)]
+
+    def _generate_missing_artifacts_via_followup(
+        self,
+        *,
+        session_id: str,
+        user_message: str,
+        request_id: str,
+        work_id: str | None,
+        model_id: str | None,
+        backend: str | None,
+        a2a_url: str | None,
+        a2a_remote_agent: str | None,
+        a2a_model_provider: str | None,
+        a2a_model_id: str | None,
+        workflow_type: str | None,
+        source_agent_id: str | None,
+        source_agent_name: str | None,
+    ) -> list[dict[str, Any]]:
+        desired_kind = self._infer_requested_artifact_kind(user_message, workflow_type)
+        if desired_kind is None:
+            return []
+        prompts: list[str]
+        if desired_kind == "code":
+            prompts = [
+                (
+                    "Produce the exact code deliverable for the user's request below.\n\n"
+                    f"User request: {user_message}\n\n"
+                    "Requirements:\n"
+                    "1. Save the exact code as a file in the current shared workspace using the filesystem tool if available.\n"
+                    "2. Return only the exact code as a single fenced code block with the correct language tag.\n"
+                    "3. Do not explain the code.\n"
+                ),
+                (
+                    "Return raw source code only for this request. No JSON. No commentary. No markdown headings.\n\n"
+                    f"User request: {user_message}\n"
+                ),
+            ]
+        else:
+            prompts = [
+                (
+                    "Produce the exact report deliverable for the user's request below.\n\n"
+                    f"User request: {user_message}\n\n"
+                    "Requirements:\n"
+                    "1. Save the exact report as a file in the current shared workspace using the filesystem tool if available.\n"
+                    "2. Return only the report body in markdown.\n"
+                    "3. Do not add conversational commentary.\n"
+                )
+            ]
+        for followup_prompt in prompts:
+            before_snapshot = self._snapshot_workspace_files(
+                request_id=request_id,
+                work_id=work_id,
+            )
+            artifact_session_id = make_id("artifactsession")
+            run_result = self._runtime_run(
+                artifact_session_id,
+                followup_prompt,
+                request_id=make_id("reqartifact"),
+                model_id=model_id,
+                backend=backend,
+                a2a_url=a2a_url,
+                a2a_remote_agent=a2a_remote_agent,
+                a2a_model_provider=a2a_model_provider,
+                a2a_model_id=a2a_model_id,
+                prompt_addendum=self._runtime_prompt_addendum_for_mode(
+                    session_id=session_id,
+                    request_id=request_id,
+                    work_id=work_id,
+                ),
+            )
+            self.runtime.clear_session_state(artifact_session_id)
+            artifacts = self._collect_request_artifacts(
+                request_id=request_id,
+                session_id=session_id,
+                work_id=work_id,
+                before_snapshot=before_snapshot,
+                source_agent_id=source_agent_id,
+                source_agent_name=source_agent_name,
+            )
+            if artifacts:
+                return artifacts
+            artifacts = self._materialize_response_artifacts(
+                request_id=request_id,
+                session_id=session_id,
+                work_id=work_id,
+                source_text=run_result.text,
+                source_agent_id=source_agent_id,
+                source_agent_name=source_agent_name,
+                workflow_type=workflow_type,
+                desired_kind=desired_kind,
+                preferred_extension=self._infer_requested_code_extension(user_message),
+            )
+            if artifacts:
+                return artifacts
+        return []
+
+    def _runtime_prompt_addendum_for_mode(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        work_id: str | None,
+    ) -> str:
+        base_prompt = (
+            _WORK_MODE_RUNTIME_PROMPT_ADDENDUM
+            if work_id is not None
+            else _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM
+        )
+        tool_ids = set(self.runtime.profile.tool_ids_json or [])
+        if "mcp_filesystem" not in tool_ids:
+            return base_prompt
+        workspace_scope_id = self._artifact_workspace_scope_id(
+            request_id=request_id,
+            work_id=work_id,
+        )
+        workspace_path = resolve_shared_workspace(workspace_scope_id, create=True)
+        artifact_prompt = (
+            f" Active workspace: use work_id='{workspace_scope_id}' and shared workspace "
+            f"'{workspace_path}'."
+            " When the request naturally produces exact code, a research report, or "
+            "another substantial text deliverable,"
+            " save that deliverable as a file with mcp_filesystem_write_text_file and "
+            "keep the user-facing chat reply brief."
+        )
+        return base_prompt + artifact_prompt
 
     def _notify_root_task_outcome(
         self,
@@ -244,6 +681,7 @@ class ChatService:
         if not self._conversation_layer.enabled:
             return None
         conversation_runtime = dict(runtime_metadata or {})
+        conversation_runtime.pop("artifacts", None)
         selected_backend = normalize_runtime_backend(
             conversation_runtime.get("core_agent_backend") or conversation_runtime.get("backend")
         )
@@ -659,6 +1097,10 @@ class ChatService:
             },
         )
         resolved_work_id = work_id
+        artifact_before_snapshot = self._snapshot_workspace_files(
+            request_id=request_id,
+            work_id=resolved_work_id,
+        )
 
         try:
             use_manager = False
@@ -723,6 +1165,7 @@ class ChatService:
                     )
                 context_tokens = self.manager.bind_execution_context(
                     session_id=session_id,
+                    request_id=request_id,
                     work_id=manager_work_id,
                     model_id=model_id,
                     backend=runtime_snapshot["backend"],
@@ -730,6 +1173,10 @@ class ChatService:
                     a2a_remote_agent=runtime_snapshot["a2a_remote_agent"],
                     a2a_model_provider=runtime_snapshot["a2a_model_provider"],
                     a2a_model_id=runtime_snapshot["a2a_model_id"],
+                )
+                artifact_before_snapshot = self._snapshot_workspace_files(
+                    request_id=request_id,
+                    work_id=resolved_work_id,
                 )
                 try:
                     followup_artifacts = self._resolve_targeted_writer_followup_artifacts(
@@ -782,6 +1229,7 @@ class ChatService:
                     a2a_model_id=a2a_model_id,
                     prompt_addendum=self._runtime_prompt_addendum_for_mode(
                         session_id=session_id,
+                        request_id=request_id,
                         work_id=work_id,
                     ),
                 )
@@ -905,10 +1353,57 @@ class ChatService:
             }
             waiting_task_id = None
             input_prompt = None
+        artifact_source_text = final_message
+        source_agent_id = (
+            self.runtime.profile.id
+            if manager_result is None
+            else self.manager.manager_profile.id
+        )
+        source_agent_name = (
+            self.runtime.profile.name
+            if manager_result is None
+            else self.manager.manager_profile.name
+        )
+        artifacts = self._collect_request_artifacts(
+            request_id=request_id,
+            session_id=session_id,
+            work_id=resolved_work_id,
+            before_snapshot=artifact_before_snapshot,
+            source_agent_id=source_agent_id,
+            source_agent_name=source_agent_name,
+        )
+        if not artifacts:
+            artifacts = self._materialize_response_artifacts(
+                request_id=request_id,
+                session_id=session_id,
+                work_id=resolved_work_id,
+                source_text=artifact_source_text,
+                source_agent_id=source_agent_id,
+                source_agent_name=source_agent_name,
+                workflow_type=(manager_result.workflow_type if manager_result is not None else None),
+            )
+        if not artifacts:
+            artifacts = self._generate_missing_artifacts_via_followup(
+                session_id=session_id,
+                user_message=message,
+                request_id=request_id,
+                work_id=resolved_work_id,
+                model_id=model_id,
+                backend=backend,
+                a2a_url=a2a_url,
+                a2a_remote_agent=a2a_remote_agent,
+                a2a_model_provider=a2a_model_provider,
+                a2a_model_id=a2a_model_id,
+                workflow_type=(manager_result.workflow_type if manager_result is not None else None),
+                source_agent_id=source_agent_id,
+                source_agent_name=source_agent_name,
+            )
         finished_at = None if task_status == TASK_STATUS_WAITING_INPUT else now_iso()
         request_status = self._request_status_from_task_status(task_status)
         response_metadata: dict[str, Any] = {}
         response_messages: list[dict[str, Any]] = []
+        if artifacts:
+            result_json = {**result_json, "artifacts": artifacts}
         if task_status == TASK_STATUS_WAITING_INPUT and input_prompt:
             self.store.add_message(
                 session_id,
@@ -932,6 +1427,7 @@ class ChatService:
                     "waiting_task_id": waiting_task_id,
                     "input_prompt": input_prompt,
                     "awaiting_user_input": True,
+                    "artifacts": artifacts,
                 },
             )
         elif task_status != TASK_STATUS_WAITING_INPUT:
@@ -965,6 +1461,7 @@ class ChatService:
                 "input_prompt": input_prompt,
                 "manager_invoked": manager_invoked,
                 "execution_path": "manager" if manager_invoked else "direct_runtime",
+                "artifacts": artifacts,
             }
             if manager_result is not None:
                 for key in (
@@ -1043,6 +1540,7 @@ class ChatService:
                     "route": route,
                     "response_mode": response_mode,
                     "tool_calls_used": direct_tool_calls_used,
+                    "artifact_count": len(artifacts),
                 },
             )
         self.store.create_task_event(
@@ -1092,6 +1590,7 @@ class ChatService:
             waiting_task_id=waiting_task_id,
             input_prompt=input_prompt,
             messages=response_messages,
+            artifacts=artifacts,
             metadata=response_metadata,
         )
         self.store.log_event(
@@ -1108,6 +1607,7 @@ class ChatService:
                 "endpoint": reply.endpoint,
                 "response_mode": response_mode,
                 "tool_calls_used": direct_tool_calls_used,
+                "artifact_count": len(artifacts),
                 "root_task_id": root_task_id,
                 "request_status": request_status,
                 "task_status": task_status,
@@ -1276,6 +1776,7 @@ class ChatService:
         )
         context_tokens = self.manager.bind_execution_context(
             session_id=session_id,
+            request_id=request.id,
             work_id=work_id,
             model_id=runtime_snapshot["model_id"],
             backend=runtime_snapshot["backend"],

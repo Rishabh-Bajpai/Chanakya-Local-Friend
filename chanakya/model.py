@@ -108,6 +108,24 @@ class ChatMessageModel(Base):
     session: Mapped[ChatSessionModel] = relationship(back_populates="messages")
 
 
+class ArtifactModel(Base):
+    __tablename__ = "artifacts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    request_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    work_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    path: Mapped[str] = mapped_column(String, nullable=False)
+    mime_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source_agent_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    source_agent_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class AppEventModel(Base):
     __tablename__ = "app_events"
 

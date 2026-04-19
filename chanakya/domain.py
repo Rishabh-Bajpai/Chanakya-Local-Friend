@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-
 REQUEST_STATUS_CREATED = "created"
 REQUEST_STATUS_IN_PROGRESS = "in_progress"
 REQUEST_STATUS_COMPLETED = "completed"
@@ -51,5 +50,6 @@ class ChatReply:
     waiting_task_id: str | None = None
     input_prompt: str | None = None
     messages: list[dict[str, Any]] = field(default_factory=list)
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=now_iso)
