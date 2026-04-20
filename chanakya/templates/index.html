@@ -2398,10 +2398,51 @@
 
     // ---- Debug Logs Window ----
     let debugLogsWindow = null;
+    let debugLogsEventSource = null;
+    let debugLogsReconnectTimer = null;
+
+    function updateDebugLogsStatus(text) {
+      const statusNode = debugLogsWindow?.document?.getElementById("debugSSEStatus");
+      if (statusNode) statusNode.textContent = text;
+    }
+
+    function disconnectDebugLogsStream() {
+      if (debugLogsReconnectTimer) {
+        window.clearTimeout(debugLogsReconnectTimer);
+        debugLogsReconnectTimer = null;
+      }
+      if (debugLogsEventSource) {
+        debugLogsEventSource.close();
+        debugLogsEventSource = null;
+      }
+    }
+
+    function connectDebugLogsStream() {
+      if (!debugLogsWindow || debugLogsWindow.closed) {
+        disconnectDebugLogsStream();
+        return;
+      }
+      disconnectDebugLogsStream();
+      updateDebugLogsStatus("Connecting...");
+      debugLogsEventSource = new EventSource("/api/stream");
+      debugLogsEventSource.addEventListener("connected", () => {
+        updateDebugLogsStatus("● Live");
+      });
+      debugLogsEventSource.addEventListener("update", () => syncDebugPanelContent());
+      debugLogsEventSource.onerror = () => {
+        disconnectDebugLogsStream();
+        updateDebugLogsStatus("Reconnecting...");
+        debugLogsReconnectTimer = window.setTimeout(() => {
+          debugLogsReconnectTimer = null;
+          connectDebugLogsStream();
+        }, 3000);
+      };
+    }
 
     function openDebugLogs() {
       if (debugLogsWindow && !debugLogsWindow.closed) {
         debugLogsWindow.focus();
+        connectDebugLogsStream();
         return;
       }
       debugLogsWindow = window.open("", "chanakya-debug-logs", "width=1100,height=800,scrollbars=yes");
@@ -2475,26 +2516,10 @@
       // Copy initial content from hidden panels into the debug window.
       syncDebugPanelContent();
 
-      // Listen for SSE to refresh the debug window.
-      const sseSource = new EventSource("/api/stream");
-      sseSource.addEventListener("connected", () => {
-        const statusNode = debugLogsWindow?.document?.getElementById("debugSSEStatus");
-        if (statusNode) statusNode.textContent = "● Live";
-      });
-      sseSource.addEventListener("update", () => syncDebugPanelContent());
-      sseSource.onerror = () => {
-        sseSource.close();
-        const statusNode = debugLogsWindow?.document?.getElementById("debugSSEStatus");
-        if (statusNode) statusNode.textContent = "Reconnecting...";
-        window.setTimeout(() => {
-          if (debugLogsWindow && !debugLogsWindow.closed) {
-            openDebugLogs();
-          }
-        }, 3000);
-      };
+      connectDebugLogsStream();
 
       debugLogsWindow.addEventListener("beforeunload", () => {
-        sseSource.close();
+        disconnectDebugLogsStream();
         debugLogsWindow = null;
       });
     }

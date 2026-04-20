@@ -346,6 +346,7 @@ def test_chat_materializes_inline_code_block_as_artifact() -> None:
         artifact = reply.artifacts[0]
         assert artifact["name"].endswith(".py")
         assert artifact["kind"] == "code"
+        assert artifact["path"].startswith(f"generated/{reply.request_id}/")
         workspace = resolve_shared_workspace(reply.request_id, create=False)
         artifact_file = workspace / artifact["path"]
         assert artifact_file.read_text(encoding="utf-8").startswith("def is_palindrome")
@@ -544,6 +545,67 @@ def test_artifact_followup_uses_isolated_runtime_session() -> None:
         assert runtime.calls[1]["session_id"] in runtime.cleared_session_ids
     finally:
         delete_shared_workspace(reply.request_id)
+
+
+def test_work_scoped_generated_artifacts_remain_immutable_across_requests() -> None:
+    class _WorkScopedInlineCodeRuntimeStub(_RuntimeStub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.profile.tool_ids_json = ["mcp_filesystem"]
+            self.calls = 0
+
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            prompt_addendum: str | None = None,
+        ) -> _RunResult:
+            self.calls += 1
+            return _RunResult(
+                text=(
+                    "```python\n"
+                    f"print('request {self.calls}')\n"
+                    "```\n"
+                ),
+                response_mode="direct_answer",
+                tool_traces=[],
+            )
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _WorkScopedInlineCodeRuntimeStub()))
+    work_id = "work_shared_artifacts"
+
+    first_reply = service.chat("session_work_shared", "Write script one", work_id=work_id)
+    second_reply = service.chat("session_work_shared", "Write script two", work_id=work_id)
+
+    try:
+        first_artifact = first_reply.artifacts[0]
+        second_artifact = second_reply.artifacts[0]
+        assert first_artifact["path"] != second_artifact["path"]
+        assert first_artifact["path"].startswith(f"generated/{first_reply.request_id}/")
+        assert second_artifact["path"].startswith(f"generated/{second_reply.request_id}/")
+
+        workspace = resolve_shared_workspace(work_id, create=False)
+        first_file = workspace / first_artifact["path"]
+        second_file = workspace / second_artifact["path"]
+        assert first_file.read_text(encoding="utf-8") == "print('request 1')\n"
+        assert second_file.read_text(encoding="utf-8") == "print('request 2')\n"
+
+        work_artifacts = store.list_artifacts_for_work(work_id)
+        assert [artifact["path"] for artifact in work_artifacts] == [
+            first_artifact["path"],
+            second_artifact["path"],
+        ]
+    finally:
+        delete_shared_workspace(work_id)
 
 
 def test_chat_passes_a2a_backend_into_conversation_layer() -> None:

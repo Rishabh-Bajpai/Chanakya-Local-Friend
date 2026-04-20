@@ -103,6 +103,8 @@ _REPORT_ARTIFACT_SUFFIXES = {
     ".csv",
 }
 
+_GENERATED_ARTIFACT_DIRNAME = "generated"
+
 _CODE_REQUEST_PATTERN = re.compile(
     r"\b(code|program|script|function|class|implementation|implement|write)\b",
     re.IGNORECASE,
@@ -291,6 +293,8 @@ class ChatService:
     @staticmethod
     def _artifact_kind_for_path(path: str) -> str:
         suffix = Path(path).suffix.lower()
+        if suffix == ".html":
+            return "report"
         if suffix in _CODE_ARTIFACT_SUFFIXES and suffix != ".md":
             return "code"
         if suffix in _REPORT_ARTIFACT_SUFFIXES:
@@ -384,6 +388,18 @@ class ChatService:
     def _fallback_extension_for_language(language: str) -> str:
         return _LANGUAGE_EXTENSION_MAP.get(language.strip().lower(), ".txt")
 
+    def _generated_artifact_path(
+        self,
+        *,
+        workspace: Path,
+        request_id: str,
+        filename: str,
+    ) -> tuple[str, Path]:
+        relative_path = Path(_GENERATED_ARTIFACT_DIRNAME) / request_id / filename
+        file_path = workspace / relative_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        return relative_path.as_posix(), file_path
+
     def _materialize_response_artifacts(
         self,
         *,
@@ -413,7 +429,11 @@ class ChatService:
                 language = str(match.group("lang") or "").strip().lower()
                 extension = self._fallback_extension_for_language(language)
                 filename = f"generated_artifact_{index}{extension}"
-                file_path = workspace / filename
+                relative_path, file_path = self._generated_artifact_path(
+                    workspace=workspace,
+                    request_id=request_id,
+                    filename=filename,
+                )
                 file_path.write_text(code + "\n", encoding="utf-8")
                 mime_type, _ = mimetypes.guess_type(filename)
                 record = self.store.create_artifact(
@@ -422,7 +442,7 @@ class ChatService:
                     session_id=session_id,
                     work_id=work_id,
                     name=filename,
-                    path=filename,
+                    path=relative_path,
                     mime_type=mime_type,
                     kind="code",
                     size_bytes=file_path.stat().st_size,
@@ -444,7 +464,11 @@ class ChatService:
             if not self._looks_like_code(source_text):
                 return []
             filename = f"generated_artifact_1{preferred_extension or '.txt'}"
-            file_path = workspace / filename
+            relative_path, file_path = self._generated_artifact_path(
+                workspace=workspace,
+                request_id=request_id,
+                filename=filename,
+            )
             file_path.write_text(source_text.strip() + "\n", encoding="utf-8")
             mime_type, _ = mimetypes.guess_type(filename)
             record = self.store.create_artifact(
@@ -453,7 +477,7 @@ class ChatService:
                 session_id=session_id,
                 work_id=work_id,
                 name=filename,
-                path=filename,
+                path=relative_path,
                 mime_type=mime_type,
                 kind="code",
                 size_bytes=file_path.stat().st_size,
@@ -464,7 +488,11 @@ class ChatService:
         if not should_capture_report and desired_kind != "report":
             return []
         filename = "generated_report.md"
-        file_path = workspace / filename
+        relative_path, file_path = self._generated_artifact_path(
+            workspace=workspace,
+            request_id=request_id,
+            filename=filename,
+        )
         file_path.write_text(source_text.strip() + "\n", encoding="utf-8")
         record = self.store.create_artifact(
             artifact_id=make_id("artifact"),
@@ -472,7 +500,7 @@ class ChatService:
             session_id=session_id,
             work_id=work_id,
             name=filename,
-            path=filename,
+            path=relative_path,
             mime_type="text/markdown",
             kind="report",
             size_bytes=file_path.stat().st_size,
