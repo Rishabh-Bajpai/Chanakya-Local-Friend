@@ -2889,15 +2889,16 @@
 
     function normalizeRuntimeConfig(config) {
       const normalized = config || {};
+      const backend = A2A_GUI_ENABLED && normalized.backend === "a2a" ? "a2a" : "local";
       return {
-        backend: A2A_GUI_ENABLED && normalized.backend === "a2a" ? "a2a" : "local",
+        backend,
         model_id: typeof normalized.model_id === "string" && normalized.model_id.trim() ? normalized.model_id.trim() : null,
-        a2a_url: A2A_GUI_ENABLED
+        a2a_url: A2A_GUI_ENABLED && backend === "a2a"
           ? (typeof normalized.a2a_url === "string" && normalized.a2a_url.trim() ? normalized.a2a_url.trim() : (DEFAULT_A2A_URL || null))
           : null,
-        a2a_remote_agent: A2A_GUI_ENABLED && typeof normalized.a2a_remote_agent === "string" && normalized.a2a_remote_agent.trim() ? normalized.a2a_remote_agent.trim() : null,
-        a2a_model_provider: A2A_GUI_ENABLED && typeof normalized.a2a_model_provider === "string" && normalized.a2a_model_provider.trim() ? normalized.a2a_model_provider.trim() : null,
-        a2a_model_id: A2A_GUI_ENABLED && typeof normalized.a2a_model_id === "string" && normalized.a2a_model_id.trim() ? normalized.a2a_model_id.trim() : null,
+        a2a_remote_agent: A2A_GUI_ENABLED && backend === "a2a" && typeof normalized.a2a_remote_agent === "string" && normalized.a2a_remote_agent.trim() ? normalized.a2a_remote_agent.trim() : null,
+        a2a_model_provider: A2A_GUI_ENABLED && backend === "a2a" && typeof normalized.a2a_model_provider === "string" && normalized.a2a_model_provider.trim() ? normalized.a2a_model_provider.trim() : null,
+        a2a_model_id: A2A_GUI_ENABLED && backend === "a2a" && typeof normalized.a2a_model_id === "string" && normalized.a2a_model_id.trim() ? normalized.a2a_model_id.trim() : null,
         conversation_tone_instruction: typeof normalized.conversation_tone_instruction === "string" && normalized.conversation_tone_instruction.trim()
           ? normalized.conversation_tone_instruction.trim()
           : (CONVERSATION_PREFERENCE_DEFAULTS.conversation_tone_instruction || null),

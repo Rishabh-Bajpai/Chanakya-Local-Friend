@@ -86,6 +86,10 @@ def _normalize_runtime_config(record: dict[str, Any] | None) -> dict[str, Any]:
         config[key] = normalized or None
     if config["a2a_url"] is None:
         config["a2a_url"] = get_a2a_agent_url()
+    if config["backend"] != "a2a":
+        config["a2a_remote_agent"] = None
+        config["a2a_model_provider"] = None
+        config["a2a_model_id"] = None
     return config
 
 
@@ -100,6 +104,10 @@ def _parse_runtime_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
         _parse_optional_string(payload, "conversation_tone_instruction") or None
     )
     tts_instruction = _parse_optional_string(payload, "tts_instruction") or None
+    if backend != "a2a":
+        a2a_remote_agent = None
+        a2a_model_provider = None
+        a2a_model_id = None
     return {
         "backend": backend,
         "model_id": model_id,
@@ -373,6 +381,11 @@ def create_app() -> Flask:
             else runtime_config["a2a_model_id"]
         )
         if a2a_model_id == "":
+            a2a_model_id = None
+        if backend != "a2a":
+            a2a_url = None
+            a2a_remote_agent = None
+            a2a_model_provider = None
             a2a_model_id = None
         raw_conversation_tone_instruction = payload.get("conversation_tone_instruction")
         conversation_tone_instruction = (
