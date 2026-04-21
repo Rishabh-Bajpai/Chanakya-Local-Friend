@@ -1472,6 +1472,7 @@
 
     .assistant-shell {
       width: min(100%, var(--assistant-shell-width));
+      height: calc(100vh - 48px);
       min-height: calc(100vh - 48px);
       display: flex;
       flex-direction: column;
@@ -1599,6 +1600,7 @@
       flex: 1;
       flex-direction: column;
       min-height: 0;
+      overflow: hidden;
       padding: 20px 20px 18px;
       gap: 16px;
     }
@@ -1807,9 +1809,13 @@
     }
 
     .chat-shell {
-      display: grid;
+      display: flex;
+      flex: 1;
+      flex-direction: column;
       gap: 12px;
+      height: 100%;
       min-height: 0;
+      overflow: hidden;
       transition: opacity 180ms ease, transform 180ms ease, max-height 220ms ease;
     }
 
@@ -1929,11 +1935,16 @@
     .chat-log {
       padding: 18px;
       gap: 14px;
-      min-height: 260px;
-      max-height: 40vh;
+      min-height: 0;
+      max-height: none;
       background:
         radial-gradient(circle at top right, rgba(79, 215, 255, 0.06), transparent 24%),
         linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+    }
+
+    #chatLog {
+      overflow-x: hidden;
+      overflow-y: auto;
     }
 
     .chat-log::before {
@@ -1982,6 +1993,7 @@
 
     .composer-dock {
       display: grid;
+      flex: 0 0 auto;
       gap: 12px;
       padding: 14px 16px 16px;
       border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -2236,6 +2248,7 @@
       }
 
       .assistant-shell {
+        height: calc(100vh - 48px);
         min-height: calc(100vh - 48px);
       }
 
@@ -2252,6 +2265,7 @@
       }
 
       .assistant-shell {
+        height: calc(100vh - 28px);
         min-height: calc(100vh - 28px);
         border-radius: 24px;
       }
@@ -2932,6 +2946,10 @@
       if (chatShell) {
         chatShell.classList.toggle("collapsed", !isChatExpanded);
       }
+      const heroStage = document.querySelector(".hero-stage");
+      if (heroStage) {
+        heroStage.hidden = isChatExpanded || activeMainMode === "config";
+      }
       if (heroChatToggle) {
         heroChatToggle.textContent = isChatExpanded ? "Hide Chat" : "Open Chat";
       }
@@ -2951,7 +2969,7 @@
       const isConfigMode = activeMainMode === "config";
       const heroStage = document.querySelector(".hero-stage");
       if (heroStage) {
-        heroStage.hidden = isConfigMode;
+        heroStage.hidden = isConfigMode || isChatExpanded;
       }
       if (configShell) {
         configShell.classList.toggle("is-active", isConfigMode);
@@ -4735,6 +4753,7 @@
     function renderChatHistory(messages) {
       chatLog.replaceChildren();
       if (!messages.length) {
+        setChatExpanded(false);
         removeInlineProgressNode();
         appendMessage(
           "assistant",
@@ -4742,6 +4761,7 @@
         );
         return;
       }
+      setChatExpanded(true);
       messages.forEach((item) => {
         const meta = [];
         if (item.route) meta.push(`route=${item.route}`);
