@@ -14,8 +14,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from chanakya.config import get_database_url, load_local_env
 from chanakya.model import (
+    Base,
     AgentSessionContextModel,
     AgentProfileModel,
+    ArtifactModel,
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
@@ -29,6 +31,7 @@ from chanakya.model import (
     ToolInvocationModel,
     WorkAgentSessionModel,
     WorkModel,
+    WorkNotificationModel,
 )
 
 
@@ -49,21 +52,8 @@ Session = sessionmaker(bind=engine)
 app = create_viewer_app()
 
 MODELS = {
-    "AgentSessionContextModel": AgentSessionContextModel,
-    "RuntimeConfigModel": RuntimeConfigModel,
-    "RequestModel": RequestModel,
-    "TaskModel": TaskModel,
-    "TaskEventModel": TaskEventModel,
-    "TemporaryAgentModel": TemporaryAgentModel,
-    "ChatSessionModel": ChatSessionModel,
-    "ChatMessageModel": ChatMessageModel,
-    "AppEventModel": AppEventModel,
-    "ToolInvocationModel": ToolInvocationModel,
-    "AgentProfileModel": AgentProfileModel,
-    "NotificationSettingsModel": NotificationSettingsModel,
-    "WorkModel": WorkModel,
-    "WorkAgentSessionModel": WorkAgentSessionModel,
-    "ClassicActiveWorkModel": ClassicActiveWorkModel,
+    mapper.class_.__name__: mapper.class_
+    for mapper in sorted(Base.registry.mappers, key=lambda mapper: mapper.class_.__name__)
 }
 
 
@@ -167,8 +157,8 @@ VIEWER_HTML = """
         <h2>{{ current_model }}</h2>
         <p style="margin-top: 0; color: #b8b8b8;">
           Tip: user chat history lives in <code>ChatMessageModel</code>; delegated agent activity is mostly in
-          <code>RequestModel</code>, <code>TaskModel</code>, <code>TaskEventModel</code>, <code>ToolInvocationModel</code>, and <code>TemporaryAgentModel</code>. Runtime configuration and work tracking live in
-          <code>RuntimeConfigModel</code>, <code>WorkModel</code>, <code>WorkAgentSessionModel</code>, and <code>ClassicActiveWorkModel</code>.
+          <code>RequestModel</code>, <code>TaskModel</code>, <code>TaskEventModel</code>, <code>ToolInvocationModel</code>, <code>TemporaryAgentModel</code>, and <code>ArtifactModel</code>. Runtime configuration and work tracking live in
+          <code>RuntimeConfigModel</code>, <code>WorkModel</code>, <code>WorkAgentSessionModel</code>, <code>ClassicActiveWorkModel</code>, and <code>WorkNotificationModel</code>.
         </p>
         
         <div class="action-bar">
