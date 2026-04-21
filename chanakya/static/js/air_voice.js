@@ -37,6 +37,9 @@
       }
       statusNode.textContent = text || "";
       statusNode.dataset.state = isError ? "error" : "idle";
+      window.dispatchEvent(new CustomEvent("air-voice-status", {
+        detail: { text: text || "", isError },
+      }));
     }
 
     function selectedValue(select) {
