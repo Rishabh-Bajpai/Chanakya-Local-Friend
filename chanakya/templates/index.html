@@ -29,6 +29,10 @@
       box-sizing: border-box;
     }
 
+    [hidden] {
+      display: none !important;
+    }
+
     body {
       margin: 0;
       font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -74,29 +78,6 @@
       font-weight: 700;
       letter-spacing: -0.02em;
       color: var(--text);
-    }
-
-    .top-bar .status-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 3px 10px;
-      border-radius: 999px;
-      border: 1px solid rgba(58, 138, 135, 0.3);
-      background: rgba(58, 138, 135, 0.1);
-      font-size: 11px;
-      font-weight: 600;
-      color: #6dcfcc;
-      letter-spacing: 0.02em;
-    }
-
-    .top-bar .status-chip::before {
-      content: '';
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--ink);
-      box-shadow: 0 0 8px rgba(58, 138, 135, 0.6);
     }
 
     .top-bar-right {
@@ -1526,7 +1507,36 @@
     }
 
     .top-bar-left {
-      gap: 14px;
+      gap: 10px;
+    }
+
+    .mode-button,
+    .back-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(255, 255, 255, 0.04);
+      color: #e5eef8;
+      cursor: pointer;
+      font: inherit;
+      font-size: 18px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+    }
+
+    .mode-button:hover,
+    .back-button:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(79, 215, 255, 0.24);
+      color: #ffffff;
+    }
+
+    .back-button[hidden] {
+      display: none;
     }
 
     .top-bar .brand {
@@ -1535,17 +1545,6 @@
       text-transform: uppercase;
       color: #d8f3ff;
       text-shadow: 0 0 18px rgba(79, 215, 255, 0.28);
-    }
-
-    .status-chip {
-      background: rgba(79, 215, 255, 0.10);
-      border-color: rgba(79, 215, 255, 0.20);
-      color: #a8f0ff;
-    }
-
-    .status-chip::before {
-      background: var(--glow-cyan);
-      box-shadow: 0 0 12px rgba(79, 215, 255, 0.7);
     }
 
     .top-bar-right {
@@ -1643,14 +1642,6 @@
       max-width: 520px;
     }
 
-    .hero-kicker {
-      margin: 0;
-      font-size: 11px;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: #8ecfff;
-    }
-
     .hero-title {
       margin: 0;
       font-size: clamp(2rem, 4vw, 3.15rem);
@@ -1665,6 +1656,10 @@
       color: #a9b2c2;
       font-size: 14px;
       line-height: 1.6;
+    }
+
+    .hero-subtitle[hidden] {
+      display: none;
     }
 
     .hero-orb-wrap {
@@ -1785,44 +1780,6 @@
         inset 0 -18px 30px rgba(40, 6, 12, 0.50);
     }
 
-    .hero-status {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      gap: 10px;
-      width: min(100%, 520px);
-    }
-
-    .hero-status-card {
-      display: grid;
-      gap: 6px;
-      padding: 14px 16px;
-      border-radius: 18px;
-      border: 1px solid rgba(255, 255, 255, 0.07);
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.018));
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-    }
-
-    .hero-status-label {
-      margin: 0;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.18em;
-      color: #89b6d0;
-    }
-
-    .hero-status-copy {
-      margin: 0;
-      color: #eef6ff;
-      font-size: 14px;
-      line-height: 1.5;
-      min-height: 1.5em;
-    }
-
-    .hero-status-copy.is-muted {
-      color: #a4aebd;
-    }
-
     .hero-actions {
       display: flex;
       justify-content: center;
@@ -1862,6 +1819,59 @@
       overflow: hidden;
       transform: translateY(8px);
       pointer-events: none;
+    }
+
+    .config-shell {
+      display: none;
+      min-height: 0;
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(9, 12, 20, 0.86), rgba(14, 18, 28, 0.66));
+      overflow: hidden;
+    }
+
+    .config-shell.is-active {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    .config-shell-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 18px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .config-shell-title {
+      margin: 0;
+      font-size: 18px;
+      color: #eef6ff;
+    }
+
+    .config-shell-copy {
+      margin: 4px 0 0;
+      font-size: 13px;
+      color: #9eacbe;
+    }
+
+    .config-shell-body {
+      display: grid;
+      gap: 0;
+      overflow-y: auto;
+      padding: 0;
+      flex: 1;
+    }
+
+    .config-shell .sidebar-panel {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .config-shell .sidebar-panel:last-child {
+      border-bottom: none;
     }
 
     .chat {
@@ -2054,6 +2064,14 @@
       background: linear-gradient(180deg, rgba(12, 15, 26, 0.92), rgba(9, 12, 21, 0.92));
       box-shadow: 0 24px 50px rgba(0, 0, 0, 0.30);
       backdrop-filter: blur(16px);
+    }
+
+    .right-sidebar.config-mode {
+      border-color: rgba(255, 255, 255, 0.06);
+    }
+
+    .right-sidebar.config-mode .sidebar-panel:not([data-sidebar-panel="task-progress"]) {
+      display: none;
     }
 
     .utility-rail-header {
@@ -2258,7 +2276,6 @@
         gap: 8px;
       }
 
-      .status-chip,
       .debug-badge {
         display: none;
       }
@@ -2284,16 +2301,13 @@
       <div class="assistant-shell">
         <header class="top-bar">
           <div class="top-bar-left">
-            <span class="brand">Chanakya</span>
-            <span class="status-chip">Connected</span>
+            <button id="modeSettingsButton" type="button" class="mode-button" title="Open configuration">⚙</button>
+            <button id="modeBackButton" type="button" class="back-button" title="Back to chat" hidden>←</button>
             {% if force_subagents_enabled %}
             <span class="debug-badge">Force Subagents: ON</span>
             {% endif %}
           </div>
           <div class="top-bar-right">
-            <button id="stageToggleButton" type="button" class="stage-toggle">
-              <span>Show Chat</span>
-            </button>
             <button id="utilityToggleButton" type="button" class="utility-toggle">
               <span>Controls</span>
             </button>
@@ -2307,9 +2321,8 @@
         <div class="main-stage-content">
           <section class="hero-stage">
             <div class="hero-copy">
-              <p class="hero-kicker">Orb-first console</p>
-              <h1 class="hero-title">Assistant in Focus</h1>
-              <p class="hero-subtitle">Keep the main screen centered on live conversation and voice flow, while the operational controls stay close by on desktop.</p>
+              <h1 class="hero-title">Chanakya</h1>
+              <p class="hero-subtitle" hidden></p>
             </div>
             <div class="hero-orb-wrap" aria-hidden="true">
               <div class="hero-orb-backdrop"></div>
@@ -2317,15 +2330,8 @@
                 <div class="hero-orb-core"></div>
               </div>
             </div>
-            <div class="hero-status">
-              <div class="hero-status-card">
-                <p class="hero-status-label">Conversation Status</p>
-                <p id="heroStatusCopy" class="hero-status-copy is-muted">Ready for text or voice input.</p>
-              </div>
-              <div class="hero-actions">
-                <button id="heroChatToggle" type="button" class="hero-action-button">Open Chat</button>
-                <button type="button" class="hero-action-button" onclick="openDebugLogs()">Open Debug Logs</button>
-              </div>
+            <div class="hero-actions">
+              <button id="heroChatToggle" type="button" class="hero-action-button">Open Chat</button>
             </div>
           </section>
 
@@ -2363,6 +2369,16 @@
                 </div>
               </div>
             </div>
+          </section>
+
+          <section id="configShell" class="config-shell">
+            <div class="config-shell-header">
+              <div>
+                <h2 class="config-shell-title">Configuration</h2>
+                <p class="config-shell-copy">Settings, voice, agents, and notifications live here.</p>
+              </div>
+            </div>
+            <div id="configShellBody" class="config-shell-body"></div>
           </section>
         </div>
       </div>
@@ -2779,10 +2795,12 @@
     const agentResetButton = document.getElementById("agentResetButton");
     const agentFormStatus = document.getElementById("agentFormStatus");
     const chatShell = document.getElementById("chatShell");
-    const stageToggleButton = document.getElementById("stageToggleButton");
     const heroChatToggle = document.getElementById("heroChatToggle");
     const heroOrb = document.getElementById("heroOrb");
-    const heroStatusCopy = document.getElementById("heroStatusCopy");
+    const modeSettingsButton = document.getElementById("modeSettingsButton");
+    const modeBackButton = document.getElementById("modeBackButton");
+    const configShell = document.getElementById("configShell");
+    const configShellBody = document.getElementById("configShellBody");
     const utilityToggleButton = document.getElementById("utilityToggleButton");
     const utilityCloseButton = document.getElementById("utilityCloseButton");
     const utilityScrim = document.getElementById("utilityScrim");
@@ -2815,6 +2833,7 @@
     const CONVERSATION_PREFERENCE_DEFAULTS = {{ conversation_preferences_defaults | tojson }};
     const CHAT_RECOVERY_MAX_WAIT_MS = 180000;
     const CHAT_RECOVERY_POLL_MS = 1500;
+    let activeMainMode = "chat";
 
     function delay(ms) {
       return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -2907,9 +2926,6 @@
       if (chatShell) {
         chatShell.classList.toggle("collapsed", !isChatExpanded);
       }
-      if (stageToggleButton) {
-        stageToggleButton.innerHTML = `<span>${isChatExpanded ? "Hide Chat" : "Show Chat"}</span>`;
-      }
       if (heroChatToggle) {
         heroChatToggle.textContent = isChatExpanded ? "Hide Chat" : "Open Chat";
       }
@@ -2923,6 +2939,38 @@
 
     function setUtilityPanelOpen(nextValue) {
       document.body.classList.toggle("utility-panel-open", Boolean(nextValue));
+    }
+
+    function syncMainMode() {
+      const isConfigMode = activeMainMode === "config";
+      const heroStage = document.querySelector(".hero-stage");
+      if (heroStage) {
+        heroStage.hidden = isConfigMode;
+      }
+      if (configShell) {
+        configShell.classList.toggle("is-active", isConfigMode);
+      }
+      if (chatShell) {
+        chatShell.hidden = isConfigMode;
+      }
+      if (modeSettingsButton) {
+        modeSettingsButton.hidden = isConfigMode;
+      }
+      if (modeBackButton) {
+        modeBackButton.hidden = !isConfigMode;
+      }
+      const rightSidebar = document.querySelector(".right-sidebar");
+      if (rightSidebar) {
+        rightSidebar.classList.toggle("config-mode", isConfigMode);
+      }
+    }
+
+    function setMainMode(mode) {
+      activeMainMode = mode === "config" ? "config" : "chat";
+      syncMainMode();
+      if (activeMainMode === "chat") {
+        setChatExpanded(isChatExpanded);
+      }
     }
 
     function triggerVoiceControl(action) {
@@ -2944,29 +2992,23 @@
       const voiceText = String(airVoiceStatus?.textContent || "").trim();
       const combined = `${queueText} ${voiceText}`.trim().toLowerCase();
       if (conversationQueueStatus?.dataset.state === "error" || airVoiceStatus?.dataset.state === "error") {
-        return { state: "error", text: queueText || voiceText || "A problem interrupted the assistant flow." };
+        return { state: "error", text: "" };
       }
       if (/recording|listening|transcribing/.test(combined)) {
-        return { state: "listening", text: voiceText || "Listening for your next input." };
+        return { state: "listening", text: "" };
       }
       if (/queued|speaking|thinking|replying|processing|pacing|waiting/.test(combined)) {
-        return { state: queueText ? "queued" : "speaking", text: queueText || voiceText || "Assistant is working through the current turn." };
+        return { state: queueText ? "queued" : "speaking", text: "" };
       }
-      const latestAssistant = getLatestAssistantMessageText().trim();
-      if (latestAssistant) {
-        return { state: "idle", text: "Latest response is ready. Open chat to continue the thread." };
-      }
-      return { state: "idle", text: "Ready for text or voice input." };
+      return { state: "idle", text: "" };
     }
 
     function syncHeroState() {
-      if (!heroOrb || !heroStatusCopy) {
+      if (!heroOrb) {
         return;
       }
-      const { state, text } = deriveHeroStatusState();
+      const { state } = deriveHeroStatusState();
       heroOrb.className = `hero-orb ${state}`;
-      heroStatusCopy.textContent = text;
-      heroStatusCopy.classList.toggle("is-muted", state === "idle");
     }
 
     function runtimeConfigsEqual(left, right) {
@@ -5364,15 +5406,21 @@
       await refreshSidePanels();
     }
 
-    if (stageToggleButton) {
-      stageToggleButton.addEventListener("click", () => {
+    if (heroChatToggle) {
+      heroChatToggle.addEventListener("click", () => {
         setChatExpanded(!isChatExpanded);
       });
     }
 
-    if (heroChatToggle) {
-      heroChatToggle.addEventListener("click", () => {
-        setChatExpanded(!isChatExpanded);
+    if (modeSettingsButton) {
+      modeSettingsButton.addEventListener("click", () => {
+        setMainMode("config");
+      });
+    }
+
+    if (modeBackButton) {
+      modeBackButton.addEventListener("click", () => {
+        setMainMode("chat");
       });
     }
 
@@ -5406,9 +5454,17 @@
       });
     });
 
+    ["settings", "voice", "agents", "notifications"].forEach((panelId) => {
+      const panel = document.querySelector(`.sidebar-panel[data-sidebar-panel="${panelId}"]`);
+      if (panel && configShellBody) {
+        configShellBody.appendChild(panel);
+      }
+    });
+
     window.addEventListener("air-voice-status", syncHeroState);
 
     setChatExpanded(false);
+    setMainMode("chat");
     syncHeroState();
 
     chatForm.addEventListener("submit", async (event) => {
