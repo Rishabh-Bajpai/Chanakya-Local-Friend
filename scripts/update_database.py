@@ -15,10 +15,12 @@ from chanakya.config import get_database_url, load_local_env
 from chanakya.model import (
     Base,
     AgentProfileModel,
+    ArtifactModel,
     AppEventModel,
     ChatMessageModel,
     ChatSessionModel,
     RequestModel,
+    RuntimeConfigModel,
     TaskEventModel,
     TaskModel,
     TemporaryAgentModel,
@@ -42,6 +44,8 @@ TARGET_MODELS = [
     ToolInvocationModel,
     AgentProfileModel,
     TemporaryAgentModel,
+    RuntimeConfigModel,
+    ArtifactModel,
 ]
 
 
