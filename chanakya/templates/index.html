@@ -1957,6 +1957,29 @@
       border: 1px solid rgba(97, 120, 129, 0.24);
     }
 
+    .message.progress-inline {
+      align-self: flex-start;
+      max-width: none;
+      padding: 0;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .message.progress-inline .message-body {
+      display: block;
+      padding: 0;
+      background: transparent;
+    }
+
+    .inline-progress-status {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.5;
+      font-style: italic;
+      color: #9aa8ba;
+    }
+
     .composer-dock {
       display: grid;
       gap: 12px;
@@ -2878,6 +2901,7 @@
     const CHAT_RECOVERY_MAX_WAIT_MS = 180000;
     const CHAT_RECOVERY_POLL_MS = 1500;
     let activeMainMode = "chat";
+    let activeInlineProgressRequestId = null;
 
     function delay(ms) {
       return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -3869,6 +3893,68 @@
       return node;
     }
 
+    function ensureInlineProgressNode() {
+      let node = chatLog.querySelector('.message.progress-inline');
+      if (!node) {
+        node = document.createElement('div');
+        node.className = 'message progress-inline';
+        const body = document.createElement('div');
+        body.className = 'message-body';
+        node.appendChild(body);
+        chatLog.appendChild(node);
+      }
+      return node;
+    }
+
+    function removeInlineProgressNode() {
+      const node = chatLog.querySelector('.message.progress-inline');
+      if (node) {
+        node.remove();
+      }
+      activeInlineProgressRequestId = null;
+    }
+
+    function renderInlineProgressStatus(text, options = {}) {
+      const { requestId = null } = options;
+      if (!text) {
+        removeInlineProgressNode();
+        return;
+      }
+
+      const node = ensureInlineProgressNode();
+      const bodyNode = node.querySelector('.message-body') || node;
+      activeInlineProgressRequestId = requestId;
+
+      const statusNode = document.createElement('p');
+      statusNode.className = 'inline-progress-status';
+      statusNode.textContent = text;
+
+      bodyNode.replaceChildren(statusNode);
+      chatLog.appendChild(node);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function renderPendingInlineProgress(message) {
+      renderInlineProgressStatus('Task received by Chanakya', { requestId: 'pending' });
+    }
+
+    function renderInlineProgress(tasks, events, rootTaskId, requestId) {
+      if (!requestId) {
+        removeInlineProgressNode();
+        return;
+      }
+      const responsePersisted = (events || []).some((event) => event.event_type === 'response_persisted');
+      if (responsePersisted) {
+        removeInlineProgressNode();
+        return;
+      }
+      const relevantTasks = (tasks || []).filter((task) => !rootTaskId || task.id === rootTaskId || task.parent_task_id);
+      if (!relevantTasks.length) {
+        return;
+      }
+      renderInlineProgressStatus('Chanakya is processing the request', { requestId });
+    }
+
     function messageBadgeForHistoryItem(item) {
       if (!item || !item.route) {
         return "";
@@ -4312,6 +4398,7 @@
         resetVoiceQueueState();
       }
       beginAssistantTurn();
+      renderInlineProgressStatus('Chanakya is processing the request', { requestId: activeInlineProgressRequestId || 'pending' });
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
       if (runtimeConfig.backend === "a2a" && !canUseA2A()) {
         throw new Error(getA2AUnavailableMessage());
@@ -4710,6 +4797,7 @@
     function renderChatHistory(messages) {
       chatLog.replaceChildren();
       if (!messages.length) {
+        removeInlineProgressNode();
         appendMessage(
           "assistant",
           "I am Chanakya. I can answer questions directly, calculate expressions, and fetch web pages. Try asking me something!",
@@ -4731,6 +4819,7 @@
           }
         );
       });
+      removeInlineProgressNode();
       syncHeroState();
     }
 
@@ -5399,6 +5488,12 @@
           : (timelineData.events || []);
         renderTaskTimeline(latestTimeline);
         renderTaskProgress(latestRequestTasks, latestTimeline, latestRequest ? latestRequest.root_task_id : null);
+        renderInlineProgress(
+          latestRequestTasks,
+          latestTimeline,
+          latestRequest ? latestRequest.root_task_id : null,
+          latestRequest ? latestRequest.id : null,
+        );
         if (latestRequest) {
           renderTrace({
             request_id: latestRequest.id,
@@ -5420,6 +5515,7 @@
         renderAgents([]);
         renderTasks([]);
         renderTaskProgress([], [], null);
+        removeInlineProgressNode();
         renderTaskTimeline([]);
         renderSubagents([]);
         renderTrace(null);
@@ -5516,11 +5612,13 @@
       const message = messageInput.value.trim();
       if (!message) return;
       appendMessage("user", message);
+      renderPendingInlineProgress(message);
       messageInput.value = "";
 
       try {
         await submitChatMessage(message);
       } catch (error) {
+        removeInlineProgressNode();
         appendMessage("assistant", error instanceof Error ? error.message : String(error));
         return;
       }
@@ -5621,6 +5719,7 @@
       submitText: async (text, options = {}) => {
         const { onAssistantMessage } = options;
         appendMessage("user", text, "voice transcript");
+        renderPendingInlineProgress(text);
         const data = await submitChatMessage(text, {
           voiceMode: true,
           onAssistantMessage: (content) => {
