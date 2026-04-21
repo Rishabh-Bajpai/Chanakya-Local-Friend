@@ -2087,6 +2087,10 @@
       font: inherit;
     }
 
+    .utility-scrim {
+      display: none;
+    }
+
     .sidebar-panel-header {
       padding: 16px 18px;
     }
@@ -2179,8 +2183,25 @@
         z-index: 40;
       }
 
+      .utility-scrim {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(3, 7, 16, 0.55);
+        backdrop-filter: blur(4px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms ease;
+        z-index: 30;
+      }
+
       body.utility-panel-open .right-sidebar {
         transform: translateX(0);
+      }
+
+      body.utility-panel-open .utility-scrim {
+        opacity: 1;
+        pointer-events: auto;
       }
 
       .utility-rail-header {
@@ -2325,11 +2346,11 @@
                 </div>
               </form>
               <div class="dock-actions">
-                <button id="airMicButton" class="air-button" type="button">Mic</button>
-                <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
-                <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
-                <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
-                <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
+                <button id="airMicButton" class="air-button" type="button" title="Manual microphone recording">Mic</button>
+                <button id="airVoiceLoopButton" class="air-button" type="button" title="Start or stop voice mode">Start Voice</button>
+                <button id="airSpeakButton" class="air-button" type="button" title="Speak the latest assistant reply">Speak Reply</button>
+                <button id="airPauseRepliesButton" class="air-button" type="button" title="Pause queued assistant replies">Pause Replies</button>
+                <button id="airRefreshModelsButton" class="air-button" type="button" title="Refresh AIR model list">Refresh Models</button>
               </div>
               <div class="chat-status-bar dock-status">
                 <div class="air-status-card">
@@ -2346,6 +2367,8 @@
         </div>
       </div>
     </main>
+
+    <div id="utilityScrim" class="utility-scrim"></div>
 
     <aside class="right-sidebar">
       <div class="utility-rail-header">
@@ -2459,11 +2482,11 @@
               </label>
             </div>
             <div class="air-controls utility-voice-links">
-              <button type="button" class="air-button" data-voice-proxy="mic">Mic</button>
-              <button type="button" class="air-button" data-voice-proxy="loop">Start Voice</button>
-              <button type="button" class="air-button" data-voice-proxy="speak">Speak Reply</button>
-              <button type="button" class="air-button" data-voice-proxy="pause">Pause Replies</button>
-              <button type="button" class="air-button" data-voice-proxy="refresh">Refresh Models</button>
+              <button type="button" class="air-button" data-voice-proxy="mic" title="Manual microphone recording">Mic</button>
+              <button type="button" class="air-button" data-voice-proxy="loop" title="Start or stop voice mode">Start Voice</button>
+              <button type="button" class="air-button" data-voice-proxy="speak" title="Speak the latest assistant reply">Speak Reply</button>
+              <button type="button" class="air-button" data-voice-proxy="pause" title="Pause queued assistant replies">Pause Replies</button>
+              <button type="button" class="air-button" data-voice-proxy="refresh" title="Refresh AIR model list">Refresh Models</button>
             </div>
           </div>
         </div>
@@ -2762,6 +2785,7 @@
     const heroStatusCopy = document.getElementById("heroStatusCopy");
     const utilityToggleButton = document.getElementById("utilityToggleButton");
     const utilityCloseButton = document.getElementById("utilityCloseButton");
+    const utilityScrim = document.getElementById("utilityScrim");
     const detachedPanel = new URLSearchParams(window.location.search).get("panel");
     const COLLAPSE_STORAGE_KEY = "chanakya-collapsed-panels";
     const panelTitles = {
@@ -5363,6 +5387,18 @@
         setUtilityPanelOpen(false);
       });
     }
+
+    if (utilityScrim) {
+      utilityScrim.addEventListener("click", () => {
+        setUtilityPanelOpen(false);
+      });
+    }
+
+    window.addEventListener("resize", () => {
+      if (window.innerWidth > 1180) {
+        setUtilityPanelOpen(false);
+      }
+    });
 
     document.querySelectorAll("[data-voice-proxy]").forEach((button) => {
       button.addEventListener("click", () => {

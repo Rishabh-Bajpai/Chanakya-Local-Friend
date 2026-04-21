@@ -392,6 +392,7 @@
         continuousButton.dataset.state = continuousMode ? "recording" : "idle";
       }
       if (!continuousMode && recordButton.dataset.state !== "recording") {
+        recordButton.dataset.state = "idle";
         recordButton.textContent = "Mic";
       }
     }
@@ -429,9 +430,7 @@
           voiceTurnActive = false;
           speechSequenceId += 1;
           stopPlayback();
-          if (mediaRecorder && mediaRecorder.state !== "inactive") {
-            mediaRecorder.stop();
-          }
+          await stopRecordingSilently();
           setStatus("Voice mode stopped.");
           syncButtons();
           return;
