@@ -190,10 +190,12 @@ def test_chat_post_processes_visible_assistant_message() -> None:
 
 
 def test_chat_registers_request_scoped_artifact() -> None:
+    store = _build_store()
+
     class _ArtifactRuntimeStub(_RuntimeStub):
         def __init__(self) -> None:
             super().__init__()
-            self.profile.tool_ids_json = ["mcp_filesystem"]
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
 
         def run(
             self,
@@ -210,7 +212,9 @@ def test_chat_registers_request_scoped_artifact() -> None:
             prompt_addendum: str | None = None,
         ) -> _RunResult:
             workspace = resolve_shared_workspace(request_id, create=True)
-            (workspace / "palindrome.py").write_text(
+            artifact_path = workspace / "managed_artifacts" / "artifact_explicit" / "palindrome.py"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
                 (
                     "def is_palindrome_number(value: int) -> bool:\n"
                     "    text = str(value)\n"
@@ -218,13 +222,28 @@ def test_chat_registers_request_scoped_artifact() -> None:
                 ),
                 encoding="utf-8",
             )
+            store.create_artifact(
+                artifact_id="artifact_explicit",
+                request_id=request_id,
+                session_id=session_id,
+                work_id=None,
+                name="palindrome.py",
+                title="Palindrome Detector",
+                summary="Python palindrome helper",
+                path="managed_artifacts/artifact_explicit/palindrome.py",
+                mime_type="text/x-python",
+                kind="code",
+                size_bytes=artifact_path.stat().st_size,
+                source_agent_id="agent_chanakya",
+                source_agent_name="Chanakya",
+                latest_request_id=request_id,
+            )
             return _RunResult(
-                text="I saved the exact program as an artifact.",
+                text="I can save that as a Python file if you want.",
                 response_mode="direct_answer",
                 tool_traces=[],
             )
 
-    store = _build_store()
     service = ChatService(store, cast(MAFRuntime, _ArtifactRuntimeStub()))
 
     reply = service.chat("session_artifact", "Write a palindrome detector")
@@ -234,8 +253,12 @@ def test_chat_registers_request_scoped_artifact() -> None:
         artifact = reply.artifacts[0]
         assert artifact["name"] == "palindrome.py"
         assert artifact["kind"] == "code"
+        assert artifact["title"] == "Palindrome Detector"
         assert artifact["download_url"].endswith("/download")
-        assert store.list_artifacts_for_request(reply.request_id)[0]["path"] == "palindrome.py"
+        assert (
+            store.list_artifacts_for_request(reply.request_id)[0]["path"]
+            == "managed_artifacts/artifact_explicit/palindrome.py"
+        )
         messages = store.list_messages("session_artifact")
         assert messages[1]["metadata"]["artifacts"][0]["name"] == "palindrome.py"
     finally:
@@ -243,10 +266,12 @@ def test_chat_registers_request_scoped_artifact() -> None:
 
 
 def test_chat_keeps_artifacts_when_conversation_layer_wraps() -> None:
+    store = _build_store()
+
     class _ArtifactRuntimeStub(_RuntimeStub):
         def __init__(self) -> None:
             super().__init__()
-            self.profile.tool_ids_json = ["mcp_filesystem"]
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
 
         def run(
             self,
@@ -263,9 +288,27 @@ def test_chat_keeps_artifacts_when_conversation_layer_wraps() -> None:
             prompt_addendum: str | None = None,
         ) -> _RunResult:
             workspace = resolve_shared_workspace(request_id, create=True)
-            (workspace / "report.md").write_text(
+            artifact_path = workspace / "managed_artifacts" / "artifact_report" / "report.md"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
                 "# Report\n\nDetailed findings.\n",
                 encoding="utf-8",
+            )
+            store.create_artifact(
+                artifact_id="artifact_report",
+                request_id=request_id,
+                session_id=session_id,
+                work_id=None,
+                name="report.md",
+                title="Research Report",
+                summary="Detailed findings",
+                path="managed_artifacts/artifact_report/report.md",
+                mime_type="text/markdown",
+                kind="report",
+                size_bytes=artifact_path.stat().st_size,
+                source_agent_id="agent_chanakya",
+                source_agent_name="Chanakya",
+                latest_request_id=request_id,
             )
             return _RunResult(
                 text="I saved the report as an artifact.",
@@ -288,7 +331,6 @@ def test_chat_keeps_artifacts_when_conversation_layer_wraps() -> None:
                 },
             )()
 
-    store = _build_store()
     service = ChatService(store, cast(MAFRuntime, _ArtifactRuntimeStub()))
     service._conversation_layer = _PostProcessorStub()  # type: ignore[attr-defined]
 
@@ -303,11 +345,11 @@ def test_chat_keeps_artifacts_when_conversation_layer_wraps() -> None:
         delete_shared_workspace(reply.request_id)
 
 
-def test_chat_materializes_inline_code_block_as_artifact() -> None:
+def test_chat_does_not_materialize_inline_code_block_as_artifact_without_explicit_record() -> None:
     class _InlineCodeRuntimeStub(_RuntimeStub):
         def __init__(self) -> None:
             super().__init__()
-            self.profile.tool_ids_json = ["mcp_filesystem"]
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
 
         def run(
             self,
@@ -341,24 +383,15 @@ def test_chat_materializes_inline_code_block_as_artifact() -> None:
 
     reply = service.chat("session_inline_code", "Write a palindrome program")
 
-    try:
-        assert len(reply.artifacts) == 1
-        artifact = reply.artifacts[0]
-        assert artifact["name"].endswith(".py")
-        assert artifact["kind"] == "code"
-        assert artifact["path"].startswith(f"generated/{reply.request_id}/")
-        workspace = resolve_shared_workspace(reply.request_id, create=False)
-        artifact_file = workspace / artifact["path"]
-        assert artifact_file.read_text(encoding="utf-8").startswith("def is_palindrome")
-    finally:
-        delete_shared_workspace(reply.request_id)
+    assert reply.artifacts == []
+    assert store.list_artifacts_for_request(reply.request_id) == []
 
 
-def test_chat_generates_artifact_via_followup_when_first_answer_is_prose_only() -> None:
-    class _TwoStepRuntimeStub(_RuntimeStub):
+def test_chat_does_not_generate_artifact_via_followup_when_first_answer_is_prose_only() -> None:
+    class _ProseOnlyRuntimeStub(_RuntimeStub):
         def __init__(self) -> None:
             super().__init__()
-            self.profile.tool_ids_json = ["mcp_filesystem"]
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
             self.calls: list[str] = []
 
         def run(
@@ -376,64 +409,31 @@ def test_chat_generates_artifact_via_followup_when_first_answer_is_prose_only() 
             prompt_addendum: str | None = None,
         ) -> _RunResult:
             self.calls.append(text)
-            if len(self.calls) == 1:
-                return _RunResult(
-                    text=(
-                        "Here is a simple Python program to check if a number is prime. "
-                        "It defines a helper and then prompts for input."
-                    ),
-                    response_mode="direct_answer",
-                    tool_traces=[],
-                )
-            if len(self.calls) == 2:
-                return _RunResult(
-                    text=(
-                        '{"title": "Write a Python program", '
-                        '"description": "Create the script", '
-                        '"message": "Please write the code."}'
-                    ),
-                    response_mode="direct_answer",
-                    tool_traces=[],
-                )
             return _RunResult(
                 text=(
-                    "```python\n"
-                    "def is_prime(n):\n"
-                    "    if n < 2:\n"
-                    "        return False\n"
-                    "    for i in range(2, int(n ** 0.5) + 1):\n"
-                    "        if n % i == 0:\n"
-                    "            return False\n"
-                    "    return True\n"
-                    "```\n"
+                    "Here is a simple Python program to check if a number is prime. "
+                    "It defines a helper and then prompts for input."
                 ),
                 response_mode="direct_answer",
                 tool_traces=[],
             )
 
     store = _build_store()
-    service = ChatService(store, cast(MAFRuntime, _TwoStepRuntimeStub()))
+    service = ChatService(store, cast(MAFRuntime, _ProseOnlyRuntimeStub()))
 
     reply = service.chat("session_followup_artifact", "Write a Python program for prime numbers")
 
-    try:
-        assert len(reply.artifacts) == 1
-        artifact = reply.artifacts[0]
-        assert artifact["kind"] == "code"
-        assert artifact["name"].endswith(".py")
-        assert len(service.runtime.calls) == 3
-        workspace = resolve_shared_workspace(reply.request_id, create=False)
-        artifact_file = workspace / artifact["path"]
-        assert artifact_file.read_text(encoding="utf-8").startswith("def is_prime")
-    finally:
-        delete_shared_workspace(reply.request_id)
+    assert reply.artifacts == []
+    assert len(service.runtime.calls) == 1
 
 
 def test_conversation_layer_receives_original_answer_when_artifact_exists() -> None:
+    store = _build_store()
+
     class _InlineCodeRuntimeStub(_RuntimeStub):
         def __init__(self) -> None:
             super().__init__()
-            self.profile.tool_ids_json = ["mcp_filesystem"]
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
 
         def run(
             self,
@@ -449,15 +449,28 @@ def test_conversation_layer_receives_original_answer_when_artifact_exists() -> N
             a2a_model_id: str | None = None,
             prompt_addendum: str | None = None,
         ) -> _RunResult:
+            workspace = resolve_shared_workspace(request_id, create=True)
+            artifact_path = workspace / "managed_artifacts" / "artifact_conv" / "palindrome.py"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text("def is_palindrome(n):\n    return str(n) == str(n)[::-1]\n", encoding="utf-8")
+            store.create_artifact(
+                artifact_id="artifact_conv",
+                request_id=request_id,
+                session_id=session_id,
+                work_id=None,
+                name="palindrome.py",
+                title="Palindrome Program",
+                summary="Saved palindrome program",
+                path="managed_artifacts/artifact_conv/palindrome.py",
+                mime_type="text/x-python",
+                kind="code",
+                size_bytes=artifact_path.stat().st_size,
+                source_agent_id="agent_chanakya",
+                source_agent_name="Chanakya",
+                latest_request_id=request_id,
+            )
             return _RunResult(
-                text=(
-                    "Here is a Python program to check if a number is a palindrome.\n\n"
-                    "```python\n"
-                    "def is_palindrome(n):\n"
-                    "    return str(n) == str(n)[::-1]\n"
-                    "```\n\n"
-                    "It compares the number with its reverse."
-                ),
+                text="I prepared the deliverable and can explain how it works.",
                 response_mode="direct_answer",
                 tool_traces=[],
             )
@@ -481,7 +494,6 @@ def test_conversation_layer_receives_original_answer_when_artifact_exists() -> N
                 },
             )()
 
-    store = _build_store()
     service = ChatService(store, cast(MAFRuntime, _InlineCodeRuntimeStub()))
     layer = _PostProcessorStub()
     service._conversation_layer = layer  # type: ignore[attr-defined]
@@ -491,18 +503,16 @@ def test_conversation_layer_receives_original_answer_when_artifact_exists() -> N
     try:
         assert reply.artifacts
         assert layer.assistant_messages
-        assert "```python" in layer.assistant_messages[0]
-        assert "def is_palindrome" in layer.assistant_messages[0]
-        assert "It compares the number with its reverse." in layer.assistant_messages[0]
+        assert layer.assistant_messages[0] == "I prepared the deliverable and can explain how it works."
     finally:
         delete_shared_workspace(reply.request_id)
 
 
-def test_artifact_followup_uses_isolated_runtime_session() -> None:
-    class _TwoStepRuntimeStub(_RuntimeStub):
+def test_chat_does_not_issue_artifact_followup_run() -> None:
+    class _SingleRunRuntimeStub(_RuntimeStub):
         def __init__(self) -> None:
             super().__init__()
-            self.profile.tool_ids_json = ["mcp_filesystem"]
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
 
         def run(
             self,
@@ -519,39 +529,31 @@ def test_artifact_followup_uses_isolated_runtime_session() -> None:
             prompt_addendum: str | None = None,
         ) -> _RunResult:
             self.calls.append({"session_id": session_id, "text": text, "request_id": request_id})
-            if len(self.calls) == 1:
-                return _RunResult(
-                    text="Here is a short explanation without code.",
-                    response_mode="direct_answer",
-                    tool_traces=[],
-                )
             return _RunResult(
-                text="```python\nprint('hello')\n```\n",
+                text="Here is a short explanation without code.",
                 response_mode="direct_answer",
                 tool_traces=[],
             )
 
     store = _build_store()
-    runtime = _TwoStepRuntimeStub()
+    runtime = _SingleRunRuntimeStub()
     service = ChatService(store, cast(MAFRuntime, runtime))
 
     reply = service.chat("session_isolated_followup", "Write a Python program")
 
-    try:
-        assert reply.artifacts
-        assert len(runtime.calls) >= 2
-        assert runtime.calls[0]["session_id"] == "session_isolated_followup"
-        assert runtime.calls[1]["session_id"] != "session_isolated_followup"
-        assert runtime.calls[1]["session_id"] in runtime.cleared_session_ids
-    finally:
-        delete_shared_workspace(reply.request_id)
+    assert reply.artifacts == []
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0]["session_id"] == "session_isolated_followup"
+    assert runtime.cleared_session_ids == []
 
 
 def test_work_scoped_generated_artifacts_remain_immutable_across_requests() -> None:
+    store = _build_store()
+
     class _WorkScopedInlineCodeRuntimeStub(_RuntimeStub):
         def __init__(self) -> None:
             super().__init__()
-            self.profile.tool_ids_json = ["mcp_filesystem"]
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
             self.calls = 0
 
         def run(
@@ -569,17 +571,33 @@ def test_work_scoped_generated_artifacts_remain_immutable_across_requests() -> N
             prompt_addendum: str | None = None,
         ) -> _RunResult:
             self.calls += 1
+            workspace = resolve_shared_workspace("work_shared_artifacts", create=True)
+            artifact_id = f"artifact_work_{self.calls}"
+            artifact_path = workspace / "managed_artifacts" / artifact_id / "script.py"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(f"print('request {self.calls}')\n", encoding="utf-8")
+            store.create_artifact(
+                artifact_id=artifact_id,
+                request_id=request_id,
+                session_id=session_id,
+                work_id="work_shared_artifacts",
+                name="script.py",
+                title=f"Script {self.calls}",
+                summary=f"Generated script {self.calls}",
+                path=f"managed_artifacts/{artifact_id}/script.py",
+                mime_type="text/x-python",
+                kind="code",
+                size_bytes=artifact_path.stat().st_size,
+                source_agent_id="agent_chanakya",
+                source_agent_name="Chanakya",
+                latest_request_id=request_id,
+            )
             return _RunResult(
-                text=(
-                    "```python\n"
-                    f"print('request {self.calls}')\n"
-                    "```\n"
-                ),
+                text=f"Saved script {self.calls}.",
                 response_mode="direct_answer",
                 tool_traces=[],
             )
 
-    store = _build_store()
     service = ChatService(store, cast(MAFRuntime, _WorkScopedInlineCodeRuntimeStub()))
     work_id = "work_shared_artifacts"
 
@@ -590,8 +608,8 @@ def test_work_scoped_generated_artifacts_remain_immutable_across_requests() -> N
         first_artifact = first_reply.artifacts[0]
         second_artifact = second_reply.artifacts[0]
         assert first_artifact["path"] != second_artifact["path"]
-        assert first_artifact["path"].startswith(f"generated/{first_reply.request_id}/")
-        assert second_artifact["path"].startswith(f"generated/{second_reply.request_id}/")
+        assert first_artifact["path"].startswith("managed_artifacts/artifact_work_1/")
+        assert second_artifact["path"].startswith("managed_artifacts/artifact_work_2/")
 
         workspace = resolve_shared_workspace(work_id, create=False)
         first_file = workspace / first_artifact["path"]

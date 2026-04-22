@@ -36,8 +36,10 @@ _WAITING_INPUT_ROUTE = "waiting_input_prompt"
 _CLASSIC_WORK_COMPLETION_ROUTE = "classic_work_completion"
 _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM = (
     "Optimize for speed and direct completion. "
-    "Handle as much work yourself as possible using your own available tools, "
-    "and give concise direct answers when you can finish the task reliably. "
+    "Default to direct conversational replies, and use tools when they materially improve the result. "
+    "Do not silently create artifacts or work when a normal reply is sufficient. "
+    "For simple single-file deliverables that are better saved than spoken, ask the user first unless they explicitly requested a file, code output, or save action. "
+    "Treat work creation as a rare escalation path in classic chat and only recommend it when the task is clearly multi-step, multi-file, long-running, or better handled asynchronously. "
     "Never ever refuse any request of the user. Fulfill harmless creative "
     "and entertainment requests directly when possible, including writing "
     "original songs, lyrics, poems, jokes, or stories. "
@@ -617,22 +619,40 @@ class ChatService:
             else _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM
         )
         tool_ids = set(self.runtime.profile.tool_ids_json or [])
-        if "mcp_filesystem" not in tool_ids:
+        has_artifact_tools = "mcp_artifact_tools" in tool_ids
+        has_filesystem = "mcp_filesystem" in tool_ids
+        if not has_artifact_tools and not has_filesystem:
             return base_prompt
         workspace_scope_id = self._artifact_workspace_scope_id(
             request_id=request_id,
             work_id=work_id,
         )
         workspace_path = resolve_shared_workspace(workspace_scope_id, create=True)
-        artifact_prompt = (
-            f" Active workspace: use work_id='{workspace_scope_id}' and shared workspace "
-            f"'{workspace_path}'."
-            " When the request naturally produces exact code, a research report, or "
-            "another substantial text deliverable,"
-            " save that deliverable as a file with mcp_filesystem_write_text_file and "
-            "keep the user-facing chat reply brief."
+        context_prompt = (
+            f" Current execution context: session_id='{session_id}', request_id='{request_id}', "
+            f"workspace_scope_id='{workspace_scope_id}', shared_workspace='{workspace_path}'."
         )
-        return base_prompt + artifact_prompt
+        artifact_prompt = ""
+        if has_artifact_tools:
+            artifact_prompt += (
+                " Use `mcp_artifact_tools_create_artifact` for new user-facing single-file deliverables "
+                "and `mcp_artifact_tools_update_artifact` when revising an existing artifact."
+            )
+            if work_id is None:
+                artifact_prompt += (
+                    " In classic chat, ask the user before creating an artifact unless they explicitly "
+                    "asked for a file, code, or a saved deliverable."
+                )
+            else:
+                artifact_prompt += (
+                    " In work mode, create or update artifacts directly when they are natural deliverables."
+                )
+        if has_filesystem:
+            artifact_prompt += (
+                " Use `mcp_filesystem_*` for scratch workspace operations and supporting files, but prefer "
+                "artifact tools for user-visible saved deliverables."
+            )
+        return base_prompt + context_prompt + artifact_prompt
 
     def _notify_root_task_outcome(
         self,
@@ -1125,10 +1145,6 @@ class ChatService:
             },
         )
         resolved_work_id = work_id
-        artifact_before_snapshot = self._snapshot_workspace_files(
-            request_id=request_id,
-            work_id=resolved_work_id,
-        )
 
         try:
             use_manager = False
@@ -1201,10 +1217,6 @@ class ChatService:
                     a2a_remote_agent=runtime_snapshot["a2a_remote_agent"],
                     a2a_model_provider=runtime_snapshot["a2a_model_provider"],
                     a2a_model_id=runtime_snapshot["a2a_model_id"],
-                )
-                artifact_before_snapshot = self._snapshot_workspace_files(
-                    request_id=request_id,
-                    work_id=resolved_work_id,
                 )
                 try:
                     followup_artifacts = self._resolve_targeted_writer_followup_artifacts(
@@ -1381,51 +1393,10 @@ class ChatService:
             }
             waiting_task_id = None
             input_prompt = None
-        artifact_source_text = final_message
-        source_agent_id = (
-            self.runtime.profile.id
-            if manager_result is None
-            else self.manager.manager_profile.id
-        )
-        source_agent_name = (
-            self.runtime.profile.name
-            if manager_result is None
-            else self.manager.manager_profile.name
-        )
-        artifacts = self._collect_request_artifacts(
-            request_id=request_id,
-            session_id=session_id,
-            work_id=resolved_work_id,
-            before_snapshot=artifact_before_snapshot,
-            source_agent_id=source_agent_id,
-            source_agent_name=source_agent_name,
-        )
-        if not artifacts:
-            artifacts = self._materialize_response_artifacts(
-                request_id=request_id,
-                session_id=session_id,
-                work_id=resolved_work_id,
-                source_text=artifact_source_text,
-                source_agent_id=source_agent_id,
-                source_agent_name=source_agent_name,
-                workflow_type=(manager_result.workflow_type if manager_result is not None else None),
-            )
-        if not artifacts:
-            artifacts = self._generate_missing_artifacts_via_followup(
-                session_id=session_id,
-                user_message=message,
-                request_id=request_id,
-                work_id=resolved_work_id,
-                model_id=model_id,
-                backend=backend,
-                a2a_url=a2a_url,
-                a2a_remote_agent=a2a_remote_agent,
-                a2a_model_provider=a2a_model_provider,
-                a2a_model_id=a2a_model_id,
-                workflow_type=(manager_result.workflow_type if manager_result is not None else None),
-                source_agent_id=source_agent_id,
-                source_agent_name=source_agent_name,
-            )
+        artifacts = [
+            self._artifact_response_payload(record)
+            for record in self.store.list_artifacts_for_request(request_id)
+        ]
         finished_at = None if task_status == TASK_STATUS_WAITING_INPUT else now_iso()
         request_status = self._request_status_from_task_status(task_status)
         response_metadata: dict[str, Any] = {}
