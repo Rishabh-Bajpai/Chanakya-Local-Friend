@@ -18,4 +18,22 @@ Classic Chat Artifact Redesign Tasks
 - [X] Add tests proving classic chat still does not auto-create work
 - [X] Add tests proving work-scoped artifacts still retain `work_id`
 - [X] Run targeted tests and fix regressions
-- [ ] Keep this checklist updated as implementation progresses
+- [X] Keep this checklist updated as implementation progresses
+
+## Follow-up Fixes
+
+- [X] Store all artifacts under a single global artifact root with per-artifact folders
+- [X] Stop creating blank per-request classic chat folders just for prompt context
+- [X] Make artifact tools return constructive recovery hints and candidate artifact lists on bad IDs
+- [X] Add artifact locate and delete tools for classic chat follow-ups
+- [X] Make live chat artifact links render consistently across immediate and queued messages
+- [X] Apply conversation layer to classic tool-assisted replies
+- [X] Add regression coverage for helpful artifact-tool failures and global artifact storage
+- [X] Re-run focused artifact and classic-chat regression tests
+
+## Extended MCP Feedback
+
+- [X] Add constructive recovery feedback for work tools on bad work IDs and missing required fields
+- [X] Add constructive recovery feedback for filesystem tools on bad paths or workspace scope errors
+- [X] Add constructive recovery hints for sandbox execution workspace failures and timeouts
+- [X] Add regression tests covering helpful failure payloads across custom MCP servers

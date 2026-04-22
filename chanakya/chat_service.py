@@ -28,7 +28,11 @@ from chanakya.domain import (
     now_iso,
 )
 from chanakya.services.ntfy import NtfyNotificationDispatcher, summarize_notification_text
-from chanakya.services.sandbox_workspace import resolve_shared_workspace
+from chanakya.services.sandbox_workspace import (
+    get_artifact_storage_root,
+    get_shared_workspace_root,
+    resolve_shared_workspace,
+)
 from chanakya.store import ChanakyaStore
 
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
@@ -623,15 +627,18 @@ class ChatService:
         has_filesystem = "mcp_filesystem" in tool_ids
         if not has_artifact_tools and not has_filesystem:
             return base_prompt
-        workspace_scope_id = self._artifact_workspace_scope_id(
-            request_id=request_id,
-            work_id=work_id,
-        )
-        workspace_path = resolve_shared_workspace(workspace_scope_id, create=True)
-        context_prompt = (
-            f" Current execution context: session_id='{session_id}', request_id='{request_id}', "
-            f"workspace_scope_id='{workspace_scope_id}', shared_workspace='{workspace_path}'."
-        )
+        artifact_root = get_artifact_storage_root(create=True)
+        if work_id is not None:
+            scratch_workspace = get_shared_workspace_root() / str(work_id).strip()
+            context_prompt = (
+                f" Current execution context: session_id='{session_id}', request_id='{request_id}', "
+                f"work_id='{work_id}', scratch_workspace='{scratch_workspace}', artifact_root='{artifact_root}'."
+            )
+        else:
+            context_prompt = (
+                f" Current execution context: session_id='{session_id}', request_id='{request_id}', "
+                f"artifact_root='{artifact_root}'."
+            )
         artifact_prompt = ""
         if has_artifact_tools:
             artifact_prompt += (
@@ -830,15 +837,31 @@ class ChatService:
                 },
             )
 
+    def _latest_assistant_request_id(self, session_id: str) -> str | None:
+        messages = self.store.list_messages(session_id)
+        for item in reversed(messages):
+            if str(item.get("role") or "") != "assistant":
+                continue
+            request_id = str(item.get("request_id") or "").strip()
+            if request_id:
+                return request_id
+        return None
+
     def deliver_next_conversation_message(self, session_id: str) -> dict[str, Any]:
         payload = self._conversation_layer.deliver_next_message(session_id)
         message = payload.get("message")
+        request_id = self._latest_assistant_request_id(session_id)
+        artifacts = [
+            self._artifact_response_payload(record)
+            for record in self.store.list_artifacts_for_request(request_id)
+        ] if request_id else []
         if isinstance(message, dict):
             memory = payload.get("working_memory") or {}
             self.store.add_message(
                 session_id,
                 "assistant",
                 str(message.get("text") or ""),
+                request_id=request_id,
                 route="conversation_layer_followup",
                 metadata={
                     "conversation_layer_applied": True,
@@ -847,8 +870,11 @@ class ChatService:
                     "conversation_layer_pending_delivery_count": len(
                         memory.get("pending_messages") or []
                     ),
+                    "artifacts": artifacts,
                 },
             )
+            payload["artifacts"] = artifacts
+            payload["request_id"] = request_id
         return payload
 
     def request_manual_pause(self, session_id: str) -> dict[str, Any]:
@@ -1476,13 +1502,9 @@ class ChatService:
             if isinstance(run_metadata, dict):
                 response_metadata.update(run_metadata)
             conversation_result = None
-            if (
-                manager_result is None
-                and response_mode == "direct_answer"
-                and (
-                    isinstance(self.runtime, MAFRuntime)
-                    or not isinstance(self._conversation_layer, ConversationLayerSupport)
-                )
+            if manager_result is None and (
+                isinstance(self.runtime, MAFRuntime)
+                or not isinstance(self._conversation_layer, ConversationLayerSupport)
             ):
                 conversation_result = self._build_conversation_layer_result(
                     session_id=session_id,

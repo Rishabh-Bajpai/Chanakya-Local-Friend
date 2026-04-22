@@ -4046,11 +4046,16 @@
 
     async function deliverAssistantText(text, options = {}) {
       const { onAssistantMessage, alreadyRendered = false, metadata = null, artifacts = [] } = options;
+      const resolvedArtifacts = Array.isArray(artifacts) && artifacts.length
+        ? artifacts
+        : Array.isArray(metadata?.artifacts)
+          ? metadata.artifacts
+          : [];
       if (!text) {
         return;
       }
       if (!alreadyRendered) {
-        appendMessage("assistant", text, null, { artifacts });
+        appendMessage("assistant", text, null, { artifacts: resolvedArtifacts });
       }
       const isBackgroundCompletion = Boolean(metadata && metadata.completion_notification);
       if (isBackgroundCompletion && hasActiveVoiceInteraction()) {
@@ -4318,7 +4323,11 @@
           if (payload.status === "delivered" && payload.message) {
             const text = payload.message.text || "";
             if (text) {
-            await deliverAssistantText(text, { onAssistantMessage });
+            await deliverAssistantText(text, {
+              onAssistantMessage,
+              metadata: payload.message.metadata || null,
+              artifacts: Array.isArray(payload.artifacts) ? payload.artifacts : [],
+            });
             }
           const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
           setConversationQueueStatus(
@@ -4410,7 +4419,7 @@
           await deliverAssistantText(text, {
             onAssistantMessage,
             metadata: data.metadata || null,
-            artifacts: index === 0 && Array.isArray(data.artifacts) ? data.artifacts : [],
+            artifacts: Array.isArray(data.artifacts) ? data.artifacts : [],
           });
         }
         if (Number(data.metadata?.pending_delivery_count || 0) > 0) {

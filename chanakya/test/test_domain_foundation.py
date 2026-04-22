@@ -18,7 +18,11 @@ from chanakya.domain import (
 from chanakya.history_provider import SQLAlchemyHistoryProvider
 from chanakya.model import AgentProfileModel
 from chanakya.services.async_loop import run_in_maf_loop
-from chanakya.services.sandbox_workspace import delete_shared_workspace, resolve_shared_workspace
+from chanakya.services.sandbox_workspace import (
+    delete_shared_workspace,
+    get_artifact_storage_root,
+    resolve_shared_workspace,
+)
 from chanakya.store import ChanakyaStore
 
 
@@ -189,6 +193,61 @@ def test_chat_post_processes_visible_assistant_message() -> None:
     assert reply.message == "layered:reply:Explain recursion"
 
 
+def test_chat_applies_conversation_layer_to_tool_assisted_classic_reply() -> None:
+    class _ToolRuntimeStub(_RuntimeStub):
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            prompt_addendum: str | None = None,
+        ) -> _RunResult:
+            return _RunResult(
+                text="I used tools and prepared the answer.",
+                response_mode="tool_assisted",
+                tool_traces=[
+                    _Trace(
+                        tool_id="mcp_artifact_tools",
+                        tool_name="mcp_artifact_tools_create_artifact",
+                        server_name="artifact_server",
+                        status="completed",
+                    )
+                ],
+            )
+
+    class _PostProcessorStub:
+        enabled = True
+
+        def wrap_reply(self, **kwargs):
+            assistant_message = str(kwargs["assistant_message"])
+            return type(
+                "Wrapped",
+                (),
+                {
+                    "response": f"layered:{assistant_message}",
+                    "messages": [{"text": f"layered:{assistant_message}", "delay_ms": 0}],
+                    "metadata": {"pending_delivery_count": 0, "source": "conversation_layer"},
+                },
+            )()
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _ToolRuntimeStub()))
+    service._conversation_layer = _PostProcessorStub()  # type: ignore[attr-defined]
+
+    reply = service.chat("session_layered_tool", "Use a tool and answer")
+
+    assert reply.message == "layered:I used tools and prepared the answer."
+    messages = store.list_messages("session_layered_tool")
+    assert messages[1]["metadata"]["conversation_layer_applied"] is True
+
+
 def test_chat_registers_request_scoped_artifact() -> None:
     store = _build_store()
 
@@ -211,8 +270,8 @@ def test_chat_registers_request_scoped_artifact() -> None:
             a2a_model_id: str | None = None,
             prompt_addendum: str | None = None,
         ) -> _RunResult:
-            workspace = resolve_shared_workspace(request_id, create=True)
-            artifact_path = workspace / "managed_artifacts" / "artifact_explicit" / "palindrome.py"
+            artifact_root = get_artifact_storage_root(create=True)
+            artifact_path = artifact_root / "artifact_explicit" / "palindrome.py"
             artifact_path.parent.mkdir(parents=True, exist_ok=True)
             artifact_path.write_text(
                 (
@@ -230,7 +289,7 @@ def test_chat_registers_request_scoped_artifact() -> None:
                 name="palindrome.py",
                 title="Palindrome Detector",
                 summary="Python palindrome helper",
-                path="managed_artifacts/artifact_explicit/palindrome.py",
+                path="artifact_explicit/palindrome.py",
                 mime_type="text/x-python",
                 kind="code",
                 size_bytes=artifact_path.stat().st_size,
@@ -257,7 +316,7 @@ def test_chat_registers_request_scoped_artifact() -> None:
         assert artifact["download_url"].endswith("/download")
         assert (
             store.list_artifacts_for_request(reply.request_id)[0]["path"]
-            == "managed_artifacts/artifact_explicit/palindrome.py"
+            == "artifact_explicit/palindrome.py"
         )
         messages = store.list_messages("session_artifact")
         assert messages[1]["metadata"]["artifacts"][0]["name"] == "palindrome.py"
@@ -287,8 +346,8 @@ def test_chat_keeps_artifacts_when_conversation_layer_wraps() -> None:
             a2a_model_id: str | None = None,
             prompt_addendum: str | None = None,
         ) -> _RunResult:
-            workspace = resolve_shared_workspace(request_id, create=True)
-            artifact_path = workspace / "managed_artifacts" / "artifact_report" / "report.md"
+            artifact_root = get_artifact_storage_root(create=True)
+            artifact_path = artifact_root / "artifact_report" / "report.md"
             artifact_path.parent.mkdir(parents=True, exist_ok=True)
             artifact_path.write_text(
                 "# Report\n\nDetailed findings.\n",
@@ -302,7 +361,7 @@ def test_chat_keeps_artifacts_when_conversation_layer_wraps() -> None:
                 name="report.md",
                 title="Research Report",
                 summary="Detailed findings",
-                path="managed_artifacts/artifact_report/report.md",
+                path="artifact_report/report.md",
                 mime_type="text/markdown",
                 kind="report",
                 size_bytes=artifact_path.stat().st_size,
@@ -449,8 +508,8 @@ def test_conversation_layer_receives_original_answer_when_artifact_exists() -> N
             a2a_model_id: str | None = None,
             prompt_addendum: str | None = None,
         ) -> _RunResult:
-            workspace = resolve_shared_workspace(request_id, create=True)
-            artifact_path = workspace / "managed_artifacts" / "artifact_conv" / "palindrome.py"
+            artifact_root = get_artifact_storage_root(create=True)
+            artifact_path = artifact_root / "artifact_conv" / "palindrome.py"
             artifact_path.parent.mkdir(parents=True, exist_ok=True)
             artifact_path.write_text("def is_palindrome(n):\n    return str(n) == str(n)[::-1]\n", encoding="utf-8")
             store.create_artifact(
@@ -461,7 +520,7 @@ def test_conversation_layer_receives_original_answer_when_artifact_exists() -> N
                 name="palindrome.py",
                 title="Palindrome Program",
                 summary="Saved palindrome program",
-                path="managed_artifacts/artifact_conv/palindrome.py",
+                path="artifact_conv/palindrome.py",
                 mime_type="text/x-python",
                 kind="code",
                 size_bytes=artifact_path.stat().st_size,
@@ -571,9 +630,9 @@ def test_work_scoped_generated_artifacts_remain_immutable_across_requests() -> N
             prompt_addendum: str | None = None,
         ) -> _RunResult:
             self.calls += 1
-            workspace = resolve_shared_workspace("work_shared_artifacts", create=True)
+            artifact_root = get_artifact_storage_root(create=True)
             artifact_id = f"artifact_work_{self.calls}"
-            artifact_path = workspace / "managed_artifacts" / artifact_id / "script.py"
+            artifact_path = artifact_root / artifact_id / "script.py"
             artifact_path.parent.mkdir(parents=True, exist_ok=True)
             artifact_path.write_text(f"print('request {self.calls}')\n", encoding="utf-8")
             store.create_artifact(
@@ -584,7 +643,7 @@ def test_work_scoped_generated_artifacts_remain_immutable_across_requests() -> N
                 name="script.py",
                 title=f"Script {self.calls}",
                 summary=f"Generated script {self.calls}",
-                path=f"managed_artifacts/{artifact_id}/script.py",
+                path=f"{artifact_id}/script.py",
                 mime_type="text/x-python",
                 kind="code",
                 size_bytes=artifact_path.stat().st_size,
@@ -608,12 +667,12 @@ def test_work_scoped_generated_artifacts_remain_immutable_across_requests() -> N
         first_artifact = first_reply.artifacts[0]
         second_artifact = second_reply.artifacts[0]
         assert first_artifact["path"] != second_artifact["path"]
-        assert first_artifact["path"].startswith("managed_artifacts/artifact_work_1/")
-        assert second_artifact["path"].startswith("managed_artifacts/artifact_work_2/")
+        assert first_artifact["path"].startswith("artifact_work_1/")
+        assert second_artifact["path"].startswith("artifact_work_2/")
 
-        workspace = resolve_shared_workspace(work_id, create=False)
-        first_file = workspace / first_artifact["path"]
-        second_file = workspace / second_artifact["path"]
+        artifact_root = get_artifact_storage_root(create=False)
+        first_file = artifact_root / first_artifact["path"]
+        second_file = artifact_root / second_artifact["path"]
         assert first_file.read_text(encoding="utf-8") == "print('request 1')\n"
         assert second_file.read_text(encoding="utf-8") == "print('request 2')\n"
 

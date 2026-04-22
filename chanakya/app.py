@@ -43,6 +43,7 @@ from chanakya.services.ntfy import (
 )
 from chanakya.services.sandbox_workspace import (
     delete_shared_workspace,
+    get_artifact_storage_root,
     get_shared_workspace_root,
     resolve_shared_workspace,
 )
@@ -129,10 +130,9 @@ def _serialize_artifact_payload(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _resolve_artifact_file(record: dict[str, Any]) -> Path:
-    workspace_scope_id = str(record.get("work_id") or record.get("request_id") or "").strip()
-    workspace_root = resolve_shared_workspace(workspace_scope_id, create=False).resolve()
-    candidate = (workspace_root / str(record.get("path") or "")).resolve()
-    if workspace_root not in candidate.parents and candidate != workspace_root:
+    artifact_root = get_artifact_storage_root(create=False).resolve()
+    candidate = (artifact_root / str(record.get("path") or "")).resolve()
+    if artifact_root not in candidate.parents and candidate != artifact_root:
         raise PermissionError("Artifact path escapes workspace")
     return candidate
 

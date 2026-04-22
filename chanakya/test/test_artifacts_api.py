@@ -4,7 +4,7 @@ from pathlib import Path
 
 from chanakya import app as app_module
 from chanakya.services import tool_loader
-from chanakya.services.sandbox_workspace import delete_shared_workspace, resolve_shared_workspace
+from chanakya.services.sandbox_workspace import delete_shared_workspace, get_artifact_storage_root
 
 
 class _RuntimeStub:
@@ -42,8 +42,9 @@ def test_artifact_list_and_download_endpoints(monkeypatch, tmp_path: Path) -> No
 
     request_id = "req_artifact_api"
     session_id = "session_artifact_api"
-    workspace = resolve_shared_workspace(request_id, create=True)
-    artifact_file = workspace / "palindrome.py"
+    artifact_root = get_artifact_storage_root(create=True)
+    artifact_file = artifact_root / "artifact_test" / "palindrome.py"
+    artifact_file.parent.mkdir(parents=True, exist_ok=True)
     artifact_file.write_text("print('palindrome')\n", encoding="utf-8")
     store.ensure_session(session_id, title="Artifact API")
     artifact = store.create_artifact(
@@ -52,7 +53,8 @@ def test_artifact_list_and_download_endpoints(monkeypatch, tmp_path: Path) -> No
         session_id=session_id,
         work_id=None,
         name="palindrome.py",
-        path="palindrome.py",
+        title="Palindrome Script",
+        path="artifact_test/palindrome.py",
         mime_type="text/x-python",
         kind="code",
         size_bytes=artifact_file.stat().st_size,
@@ -79,4 +81,4 @@ def test_artifact_list_and_download_endpoints(monkeypatch, tmp_path: Path) -> No
         disposition = str(download_response.headers.get("Content-Disposition") or "")
         assert "palindrome.py" in disposition
     finally:
-        delete_shared_workspace(request_id)
+        delete_shared_workspace("artifacts")

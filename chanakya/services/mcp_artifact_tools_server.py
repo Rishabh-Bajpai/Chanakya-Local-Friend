@@ -17,10 +17,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from chanakya.config import get_database_url
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.domain import make_id
+from chanakya.services.mcp_feedback import (
+    build_missing_argument_payload,
+    build_wrong_id_payload,
+)
 from chanakya.store import ChanakyaStore
-from chanakya.services.sandbox_workspace import resolve_shared_workspace
+from chanakya.services.sandbox_workspace import get_artifact_storage_root
 
-_MANAGED_ARTIFACT_DIR = "managed_artifacts"
 _FILENAME_SANITIZE_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -44,13 +47,6 @@ def _normalize_optional(value: str | None) -> str | None:
     return cleaned or None
 
 
-def _workspace_scope_id(*, request_id: str | None, work_id: str | None) -> str:
-    scope_id = _normalize_optional(work_id) or _normalize_optional(request_id)
-    if not scope_id:
-        raise ValueError("request_id or work_id is required")
-    return scope_id
-
-
 def _sanitize_filename(name: str) -> str:
     cleaned = _FILENAME_SANITIZE_PATTERN.sub("_", name.strip()).strip("._")
     return cleaned or "artifact.txt"
@@ -65,7 +61,7 @@ def _artifact_title(name: str, title: str | None) -> str:
 
 
 def _artifact_relative_path(artifact_id: str, filename: str) -> Path:
-    return Path(_MANAGED_ARTIFACT_DIR) / artifact_id / filename
+    return Path(artifact_id) / filename
 
 
 def _write_artifact_file(
@@ -98,17 +94,23 @@ def _create_artifact(
     source_agent_name: str | None = None,
 ) -> dict[str, Any]:
     if not _normalize_optional(session_id):
-        return {"ok": False, "error": "session_id is required"}
+        return build_missing_argument_payload(
+            argument="session_id",
+            hint="Retry with the active classic chat or work session_id.",
+        )
     if not _normalize_optional(request_id):
-        return {"ok": False, "error": "request_id is required"}
+        return build_missing_argument_payload(
+            argument="request_id",
+            hint="Retry with the current request_id from the active turn.",
+        )
     if not name.strip():
-        return {"ok": False, "error": "name is required"}
+        return build_missing_argument_payload(
+            argument="name",
+            hint="Retry with a concrete filename such as notes.md, script.py, or diagram.svg.",
+        )
     artifact_id = make_id("artifact")
     filename = _sanitize_filename(name)
-    workspace = resolve_shared_workspace(
-        _workspace_scope_id(request_id=request_id, work_id=work_id),
-        create=True,
-    )
+    workspace = get_artifact_storage_root(create=True)
     relative_path, size_bytes = _write_artifact_file(
         workspace=workspace,
         artifact_id=artifact_id,
@@ -154,16 +156,19 @@ def _update_artifact(
     try:
         artifact = store.get_artifact(artifact_id)
     except KeyError:
-        return {"ok": False, "error": f"Artifact not found: {artifact_id}"}
+        return _artifact_not_found_payload(
+            store,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            request_id=request_id,
+            work_id=work_id,
+        )
 
     normalized_request_id = _normalize_optional(request_id) or artifact.latest_request_id or artifact.request_id
     normalized_session_id = _normalize_optional(session_id) or artifact.session_id
     normalized_work_id = _normalize_optional(work_id) if work_id is not None else artifact.work_id
     filename = _sanitize_filename(name or artifact.name)
-    workspace = resolve_shared_workspace(
-        _workspace_scope_id(request_id=artifact.request_id, work_id=normalized_work_id or artifact.work_id),
-        create=True,
-    )
+    workspace = get_artifact_storage_root(create=True)
     old_path = workspace / artifact.path
     relative_path, size_bytes = _write_artifact_file(
         workspace=workspace,
@@ -192,6 +197,127 @@ def _update_artifact(
         latest_request_id=normalized_request_id,
     )
     return {"ok": True, "artifact": _artifact_payload(record)}
+
+
+def _artifact_summary(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record["id"],
+        "name": record["name"],
+        "title": record.get("title"),
+        "kind": record.get("kind"),
+        "download_url": f"/api/artifacts/{record['id']}/download",
+        "detail_url": f"/api/artifacts/{record['id']}",
+        "path": record.get("path"),
+        "work_id": record.get("work_id"),
+        "request_id": record.get("request_id"),
+        "latest_request_id": record.get("latest_request_id"),
+    }
+
+
+def _artifact_candidates(
+    store: ChanakyaStore,
+    *,
+    session_id: str | None = None,
+    request_id: str | None = None,
+    work_id: str | None = None,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    if _normalize_optional(work_id):
+        records = store.list_artifacts_for_work(str(work_id).strip())
+    elif _normalize_optional(session_id):
+        records = store.list_artifacts_for_session(str(session_id).strip())
+    elif _normalize_optional(request_id):
+        records = store.list_artifacts_for_request(str(request_id).strip())
+    else:
+        records = store.list_recent_artifacts(limit=limit)
+    return [_artifact_summary(item) for item in records[:limit]]
+
+
+def _artifact_not_found_payload(
+    store: ChanakyaStore,
+    *,
+    artifact_id: str,
+    session_id: str | None = None,
+    request_id: str | None = None,
+    work_id: str | None = None,
+) -> dict[str, Any]:
+    candidates = _artifact_candidates(
+        store,
+        session_id=session_id,
+        request_id=request_id,
+        work_id=work_id,
+    )
+    return build_wrong_id_payload(
+        object_name="artifact",
+        bad_id=artifact_id,
+        candidates_key="available_artifacts",
+        candidates=candidates,
+        retry_hint="Call list_artifacts to inspect valid artifact IDs, then retry with one of those IDs.",
+        empty_scope_message="No matching artifacts were found in the current scope.",
+    )
+
+
+def _delete_artifact(
+    store: ChanakyaStore,
+    *,
+    artifact_id: str,
+    session_id: str | None = None,
+    request_id: str | None = None,
+    work_id: str | None = None,
+) -> dict[str, Any]:
+    try:
+        artifact = store.get_artifact(artifact_id)
+    except KeyError:
+        return _artifact_not_found_payload(
+            store,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            request_id=request_id,
+            work_id=work_id,
+        )
+    artifact_root = get_artifact_storage_root(create=False)
+    artifact_dir = artifact_root / artifact.id
+    if artifact_dir.exists():
+        for path in sorted(artifact_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        artifact_dir.rmdir()
+    store.delete_artifact(artifact.id)
+    return {
+        "ok": True,
+        "artifact_id": artifact.id,
+        "message": f"Deleted artifact {artifact.id} ({artifact.name}).",
+    }
+
+
+def _locate_artifact(
+    store: ChanakyaStore,
+    *,
+    artifact_id: str,
+    session_id: str | None = None,
+    request_id: str | None = None,
+    work_id: str | None = None,
+) -> dict[str, Any]:
+    try:
+        artifact = store.get_artifact(artifact_id)
+    except KeyError:
+        return _artifact_not_found_payload(
+            store,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            request_id=request_id,
+            work_id=work_id,
+        )
+    artifact_root = get_artifact_storage_root(create=False)
+    absolute_path = (artifact_root / artifact.path).resolve()
+    return {
+        "ok": True,
+        "artifact": _artifact_payload(store.artifacts._to_dict(artifact)),
+        "storage_root": str(artifact_root),
+        "absolute_path": str(absolute_path),
+    }
 
 
 def _build_artifact_tools_server() -> FastMCP:
@@ -291,7 +417,7 @@ def _build_artifact_tools_server() -> FastMCP:
         try:
             artifact = store.get_artifact(artifact_id)
         except KeyError:
-            return {"ok": False, "error": f"Artifact not found: {artifact_id}"}
+            return _artifact_not_found_payload(store, artifact_id=artifact_id)
         return {
             "ok": True,
             "artifact": _artifact_payload(store.artifacts._to_dict(artifact)),
@@ -304,10 +430,9 @@ def _build_artifact_tools_server() -> FastMCP:
         try:
             artifact = store.get_artifact(artifact_id)
         except KeyError:
-            return {"ok": False, "error": f"Artifact not found: {artifact_id}"}
-        scope_id = _workspace_scope_id(request_id=artifact.request_id, work_id=artifact.work_id)
-        workspace = resolve_shared_workspace(scope_id, create=False)
-        file_path = workspace / artifact.path
+            return _artifact_not_found_payload(store, artifact_id=artifact_id)
+        artifact_root = get_artifact_storage_root(create=False)
+        file_path = artifact_root / artifact.path
         if not file_path.exists():
             return {"ok": False, "error": f"Artifact file missing: {artifact.path}"}
         return {
@@ -315,6 +440,40 @@ def _build_artifact_tools_server() -> FastMCP:
             "artifact": _artifact_payload(store.artifacts._to_dict(artifact)),
             "content": file_path.read_text(encoding="utf-8"),
         }
+
+    @mcp.tool()
+    def locate_artifact(
+        artifact_id: str,
+        session_id: str = "",
+        request_id: str = "",
+        work_id: str = "",
+    ) -> dict[str, Any]:
+        """Get the download link and file location for an artifact."""
+
+        return _locate_artifact(
+            store,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            request_id=request_id,
+            work_id=work_id,
+        )
+
+    @mcp.tool()
+    def delete_artifact(
+        artifact_id: str,
+        session_id: str = "",
+        request_id: str = "",
+        work_id: str = "",
+    ) -> dict[str, Any]:
+        """Delete an artifact record and its saved file."""
+
+        return _delete_artifact(
+            store,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            request_id=request_id,
+            work_id=work_id,
+        )
 
     return mcp
 

@@ -128,7 +128,9 @@ def test_create_work_rejects_empty_title() -> None:
 
     result = _create_work(store, title="   ", description="ignored")
 
-    assert result == {"ok": False, "error": "title is required"}
+    assert result["ok"] is False
+    assert result["error"] == "title is required"
+    assert "Retry with a short concrete work title" in result["hint"]
 
 
 def test_list_works_can_filter_to_active_status() -> None:
@@ -181,7 +183,9 @@ def test_create_work_with_message_rejects_empty_message() -> None:
         message="   ",
     )
 
-    assert result == {"ok": False, "error": "message is required"}
+    assert result["ok"] is False
+    assert result["error"] == "message is required"
+    assert "exact initial request" in result["hint"]
     assert store.list_works() == []
 
 
@@ -244,8 +248,26 @@ def test_send_message_to_work_rejects_missing_work() -> None:
         message="Please continue.",
     )
 
-    assert result == {"ok": False, "error": "Work not found: missing"}
+    assert result["ok"] is False
+    assert "Wrong work ID" in result["error"]
+    assert "list_works" in result["hint"]
     assert chat_service.calls == []
+
+
+def test_send_message_to_work_missing_work_includes_candidates() -> None:
+    store = _build_store()
+    store.create_work(work_id="work_1", title="Test Work", description="")
+    chat_service = _DummyChatService()
+
+    result = _send_message_to_work(
+        store,
+        chat_service,
+        work_id="missing",
+        message="Please continue.",
+    )
+
+    assert result["ok"] is False
+    assert result["available_works"][0]["id"] == "work_1"
 
 
 def test_send_message_to_work_requires_non_empty_message() -> None:
@@ -255,7 +277,9 @@ def test_send_message_to_work_requires_non_empty_message() -> None:
 
     result = _send_message_to_work(store, chat_service, work_id="work_1", message="   ")
 
-    assert result == {"ok": False, "error": "message is required"}
+    assert result["ok"] is False
+    assert result["error"] == "message is required"
+    assert "exact message" in result["hint"]
     assert chat_service.calls == []
 
 

@@ -22,6 +22,10 @@ from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.debug import debug_log
 from chanakya.domain import make_id
 from chanakya.seed import load_agent_seeds
+from chanakya.services.mcp_feedback import (
+    build_missing_argument_payload,
+    build_wrong_id_payload,
+)
 from chanakya.store import ChanakyaStore
 
 
@@ -53,6 +57,27 @@ def _build_chat_service(
     return ChatService(store, runtime, manager)
 
 
+def _work_summary(work: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": work.get("id"),
+        "title": work.get("title"),
+        "description": work.get("description"),
+        "status": work.get("status"),
+    }
+
+
+def _work_not_found_payload(store: ChanakyaStore, *, work_id: str) -> dict[str, Any]:
+    candidates = [_work_summary(item) for item in store.list_works(limit=10, status=None)]
+    return build_wrong_id_payload(
+        object_name="work",
+        bad_id=work_id,
+        candidates_key="available_works",
+        candidates=candidates,
+        retry_hint="Call list_works to inspect valid work IDs, then retry with one of those IDs.",
+        empty_scope_message="No works are currently available.",
+    )
+
+
 def _create_work(
     store: ChanakyaStore,
     *,
@@ -61,7 +86,10 @@ def _create_work(
 ) -> dict[str, Any]:
     cleaned_title = title.strip()
     if not cleaned_title:
-        return {"ok": False, "error": "title is required"}
+        return build_missing_argument_payload(
+            argument="title",
+            hint="Retry with a short concrete work title such as 'Research pricing options' or 'Build landing page draft'.",
+        )
 
     cleaned_description = (description or "").strip() or None
     work_id = make_id("work")
@@ -108,12 +136,15 @@ def _send_message_to_work(
 ) -> dict[str, Any]:
     cleaned_message = message.strip()
     if not cleaned_message:
-        return {"ok": False, "error": "message is required"}
+        return build_missing_argument_payload(
+            argument="message",
+            hint="Retry with the exact message you want to send into the existing work.",
+        )
 
     try:
         work = store.get_work(work_id)
     except KeyError:
-        return {"ok": False, "error": f"Work not found: {work_id}"}
+        return _work_not_found_payload(store, work_id=work_id)
 
     session_id = store.ensure_work_agent_session(
         work_id=work_id,
@@ -159,7 +190,10 @@ def _create_work_with_message(
     message: str,
 ) -> dict[str, Any]:
     if not message.strip():
-        return {"ok": False, "error": "message is required"}
+        return build_missing_argument_payload(
+            argument="message",
+            hint="Retry with the exact initial request to send after creating the work.",
+        )
 
     create_result = _create_work(store, title=title, description=description)
     if not create_result.get("ok"):
@@ -257,7 +291,7 @@ def _build_work_tools_server() -> FastMCP:
         try:
             work = store.get_work(work_id)
         except KeyError:
-            return {"ok": False, "error": f"Work not found: {work_id}"}
+            return _work_not_found_payload(store, work_id=work_id)
 
         sessions = store.list_work_agent_sessions(work_id)
         session_ids = store.list_session_ids_for_work(work_id)

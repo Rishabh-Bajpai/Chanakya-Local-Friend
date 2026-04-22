@@ -364,6 +364,14 @@ class ArtifactRepository:
                 raise KeyError(f"Artifact not found: {artifact_id}")
             return cast(ArtifactModel, row)
 
+    def delete_artifact(self, artifact_id: str) -> None:
+        with session_scope(self.Session) as session:
+            row = session.get(ArtifactModel, artifact_id)
+            if row is None:
+                raise KeyError(f"Artifact not found: {artifact_id}")
+            session.delete(row)
+            session.commit()
+
     def list_artifacts_for_request(self, request_id: str) -> list[dict[str, Any]]:
         with session_scope(self.Session) as session:
             rows = session.scalars(
@@ -384,6 +392,25 @@ class ArtifactRepository:
                 select(ArtifactModel)
                 .where(ArtifactModel.work_id == work_id)
                 .order_by(ArtifactModel.created_at.asc(), ArtifactModel.id.asc())
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+    def list_artifacts_for_session(self, session_id: str) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ArtifactModel)
+                .where(ArtifactModel.session_id == session_id)
+                .order_by(ArtifactModel.updated_at.desc(), ArtifactModel.id.desc())
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+    def list_recent_artifacts(self, limit: int = 10) -> list[dict[str, Any]]:
+        bounded = max(1, min(limit, 100))
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ArtifactModel)
+                .order_by(ArtifactModel.updated_at.desc(), ArtifactModel.id.desc())
+                .limit(bounded)
             ).all()
         return [self._to_dict(row) for row in rows]
 
@@ -1751,6 +1778,9 @@ class ChanakyaStore:
     def get_artifact(self, artifact_id: str) -> ArtifactModel:
         return self.artifacts.get_artifact(artifact_id)
 
+    def delete_artifact(self, artifact_id: str) -> None:
+        self.artifacts.delete_artifact(artifact_id)
+
     def list_artifacts_for_request(self, request_id: str) -> list[dict[str, Any]]:
         return self.artifacts.list_artifacts_for_request(request_id)
 
@@ -1759,6 +1789,9 @@ class ChanakyaStore:
 
     def list_artifacts_for_session(self, session_id: str) -> list[dict[str, Any]]:
         return self.artifacts.list_artifacts_for_session(session_id)
+
+    def list_recent_artifacts(self, limit: int = 10) -> list[dict[str, Any]]:
+        return self.artifacts.list_recent_artifacts(limit)
 
     def log_event(self, event_type: str, payload: dict[str, Any]) -> None:
         self.events.log_event(event_type, payload)
