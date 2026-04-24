@@ -403,6 +403,12 @@ def create_app() -> Flask:
         )
         if tts_instruction == "":
             tts_instruction = None
+        raw_message_metadata = payload.get("message_metadata")
+        message_metadata = (
+            dict(raw_message_metadata)
+            if isinstance(raw_message_metadata, dict)
+            else None
+        )
         debug_log(
             "api_chat_request",
             {
@@ -416,6 +422,7 @@ def create_app() -> Flask:
                 "a2a_model_id": a2a_model_id,
                 "conversation_tone_instruction": conversation_tone_instruction,
                 "tts_instruction": tts_instruction,
+                "message_metadata": message_metadata,
                 "message": message,
                 "has_existing_session": bool(payload.get("session_id")),
             },
@@ -436,6 +443,7 @@ def create_app() -> Flask:
                 a2a_model_id=a2a_model_id,
                 conversation_tone_instruction=conversation_tone_instruction,
                 tts_instruction=tts_instruction,
+                message_metadata=message_metadata,
             )
         except Exception as exc:
             debug_log(

@@ -13,6 +13,7 @@
       getLatestAssistantText,
       onTranscript,
       beforeRecordStart,
+      pauseAssistantReplies,
     } = options;
 
     let mediaRecorder = null;
@@ -27,9 +28,23 @@
     let ttsInFlightCount = 0;
     let spokenAssistantSegments = [];
     let nextAudioTimer = null;
-    const playbackGapMs = 1200;
+    const interruptionListeningWindowMs = 3000;
+    const interruptionVoiceThreshold = 0.045;
+    const interruptionVoiceFrames = 3;
     let speechSequenceId = 0;
     let voiceTurnActive = false;
+    let interruptionStream = null;
+    let interruptionAudioContext = null;
+    let interruptionAnalyser = null;
+    let interruptionSource = null;
+    let interruptionListenTimer = null;
+    let interruptionMonitorTimer = null;
+    let interruptionResolve = null;
+    let interruptionWindowActive = false;
+    let interruptionTriggerInFlight = false;
+    let interruptionConsecutiveVoiceFrames = 0;
+    let interruptionWindowToken = 0;
+    let pendingInterruptionSubmission = false;
 
     function setStatus(text, isError = false) {
       if (!statusNode) {
@@ -104,6 +119,202 @@
       }
     }
 
+    function stopInterruptionMonitorTimers() {
+      if (interruptionListenTimer) {
+        window.clearTimeout(interruptionListenTimer);
+        interruptionListenTimer = null;
+      }
+      if (interruptionMonitorTimer) {
+        window.clearInterval(interruptionMonitorTimer);
+        interruptionMonitorTimer = null;
+      }
+    }
+
+    async function teardownInterruptionWindow() {
+      stopInterruptionMonitorTimers();
+      const stream = interruptionStream;
+      const context = interruptionAudioContext;
+      interruptionStream = null;
+      interruptionAudioContext = null;
+      interruptionAnalyser = null;
+      interruptionSource = null;
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      if (context) {
+        try {
+          await context.close();
+        } catch {
+        }
+      }
+    }
+
+    async function finishInterruptionWindow(result) {
+      const resolve = interruptionResolve;
+      interruptionResolve = null;
+      interruptionWindowActive = false;
+      interruptionTriggerInFlight = false;
+      interruptionConsecutiveVoiceFrames = 0;
+      await teardownInterruptionWindow();
+      if (typeof resolve === "function") {
+        resolve(result);
+      }
+    }
+
+    async function cancelInterruptionWindow(result = { interrupted: false }) {
+      interruptionWindowToken += 1;
+      await finishInterruptionWindow(result);
+    }
+
+    function getInterruptionRms() {
+      if (!interruptionAnalyser) {
+        return 0;
+      }
+      const buffer = new Uint8Array(interruptionAnalyser.fftSize);
+      interruptionAnalyser.getByteTimeDomainData(buffer);
+      let sum = 0;
+      for (let index = 0; index < buffer.length; index += 1) {
+        const normalized = (buffer[index] - 128) / 128;
+        sum += normalized * normalized;
+      }
+      return Math.sqrt(sum / buffer.length);
+    }
+
+    async function submitTranscript(transcript, options = {}) {
+      const { metadata = null } = options;
+      if (!transcript) {
+        setStatus("No speech detected.", true);
+        return "";
+      }
+      if (typeof onTranscript === "function") {
+        onTranscript(transcript, { metadata });
+      }
+      const llmModel = selectedValue(llmModelSelect);
+      startAssistantSpeechQueue();
+      voiceTurnActive = true;
+      try {
+        const replyText = await submitText(transcript, {
+          llmModel,
+          voiceMode: true,
+          metadata,
+          onAssistantMessage: async (assistantMessage) => {
+            await speakAssistantMessageAndWait(assistantMessage);
+          },
+        });
+        latestAssistantText = typeof replyText === "string" ? replyText : "";
+        if (selectedValue(ttsModelSelect)) {
+          await waitForSpeechQueueToFinish();
+        }
+        return latestAssistantText;
+      } finally {
+        voiceTurnActive = false;
+      }
+    }
+
+    async function beginActiveRecording(options = {}) {
+      const {
+        interruptionTriggered = false,
+        skipBeforeRecordStart = false,
+      } = options;
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        return;
+      }
+      if (!skipBeforeRecordStart && typeof beforeRecordStart === "function") {
+        await beforeRecordStart({
+          isPlaybackActive: Boolean(activeAudio || audioQueue.length || nextAudioTimer),
+        });
+      }
+      if (activeAudio || audioQueue.length || nextAudioTimer) {
+        stopPlayback();
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data);
+        }
+      };
+      mediaRecorder.start();
+      pendingInterruptionSubmission = interruptionTriggered;
+      recordButton.dataset.state = "recording";
+      recordButton.textContent = "Stop Mic";
+      setStatus(interruptionTriggered ? "Recording interruption..." : (continuousMode ? "Listening for your next turn..." : "Recording..."));
+    }
+
+    async function triggerInterruptionRecording(token) {
+      if (interruptionTriggerInFlight || token !== interruptionWindowToken) {
+        return;
+      }
+      interruptionTriggerInFlight = true;
+      setStatus("Voice activity detected. Pausing assistant...");
+      try {
+        if (typeof pauseAssistantReplies === "function") {
+          await pauseAssistantReplies({ source: "voice_interruption" });
+        }
+        if (token !== interruptionWindowToken) {
+          return;
+        }
+        await finishInterruptionWindow({ interrupted: true, startedRecording: false });
+        await beginActiveRecording({
+          interruptionTriggered: true,
+          skipBeforeRecordStart: true,
+        });
+      } catch (error) {
+        await finishInterruptionWindow({ interrupted: true, startedRecording: false, error: error instanceof Error ? error.message : String(error) });
+        setStatus(error instanceof Error ? error.message : String(error), true);
+      } finally {
+        interruptionTriggerInFlight = false;
+      }
+    }
+
+    async function waitForInterruptionWindow() {
+      if (!voiceTurnActive || stopRequested) {
+        return { interrupted: false };
+      }
+      if (!selectedValue(sttModelSelect)) {
+        return { interrupted: false };
+      }
+      await cancelInterruptionWindow({ interrupted: false });
+      const token = ++interruptionWindowToken;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (token !== interruptionWindowToken) {
+        stream.getTracks().forEach((track) => track.stop());
+        return { interrupted: false };
+      }
+      interruptionStream = stream;
+      interruptionWindowActive = true;
+      interruptionTriggerInFlight = false;
+      interruptionConsecutiveVoiceFrames = 0;
+      interruptionAudioContext = new AudioContext();
+      interruptionSource = interruptionAudioContext.createMediaStreamSource(stream);
+      interruptionAnalyser = interruptionAudioContext.createAnalyser();
+      interruptionAnalyser.fftSize = 2048;
+      interruptionSource.connect(interruptionAnalyser);
+      setStatus("Listening for interruption...");
+      return new Promise((resolve) => {
+        interruptionResolve = resolve;
+        interruptionListenTimer = window.setTimeout(() => {
+          interruptionListenTimer = null;
+          void finishInterruptionWindow({ interrupted: false });
+        }, interruptionListeningWindowMs);
+        interruptionMonitorTimer = window.setInterval(() => {
+          if (token !== interruptionWindowToken || interruptionTriggerInFlight) {
+            return;
+          }
+          const rms = getInterruptionRms();
+          if (rms >= interruptionVoiceThreshold) {
+            interruptionConsecutiveVoiceFrames += 1;
+            if (interruptionConsecutiveVoiceFrames >= interruptionVoiceFrames) {
+              void triggerInterruptionRecording(token);
+            }
+            return;
+          }
+          interruptionConsecutiveVoiceFrames = 0;
+        }, 80);
+      });
+    }
+
     async function stopRecordingSilently() {
       if (!mediaRecorder || mediaRecorder.state === "inactive") {
         return;
@@ -153,26 +364,37 @@
       isPlayingQueue = true;
       const currentChunk = audioQueue.shift();
       activeAudio = new Audio(currentChunk.url);
-      const scheduleNextChunk = () => {
+      const scheduleNextChunk = async () => {
+        try {
+          const listeningResult = await waitForInterruptionWindow();
+          if (listeningResult && listeningResult.interrupted) {
+            isPlayingQueue = false;
+            return;
+          }
+        } catch (error) {
+          isPlayingQueue = false;
+          setStatus(error instanceof Error ? error.message : String(error), true);
+          return;
+        }
         nextAudioTimer = window.setTimeout(() => {
           nextAudioTimer = null;
           playNextAudioChunk();
-        }, playbackGapMs);
+        }, 0);
       };
       activeAudio.onended = () => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        scheduleNextChunk();
+        void scheduleNextChunk();
       };
       activeAudio.onerror = () => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        scheduleNextChunk();
+        void scheduleNextChunk();
       };
       activeAudio.play().catch(() => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        scheduleNextChunk();
+        void scheduleNextChunk();
       });
     }
 
@@ -299,29 +521,8 @@
     }
 
     async function startRecording() {
-      if (mediaRecorder && mediaRecorder.state !== "inactive") {
-        return;
-      }
-      if (typeof beforeRecordStart === "function") {
-        await beforeRecordStart({
-          isPlaybackActive: Boolean(activeAudio || audioQueue.length || nextAudioTimer),
-        });
-      }
-      if (activeAudio || audioQueue.length || nextAudioTimer) {
-        stopPlayback();
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunks = [];
-      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunks.push(event.data);
-        }
-      };
-      mediaRecorder.start();
-      recordButton.dataset.state = "recording";
-      recordButton.textContent = "Stop Mic";
-      setStatus(continuousMode ? "Listening for your next turn..." : "Recording...");
+      await cancelInterruptionWindow({ interrupted: false });
+      await beginActiveRecording();
     }
 
     async function stopRecordingAndProcess() {
@@ -343,31 +544,17 @@
 
       setStatus("Transcribing...");
       const transcript = await transcribeAudio(audioBlob);
-      if (!transcript) {
-        setStatus("No speech detected.", true);
-        return;
-      }
-      if (typeof onTranscript === "function") {
-        onTranscript(transcript);
-      }
-      const llmModel = selectedValue(llmModelSelect);
-      startAssistantSpeechQueue();
-      voiceTurnActive = true;
-      try {
-        const replyText = await submitText(transcript, {
-          llmModel,
-          voiceMode: true,
-          onAssistantMessage: async (assistantMessage) => {
-            await speakAssistantMessageAndWait(assistantMessage);
+      await submitTranscript(transcript, {
+        metadata: pendingInterruptionSubmission
+          ? {
+            voice_interruption: true,
+            input_mode: "voice",
+          }
+          : {
+            input_mode: "voice",
           },
-        });
-        latestAssistantText = typeof replyText === "string" ? replyText : "";
-        if (selectedValue(ttsModelSelect)) {
-          await waitForSpeechQueueToFinish();
-        }
-      } finally {
-        voiceTurnActive = false;
-      }
+      });
+      pendingInterruptionSubmission = false;
     }
 
     async function runSingleVoiceTurn() {
@@ -430,6 +617,7 @@
           voiceTurnActive = false;
           speechSequenceId += 1;
           stopPlayback();
+          await cancelInterruptionWindow({ interrupted: false });
           await stopRecordingSilently();
           setStatus("Voice mode stopped.");
           syncButtons();
@@ -472,6 +660,7 @@
         return Boolean(
           (mediaRecorder && mediaRecorder.state !== "inactive")
           || voiceTurnActive
+          || interruptionWindowActive
           || activeAudio
           || audioQueue.length
           || isPlayingQueue
@@ -482,6 +671,7 @@
       stopSpeechAndInvalidate() {
         speechSequenceId += 1;
         stopPlayback();
+        void cancelInterruptionWindow({ interrupted: false });
       },
       async speakAssistantMessageAndWait(text) {
         return speakAssistantMessageAndWait(text);

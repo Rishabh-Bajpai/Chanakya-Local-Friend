@@ -3912,6 +3912,9 @@
     }
 
     function messageBadgeForHistoryItem(item) {
+      if (item && item.metadata && item.metadata.voice_interruption) {
+        return "Interruption";
+      }
       if (!item || !item.route) {
         return "";
       }
@@ -4358,7 +4361,7 @@
     }
 
     async function submitChatMessage(message, options = {}) {
-      const { onAssistantMessage, voiceMode = false } = options;
+      const { onAssistantMessage, voiceMode = false, messageMetadata = null } = options;
       if (voiceMode) {
         resetVoiceQueueState();
       }
@@ -4388,6 +4391,7 @@
             a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
             conversation_tone_instruction: runtimeConfig.conversation_tone_instruction,
             tts_instruction: runtimeConfig.tts_instruction,
+            message_metadata: messageMetadata,
           }),
         });
       } catch (error) {
@@ -5690,11 +5694,18 @@
       speakButton: airSpeakButton,
       statusNode: airVoiceStatus,
       submitText: async (text, options = {}) => {
-        const { onAssistantMessage } = options;
-        appendMessage("user", text, "voice transcript");
+        const { onAssistantMessage, metadata = null } = options;
+        const isInterruption = Boolean(metadata && metadata.voice_interruption);
+        appendMessage(
+          "user",
+          text,
+          isInterruption ? "voice interruption" : "voice transcript",
+          { badge: isInterruption ? "Interruption" : "" }
+        );
         renderPendingInlineProgress(text);
         const data = await submitChatMessage(text, {
           voiceMode: true,
+          messageMetadata: metadata,
           onAssistantMessage: (content) => {
             if (typeof onAssistantMessage === "function") {
               return onAssistantMessage(content);
@@ -5714,6 +5725,12 @@
         }
         if (!isPlaybackActive) {
           return;
+        }
+        await pauseConversationReplies();
+      },
+      pauseAssistantReplies: async () => {
+        if (currentDeferredVoiceNotification) {
+          requeueCurrentDeferredVoiceNotification();
         }
         await pauseConversationReplies();
       },

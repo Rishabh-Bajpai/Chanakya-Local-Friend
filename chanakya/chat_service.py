@@ -952,6 +952,7 @@ class ChatService:
         a2a_model_id: str | None = None,
         conversation_tone_instruction: str | None = None,
         tts_instruction: str | None = None,
+        message_metadata: dict[str, Any] | None = None,
     ) -> ChatReply:
         backend = normalize_runtime_backend(backend)
 
@@ -981,6 +982,7 @@ class ChatService:
             a2a_model_id=a2a_model_id,
             conversation_tone_instruction=conversation_tone_instruction,
             tts_instruction=tts_instruction,
+            message_metadata=message_metadata,
         )
 
     @staticmethod
@@ -1076,6 +1078,7 @@ class ChatService:
         a2a_model_id: str | None = None,
         conversation_tone_instruction: str | None = None,
         tts_instruction: str | None = None,
+        message_metadata: dict[str, Any] | None = None,
     ) -> ChatReply:
         request_id = make_id("req")
         root_task_id = make_id("task")
@@ -1089,7 +1092,13 @@ class ChatService:
         )
         runtime_snapshot = self._runtime_snapshot_from_metadata(runtime_meta)
         prior_messages = self.store.list_messages(session_id)[-8:]
-        self.store.add_message(session_id, "user", message, request_id=request_id)
+        self.store.add_message(
+            session_id,
+            "user",
+            message,
+            request_id=request_id,
+            metadata=dict(message_metadata or {}),
+        )
         self.store.create_request(
             request_id=request_id,
             session_id=session_id,

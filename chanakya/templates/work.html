@@ -1005,8 +1005,8 @@
                 <div class="control-deck-titlebar">
                   <div>
                     <p class="control-deck-kicker">Control Deck</p>
-                    <h3>Voice, models, and runtime</h3>
-                    <p>Keep AIR voice controls and chat routing in one place. Use Apply Changes to update future requests across the app.</p>
+                    <h3>Models and runtime</h3>
+                    <p>Keep work-chat routing controls in one place. Use Apply Changes to update future requests across the app.</p>
                   </div>
                   <span class="control-deck-toggle" aria-hidden="true"></span>
                 </div>
@@ -1057,32 +1057,7 @@
                     <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
                     {% endif %}
                   </section>
-                  <section class="control-group">
-                    <p class="control-group-title">AIR Voice</p>
-                    <div class="air-links">
-                      <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
-                      <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
-                    </div>
-                    <div class="air-models">
-                      <label>
-                        STT Model
-                        <select id="airSttModel"></select>
-                      </label>
-                      <label>
-                        TTS Model
-                        <select id="airTtsModel"></select>
-                      </label>
-                    </div>
-                  </section>
                 </div>
-                <div class="air-controls">
-                  <button id="airMicButton" class="air-button" type="button">Mic</button>
-                  <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
-                  <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
-                  <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
-                  <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
-                </div>
-                <div id="airVoiceStatus" class="air-status"></div>
                 <div id="conversationQueueStatus" class="air-status"></div>
               </div>
             </details>
@@ -1140,7 +1115,6 @@
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-go.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-rust.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markdown.min.js"></script>
-    <script src="{{ url_for('static', filename='js/air_voice.js') }}"></script>
     <script>
       const AIR_SERVER_URL = {{ air_server_url | tojson }};
       const workForm = document.getElementById("workForm");
@@ -1155,13 +1129,6 @@
       const messageInput = document.getElementById("messageInput");
       const sendButton = document.getElementById("sendButton");
       const airLlmModel = document.getElementById("airLlmModel");
-      const airSttModel = document.getElementById("airSttModel");
-      const airTtsModel = document.getElementById("airTtsModel");
-      const airMicButton = document.getElementById("airMicButton");
-      const airVoiceLoopButton = document.getElementById("airVoiceLoopButton");
-      const airSpeakButton = document.getElementById("airSpeakButton");
-      const airPauseRepliesButton = document.getElementById("airPauseRepliesButton");
-      const airRefreshModelsButton = document.getElementById("airRefreshModelsButton");
       const chatBackendSelect = document.getElementById("chatBackendSelect");
       const a2aRefreshOptionsButton = document.getElementById("a2aRefreshOptionsButton");
       const a2aAgentInput = document.getElementById("a2aAgentInput");
@@ -1170,7 +1137,6 @@
       const runtimeConfigApplyButton = document.getElementById("runtimeConfigApplyButton");
       const runtimeConfigStatus = document.getElementById("runtimeConfigStatus");
       const a2aDiscoveryStatus = document.getElementById("a2aDiscoveryStatus");
-      const airVoiceStatus = document.getElementById("airVoiceStatus");
       const conversationQueueStatus = document.getElementById("conversationQueueStatus");
       const historyList = document.getElementById("historyList");
       const INITIAL_WORK_ID = {{ initial_work_id|tojson }};
@@ -3007,49 +2973,6 @@
       });
 
       async function bootstrap() {
-        airVoiceController = window.createAirVoiceController({
-          baseUrl: AIR_SERVER_URL,
-          llmModelSelect: airLlmModel,
-          sttModelSelect: airSttModel,
-          ttsModelSelect: airTtsModel,
-          recordButton: airMicButton,
-          continuousButton: airVoiceLoopButton,
-          speakButton: airSpeakButton,
-          statusNode: airVoiceStatus,
-          submitText: async (text, options = {}) => {
-            const { onAssistantMessage } = options;
-            appendChatMessage("user", text);
-            const data = await submitWorkChatMessage(text, {
-              voiceMode: true,
-              onAssistantMessage: (content) => {
-                if (typeof onAssistantMessage === "function") {
-                  return onAssistantMessage(content);
-                }
-                return undefined;
-              },
-            });
-            return data.message || "";
-          },
-          getLatestAssistantText: getLatestAssistantMessageText,
-          onTranscript: (text) => {
-            messageInput.value = text;
-          },
-          beforeRecordStart: async ({ isPlaybackActive }) => {
-            if (!isPlaybackActive) {
-              return;
-            }
-            await pauseConversationReplies();
-          },
-        });
-        airRefreshModelsButton.addEventListener("click", () => airVoiceController.fetchModels());
-        airPauseRepliesButton.addEventListener("click", async () => {
-          try {
-            await pauseConversationReplies();
-          } catch (error) {
-            setConversationQueueStatus(error instanceof Error ? error.message : String(error), true);
-          }
-        });
-        await airVoiceController.fetchModels();
         await loadAppliedRuntimeConfig();
         resetWorkView();
         await loadWorks();
