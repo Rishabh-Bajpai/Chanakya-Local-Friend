@@ -1977,6 +1977,45 @@
       backdrop-filter: blur(14px);
     }
 
+    .character-dock {
+      display: grid;
+      gap: 8px;
+      padding: 12px 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
+        rgba(12, 16, 28, 0.7);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .character-dock-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: #8fb4ca;
+    }
+
+    .character-dock-current {
+      color: #dfeeff;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    .character-dock-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .character-dock-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
     .composer {
       border-top: none;
       padding: 0;
@@ -2121,6 +2160,14 @@
 
     body.call-mode .dock-actions {
       gap: 14px;
+    }
+
+    body.call-mode .character-dock {
+      padding: 14px 16px;
+      background:
+        radial-gradient(circle at top left, rgba(79, 215, 255, 0.08), transparent 36%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
+        rgba(12, 16, 28, 0.76);
     }
 
     body.call-mode .dock-actions .air-button {
@@ -2311,6 +2358,11 @@
       .composer-submit {
         width: 100%;
       }
+
+      .character-dock-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
     }
   </style>
 </head>
@@ -2455,6 +2507,20 @@
               <div id="wnItems" class="wn-items"></div>
             </div>
             <div class="composer-dock">
+              <div class="character-dock">
+                <div class="character-dock-header">
+                  <div>
+                    <div class="character-dock-label">Character</div>
+                    <div id="characterDockCurrent" class="character-dock-current">Eyes-Driven</div>
+                  </div>
+                  <div class="character-dock-pills" role="group" aria-label="Choose avatar character from dock">
+                    <button type="button" class="voice-avatar-pill" data-character="eyes" aria-pressed="true">Eyes</button>
+                    <button type="button" class="voice-avatar-pill" data-character="mythic" aria-pressed="false">Mythic</button>
+                    <button type="button" class="voice-avatar-pill" data-character="character" aria-pressed="false">Character</button>
+                    <button type="button" class="voice-avatar-pill" data-character="komi" aria-pressed="false">Komi</button>
+                  </div>
+                </div>
+              </div>
               <form id="chatForm" class="composer">
                 <div class="composer-row">
                   <input id="messageInput" type="text" placeholder="Send a message to Chanakya..." required />
@@ -2897,6 +2963,7 @@
     const heroChatToggle = document.getElementById("heroChatToggle");
     const heroAvatarStage = document.getElementById("heroAvatarStage");
     const voiceAvatarName = document.getElementById("voiceAvatarName");
+    const characterDockCurrent = document.getElementById("characterDockCurrent");
     const heroStage = document.querySelector(".hero-stage");
     const modeSettingsButton = document.getElementById("modeSettingsButton");
     const modeBackButton = document.getElementById("modeBackButton");
@@ -2940,6 +3007,7 @@
       ? window.createVoiceAvatarStage({
         stage: heroAvatarStage,
         nameNode: voiceAvatarName,
+        statusNode: characterDockCurrent,
       })
       : null;
 
