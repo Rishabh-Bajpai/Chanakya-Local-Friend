@@ -1808,6 +1808,32 @@
       transform: translateY(-1px);
     }
 
+    body.call-mode .hero-stage {
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      gap: 20px;
+      padding-bottom: 20px;
+    }
+
+    body.call-mode .hero-copy {
+      text-align: center;
+    }
+
+    body.call-mode .hero-action-button {
+      display: none;
+    }
+
+    body.call-mode .hero-orb-wrap {
+      width: 280px;
+      height: 280px;
+    }
+
+    body.call-mode .hero-orb {
+      width: 196px;
+      height: 196px;
+    }
+
     .chat-shell {
       display: flex;
       flex: 1;
@@ -1825,6 +1851,22 @@
       overflow: hidden;
       transform: translateY(8px);
       pointer-events: none;
+    }
+
+    body.call-mode .chat-shell {
+      max-height: none;
+      opacity: 1;
+      transform: none;
+      pointer-events: auto;
+      gap: 18px;
+    }
+
+    body.call-mode .chat-shell.collapsed {
+      max-height: none;
+      opacity: 1;
+      overflow: visible;
+      transform: none;
+      pointer-events: auto;
     }
 
     .config-shell {
@@ -2117,6 +2159,46 @@
       display: grid;
       gap: 4px;
       align-content: center;
+    }
+
+    body.call-mode #chatLog,
+    body.call-mode #workNotificationsBar,
+    body.call-mode #chatForm {
+      display: none;
+    }
+
+    body.call-mode .composer-dock {
+      gap: 18px;
+      padding: 18px 20px 22px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 24px;
+      background:
+        radial-gradient(circle at top, rgba(79, 215, 255, 0.10), transparent 56%),
+        rgba(8, 10, 18, 0.88);
+    }
+
+    body.call-mode .dock-actions {
+      gap: 14px;
+    }
+
+    body.call-mode .dock-actions .air-button {
+      width: 64px;
+      height: 64px;
+      box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
+    }
+
+    body.call-mode .dock-actions .air-button::before {
+      font-size: 22px;
+    }
+
+    body.call-mode .dock-status {
+      grid-template-columns: 1fr;
+    }
+
+    body.call-mode .air-status-card {
+      min-height: 62px;
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(79, 215, 255, 0.14);
     }
 
     .air-status-title {
@@ -2815,6 +2897,7 @@
     const chatShell = document.getElementById("chatShell");
     const heroChatToggle = document.getElementById("heroChatToggle");
     const heroOrb = document.getElementById("heroOrb");
+    const heroStage = document.querySelector(".hero-stage");
     const modeSettingsButton = document.getElementById("modeSettingsButton");
     const modeBackButton = document.getElementById("modeBackButton");
     const configShell = document.getElementById("configShell");
@@ -2941,14 +3024,35 @@
 
     let isChatExpanded = false;
 
+    function isCallModeActive() {
+      return Boolean(
+        airVoiceController
+        && typeof airVoiceController.isVoiceModeEnabled === "function"
+        && airVoiceController.isVoiceModeEnabled()
+      );
+    }
+
+    function syncCallModeState() {
+      const inCallMode = activeMainMode === "chat" && isCallModeActive();
+      document.body.classList.toggle("call-mode", inCallMode);
+      if (heroStage) {
+        heroStage.hidden = activeMainMode === "config" || (!inCallMode && isChatExpanded);
+      }
+      if (heroChatToggle) {
+        heroChatToggle.hidden = inCallMode;
+      }
+      if (chatShell) {
+        chatShell.classList.toggle("collapsed", !inCallMode && !isChatExpanded);
+      }
+    }
+
     function setChatExpanded(nextValue) {
       isChatExpanded = Boolean(nextValue);
       if (chatShell) {
-        chatShell.classList.toggle("collapsed", !isChatExpanded);
+        chatShell.classList.toggle("collapsed", !isChatExpanded && !isCallModeActive());
       }
-      const heroStage = document.querySelector(".hero-stage");
       if (heroStage) {
-        heroStage.hidden = isChatExpanded || activeMainMode === "config";
+        heroStage.hidden = (isChatExpanded && !isCallModeActive()) || activeMainMode === "config";
       }
       if (heroChatToggle) {
         heroChatToggle.textContent = isChatExpanded ? "Hide Chat" : "Open Chat";
@@ -2959,6 +3063,7 @@
           messageInput.focus();
         }, 80);
       }
+      syncCallModeState();
     }
 
     function setUtilityPanelOpen(nextValue) {
@@ -2967,9 +3072,8 @@
 
     function syncMainMode() {
       const isConfigMode = activeMainMode === "config";
-      const heroStage = document.querySelector(".hero-stage");
       if (heroStage) {
-        heroStage.hidden = isConfigMode || isChatExpanded;
+        heroStage.hidden = isConfigMode || (isChatExpanded && !isCallModeActive());
       }
       if (configShell) {
         configShell.classList.toggle("is-active", isConfigMode);
@@ -2987,6 +3091,7 @@
       if (rightSidebar) {
         rightSidebar.classList.toggle("config-mode", isConfigMode);
       }
+      syncCallModeState();
     }
 
     function setMainMode(mode) {
@@ -3033,6 +3138,7 @@
       }
       const { state } = deriveHeroStatusState();
       heroOrb.className = `hero-orb ${state}`;
+      syncCallModeState();
     }
 
     function runtimeConfigsEqual(left, right) {
