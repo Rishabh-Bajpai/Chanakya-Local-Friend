@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/voice_stage.css') }}" />
   <style>
     :root {
       --bg: #111111;
@@ -1664,122 +1665,12 @@
       display: none;
     }
 
-    .hero-orb-wrap {
+    .hero-avatar-wrap {
       position: relative;
       z-index: 1;
-      width: 260px;
-      height: 260px;
+      width: min(100%, 520px);
       display: grid;
-      place-items: center;
-    }
-
-    .hero-orb-backdrop,
-    .hero-orb-backdrop::before,
-    .hero-orb-backdrop::after {
-      position: absolute;
-      border-radius: 50%;
-      content: "";
-    }
-
-    .hero-orb-backdrop {
-      inset: 16px;
-      border: 1px solid rgba(79, 215, 255, 0.16);
-      background: radial-gradient(circle at center, rgba(79, 215, 255, 0.06), transparent 68%);
-      box-shadow: 0 0 30px rgba(79, 215, 255, 0.10);
-    }
-
-    .hero-orb-backdrop::before {
-      inset: -14px;
-      border: 1px dashed rgba(143, 125, 255, 0.18);
-      animation: orbital-spin 22s linear infinite;
-    }
-
-    .hero-orb-backdrop::after {
-      inset: -28px;
-      border: 1px solid rgba(216, 107, 74, 0.14);
-      animation: orbital-spin-reverse 28s linear infinite;
-    }
-
-    .hero-orb {
-      position: relative;
-      width: 170px;
-      height: 170px;
-      border-radius: 50%;
-      display: grid;
-      place-items: center;
-      background: linear-gradient(180deg, rgba(65, 90, 255, 0.95), rgba(0, 208, 255, 0.74));
-      box-shadow:
-        0 0 28px rgba(79, 215, 255, 0.30),
-        0 0 80px rgba(79, 215, 255, 0.18),
-        inset 0 10px 34px rgba(255, 255, 255, 0.22),
-        inset 0 -18px 30px rgba(7, 18, 40, 0.48);
-      transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
-    }
-
-    .hero-orb::before,
-    .hero-orb::after {
-      content: "";
-      position: absolute;
-      border-radius: 50%;
-    }
-
-    .hero-orb::before {
-      inset: 22px;
-      background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.18) 48%, transparent 70%);
-      opacity: 0.74;
-    }
-
-    .hero-orb::after {
-      inset: -8px;
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      opacity: 0.5;
-    }
-
-    .hero-orb-core {
-      width: 76px;
-      height: 76px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(240, 249, 255, 0.22) 55%, rgba(255, 255, 255, 0) 70%);
-      box-shadow: 0 0 22px rgba(255, 255, 255, 0.40);
-      animation: orb-breathe 5.8s ease-in-out infinite;
-    }
-
-    .hero-orb.idle {
-      animation: orb-bob 7s ease-in-out infinite;
-    }
-
-    .hero-orb.listening {
-      background: linear-gradient(180deg, rgba(69, 196, 136, 0.95), rgba(0, 212, 152, 0.74));
-      box-shadow:
-        0 0 28px rgba(70, 231, 168, 0.34),
-        0 0 88px rgba(70, 231, 168, 0.22),
-        inset 0 10px 34px rgba(255, 255, 255, 0.22),
-        inset 0 -18px 30px rgba(8, 34, 28, 0.50);
-      transform: scale(1.03);
-    }
-
-    .hero-orb.listening::after {
-      animation: orb-pulse 1.8s ease-in-out infinite;
-    }
-
-    .hero-orb.speaking,
-    .hero-orb.queued {
-      background: linear-gradient(180deg, rgba(255, 153, 110, 0.96), rgba(214, 82, 52, 0.82));
-      box-shadow:
-        0 0 30px rgba(255, 141, 107, 0.34),
-        0 0 92px rgba(255, 141, 107, 0.22),
-        inset 0 10px 34px rgba(255, 255, 255, 0.20),
-        inset 0 -18px 30px rgba(44, 14, 8, 0.48);
-      animation: orb-speak 1.9s ease-in-out infinite;
-    }
-
-    .hero-orb.error {
-      background: linear-gradient(180deg, rgba(255, 99, 118, 0.96), rgba(168, 18, 42, 0.84));
-      box-shadow:
-        0 0 28px rgba(255, 89, 115, 0.30),
-        0 0 86px rgba(255, 89, 115, 0.16),
-        inset 0 10px 34px rgba(255, 255, 255, 0.20),
-        inset 0 -18px 30px rgba(40, 6, 12, 0.50);
+      justify-items: center;
     }
 
     .hero-actions {
@@ -1820,18 +1711,12 @@
       text-align: center;
     }
 
-    body.call-mode .hero-action-button {
+    body.call-mode .hero-actions .hero-action-button {
       display: none;
     }
 
-    body.call-mode .hero-orb-wrap {
-      width: 280px;
-      height: 280px;
-    }
-
-    body.call-mode .hero-orb {
-      width: 196px;
-      height: 196px;
+    body.call-mode .hero-avatar-wrap {
+      width: min(100%, 640px);
     }
 
     .chat-shell {
@@ -2293,37 +2178,6 @@
       display: none !important;
     }
 
-    @keyframes orbital-spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-
-    @keyframes orbital-spin-reverse {
-      from { transform: rotate(360deg); }
-      to { transform: rotate(0deg); }
-    }
-
-    @keyframes orb-bob {
-      0%, 100% { transform: translateY(0px) scale(1); }
-      50% { transform: translateY(-10px) scale(1.02); }
-    }
-
-    @keyframes orb-breathe {
-      0%, 100% { transform: scale(0.92); opacity: 0.82; }
-      50% { transform: scale(1.06); opacity: 1; }
-    }
-
-    @keyframes orb-pulse {
-      0%, 100% { transform: scale(1); opacity: 0.5; }
-      50% { transform: scale(1.08); opacity: 0.92; }
-    }
-
-    @keyframes orb-speak {
-      0%, 100% { transform: scale(1); }
-      35% { transform: scale(1.05); }
-      70% { transform: scale(0.98); }
-    }
-
     @media (max-width: 1180px) {
       .shell {
         grid-template-columns: minmax(0, 1fr);
@@ -2365,14 +2219,8 @@
         padding: 20px 16px 10px;
       }
 
-      .hero-orb-wrap {
-        width: 220px;
-        height: 220px;
-      }
-
-      .hero-orb {
-        width: 150px;
-        height: 150px;
+      .hero-avatar-wrap {
+        width: min(100%, 320px);
       }
 
       .dock-status {
@@ -2439,10 +2287,124 @@
               <h1 class="hero-title">Chanakya</h1>
               <p class="hero-subtitle" hidden></p>
             </div>
-            <div class="hero-orb-wrap" aria-hidden="true">
-              <div class="hero-orb-backdrop"></div>
-              <div id="heroOrb" class="hero-orb idle">
-                <div class="hero-orb-core"></div>
+            <div class="hero-avatar-wrap">
+              <div id="heroAvatarStage" class="voice-avatar-stage" data-character="eyes" aria-label="Chanakya voice avatar">
+                <div class="voice-avatar-shell" data-state="idle">
+                  <div class="voice-avatar-backdrop"></div>
+                  <div class="voice-avatar-bg-particles"></div>
+                  <div class="voice-avatar-body" aria-hidden="true">
+                    <div class="voice-avatar-panel" data-character="eyes">
+                      <div class="voice-eyes">
+                        <div class="voice-eyes-eye left">
+                          <div class="voice-eyes-glow"></div>
+                          <div class="voice-eyes-pupil"></div>
+                        </div>
+                        <div class="voice-eyes-eye right">
+                          <div class="voice-eyes-glow"></div>
+                          <div class="voice-eyes-pupil"></div>
+                        </div>
+                        <div class="voice-eyes-bridge"></div>
+                      </div>
+                    </div>
+                    <div class="voice-avatar-panel" data-character="mythic">
+                      <div class="voice-mythic">
+                        <div class="voice-mandala-center"></div>
+                        <div class="voice-mandala-rings">
+                          <div class="voice-mandala-ring"></div>
+                          <div class="voice-mandala-ring"></div>
+                          <div class="voice-mandala-ring"></div>
+                        </div>
+                        <div class="voice-lotus-petals">
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                        </div>
+                        <div class="voice-sacred-geometry">
+                          <div class="voice-yantra-line"></div>
+                          <div class="voice-yantra-line"></div>
+                          <div class="voice-yantra-line"></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="voice-avatar-panel" data-character="character">
+                      <div class="voice-character">
+                        <div class="voice-character-aura"></div>
+                        <div class="voice-character-body">
+                          <div class="voice-character-head">
+                            <div class="voice-character-eye left">
+                              <div class="voice-character-pupil"></div>
+                            </div>
+                            <div class="voice-character-eye right">
+                              <div class="voice-character-pupil"></div>
+                            </div>
+                            <div class="voice-character-mouth"></div>
+                          </div>
+                          <div class="voice-character-torso"></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="voice-avatar-panel" data-character="komi">
+                      <div class="voice-komi">
+                        <div class="voice-komi-halo"></div>
+                        <div class="voice-komi-curtain left"></div>
+                        <div class="voice-komi-curtain right"></div>
+                        <div class="voice-komi-sparkles">
+                          <div class="voice-komi-spark"></div>
+                          <div class="voice-komi-spark"></div>
+                          <div class="voice-komi-spark"></div>
+                          <div class="voice-komi-spark"></div>
+                          <div class="voice-komi-spark"></div>
+                        </div>
+                        <div class="voice-komi-canvas-shell">
+                          <canvas id="voiceAvatarKomiCanvas"></canvas>
+                          <div id="voiceAvatarKomiLoading" class="voice-avatar-loading">Loading Komi...</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <canvas class="voice-avatar-particle-canvas"></canvas>
+                </div>
+                <div class="voice-avatar-meta">
+                  <div id="voiceAvatarName" class="voice-avatar-name">Eyes-Driven</div>
+                  <div class="voice-avatar-chooser">
+                    <button id="voiceAvatarChooserButton" type="button" class="hero-action-button voice-avatar-chooser-button" aria-expanded="false" aria-controls="voiceAvatarChooserMenu">Choose Character: Eyes-Driven</button>
+                    <div id="voiceAvatarChooserMenu" class="voice-avatar-chooser-menu" hidden>
+                      <button type="button" class="voice-avatar-option" data-character="eyes" aria-pressed="true">
+                        <span class="voice-avatar-option-key">E</span>
+                        <span class="voice-avatar-option-copy">
+                          <span class="voice-avatar-option-name">Eyes-Driven</span>
+                          <span class="voice-avatar-option-subtitle">Selected</span>
+                        </span>
+                      </button>
+                      <button type="button" class="voice-avatar-option" data-character="mythic" aria-pressed="false">
+                        <span class="voice-avatar-option-key">M</span>
+                        <span class="voice-avatar-option-copy">
+                          <span class="voice-avatar-option-name">Mythic Indian</span>
+                          <span class="voice-avatar-option-subtitle">Mandala-driven presence</span>
+                        </span>
+                      </button>
+                      <button type="button" class="voice-avatar-option" data-character="character" aria-pressed="false">
+                        <span class="voice-avatar-option-key">C</span>
+                        <span class="voice-avatar-option-copy">
+                          <span class="voice-avatar-option-name">Character</span>
+                          <span class="voice-avatar-option-subtitle">Animated companion</span>
+                        </span>
+                      </button>
+                      <button type="button" class="voice-avatar-option" data-character="komi" aria-pressed="false">
+                        <span class="voice-avatar-option-key">K</span>
+                        <span class="voice-avatar-option-copy">
+                          <span class="voice-avatar-option-name">Komi Live2D</span>
+                          <span class="voice-avatar-option-subtitle">Live2D stage performance</span>
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="hero-actions">
@@ -2834,6 +2796,10 @@
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-go.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-rust.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markdown.min.js"></script>
+  <script src="{{ url_for('static', filename='live2d/live2dcubismcore.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/pixi.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/pixi-live2d-display-cubism4.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/voice_stage.js') }}"></script>
   <script src="{{ url_for('static', filename='js/air_voice.js') }}"></script>
   <script>
     const AIR_SERVER_URL = {{ air_server_url | tojson }};
@@ -2896,7 +2862,8 @@
     const agentFormStatus = document.getElementById("agentFormStatus");
     const chatShell = document.getElementById("chatShell");
     const heroChatToggle = document.getElementById("heroChatToggle");
-    const heroOrb = document.getElementById("heroOrb");
+    const heroAvatarStage = document.getElementById("heroAvatarStage");
+    const voiceAvatarName = document.getElementById("voiceAvatarName");
     const heroStage = document.querySelector(".hero-stage");
     const modeSettingsButton = document.getElementById("modeSettingsButton");
     const modeBackButton = document.getElementById("modeBackButton");
@@ -2936,6 +2903,12 @@
     const CHAT_RECOVERY_POLL_MS = 1500;
     let activeMainMode = "chat";
     let activeInlineProgressRequestId = null;
+    const heroVoiceStage = window.createVoiceAvatarStage
+      ? window.createVoiceAvatarStage({
+        stage: heroAvatarStage,
+        nameNode: voiceAvatarName,
+      })
+      : null;
 
     function delay(ms) {
       return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -3126,18 +3099,21 @@
       if (/recording|listening|transcribing/.test(combined)) {
         return { state: "listening", text: "" };
       }
-      if (/queued|speaking|thinking|replying|processing|pacing|waiting/.test(combined)) {
+      if (/thinking|processing/.test(combined)) {
+        return { state: "thinking", text: "" };
+      }
+      if (/queued|speaking|replying|pacing|waiting/.test(combined)) {
         return { state: queueText ? "queued" : "speaking", text: "" };
       }
       return { state: "idle", text: "" };
     }
 
     function syncHeroState() {
-      if (!heroOrb) {
+      if (!heroVoiceStage) {
         return;
       }
       const { state } = deriveHeroStatusState();
-      heroOrb.className = `hero-orb ${state}`;
+      heroVoiceStage.setState(state);
       syncCallModeState();
     }
 

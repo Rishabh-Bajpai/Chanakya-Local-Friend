@@ -1,0 +1,264 @@
+
+{
+    "customName" : "Komi",
+    "iconPath"   : "ico_Komi.png",
+    "bodyPhysics" : 0.6,
+    "modelPos"    : {
+        "x" : 13.9700002670288,
+        "y" : 8.31249904632568,
+        "z" : -0.800000011920929
+    },
+    "modelSize"   : {
+        "x" : 9.89999866485596,
+        "y" : 9.89999866485596,
+        "z" : 5.0
+    },
+    "modelAngle"  : {
+        "x" : 0.0,
+        "y" : 0.0,
+        "z" : 0.0
+    },
+    "capsuleRadius" : 1.98,
+    "capsuleHeight" : 7.919999,
+    "capsulePos"    : {
+        "x" : 13.9700002670288,
+        "y" : 9.31249904632568,
+        "z" : -1.79999995231628
+    },
+    "keys"          : [
+        {
+            "type" : 0,
+            "bindAction" : "0",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    49
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 0,
+            "bindAction" : "1",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    50
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 0,
+            "bindAction" : "2",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    51
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 0,
+            "bindAction" : "3",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    52
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 0,
+            "bindAction" : "5",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    54
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 0,
+            "bindAction" : "6",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    55
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 0,
+            "bindAction" : "7",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    56
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 0,
+            "bindAction" : "-1",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    48
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 1,
+            "bindAction" : "0",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    57
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 1,
+            "bindAction" : "1",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    304,
+                    49
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 1,
+            "bindAction" : "2",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    304,
+                    50
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 1,
+            "bindAction" : "3",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    304,
+                    51
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 1,
+            "bindAction" : "4",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    304,
+                    52
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 1,
+            "bindAction" : "5",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    304,
+                    53
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 1,
+            "bindAction" : "6",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    304,
+                    54
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 1,
+            "bindAction" : "7",
+            "bindVirtualAction" : {
+                "Keys" : [
+                    304,
+                    55
+                ],
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 0,
+            "bindAction" : "null",
+            "bindVirtualAction" : {
+                "Keys" : null,
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        },
+        {
+            "type" : 0,
+            "bindAction" : "null",
+            "bindVirtualAction" : {
+                "Keys" : null,
+                "actionName" : "",
+                "isGlobal"   : false,
+                "isApply"    : true
+            }
+        }
+    ],
+    "useVoice"      : false,
+    "voiceParams"   : [
+        1,
+        1,
+        0.5,
+        0.3,
+        0.4,
+        0.1,
+        1,
+        -1,
+        0.4,
+        1
+    ],
+    "L2DName"       : "",
+    "mapIsGlobal"   : false
+}

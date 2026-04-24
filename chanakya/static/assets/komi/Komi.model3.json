@@ -1,0 +1,102 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "Komi.moc3",
+		"Textures": [
+			"Komi.2048/texture_00.png"
+		],
+		"Physics": "Komi.physics3.json",
+		"DisplayInfo": "Komi.cdi3.json",
+		"Expressions": [
+			{
+				"Name": "aura",
+				"File": "Expressions/aura_exp.exp3.json"
+			},
+			{
+				"Name": "blush",
+				"File": "Expressions/blush_exp.exp3.json"
+			},
+			{
+				"Name": "cat-ears",
+				"File": "Expressions/cat_ear_exp.exp3.json"
+			},
+			{
+				"Name": "eye-shine",
+				"File": "Expressions/eye_shine_exp.exp3.json"
+			},
+			{
+				"Name": "eye-size",
+				"File": "Expressions/eye_size.exp3.json"
+			},
+			{
+				"Name": "mouth",
+				"File": "Expressions/mouth_exp.exp3.json"
+			},
+			{
+				"Name": "nose",
+				"File": "Expressions/nose_exp.exp3.json"
+			},
+			{
+				"Name": "pout",
+				"File": "Expressions/pout_exp.exp3.json"
+			}
+		],
+		"Motions": {
+			"Idle": [
+				{
+					"File": "Motions/Idle.motion3.json"
+				}
+			],
+			"Curious": [
+				{
+					"File": "Motions/Curious.motion3.json"
+				}
+			],
+			"Excited": [
+				{
+					"File": "Motions/Excited.motion3.json"
+				}
+			],
+			"Happy": [
+				{
+					"File": "Motions/Happy.motion3.json"
+				}
+			],
+			"Menacing": [
+				{
+					"File": "Motions/Menacing.motion3.json"
+				}
+			],
+			"Panting": [
+				{
+					"File": "Motions/Panting.motion3.json"
+				}
+			],
+			"Shy": [
+				{
+					"File": "Motions/Shy.motion3.json"
+				}
+			],
+			"Komi": [
+				{
+					"File": "Motions/Komi.motion3.json"
+				}
+			]
+		}
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		},
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeLOpen",
+				"ParamEyeROpen"
+			]
+		}
+	]
+}
