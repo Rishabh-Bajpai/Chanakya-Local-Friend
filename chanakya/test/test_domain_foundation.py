@@ -810,6 +810,74 @@ def test_chat_passes_conversation_preferences_into_conversation_layer() -> None:
     assert layer.calls[0]["tts_instruction"] == "Speak clearly with short phrases."
 
 
+def test_chat_hides_raw_core_reply_when_conversation_layer_returns_passthrough() -> None:
+    class _InvalidPostProcessorStub:
+        enabled = True
+
+        def wrap_reply(self, **kwargs):
+            assistant_message = str(kwargs["assistant_message"])
+            return type(
+                "Wrapped",
+                (),
+                {
+                    "response": assistant_message,
+                    "messages": [{"text": assistant_message, "delay_ms": 0}],
+                    "metadata": {},
+                },
+            )()
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub()))
+    service._conversation_layer = _InvalidPostProcessorStub()  # type: ignore[attr-defined]
+
+    reply = service.chat("session_invalid_layer", "Explain recursion")
+
+    assert reply.route == "conversation_layer_error"
+    assert reply.metadata["conversation_layer_failed"] is True
+    messages = store.list_messages("session_invalid_layer")
+    assert messages[1]["route"] == "conversation_layer_error"
+    assert messages[1]["content"] == "I couldn't safely format that reply for classic chat just now. Please try again."
+    assert messages[1]["content"] != "reply:Explain recursion"
+
+
+def test_chat_clears_stale_conversation_layer_queue_when_wrapping_fails() -> None:
+    class _ClearingLayerStub:
+        enabled = True
+
+        def __init__(self) -> None:
+            self.cleared_session_ids: list[str] = []
+
+        def wrap_reply(self, **kwargs):
+            raise RuntimeError("layer failed")
+
+        def clear_session_state(self, session_id: str) -> None:
+            self.cleared_session_ids.append(session_id)
+
+        def deliver_next_message(self, session_id: str) -> dict[str, object]:
+            if session_id in self.cleared_session_ids:
+                return {"status": "idle", "working_memory": {"session_id": session_id}}
+            return {
+                "status": "delivered",
+                "message": {"text": "stale follow-up", "delay_ms": 0},
+                "working_memory": {
+                    "session_id": session_id,
+                    "pending_messages": [],
+                },
+            }
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub()))
+    layer = _ClearingLayerStub()
+    service._conversation_layer = layer  # type: ignore[attr-defined]
+
+    reply = service.chat("session_clear_layer", "Explain recursion")
+
+    assert reply.route == "conversation_layer_error"
+    assert layer.cleared_session_ids == ["session_clear_layer"]
+    next_payload = service.deliver_next_conversation_message("session_clear_layer")
+    assert next_payload["status"] == "idle"
+
+
 def test_chat_backend_falls_back_for_legacy_runtime_run_signature() -> None:
     class _LegacyRuntimeStub(_RuntimeStub):
         def run(

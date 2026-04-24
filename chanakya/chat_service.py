@@ -776,12 +776,24 @@ class ChatService:
                 },
             )
         except Exception as exc:
+            self._clear_conversation_layer_session_state(session_id)
             debug_log(
                 "conversation_layer_error",
                 {
                     "session_id": session_id,
                     "request_id": request_id,
                     "error": str(exc),
+                },
+            )
+            return None
+        if str(result.metadata.get("source") or "").strip() != "conversation_layer":
+            self._clear_conversation_layer_session_state(session_id)
+            debug_log(
+                "conversation_layer_invalid_result",
+                {
+                    "session_id": session_id,
+                    "request_id": request_id,
+                    "metadata": dict(result.metadata or {}),
                 },
             )
             return None
@@ -796,6 +808,22 @@ class ChatService:
             },
         )
         return result
+
+    def _clear_conversation_layer_session_state(self, session_id: str) -> None:
+        clear_session_state = getattr(self._conversation_layer, "clear_session_state", None)
+        if not callable(clear_session_state):
+            return
+        try:
+            clear_session_state(session_id)
+        except Exception:
+            return
+
+    @staticmethod
+    def _conversation_layer_failure_message() -> str:
+        return (
+            "I couldn't safely format that reply for classic chat just now. "
+            "Please try again."
+        )
 
     @staticmethod
     def _conversation_message_content(messages: list[dict[str, Any]], fallback: str) -> str:
@@ -1511,10 +1539,11 @@ class ChatService:
             if isinstance(run_metadata, dict):
                 response_metadata.update(run_metadata)
             conversation_result = None
-            if manager_result is None and (
+            require_conversation_layer = manager_result is None and (
                 isinstance(self.runtime, MAFRuntime)
                 or not isinstance(self._conversation_layer, ConversationLayerSupport)
-            ):
+            )
+            if require_conversation_layer:
                 conversation_result = self._build_conversation_layer_result(
                     session_id=session_id,
                     user_message=message,
@@ -1525,6 +1554,30 @@ class ChatService:
                     conversation_tone_instruction=conversation_tone_instruction,
                     tts_instruction=tts_instruction,
                 )
+                if conversation_result is None:
+                    route = "conversation_layer_error"
+                    final_message = self._conversation_layer_failure_message()
+                    response_mode = "error"
+                    task_status = TASK_STATUS_DONE
+                    request_status = self._request_status_from_task_status(task_status)
+                    response_metadata = {
+                        **response_metadata,
+                        "runtime": str(actual_runtime_meta.get("runtime") or "maf_agent"),
+                        "core_agent_backend": str(actual_runtime_meta.get("backend") or "local"),
+                        "response_mode": response_mode,
+                        "tool_calls_used": direct_tool_calls_used,
+                        "root_task_id": root_task_id,
+                        "request_status": request_status,
+                        "task_status": task_status,
+                        "workflow_type": None,
+                        "child_task_ids": [],
+                        "waiting_task_id": waiting_task_id,
+                        "input_prompt": input_prompt,
+                        "manager_invoked": manager_invoked,
+                        "execution_path": "direct_runtime",
+                        "artifacts": artifacts,
+                        "conversation_layer_failed": True,
+                    }
             if conversation_result is not None:
                 response_metadata = {**response_metadata, **conversation_result.metadata}
                 messages = conversation_result.messages or [{"text": final_message, "delay_ms": 0}]
