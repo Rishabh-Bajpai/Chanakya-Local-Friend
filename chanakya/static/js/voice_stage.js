@@ -272,9 +272,7 @@
       this.shell = this.stage.querySelector(".voice-avatar-shell");
       this.backgroundParticles = this.stage.querySelector(".voice-avatar-bg-particles");
       this.particleCanvas = this.stage.querySelector(".voice-avatar-particle-canvas");
-      this.chooserButton = this.stage.querySelector("#voiceAvatarChooserButton");
-      this.chooserMenu = this.stage.querySelector("#voiceAvatarChooserMenu");
-      this.optionButtons = Array.from(this.stage.querySelectorAll(".voice-avatar-option"));
+      this.optionButtons = Array.from(this.stage.querySelectorAll(".voice-avatar-pill"));
       this.eyeNodes = Array.from(this.stage.querySelectorAll(".voice-eyes-eye"));
       this.characterEyeNodes = Array.from(this.stage.querySelectorAll(".voice-character-eye"));
       this.currentCharacter = "eyes";
@@ -288,7 +286,6 @@
         loadingNode: this.stage.querySelector("#voiceAvatarKomiLoading"),
         config: KOMI_LIVE2D_CONFIG,
       });
-      this.handleDocumentClick = this.handleDocumentClick.bind(this);
       this.handlePointerMove = this.handlePointerMove.bind(this);
       this.handleResize = this.handleResize.bind(this);
       this.init();
@@ -306,23 +303,10 @@
     }
 
     initChooser() {
-      if (this.chooserButton) {
-        this.chooserButton.addEventListener("click", () => {
-          const expanded = this.chooserButton.getAttribute("aria-expanded") === "true";
-          this.setChooserOpen(!expanded);
-        });
-      }
       this.optionButtons.forEach((button) => {
         button.addEventListener("click", () => {
           this.setCharacter(button.dataset.character || "eyes");
-          this.setChooserOpen(false);
         });
-      });
-      document.addEventListener("click", this.handleDocumentClick);
-      document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
-          this.setChooserOpen(false);
-        }
       });
     }
 
@@ -465,20 +449,6 @@
       this.stage.style.setProperty("--char-gaze-y", charY);
     }
 
-    handleDocumentClick(event) {
-      if (!this.stage.contains(event.target)) {
-        this.setChooserOpen(false);
-      }
-    }
-
-    setChooserOpen(isOpen) {
-      if (!this.chooserButton || !this.chooserMenu) {
-        return;
-      }
-      this.chooserButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
-      this.chooserMenu.hidden = !isOpen;
-    }
-
     setCharacter(character) {
       if (!CHARACTER_LABELS[character]) {
         character = "eyes";
@@ -488,16 +458,10 @@
       if (this.nameNode) {
         this.nameNode.textContent = CHARACTER_LABELS[character];
       }
-      if (this.chooserButton) {
-        this.chooserButton.textContent = `Choose Character: ${CHARACTER_LABELS[character]}`;
-      }
       this.optionButtons.forEach((button) => {
         const selected = button.dataset.character === character;
         button.setAttribute("aria-pressed", selected ? "true" : "false");
-        const subtitle = button.querySelector(".voice-avatar-option-subtitle");
-        if (subtitle) {
-          subtitle.textContent = selected ? "Selected" : CHARACTER_SUBTITLES[button.dataset.character] || "";
-        }
+        button.title = CHARACTER_SUBTITLES[button.dataset.character] || "";
       });
       window.localStorage.setItem(STORAGE_KEY, character);
       if (character === "komi") {
