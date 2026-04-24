@@ -31,6 +31,8 @@
     const interruptionListeningWindowMs = 3000;
     const interruptionVoiceThreshold = 0.045;
     const interruptionVoiceFrames = 3;
+    const activeRecordingSilenceMs = 3000;
+    const activeRecordingPollMs = 120;
     let speechSequenceId = 0;
     let voiceTurnActive = false;
     let interruptionStream = null;
@@ -45,6 +47,14 @@
     let interruptionConsecutiveVoiceFrames = 0;
     let interruptionWindowToken = 0;
     let pendingInterruptionSubmission = false;
+    let recordingAudioContext = null;
+    let recordingAnalyser = null;
+    let recordingSource = null;
+    let recordingMonitorTimer = null;
+    let recordingSpeechDetected = false;
+    let recordingLastVoiceAt = 0;
+    let recordingConsecutiveVoiceFrames = 0;
+    let recordingSubmitInFlight = false;
 
     function setStatus(text, isError = false) {
       if (!statusNode) {
@@ -167,11 +177,15 @@
     }
 
     function getInterruptionRms() {
-      if (!interruptionAnalyser) {
+      return getAnalyserRms(interruptionAnalyser);
+    }
+
+    function getAnalyserRms(analyser) {
+      if (!analyser) {
         return 0;
       }
-      const buffer = new Uint8Array(interruptionAnalyser.fftSize);
-      interruptionAnalyser.getByteTimeDomainData(buffer);
+      const buffer = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(buffer);
       let sum = 0;
       for (let index = 0; index < buffer.length; index += 1) {
         const normalized = (buffer[index] - 128) / 128;
@@ -211,6 +225,83 @@
       }
     }
 
+    function stopRecordingMonitor() {
+      if (recordingMonitorTimer) {
+        window.clearInterval(recordingMonitorTimer);
+        recordingMonitorTimer = null;
+      }
+    }
+
+    async function teardownRecordingMonitor() {
+      stopRecordingMonitor();
+      const context = recordingAudioContext;
+      recordingAudioContext = null;
+      recordingAnalyser = null;
+      recordingSource = null;
+      recordingSpeechDetected = false;
+      recordingLastVoiceAt = 0;
+      recordingConsecutiveVoiceFrames = 0;
+      if (context) {
+        try {
+          await context.close();
+        } catch {
+        }
+      }
+    }
+
+    function shouldAutoSubmitRecording() {
+      return continuousMode || pendingInterruptionSubmission;
+    }
+
+    async function autoSubmitCurrentRecording() {
+      if (recordingSubmitInFlight || !mediaRecorder || mediaRecorder.state === "inactive") {
+        return;
+      }
+      recordingSubmitInFlight = true;
+      try {
+        await stopRecordingAndProcess();
+        await continueLoopIfNeeded();
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : String(error), true);
+      } finally {
+        recordingSubmitInFlight = false;
+      }
+    }
+
+    async function startRecordingMonitor(stream) {
+      await teardownRecordingMonitor();
+      if (!shouldAutoSubmitRecording()) {
+        return;
+      }
+      recordingAudioContext = new AudioContext();
+      recordingSource = recordingAudioContext.createMediaStreamSource(stream);
+      recordingAnalyser = recordingAudioContext.createAnalyser();
+      recordingAnalyser.fftSize = 2048;
+      recordingSource.connect(recordingAnalyser);
+      recordingSpeechDetected = false;
+      recordingLastVoiceAt = 0;
+      recordingConsecutiveVoiceFrames = 0;
+      recordingMonitorTimer = window.setInterval(() => {
+        if (!mediaRecorder || mediaRecorder.state === "inactive" || recordingSubmitInFlight) {
+          return;
+        }
+        const now = Date.now();
+        const rms = getAnalyserRms(recordingAnalyser);
+        if (rms >= interruptionVoiceThreshold) {
+          recordingConsecutiveVoiceFrames += 1;
+          if (recordingConsecutiveVoiceFrames >= interruptionVoiceFrames) {
+            recordingSpeechDetected = true;
+            recordingLastVoiceAt = now;
+          }
+          return;
+        }
+        recordingConsecutiveVoiceFrames = 0;
+        if (recordingSpeechDetected && recordingLastVoiceAt && now - recordingLastVoiceAt >= activeRecordingSilenceMs) {
+          void autoSubmitCurrentRecording();
+        }
+      }, activeRecordingPollMs);
+    }
+
     async function beginActiveRecording(options = {}) {
       const {
         interruptionTriggered = false,
@@ -237,6 +328,7 @@
       };
       mediaRecorder.start();
       pendingInterruptionSubmission = interruptionTriggered;
+      await startRecordingMonitor(stream);
       recordButton.dataset.state = "recording";
       recordButton.textContent = "Stop Mic";
       setStatus(interruptionTriggered ? "Recording interruption..." : (continuousMode ? "Listening for your next turn..." : "Recording..."));
@@ -319,6 +411,7 @@
       if (!mediaRecorder || mediaRecorder.state === "inactive") {
         return;
       }
+      await teardownRecordingMonitor();
       const recorder = mediaRecorder;
       const stream = recorder.stream;
       await new Promise((resolve) => {
@@ -529,6 +622,7 @@
       if (!mediaRecorder || mediaRecorder.state === "inactive") {
         return;
       }
+      await teardownRecordingMonitor();
       const recorder = mediaRecorder;
       const stream = recorder.stream;
       const audioBlob = await new Promise((resolve) => {
@@ -618,6 +712,7 @@
           speechSequenceId += 1;
           stopPlayback();
           await cancelInterruptionWindow({ interrupted: false });
+          await teardownRecordingMonitor();
           await stopRecordingSilently();
           setStatus("Voice mode stopped.");
           syncButtons();
