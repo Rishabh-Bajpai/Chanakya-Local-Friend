@@ -72,6 +72,11 @@
       this.idleExpressionTimer = null;
       this.resizeObserver = null;
       this.boundResize = () => this.layoutModel();
+      this.handleContextLost = (event) => {
+        event.preventDefault();
+        this.fail("Komi renderer reset. Reopen call mode to retry.");
+        this.dispose();
+      };
     }
 
     async init() {
@@ -95,7 +100,14 @@
       }
 
       try {
+        const width = this.container.clientWidth;
+        const height = this.container.clientHeight;
+        if (!width || !height) {
+          this.fail("Komi will load when the call stage is visible.");
+          return;
+        }
         this.setLoading("Loading Komi...");
+        this.canvas.addEventListener("webglcontextlost", this.handleContextLost, false);
         this.app = new pixi.Application({
           view: this.canvas,
           autoStart: true,
@@ -263,12 +275,43 @@
         this.loadingNode.classList.remove("hidden");
       }
     }
+
+    dispose() {
+      this.stopIdleExpressionCycle();
+      window.removeEventListener("resize", this.boundResize);
+      if (this.resizeObserver) {
+        this.resizeObserver.disconnect();
+        this.resizeObserver = null;
+      }
+      if (this.canvas) {
+        this.canvas.removeEventListener("webglcontextlost", this.handleContextLost, false);
+        this.canvas.classList.remove("is-ready");
+      }
+      if (this.model) {
+        try {
+          this.model.destroy();
+        } catch {}
+        this.model = null;
+      }
+      if (this.app) {
+        try {
+          this.app.destroy(true, { children: true, texture: false, baseTexture: false });
+        } catch {}
+        this.app = null;
+      }
+      this.currentExpression = null;
+      this.currentMotionGroup = null;
+      this.isInitialized = false;
+      this.initPromise = null;
+    }
   }
 
   class VoiceAvatarStage {
     constructor(options) {
       this.stage = options.stage;
       this.nameNode = options.nameNode;
+      this.statusNode = options.statusNode || null;
+      this.selectNode = options.selectNode || null;
       this.shell = this.stage.querySelector(".voice-avatar-shell");
       this.backgroundParticles = this.stage.querySelector(".voice-avatar-bg-particles");
       this.particleCanvas = this.stage.querySelector(".voice-avatar-particle-canvas");
@@ -308,6 +351,11 @@
           this.setCharacter(button.dataset.character || "eyes");
         });
       });
+      if (this.selectNode) {
+        this.selectNode.addEventListener("change", (event) => {
+          this.setCharacter(event.currentTarget.value || "eyes");
+        });
+      }
     }
 
     initPointerTracking() {
@@ -458,15 +506,19 @@
       if (this.nameNode) {
         this.nameNode.textContent = CHARACTER_LABELS[character];
       }
+      if (this.statusNode) {
+        this.statusNode.textContent = `Current: ${CHARACTER_LABELS[character]}`;
+      }
+      if (this.selectNode) {
+        this.selectNode.value = character;
+      }
       this.optionButtons.forEach((button) => {
         const selected = button.dataset.character === character;
         button.setAttribute("aria-pressed", selected ? "true" : "false");
         button.title = CHARACTER_SUBTITLES[button.dataset.character] || "";
       });
       window.localStorage.setItem(STORAGE_KEY, character);
-      if (character === "komi") {
-        void this.komi.init().then(() => this.komi.setState(this.currentState, { force: true }));
-      }
+      this.syncVisibility();
     }
 
     setState(state) {
@@ -475,9 +527,40 @@
       if (this.shell) {
         this.shell.dataset.state = normalized;
       }
-      if (this.currentCharacter === "komi") {
-        void this.komi.setState(normalized);
+      this.syncVisibility();
+    }
+
+    isStageVisible() {
+      if (!this.stage || !this.shell) {
+        return false;
       }
+      if (!this.stage.isConnected) {
+        return false;
+      }
+      if (document.body && !document.body.classList.contains("call-mode")) {
+        return false;
+      }
+      if (this.stage.offsetParent === null) {
+        return false;
+      }
+      return this.shell.clientWidth > 0 && this.shell.clientHeight > 0;
+    }
+
+    syncVisibility() {
+      if (this.currentCharacter !== "komi") {
+        return;
+      }
+      if (!this.isStageVisible()) {
+        return;
+      }
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (!this.isStageVisible() || this.currentCharacter !== "komi") {
+            return;
+          }
+          void this.komi.init().then(() => this.komi.setState(this.currentState, { force: true }));
+        });
+      });
     }
   }
 

@@ -1715,8 +1715,8 @@
       display: grid;
       align-content: center;
       justify-items: center;
-      gap: 20px;
-      padding-bottom: 20px;
+      gap: 16px;
+      padding: 18px 16px 8px;
     }
 
     body.call-mode .hero-copy {
@@ -1729,6 +1729,10 @@
 
     body.call-mode .hero-avatar-wrap {
       width: min(100%, 640px);
+    }
+
+    body:not(.call-mode) .voice-avatar-chooser {
+      display: none;
     }
 
     .chat-shell {
@@ -1977,43 +1981,16 @@
       backdrop-filter: blur(14px);
     }
 
-    .character-dock {
+    .character-select-label {
       display: grid;
-      gap: 8px;
-      padding: 12px 14px;
-      border-radius: 18px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
-        rgba(12, 16, 28, 0.7);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      gap: 6px;
     }
 
-    .character-dock-label {
+    .character-select-value {
       font-size: 11px;
+      color: #95b4c8;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
-      color: #8fb4ca;
-    }
-
-    .character-dock-current {
-      color: #dfeeff;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-    }
-
-    .character-dock-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .character-dock-pills {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
     }
 
     .composer {
@@ -2160,14 +2137,6 @@
 
     body.call-mode .dock-actions {
       gap: 14px;
-    }
-
-    body.call-mode .character-dock {
-      padding: 14px 16px;
-      background:
-        radial-gradient(circle at top left, rgba(79, 215, 255, 0.08), transparent 36%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
-        rgba(12, 16, 28, 0.76);
     }
 
     body.call-mode .dock-actions .air-button {
@@ -2359,10 +2328,6 @@
         width: 100%;
       }
 
-      .character-dock-header {
-        align-items: flex-start;
-        flex-direction: column;
-      }
     }
   </style>
 </head>
@@ -2380,6 +2345,9 @@
             {% endif %}
           </div>
           <div class="top-bar-right">
+            <button id="modeCharacterButton" type="button" class="stage-toggle" title="Choose character">
+              <span>Character</span>
+            </button>
             <button id="utilityToggleButton" type="button" class="utility-toggle">
               <span>Controls</span>
             </button>
@@ -2507,20 +2475,6 @@
               <div id="wnItems" class="wn-items"></div>
             </div>
             <div class="composer-dock">
-              <div class="character-dock">
-                <div class="character-dock-header">
-                  <div>
-                    <div class="character-dock-label">Character</div>
-                    <div id="characterDockCurrent" class="character-dock-current">Eyes-Driven</div>
-                  </div>
-                  <div class="character-dock-pills" role="group" aria-label="Choose avatar character from dock">
-                    <button type="button" class="voice-avatar-pill" data-character="eyes" aria-pressed="true">Eyes</button>
-                    <button type="button" class="voice-avatar-pill" data-character="mythic" aria-pressed="false">Mythic</button>
-                    <button type="button" class="voice-avatar-pill" data-character="character" aria-pressed="false">Character</button>
-                    <button type="button" class="voice-avatar-pill" data-character="komi" aria-pressed="false">Komi</button>
-                  </div>
-                </div>
-              </div>
               <form id="chatForm" class="composer">
                 <div class="composer-row">
                   <input id="messageInput" type="text" placeholder="Send a message to Chanakya..." required />
@@ -2656,6 +2610,16 @@
               <label>
                 TTS Model
                 <select id="airTtsModel"></select>
+              </label>
+              <label class="character-select-label">
+                Character Presence
+                <select id="voiceCharacterSelect">
+                  <option value="eyes">Eyes-Driven</option>
+                  <option value="mythic">Mythic Indian</option>
+                  <option value="character">Character</option>
+                  <option value="komi">Komi Live2D</option>
+                </select>
+                <span id="voiceCharacterCurrent" class="character-select-value">Current: Eyes-Driven</span>
               </label>
             </div>
             <div class="air-controls utility-voice-links">
@@ -2963,7 +2927,9 @@
     const heroChatToggle = document.getElementById("heroChatToggle");
     const heroAvatarStage = document.getElementById("heroAvatarStage");
     const voiceAvatarName = document.getElementById("voiceAvatarName");
-    const characterDockCurrent = document.getElementById("characterDockCurrent");
+    const voiceCharacterSelect = document.getElementById("voiceCharacterSelect");
+    const voiceCharacterCurrent = document.getElementById("voiceCharacterCurrent");
+    const modeCharacterButton = document.getElementById("modeCharacterButton");
     const heroStage = document.querySelector(".hero-stage");
     const modeSettingsButton = document.getElementById("modeSettingsButton");
     const modeBackButton = document.getElementById("modeBackButton");
@@ -3007,7 +2973,8 @@
       ? window.createVoiceAvatarStage({
         stage: heroAvatarStage,
         nameNode: voiceAvatarName,
-        statusNode: characterDockCurrent,
+        selectNode: voiceCharacterSelect,
+        statusNode: voiceCharacterCurrent,
       })
       : null;
 
@@ -3118,6 +3085,9 @@
       if (chatShell) {
         chatShell.classList.toggle("collapsed", !inCallMode && !isChatExpanded);
       }
+      if (heroVoiceStage && typeof heroVoiceStage.syncVisibility === "function") {
+        heroVoiceStage.syncVisibility();
+      }
     }
 
     function setChatExpanded(nextValue) {
@@ -3142,6 +3112,27 @@
 
     function setUtilityPanelOpen(nextValue) {
       document.body.classList.toggle("utility-panel-open", Boolean(nextValue));
+    }
+
+    function expandSidebarPanel(panelId) {
+      const panel = document.querySelector(`.sidebar-panel[data-sidebar-panel="${panelId}"]`);
+      if (!panel) {
+        return;
+      }
+      panel.classList.remove("collapsed");
+      const state = new Set(loadSidebarCollapsedState());
+      state.delete(panelId);
+      saveSidebarCollapsedState(Array.from(state));
+    }
+
+    function openVoiceCharacterSettings() {
+      setMainMode("config");
+      expandSidebarPanel("voice");
+      window.setTimeout(() => {
+        if (voiceCharacterSelect) {
+          voiceCharacterSelect.focus();
+        }
+      }, 80);
     }
 
     function syncMainMode() {
@@ -5715,6 +5706,12 @@
     if (modeSettingsButton) {
       modeSettingsButton.addEventListener("click", () => {
         setMainMode("config");
+      });
+    }
+
+    if (modeCharacterButton) {
+      modeCharacterButton.addEventListener("click", () => {
+        openVoiceCharacterSettings();
       });
     }
 
