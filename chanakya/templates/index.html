@@ -1713,9 +1713,9 @@
     .call-hero-status {
       display: none;
       align-items: center;
-      gap: 10px;
+      gap: 0;
       min-height: 40px;
-      padding: 0 16px;
+      padding: 0 14px;
       border-radius: 999px;
       border: 1px solid rgba(255, 255, 255, 0.10);
       background: rgba(10, 14, 23, 0.72);
@@ -1724,11 +1724,7 @@
     }
 
     .call-hero-status-label {
-      flex: 0 0 auto;
-      font-size: 10px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: #8fc8ef;
+      display: none;
     }
 
     .call-hero-status-text {
@@ -2088,7 +2084,7 @@
 
     .composer-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: auto minmax(0, 1fr) auto auto auto;
       gap: 6px;
       align-items: center;
     }
@@ -2140,7 +2136,7 @@
     }
 
     .composer-more-button {
-      display: none;
+      display: inline-flex;
     }
 
     .composer-proxy-button {
@@ -2148,7 +2144,7 @@
     }
 
     .composer-loop-proxy {
-      display: none;
+      display: inline-flex;
     }
 
     .composer-aux-button svg,
@@ -2311,6 +2307,19 @@
     body.call-mode .dock-actions,
     body.call-mode .composer-menu {
       display: none;
+    }
+
+    body.call-mode .hero-stage {
+      grid-template-rows: 1fr;
+    }
+
+    body.call-mode .call-hero-status {
+      position: absolute;
+      left: 50%;
+      bottom: 22px;
+      transform: translateX(-50%);
+      z-index: 2;
+      max-width: min(100%, 320px);
     }
 
     .call-control-bar {
@@ -2546,10 +2555,6 @@
         padding: 8px 4px;
       }
 
-      .composer-more-button {
-        display: inline-flex;
-      }
-
       .composer-proxy-button,
       .composer-more-button,
       .composer-submit {
@@ -2603,6 +2608,16 @@
         max-width: 100%;
       }
 
+    }
+
+    .composer-dock.has-text .composer-loop-proxy,
+    .composer-dock.has-text .composer-mic-proxy,
+    .composer-dock:not(.has-text) .composer-submit {
+      display: none;
+    }
+
+    .composer-dock.has-text .composer-submit {
+      display: inline-flex;
     }
   </style>
 </head>
@@ -3276,7 +3291,7 @@
       if (!composerMenu || !composerMoreButton) {
         return;
       }
-      const nextValue = Boolean(isOpen) && isCompactComposerViewport() && !isCallModeActive();
+      const nextValue = Boolean(isOpen) && !isCallModeActive();
       composerMenu.hidden = !nextValue;
       composerMoreButton.setAttribute("aria-expanded", nextValue ? "true" : "false");
     }
@@ -3298,7 +3313,7 @@
 
     function shouldHideVoiceStatusText(text) {
       const normalized = String(text || "").trim().toLowerCase();
-      return !normalized || normalized === "air models loaded.";
+      return !normalized || normalized === "air models loaded." || normalized === "voice mode stopped.";
     }
 
     function syncComposerStatusState() {
@@ -6229,9 +6244,6 @@
     window.addEventListener("resize", () => {
       if (window.innerWidth > 1180) {
         setUtilityPanelOpen(false);
-      }
-      if (!isCompactComposerViewport()) {
-        setComposerMenuOpen(false);
       }
       resizeComposerTextarea();
       syncComposerInputState();
