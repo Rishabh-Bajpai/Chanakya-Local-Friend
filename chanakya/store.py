@@ -108,6 +108,20 @@ class ChatRepository:
             for row in rows
         ]
 
+    def get_latest_assistant_request_id(self, session_id: str) -> str | None:
+        with session_scope(self.Session) as session:
+            row = session.scalars(
+                select(ChatMessageModel)
+                .where(ChatMessageModel.session_id == session_id)
+                .where(ChatMessageModel.role == "assistant")
+                .where(ChatMessageModel.request_id.isnot(None))
+                .order_by(ChatMessageModel.id.desc())
+                .limit(1)
+            ).first()
+        if row is None:
+            return None
+        return str(row.request_id).strip() or None
+
     def rewrite_latest_assistant_message(
         self,
         session_id: str,
@@ -1768,6 +1782,9 @@ class ChanakyaStore:
 
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
         return self.chat.list_messages(session_id)
+
+    def get_latest_assistant_request_id(self, session_id: str) -> str | None:
+        return self.chat.get_latest_assistant_request_id(session_id)
 
     def create_artifact(self, **kwargs: Any) -> dict[str, Any]:
         return self.artifacts.create_artifact(**kwargs)

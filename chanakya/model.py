@@ -116,7 +116,7 @@ class ArtifactModel(Base):
     session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     work_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    title: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     path: Mapped[str] = mapped_column(String, nullable=False)
     mime_type: Mapped[str | None] = mapped_column(String, nullable=True)

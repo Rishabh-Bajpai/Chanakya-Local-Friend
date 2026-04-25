@@ -472,17 +472,10 @@
       isPlayingQueue = true;
       const currentChunk = audioQueue.shift();
       activeAudio = new Audio(currentChunk.url);
-      const scheduleNextChunk = async () => {
-        try {
-          const listeningResult = await waitForInterruptionWindow();
-          if (listeningResult && listeningResult.interrupted) {
-            isPlayingQueue = false;
-            return;
-          }
-        } catch (error) {
-          isPlayingQueue = false;
-          setStatus(error instanceof Error ? error.message : String(error), true);
-          return;
+      const scheduleNextChunk = () => {
+        if (voiceTurnActive && !stopRequested && selectedValue(sttModelSelect)) {
+          waitForInterruptionWindow().catch(() => {
+          });
         }
         nextAudioTimer = window.setTimeout(() => {
           nextAudioTimer = null;
@@ -492,17 +485,17 @@
       activeAudio.onended = () => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        void scheduleNextChunk();
+        scheduleNextChunk();
       };
       activeAudio.onerror = () => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        void scheduleNextChunk();
+        scheduleNextChunk();
       };
       activeAudio.play().catch(() => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        void scheduleNextChunk();
+        scheduleNextChunk();
       });
     }
 
