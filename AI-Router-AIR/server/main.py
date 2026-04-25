@@ -29,6 +29,7 @@ app.add_middleware(
 # Placeholder for routes - will be imported later
 from server.api import router as api_router
 from server.core.exceptions import global_exception_handler
+from server.core.logging import LOG_FILE_PATH, logger as air_logger
 
 app.add_exception_handler(Exception, global_exception_handler)
 
@@ -46,6 +47,8 @@ async def startup_discovery():
     from server.core.config import settings
     from server.services.discovery import discovery_service
     from server.services.provider_manager import provider_manager
+
+    air_logger.info("AIR startup complete. Realtime log file: %s", LOG_FILE_PATH)
 
     async def run_refresh():
         try:

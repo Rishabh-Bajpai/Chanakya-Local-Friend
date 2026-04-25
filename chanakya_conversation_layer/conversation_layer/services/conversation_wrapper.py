@@ -1514,18 +1514,33 @@ class ConversationWrapper:
         model_id = str(
             metadata.get("conversation_orchestration_model_id") or ""
         ).strip()
+        request_headers = self._conversation_request_headers(chat_request)
         if model_id and hasattr(self.orchestration_agent, "plan_with_model"):
             return self.orchestration_agent.plan_with_model(
                 task=task,
                 instructions=instructions,
                 payload=payload,
                 model_id=model_id,
+                request_headers=request_headers,
             )
         return self.orchestration_agent.plan(
             task=task,
             instructions=instructions,
             payload=payload,
         )
+
+    def _conversation_request_headers(
+        self, chat_request: ChatRequest
+    ) -> dict[str, str] | None:
+        metadata = chat_request.metadata or {}
+        request_id = str(metadata.get("request_id") or "").strip()
+        if not request_id:
+            return None
+        return {
+            "x-request-id": request_id,
+            "x-chanakya-request-id": request_id,
+            "x-session-id": chat_request.session_id,
+        }
 
     def _coerce_planned_messages(
         self,

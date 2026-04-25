@@ -755,6 +755,7 @@ class ChatService:
                 session_id=session_id,
                 user_message=user_message,
                 assistant_message=assistant_message,
+                request_id=request_id,
                 model_id=selected_model_id,
                 backend=selected_backend,
                 a2a_url=str(

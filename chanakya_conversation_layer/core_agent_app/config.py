@@ -24,10 +24,38 @@ def _as_json(value: str | None, default):
     return json.loads(value)
 
 
+def _air_enabled() -> bool:
+    return _as_bool(os.getenv("AIR_ENABLED"), default=True)
+
+
+def _air_base_url() -> str:
+    configured = os.getenv("AIR_SERVER_URL", "").strip().rstrip("/")
+    if configured:
+        return f"{configured}/v1"
+    port = os.getenv("AIR_SERVER_PORT", "5512").strip() or "5512"
+    return f"http://localhost:{port}/v1"
+
+
+def _core_openai_base_url() -> str:
+    if _air_enabled():
+        return _air_base_url()
+    return os.getenv("OPENAI_DIRECT_BASE_URL") or os.getenv("OPENAI_BASE_URL", "")
+
+
+def _conversation_openai_base_url() -> str:
+    if _air_enabled():
+        return _air_base_url()
+    return (
+        os.getenv("CONVERSATION_OPENAI_DIRECT_BASE_URL")
+        or os.getenv("CONVERSATION_OPENAI_BASE_URL")
+        or _core_openai_base_url()
+    )
+
+
 @dataclass(slots=True)
 class Config:
     core_agent_backend: str = os.getenv("CORE_AGENT_BACKEND", "local")
-    openai_base_url: str = os.getenv("OPENAI_BASE_URL", "")
+    openai_base_url: str = _core_openai_base_url()
     openai_chat_model_id: str = os.getenv("OPENAI_CHAT_MODEL_ID", "")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     a2a_agent_url: str = os.getenv("A2A_AGENT_URL", "")
@@ -45,9 +73,7 @@ class Config:
             [],
         )
     )
-    conversation_openai_base_url: str = os.getenv(
-        "CONVERSATION_OPENAI_BASE_URL", os.getenv("OPENAI_BASE_URL", "")
-    )
+    conversation_openai_base_url: str = _conversation_openai_base_url()
     conversation_openai_chat_model_id: str = os.getenv(
         "CONVERSATION_OPENAI_CHAT_MODEL_ID", os.getenv("OPENAI_CHAT_MODEL_ID", "")
     )

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from sqlalchemy import DateTime, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -39,7 +41,23 @@ class AgentSessionContextRecord(Base):
     )
 
 
+def _ensure_sqlite_parent_dir(database_url: str) -> None:
+    if not database_url.startswith("sqlite"):
+        return
+
+    parsed = urlsplit(database_url)
+    database_path = unquote(parsed.path or "")
+    if not database_path or database_path == ":memory:":
+        return
+
+    sqlite_path = Path(database_path)
+    if not sqlite_path.is_absolute():
+        sqlite_path = Path.cwd() / sqlite_path
+    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+
+
 def create_session_factory(database_url: str) -> sessionmaker[Session]:
+    _ensure_sqlite_parent_dir(database_url)
     connect_args = (
         {"check_same_thread": False} if database_url.startswith("sqlite") else {}
     )
