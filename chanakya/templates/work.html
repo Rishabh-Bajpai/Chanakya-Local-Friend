@@ -137,6 +137,9 @@
         flex-wrap: wrap;
         gap: 8px;
       }
+      .chat .header-actions {
+        margin-top: 10px;
+      }
       .header-action-button {
         display: inline-flex;
         align-items: center;
@@ -153,6 +156,15 @@
       .header-action-emoji {
         font-size: 16px;
         line-height: 1;
+      }
+      .header-action-icon {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
       .header-action-button svg {
         width: 16px;
@@ -524,13 +536,18 @@
         stroke-linejoin: round;
       }
       .composer-menu {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 8px);
+        min-width: 220px;
         display: grid;
-        gap: 8px;
+        gap: 4px;
         padding: 12px;
         border-radius: 20px;
         border: 1px solid rgba(255, 255, 255, 0.08);
         background: rgba(15, 18, 28, 0.95);
         box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28);
+        z-index: 12;
       }
       .composer-menu[hidden] {
         display: none !important;
@@ -542,7 +559,13 @@
         justify-content: flex-start;
         text-align: left;
         border-radius: 14px;
-        padding: 11px 12px;
+        min-height: 42px;
+        padding: 0 12px;
+        width: 100%;
+        border: 1px solid transparent;
+        background: transparent;
+        font-size: 13px;
+        transform: none;
       }
       .composer-menu button svg {
         width: 18px;
@@ -552,6 +575,10 @@
         stroke-width: 1.8;
         stroke-linecap: round;
         stroke-linejoin: round;
+      }
+      .composer-menu button:hover {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 255, 255, 0.08);
       }
       .composer-dock.has-text .composer-stt-proxy {
         display: none;
@@ -1154,16 +1181,19 @@
         .header-actions {
           gap: 6px;
         }
-        .header-action-button,
-        #deleteWorkButton {
+        .header-action-button {
           min-width: 42px;
           min-height: 42px;
           padding: 0;
           gap: 0;
         }
-        .header-action-button .header-action-text,
-        #deleteWorkButton .header-action-text {
+        .header-action-button .header-action-text {
           display: none;
+        }
+        .composer-menu {
+          left: 0;
+          right: auto;
+          min-width: min(240px, calc(100vw - 48px));
         }
         .composer-row {
           grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -1310,14 +1340,9 @@
           <p id="chatSubtitle">Work-scoped chat with Chanakya.</p>
           <div class="header-actions">
             <button id="utilityToggleButton" type="button" class="header-action-button button-secondary">
-              <span class="header-action-emoji" aria-hidden="true">🧰</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></svg>
               <span class="header-action-text">Controls</span>
             </button>
-            <button id="openHistoriesButton" type="button" class="header-action-button button-secondary">
-              <span class="header-action-emoji" aria-hidden="true">🪟</span>
-              <span class="header-action-text">Agent Histories</span>
-            </button>
-            <button id="deleteWorkButton" type="button" class="button-secondary" aria-label="Delete work" disabled><span class="header-action-emoji" aria-hidden="true">🗑️</span><span class="header-action-text">Delete Work</span></button>
           </div>
         </div>
         <div id="chatLog" class="chat-log"><div class="empty">No work selected.</div></div>
@@ -1338,8 +1363,12 @@
           </form>
           <div id="composerMenu" class="composer-menu" hidden>
             <button type="button" id="composerOpenHistoriesButton">
-              <span class="header-action-emoji" aria-hidden="true">🪟</span>
+              <svg class="header-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5" /><path d="M10 14 19 5" /><path d="M19 14v5h-5" /><path d="M5 10V5h5" /></svg>
               Agent Histories
+            </button>
+            <button type="button" id="composerDeleteWorkButton">
+              <svg class="header-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 12h10l1-12" /><path d="M9 7V4h6v3" /></svg>
+              Delete Work
             </button>
             <button type="button" data-voice-proxy="speak">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 14h3l4 3V7L8 10H5v4Z" /><path d="M16 9a4.5 4.5 0 0 1 0 6" /><path d="M18.5 6.5a8 8 0 0 1 0 11" /></svg>
@@ -1421,9 +1450,8 @@
       const conversationQueueStatus = document.getElementById("conversationQueueStatus");
       const historyList = document.getElementById("historyList");
       const INITIAL_WORK_ID = {{ initial_work_id|tojson }};
-      const deleteWorkButton = document.getElementById("deleteWorkButton");
-      const openHistoriesButton = document.getElementById("openHistoriesButton");
       const composerOpenHistoriesButton = document.getElementById("composerOpenHistoriesButton");
+      const composerDeleteWorkButton = document.getElementById("composerDeleteWorkButton");
       const utilityToggleButton = document.getElementById("utilityToggleButton");
       const utilityCloseButton = document.getElementById("utilityCloseButton");
       const utilityScrim = document.getElementById("utilityScrim");
@@ -2706,10 +2734,16 @@
         }
       }
 
+      function syncDeleteWorkActionState() {
+        if (composerDeleteWorkButton) {
+          composerDeleteWorkButton.disabled = !activeWorkId;
+        }
+      }
+
       function renderWorks() {
         if (!works.length) {
           workList.innerHTML = '<div class="empty">No works yet.</div>';
-          deleteWorkButton.disabled = true;
+          syncDeleteWorkActionState();
           return;
         }
         const nodes = works.map((work) => {
@@ -2720,7 +2754,7 @@
           return card;
         });
         workList.replaceChildren(...nodes);
-        deleteWorkButton.disabled = !activeWorkId;
+        syncDeleteWorkActionState();
       }
 
       function resetWorkView() {
@@ -2741,7 +2775,7 @@
         if (sttProxy) {
           sttProxy.disabled = true;
         }
-        deleteWorkButton.disabled = true;
+        syncDeleteWorkActionState();
         syncHistoryWindowContent();
         syncComposerInputState();
       }
@@ -2771,7 +2805,9 @@
         historyFetchNonce += 1;
         stopSlideshow();
         stopLiveRefresh();
-        deleteWorkButton.disabled = true;
+        if (composerDeleteWorkButton) {
+          composerDeleteWorkButton.disabled = true;
+        }
         try {
           const response = await fetch(`/api/works/${encodeURIComponent(deletingWorkId)}`, {
             method: "DELETE",
@@ -2782,7 +2818,7 @@
           clearActiveWorkSelection();
           setStatus(`Deleted ${label}`);
         } catch (error) {
-          deleteWorkButton.disabled = false;
+          syncDeleteWorkActionState();
           setStatus(error instanceof Error ? error.message : String(error), true);
         }
       }
@@ -3420,7 +3456,7 @@
         if (sttProxy) {
           sttProxy.disabled = false;
         }
-        deleteWorkButton.disabled = false;
+        syncDeleteWorkActionState();
         await loadWorkHistory(workId);
         slideshowState.followLatest = true;
         startLiveRefresh(2400);
@@ -3502,19 +3538,16 @@
         await sendWorkMessage(messageInput.value);
       });
 
-      deleteWorkButton.addEventListener("click", () => {
-        deleteActiveWork();
-      });
-
-      if (openHistoriesButton) {
-        openHistoriesButton.addEventListener("click", () => {
-          openAgentHistoriesWindow();
-        });
-      }
-
       if (composerOpenHistoriesButton) {
         composerOpenHistoriesButton.addEventListener("click", () => {
           openAgentHistoriesWindow();
+          setComposerMenuOpen(false);
+        });
+      }
+
+      if (composerDeleteWorkButton) {
+        composerDeleteWorkButton.addEventListener("click", () => {
+          deleteActiveWork();
           setComposerMenuOpen(false);
         });
       }
