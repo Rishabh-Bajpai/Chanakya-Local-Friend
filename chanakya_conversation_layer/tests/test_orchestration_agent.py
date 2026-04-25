@@ -65,3 +65,21 @@ def test_orchestration_agent_can_plan_over_a2a_with_opencode_options() -> None:
         "[[opencode-options:agent=planner;model_provider=lmstudio;model_id=qwen-override]]"
         in str(planner._a2a_agent.calls[0]["text"])
     )
+
+
+def test_orchestration_agent_disables_openai_transport_retries() -> None:
+    planner = MAFOrchestrationAgent(
+        model="qwen-default",
+        base_url="http://127.0.0.1:1234/v1",
+        api_key="test-key",
+        env_file_path=".env",
+    )
+
+    assert planner._agent is not None
+    assert planner._agent.client.client is not None
+    assert planner._agent.client.client.max_retries == 0
+
+    override_agent = planner._agent_for_model("qwen-override")
+
+    assert override_agent.client.client is not None
+    assert override_agent.client.client.max_retries == 0
