@@ -83,6 +83,16 @@
         height: calc(100vh - 48px);
         position: sticky;
         top: 24px;
+        overflow: hidden;
+      }
+      .chat-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .chat-title-row h2 {
+        min-width: 0;
       }
       .header {
         position: relative;
@@ -106,6 +116,15 @@
         background:
           radial-gradient(circle at top right, rgba(79, 215, 255, 0.1), transparent 28%),
           linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+      }
+      .chat-header-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .chat-header-title {
+        min-width: 0;
       }
       .workspace-kicker {
         margin: 0 0 8px;
@@ -138,7 +157,8 @@
         gap: 8px;
       }
       .chat .header-actions {
-        margin-top: 10px;
+        margin-top: 0;
+        flex: 0 0 auto;
       }
       .header-action-button {
         display: inline-flex;
@@ -356,16 +376,20 @@
         display: flex;
         flex-direction: column;
         gap: 14px;
+        min-height: 0;
         background:
           radial-gradient(circle at top right, rgba(79, 215, 255, 0.06), transparent 24%),
           linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
       }
       .msg {
         max-width: 90%;
+        min-width: 0;
         border-radius: 20px;
         padding: 14px 15px;
         line-height: 1.5;
         box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .msg.user {
         align-self: flex-end;
@@ -379,13 +403,19 @@
       }
       .msg-body {
         min-width: 0;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .rendered-markdown {
         display: grid;
         gap: 10px;
+        min-width: 0;
+        max-width: 100%;
       }
       .rendered-markdown > * {
         margin: 0;
+        max-width: 100%;
       }
       .rendered-markdown p,
       .rendered-markdown li {
@@ -432,6 +462,8 @@
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 8px;
         padding: 0.1em 0.4em;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .rendered-code-block {
         border: 1px solid rgba(255, 255, 255, 0.1);
@@ -486,6 +518,9 @@
       .composer-dock {
         position: relative;
         z-index: 1;
+        margin-top: auto;
+        position: sticky;
+        bottom: 0;
         border-top: 1px solid rgba(255, 255, 255, 0.06);
         padding: 14px 16px 16px;
         display: grid;
@@ -582,6 +617,15 @@
       }
       .composer-dock.has-text .composer-stt-proxy {
         display: none;
+      }
+      .composer-stt-proxy[data-state="recording"] {
+        background: linear-gradient(180deg, rgba(255, 133, 104, 0.96), rgba(174, 54, 35, 0.92));
+        border-color: rgba(255, 168, 146, 0.5);
+        color: #fff3ee;
+        box-shadow: 0 0 0 4px rgba(255, 133, 104, 0.14);
+      }
+      .composer-stt-proxy[data-state="recording"] svg {
+        transform: scale(1.04);
       }
       .composer-dock:not(.has-text) .composer-submit {
         opacity: 0.45;
@@ -1072,8 +1116,7 @@
           grid-template-columns: 300px minmax(0, 1fr);
           padding: 18px;
         }
-        .left,
-        .chat {
+        .left {
           min-height: auto;
           max-height: none;
           height: auto;
@@ -1085,6 +1128,12 @@
         }
         .shell {
           grid-template-columns: 1fr;
+        }
+        .chat {
+          position: relative;
+          top: auto;
+          height: calc(100vh - 24px);
+          max-height: calc(100vh - 24px);
         }
         .left {
           position: fixed;
@@ -1147,6 +1196,9 @@
           padding-left: 16px;
           padding-right: 16px;
         }
+        .chat-header-top {
+          align-items: flex-start;
+        }
         .left .header {
           padding-top: 16px;
           padding-bottom: 12px;
@@ -1181,6 +1233,14 @@
         .header-actions {
           gap: 6px;
         }
+        .chat .header {
+          padding-top: 16px;
+          padding-bottom: 12px;
+        }
+        .chat .header h2 {
+          font-size: 16px;
+          line-height: 1.2;
+        }
         .header-action-button {
           min-width: 42px;
           min-height: 42px;
@@ -1194,6 +1254,9 @@
           left: 0;
           right: auto;
           min-width: min(240px, calc(100vw - 48px));
+        }
+        .msg {
+          max-width: 100%;
         }
         .composer-row {
           grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -1336,9 +1399,8 @@
 
       <section class="panel chat">
         <div class="header">
-          <h2 id="chatTitle">Select a work</h2>
-          <p id="chatSubtitle">Work-scoped chat with Chanakya.</p>
-          <div class="header-actions">
+          <div class="chat-title-row">
+            <h2 id="chatTitle">Select a work</h2>
             <button id="utilityToggleButton" type="button" class="header-action-button button-secondary">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></svg>
               <span class="header-action-text">Controls</span>
@@ -1422,7 +1484,6 @@
       const workStatus = document.getElementById("workStatus");
       const workList = document.getElementById("workList");
       const chatTitle = document.getElementById("chatTitle");
-      const chatSubtitle = document.getElementById("chatSubtitle");
       const chatLog = document.getElementById("chatLog");
       const composerDock = document.getElementById("composerDock");
       const chatForm = document.getElementById("chatForm");
@@ -1530,6 +1591,19 @@
         if (hasText) {
           setComposerMenuOpen(false);
         }
+      }
+
+      function syncMicProxyState() {
+        const sttProxy = composerDock?.querySelector(".composer-stt-proxy");
+        if (!sttProxy) {
+          return;
+        }
+        const isRecording = airMicButton?.dataset.state === "recording";
+        sttProxy.dataset.state = isRecording ? "recording" : "idle";
+        const label = isRecording ? "Stop recording" : "Send voice note";
+        sttProxy.setAttribute("aria-label", label);
+        sttProxy.setAttribute("title", label);
+        sttProxy.disabled = !activeWorkId || Boolean(airMicButton?.disabled);
       }
 
       function setUtilityPanelOpen(isOpen) {
@@ -2712,6 +2786,13 @@
           },
           pauseAssistantReplies: pauseConversationReplies,
         });
+        syncMicProxyState();
+        new MutationObserver(() => {
+          syncMicProxyState();
+        }).observe(airMicButton, {
+          attributes: true,
+          attributeFilter: ["data-state", "disabled", "title", "aria-label"],
+        });
       }
       if (airRefreshModelsButton) {
         airRefreshModelsButton.addEventListener("click", async () => {
@@ -2759,7 +2840,6 @@
 
       function resetWorkView() {
         chatTitle.textContent = "Select a work";
-        chatSubtitle.textContent = "Work-scoped chat with Chanakya.";
         chatLog.innerHTML = '<div class="empty">No work selected.</div>';
         historyList.innerHTML = '<div class="empty">No histories yet.</div>';
         cachedAgentHistories = [];
@@ -2778,6 +2858,7 @@
         syncDeleteWorkActionState();
         syncHistoryWindowContent();
         syncComposerInputState();
+        syncMicProxyState();
       }
 
       function stopSlideshow() {
@@ -3409,7 +3490,6 @@
         }
         if (!background) {
           chatTitle.textContent = data.work.title;
-          chatSubtitle.textContent = data.work.description || "Work-scoped chat with Chanakya.";
           renderChatFromHistory(data.agent_histories || []);
         }
         cachedAgentHistories = data.agent_histories || [];
@@ -3461,6 +3541,7 @@
         slideshowState.followLatest = true;
         startLiveRefresh(2400);
         syncComposerInputState();
+        syncMicProxyState();
       }
 
       workForm.addEventListener("submit", async (event) => {
