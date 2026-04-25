@@ -85,13 +85,31 @@
       display: flex;
       align-items: center;
       gap: 12px;
+      min-width: 0;
     }
 
     .top-bar .brand {
-      font-size: 17px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
       color: var(--text);
+      font-family: 'Cormorant Garamond', Georgia, serif;
+    }
+
+    .top-bar .brand-primary {
+      font-size: 1.65rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1;
+    }
+
+    .top-bar .brand-secondary {
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: #d4cdc6;
+      white-space: nowrap;
     }
 
     .top-bar-right {
@@ -1543,6 +1561,17 @@
       transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
     }
 
+    .mode-button svg,
+    .back-button svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     .mode-button:hover,
     .back-button:hover {
       background: rgba(255, 255, 255, 0.08);
@@ -1554,17 +1583,25 @@
       display: none;
     }
 
-    #modeSettingsButton,
     #modeCharacterButton {
       display: none !important;
     }
 
     .top-bar .brand {
-      font-size: 1.1rem;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
       color: #d8f3ff;
       text-shadow: 0 0 18px rgba(79, 215, 255, 0.28);
+    }
+
+    .top-bar .brand-primary {
+      font-size: 2rem;
+      letter-spacing: 0.05em;
+    }
+
+    .top-bar .brand-secondary {
+      font-size: 0.9rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(216, 243, 255, 0.8);
     }
 
     .top-bar-right {
@@ -2550,9 +2587,21 @@
         display: none;
       }
 
-      #modeSettingsButton,
       #modeCharacterButton {
         display: none !important;
+      }
+
+      .top-bar .brand {
+        gap: 6px;
+      }
+
+      .top-bar .brand-primary {
+        font-size: 1.45rem;
+      }
+
+      .top-bar .brand-secondary {
+        font-size: 0.72rem;
+        letter-spacing: 0.08em;
       }
 
       .hero-title {
@@ -2657,8 +2706,13 @@
       <div class="assistant-shell">
         <header class="top-bar">
           <div class="top-bar-left">
-            <button id="modeSettingsButton" type="button" class="mode-button" title="Open configuration">⚙</button>
+            <button id="modeSettingsButton" type="button" class="mode-button" title="Open settings" aria-label="Open settings">☰
+            </button>
             <button id="modeBackButton" type="button" class="back-button" title="Back to chat" hidden>←</button>
+            <div class="brand" aria-label="Chanakya, your PA">
+              <span class="brand-primary">Chanakya</span>
+              <span class="brand-secondary">your PA</span>
+            </div>
             {% if force_subagents_enabled %}
             <span class="debug-badge">Force Subagents: ON</span>
             {% endif %}
@@ -2812,10 +2866,6 @@
                 </div>
               </form>
               <div id="composerMenu" class="composer-menu" hidden>
-                <button id="composerSettingsButton" type="button">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5Z" /><path d="m19.4 15 1.1 1.9-2 3.1-2.1-.5a7.9 7.9 0 0 1-1.7 1l-.4 2.1H9.7l-.4-2.1a7.9 7.9 0 0 1-1.7-1l-2.1.5-2-3.1 1.1-1.9a8.3 8.3 0 0 1 0-2L3.5 11l2-3.1 2.1.5a7.9 7.9 0 0 1 1.7-1l.4-2.1h4.6l.4 2.1a7.9 7.9 0 0 1 1.7 1l2.1-.5 2 3.1-1.1 1.9a8.3 8.3 0 0 1 0 2Z" /></svg>
-                  Settings
-                </button>
                 <button id="composerCharacterButton" type="button">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M5 20a7 7 0 0 1 14 0" /></svg>
                   Character
@@ -2868,7 +2918,7 @@
             <div class="config-shell-header">
               <div>
                 <h2 class="config-shell-title">Configuration</h2>
-                <p class="config-shell-copy">Settings, voice, agents, and notifications in one scrollable control deck.</p>
+                <p class="config-shell-copy">Settings, voice, workers, and notifications in one scrollable control deck.</p>
               </div>
             </div>
             <div id="configShellBody" class="config-shell-body"></div>
@@ -2912,7 +2962,7 @@
               {% if a2a_gui_enabled %}
               <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
               <label>
-                A2A Agent Override
+                A2A Worker Override
                 <select id="a2aAgentInput"></select>
               </label>
               <label>
@@ -2985,23 +3035,16 @@
                 <span id="voiceCharacterCurrent" class="character-select-value">Current: Eyes-Driven</span>
               </label>
             </div>
-            <div class="air-controls utility-voice-links">
-              <button type="button" class="air-button" data-voice-proxy="mic" title="Manual microphone recording">Mic</button>
-              <button type="button" class="air-button" data-voice-proxy="loop" title="Start or stop voice mode">Start Voice</button>
-              <button type="button" class="air-button" data-voice-proxy="speak" title="Speak the latest assistant reply">Speak Reply</button>
-              <button type="button" class="air-button" data-voice-proxy="pause" title="Pause queued assistant replies">Pause Replies</button>
-              <button type="button" class="air-button" data-voice-proxy="refresh" title="Refresh AIR model list">Refresh Models</button>
-            </div>
           </div>
         </div>
       </div>
 
-      <!-- Agents Panel -->
+      <!-- Workers Panel -->
       <div class="sidebar-panel collapsed" data-sidebar-panel="agents">
         <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
           <div class="sidebar-panel-title">
             <span class="panel-icon">🤖</span>
-            Agents
+            Workers
           </div>
           <svg class="sidebar-panel-chevron" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/></svg>
         </div>
@@ -3014,7 +3057,7 @@
               </label>
               <label>
                 Role
-                <input id="agentRole" type="text" required placeholder="developer, tester, researcher..." />
+                <input id="agentRole" type="text" required placeholder="builder, tester, researcher..." />
               </label>
             </div>
             <label>
@@ -3050,8 +3093,8 @@
               <label><input id="agentHeartbeatEnabled" type="checkbox" /> Heartbeat Enabled</label>
             </div>
             <div class="form-actions">
-              <button id="agentSaveButton" type="submit">Create Agent</button>
-              <button id="agentResetButton" type="button" class="button-secondary">New Agent</button>
+              <button id="agentSaveButton" type="submit">Create Worker</button>
+              <button id="agentResetButton" type="button" class="button-secondary">New Worker</button>
               <span id="agentFormStatus" class="status-text"></span>
             </div>
           </form>
@@ -3933,7 +3976,7 @@
     function applyA2ADiscoveryOptions(sourceConfig = null) {
       const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
       const providers = a2aDiscoveredOptions.providers || [];
-      setSelectOptions(a2aAgentInput, a2aDiscoveredOptions.remote_agents || [], settings.a2a_remote_agent, "Select A2A agent");
+      setSelectOptions(a2aAgentInput, a2aDiscoveredOptions.remote_agents || [], settings.a2a_remote_agent, "Select A2A worker");
       setSelectOptions(a2aModelProviderInput, providers, settings.a2a_model_provider, "Select model provider");
       syncA2AModelOptions(settings);
       updateRuntimeConfigDirtyState();
@@ -3954,7 +3997,7 @@
         return;
       }
       setA2ASelectLoading(true);
-      setA2ADiscoveryStatus("Loading A2A agents and models...");
+      setA2ADiscoveryStatus("Loading A2A workers and models...");
       try {
         const response = await fetch(`/api/a2a/options?url=${encodeURIComponent(url)}`);
         const payload = await readJsonResponse(response);
@@ -3970,7 +4013,7 @@
         a2aDiscoveryError = "";
         applyA2ADiscoveryOptions(settings);
         setA2ADiscoveryStatus(
-          `Loaded ${a2aDiscoveredOptions.remote_agents.length} agent${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
+          `Loaded ${a2aDiscoveredOptions.remote_agents.length} worker${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
         );
       } catch (error) {
         a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
@@ -5539,14 +5582,10 @@
       }
       setChatExpanded(true);
       messages.forEach((item) => {
-        const meta = [];
-        if (item.route) meta.push(`route=${item.route}`);
-        if (item.request_id) meta.push(`request=${item.request_id}`);
-        if (item.metadata && item.metadata.runtime) meta.push(`runtime=${item.metadata.runtime}`);
         appendMessage(
           item.role === "user" ? "user" : "assistant",
           item.content,
-          meta.join(" "),
+          null,
           {
             badge: messageBadgeForHistoryItem(item),
             artifacts: Array.isArray(item.metadata?.artifacts) ? item.metadata.artifacts : [],
