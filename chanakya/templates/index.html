@@ -1625,6 +1625,18 @@
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
     }
 
+    .stage-toggle svg,
+    .utility-toggle svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: 0 0 auto;
+    }
+
     .stage-toggle:hover,
     .utility-toggle:hover,
     .debug-logs-button:hover {
@@ -2718,6 +2730,10 @@
             {% endif %}
           </div>
           <div class="top-bar-right">
+            <button id="workspacesButton" type="button" class="stage-toggle" title="Open workspaces" aria-label="Open workspaces">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18" /><path d="M6 7V5h12v2" /><path d="M5 7v11h14V7" /><path d="M9 11h6" /></svg>
+              <span>Work</span>
+            </button>
             <button id="modeCharacterButton" type="button" class="stage-toggle" title="Choose character">
               <span>Character</span>
             </button>
@@ -3342,6 +3358,7 @@
     const configShell = document.getElementById("configShell");
     const configShellBody = document.getElementById("configShellBody");
     const utilityToggleButton = document.getElementById("utilityToggleButton");
+    const workspacesButton = document.getElementById("workspacesButton");
     const utilityCloseButton = document.getElementById("utilityCloseButton");
     const utilityScrim = document.getElementById("utilityScrim");
     const composerDock = document.getElementById("composerDock");
@@ -6352,6 +6369,12 @@
     if (utilityToggleButton) {
       utilityToggleButton.addEventListener("click", () => {
         setUtilityPanelOpen(true);
+      });
+    }
+
+    if (workspacesButton) {
+      workspacesButton.addEventListener("click", () => {
+        window.location.href = "/work";
       });
     }
 

@@ -91,6 +91,13 @@
         justify-content: space-between;
         gap: 12px;
       }
+      .chat-title-left,
+      .chat-title-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
       .chat-title-row h2 {
         min-width: 0;
       }
@@ -1428,11 +1435,19 @@
       <section class="panel chat">
         <div class="header">
           <div class="chat-title-row">
-            <h2 id="chatTitle">Select a work</h2>
-            <button id="utilityToggleButton" type="button" class="header-action-button button-secondary">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></svg>
-              <span class="header-action-text">Controls</span>
-            </button>
+            <div class="chat-title-left">
+              <button id="utilityToggleButton" type="button" class="header-action-button button-secondary" aria-label="Open controls">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></svg>
+                <span class="header-action-text">Controls</span>
+              </button>
+              <h2 id="chatTitle">Select a work</h2>
+            </div>
+            <div class="chat-title-actions">
+              <button id="classicChatButton" type="button" class="header-action-button button-secondary" aria-label="Open classic chat">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 13.5z" /></svg>
+                <span class="header-action-text">Chat</span>
+              </button>
+            </div>
           </div>
         </div>
         <div id="chatLog" class="chat-log"><div class="empty">No work selected.</div></div>
@@ -1544,6 +1559,7 @@
       const composerDeleteWorkButton = document.getElementById("composerDeleteWorkButton");
       const workWaitingIndicator = document.getElementById("workWaitingIndicator");
       const utilityToggleButton = document.getElementById("utilityToggleButton");
+      const classicChatButton = document.getElementById("classicChatButton");
       const utilityCloseButton = document.getElementById("utilityCloseButton");
       const utilityScrim = document.getElementById("utilityScrim");
 
@@ -3869,6 +3885,12 @@
       if (utilityToggleButton) {
         utilityToggleButton.addEventListener("click", () => {
           setUtilityPanelOpen(true);
+        });
+      }
+
+      if (classicChatButton) {
+        classicChatButton.addEventListener("click", () => {
+          window.location.href = "/";
         });
       }
 
