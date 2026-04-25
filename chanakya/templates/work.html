@@ -150,6 +150,10 @@
         color: var(--text);
         font-weight: 600;
       }
+      .header-action-emoji {
+        font-size: 16px;
+        line-height: 1;
+      }
       .header-action-button svg {
         width: 16px;
         height: 16px;
@@ -309,8 +313,8 @@
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-left: 4px solid var(--ink);
         border-radius: 18px;
-        padding: 14px 14px 13px;
-        margin-bottom: 10px;
+        padding: 12px 12px 11px;
+        margin-bottom: 8px;
         cursor: pointer;
         background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
         transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
@@ -325,12 +329,12 @@
         box-shadow: 0 0 0 1px rgba(79, 215, 255, 0.18), 0 14px 30px rgba(0, 0, 0, 0.2);
       }
       .work-item h3 {
-        margin: 0 0 6px;
-        font-size: 15px;
+        margin: 0 0 4px;
+        font-size: 14px;
       }
       .work-item p {
         margin: 0;
-        font-size: 12px;
+        font-size: 11px;
         color: var(--muted);
       }
       .chat-log {
@@ -574,23 +578,6 @@
       .composer-submit:hover:not(:disabled) {
         background: linear-gradient(45deg, #1ec8f9, #3f59ea 62%, #7758ee);
       }
-      .dock-status {
-        display: grid;
-        gap: 8px;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-      .air-status-card {
-        padding: 10px 12px;
-        border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.03);
-      }
-      .air-status-title {
-        font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: #d8f3ff;
-      }
       .control-deck {
         margin-top: 0;
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -605,6 +592,9 @@
         list-style: none;
         cursor: pointer;
         padding: 16px 18px;
+      }
+      .control-deck:not([open]) summary {
+        padding: 13px 16px;
       }
       .control-deck summary::-webkit-details-marker {
         display: none;
@@ -650,6 +640,17 @@
       }
       .control-deck:not([open]) .control-deck-toggle::before {
         content: "+";
+      }
+      .control-deck:not([open]) .control-deck-kicker {
+        margin-bottom: 2px;
+        font-size: 10px;
+      }
+      .control-deck:not([open]) h3 {
+        font-size: 16px;
+      }
+      .control-deck:not([open]) p {
+        margin-top: 4px;
+        font-size: 11px;
       }
       .control-deck-body {
         padding: 0 18px 18px;
@@ -1119,6 +1120,22 @@
           padding-left: 16px;
           padding-right: 16px;
         }
+        .left .header {
+          padding-top: 16px;
+          padding-bottom: 12px;
+        }
+        .left .header p:not(.workspace-kicker),
+        .left .header .link-row {
+          display: none;
+        }
+        .workspace-kicker {
+          margin-bottom: 4px;
+          font-size: 10px;
+          letter-spacing: 0.14em;
+        }
+        .header h1 {
+          font-size: 26px;
+        }
         .body,
         .left .body,
         .chat-log,
@@ -1126,17 +1143,34 @@
           padding-left: 14px;
           padding-right: 14px;
         }
+        .left .body {
+          gap: 12px;
+        }
         .air-links,
         .runtime-models,
         .air-controls {
           grid-template-columns: 1fr;
         }
+        .header-actions {
+          gap: 6px;
+        }
+        .header-action-button,
+        #deleteWorkButton {
+          min-width: 42px;
+          min-height: 42px;
+          padding: 0;
+          gap: 0;
+        }
+        .header-action-button .header-action-text,
+        #deleteWorkButton .header-action-text {
+          display: none;
+        }
         .composer-row {
           grid-template-columns: auto minmax(0, 1fr) auto auto;
           gap: 8px;
         }
-        .dock-status {
-          grid-template-columns: 1fr;
+        .control-deck:not([open]) summary {
+          padding: 12px 14px;
         }
       }
     </style>
@@ -1157,19 +1191,29 @@
         </div>
         <div class="body">
           <section class="sidebar-block">
-            <div class="sidebar-block-header">
-              <h3>New Work</h3>
-              <p>Start a dedicated work context for a report, implementation track, or multi-agent task.</p>
-            </div>
-            <form id="workForm" class="work-form">
-              <input id="workTitle" type="text" placeholder="Work title" required />
-              <textarea id="workDescription" placeholder="Describe the objective (optional)"></textarea>
-              <button id="createWorkButton" type="submit">Create Work</button>
-              <div id="workStatus" class="status"></div>
-            </form>
+            <details class="control-deck">
+              <summary>
+                <div class="control-deck-titlebar">
+                  <div>
+                    <p class="control-deck-kicker">Workspace</p>
+                    <h3>New Work</h3>
+                    <p>Start a dedicated work context for a report, implementation track, or multi-agent task.</p>
+                  </div>
+                  <span class="control-deck-toggle" aria-hidden="true"></span>
+                </div>
+              </summary>
+              <div class="control-deck-body">
+                <form id="workForm" class="work-form">
+                  <input id="workTitle" type="text" placeholder="Work title" required />
+                  <textarea id="workDescription" placeholder="Describe the objective (optional)"></textarea>
+                  <button id="createWorkButton" type="submit">Create Work</button>
+                  <div id="workStatus" class="status"></div>
+                </form>
+              </div>
+            </details>
           </section>
           <section class="sidebar-block">
-            <details class="control-deck" open>
+            <details class="control-deck">
               <summary>
                 <div class="control-deck-titlebar">
                   <div>
@@ -1243,10 +1287,10 @@
                         <select id="airTtsModel"></select>
                       </label>
                     </div>
-                    <p id="airVoiceStatus" class="air-status"></p>
+                    <p id="airVoiceStatus" class="air-status history-mirror"></p>
                   </section>
                 </div>
-                <div id="conversationQueueStatus" class="air-status"></div>
+                <div id="conversationQueueStatus" class="air-status history-mirror"></div>
               </div>
             </details>
           </section>
@@ -1266,14 +1310,14 @@
           <p id="chatSubtitle">Work-scoped chat with Chanakya.</p>
           <div class="header-actions">
             <button id="utilityToggleButton" type="button" class="header-action-button button-secondary">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></svg>
-              Controls
+              <span class="header-action-emoji" aria-hidden="true">🧰</span>
+              <span class="header-action-text">Controls</span>
             </button>
             <button id="openHistoriesButton" type="button" class="header-action-button button-secondary">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5" /><path d="M10 14 19 5" /><path d="M19 14v5h-5" /><path d="M5 10V5h5" /></svg>
-              Agent Histories
+              <span class="header-action-emoji" aria-hidden="true">🪟</span>
+              <span class="header-action-text">Agent Histories</span>
             </button>
-            <button id="deleteWorkButton" type="button" class="button-secondary" disabled>Delete Work</button>
+            <button id="deleteWorkButton" type="button" class="button-secondary" aria-label="Delete work" disabled><span class="header-action-emoji" aria-hidden="true">🗑️</span><span class="header-action-text">Delete Work</span></button>
           </div>
         </div>
         <div id="chatLog" class="chat-log"><div class="empty">No work selected.</div></div>
@@ -1293,6 +1337,10 @@
             </div>
           </form>
           <div id="composerMenu" class="composer-menu" hidden>
+            <button type="button" id="composerOpenHistoriesButton">
+              <span class="header-action-emoji" aria-hidden="true">🪟</span>
+              Agent Histories
+            </button>
             <button type="button" data-voice-proxy="speak">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 14h3l4 3V7L8 10H5v4Z" /><path d="M16 9a4.5 4.5 0 0 1 0 6" /><path d="M18.5 6.5a8 8 0 0 1 0 11" /></svg>
               Speak latest reply
@@ -1302,16 +1350,8 @@
               Refresh models
             </button>
           </div>
-          <div class="dock-status">
-            <div class="air-status-card">
-              <div class="air-status-title">Queue</div>
-              <div id="composerQueueStatus" class="air-status"></div>
-            </div>
-            <div class="air-status-card">
-              <div class="air-status-title">Speech</div>
-              <div id="composerVoiceStatus" class="air-status"></div>
-            </div>
-          </div>
+          <div id="composerQueueStatus" class="air-status history-mirror"></div>
+          <div id="composerVoiceStatus" class="air-status history-mirror"></div>
           <div class="history-mirror">
             <div id="historyList" class="body"><div class="empty">No histories yet.</div></div>
           </div>
@@ -1383,6 +1423,7 @@
       const INITIAL_WORK_ID = {{ initial_work_id|tojson }};
       const deleteWorkButton = document.getElementById("deleteWorkButton");
       const openHistoriesButton = document.getElementById("openHistoriesButton");
+      const composerOpenHistoriesButton = document.getElementById("composerOpenHistoriesButton");
       const utilityToggleButton = document.getElementById("utilityToggleButton");
       const utilityCloseButton = document.getElementById("utilityCloseButton");
       const utilityScrim = document.getElementById("utilityScrim");
@@ -3468,6 +3509,13 @@
       if (openHistoriesButton) {
         openHistoriesButton.addEventListener("click", () => {
           openAgentHistoriesWindow();
+        });
+      }
+
+      if (composerOpenHistoriesButton) {
+        composerOpenHistoriesButton.addEventListener("click", () => {
+          openAgentHistoriesWindow();
+          setComposerMenuOpen(false);
         });
       }
 
