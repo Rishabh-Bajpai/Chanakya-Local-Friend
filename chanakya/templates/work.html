@@ -528,6 +528,29 @@
         background: rgba(8, 10, 18, 0.84);
         backdrop-filter: blur(14px);
       }
+      .work-waiting-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 18px;
+        color: #a9bbce;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .work-waiting-indicator::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: #6fc7ff;
+        box-shadow: 0 0 10px rgba(111, 199, 255, 0.45);
+        animation: work-waiting-pulse 1.4s ease-in-out infinite;
+        flex: 0 0 auto;
+      }
+      @keyframes work-waiting-pulse {
+        0%, 100% { transform: scale(0.85); opacity: 0.65; }
+        50% { transform: scale(1.15); opacity: 1; }
+      }
       .composer {
         position: relative;
         display: grid;
@@ -1409,6 +1432,7 @@
         </div>
         <div id="chatLog" class="chat-log"><div class="empty">No work selected.</div></div>
         <div id="composerDock" class="composer-dock">
+          <div id="workWaitingIndicator" class="work-waiting-indicator" hidden></div>
           <form id="chatForm" class="composer">
             <div class="composer-row">
               <button id="composerMoreButton" class="composer-aux-button" type="button" title="More controls" aria-label="More controls" aria-expanded="false" aria-controls="composerMenu">
@@ -1513,6 +1537,7 @@
       const INITIAL_WORK_ID = {{ initial_work_id|tojson }};
       const composerOpenHistoriesButton = document.getElementById("composerOpenHistoriesButton");
       const composerDeleteWorkButton = document.getElementById("composerDeleteWorkButton");
+      const workWaitingIndicator = document.getElementById("workWaitingIndicator");
       const utilityToggleButton = document.getElementById("utilityToggleButton");
       const utilityCloseButton = document.getElementById("utilityCloseButton");
       const utilityScrim = document.getElementById("utilityScrim");
@@ -1533,6 +1558,11 @@
       let historiesWindow = null;
       let historyInFlight = false;
       let historyFetchNonce = 0;
+      let pendingReplyWatcher = null;
+      let pendingReplyWorkId = null;
+      let pendingReplyBaselineAssistantCount = 0;
+      let workWaitingMessageIndex = -1;
+      let workWaitingMessageTimer = null;
       let taskUiInteractingUntil = 0;
       let cachedAgentHistories = [];
       let cachedTaskFlow = [];
@@ -1549,6 +1579,38 @@
         autoplay: false,
         open: true,
       };
+      const WORK_WAITING_MESSAGES = [
+        "Working on it.",
+        "Giving this one a proper minute.",
+        "A little patience, a little progress.",
+        "The workspace is on it.",
+        "Taking the thoughtful route here.",
+        "This one deserves a careful pass.",
+        "Good things are worth a beat.",
+        "The workspace is still with you on this one.",
+        "A tiny pause, not a dead end.",
+        "Letting this one come together properly.",
+        "No rush, this one is getting some attention.",
+        "The request is still getting the deluxe treatment.",
+        "Holding steady while this one comes together.",
+        "A quick breather while this one sorts itself out.",
+        "Giving the answer a little room to breathe.",
+        "This one is taking the scenic route.",
+        "Still on the case.",
+        "A little more patience and we should be there.",
+        "The workspace has not wandered off.",
+        "Taking a moment to do this without chaos.",
+        "This one has a bit more going on.",
+        "Progress, just not the dramatic kind.",
+        "A small wait now for a cleaner result later.",
+        "This one is moving at thoughtful speed.",
+        "Still here, still working.",
+        "The request is getting some careful attention.",
+        "You have my patience. The workspace has yours too.",
+        "A polite amount of waiting is happening.",
+        "Nothing exciting to watch, but it is still moving.",
+        "This one is taking the long hallway, not the shortcut."
+      ];
 
       function delay(ms) {
         return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -1604,6 +1666,9 @@
         sttProxy.setAttribute("aria-label", label);
         sttProxy.setAttribute("title", label);
         sttProxy.disabled = !activeWorkId || Boolean(airMicButton?.disabled);
+        sttProxy.innerHTML = isRecording
+          ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h6v6H9z" /></svg>'
+          : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2.5 2.5 0 0 0-2.5 2.5v5a2.5 2.5 0 1 0 5 0v-5A2.5 2.5 0 0 0 12 4Z" /><path d="M7 11.5a5 5 0 0 0 10 0" /><path d="M12 16.5V20" /><path d="M9 20h6" /></svg>';
       }
 
       function setUtilityPanelOpen(isOpen) {
@@ -2217,7 +2282,8 @@
         window.Prism.highlightAllUnder(container);
       }
 
-      function appendChatMessage(role, content) {
+      function appendChatMessage(role, content, options = {}) {
+        const { shouldScroll = true } = options;
         const node = document.createElement("div");
         node.className = `msg ${role}`;
         const body = document.createElement("div");
@@ -2226,7 +2292,9 @@
         node.appendChild(body);
         chatLog.appendChild(node);
         highlightRenderedCode(body);
-        chatLog.scrollTop = chatLog.scrollHeight;
+        if (shouldScroll) {
+          chatLog.scrollTop = chatLog.scrollHeight;
+        }
         return node;
       }
 
@@ -2241,7 +2309,26 @@
         return clone.textContent || "";
       }
 
+      function getRenderedChatMessageCount() {
+        return chatLog ? chatLog.querySelectorAll(".msg").length : 0;
+      }
+
+      function getHistoryChatMessageCount(agentHistories) {
+        return extractChanakyaMessages(agentHistories || []).length;
+      }
+
       function setConversationQueueStatus(text, isError = false) {
+        const normalized = String(text || "").trim().toLowerCase();
+        const shouldShowWaiting = !isError && Boolean(normalized) && (
+          normalized.includes("waiting")
+          || normalized.includes("working")
+          || normalized.includes("running")
+          || normalized.includes("recovering")
+          || normalized.includes("retrying")
+          || normalized.includes("thinking")
+          || normalized.includes("pacing")
+          || normalized.includes("processing")
+        );
         [conversationQueueStatus, composerQueueStatus].forEach((node) => {
           if (!node) {
             return;
@@ -2249,6 +2336,47 @@
           node.textContent = text || "";
           node.dataset.state = isError ? "error" : "idle";
         });
+        setWorkWaitingIndicatorActive(shouldShowWaiting);
+      }
+
+      function rotateWorkWaitingMessage() {
+        if (!workWaitingIndicator) {
+          return;
+        }
+        const available = WORK_WAITING_MESSAGES.length;
+        if (!available) {
+          workWaitingIndicator.textContent = "Working...";
+          return;
+        }
+        let nextIndex = Math.floor(Math.random() * available);
+        if (available > 1 && nextIndex === workWaitingMessageIndex) {
+          nextIndex = (nextIndex + 1) % available;
+        }
+        workWaitingMessageIndex = nextIndex;
+        workWaitingIndicator.textContent = WORK_WAITING_MESSAGES[nextIndex];
+      }
+
+      function setWorkWaitingIndicatorActive(isActive) {
+        if (!workWaitingIndicator) {
+          return;
+        }
+        const nextValue = Boolean(isActive);
+        workWaitingIndicator.hidden = !nextValue;
+        if (!nextValue) {
+          if (workWaitingMessageTimer) {
+            window.clearInterval(workWaitingMessageTimer);
+            workWaitingMessageTimer = null;
+          }
+          workWaitingIndicator.textContent = "";
+          workWaitingMessageIndex = -1;
+          return;
+        }
+        rotateWorkWaitingMessage();
+        if (!workWaitingMessageTimer) {
+          workWaitingMessageTimer = window.setInterval(() => {
+            rotateWorkWaitingMessage();
+          }, 6500);
+        }
       }
 
       function syncSpeechStatus(text, isError = false) {
@@ -2350,10 +2478,7 @@
           }
           await delay(CHAT_RECOVERY_POLL_MS);
         }
-        setConversationQueueStatus(
-          "Connection dropped before the response reached the browser. The request may still complete; refresh if needed.",
-          true
-        );
+        setConversationQueueStatus("Work is still running. Waiting for the assistant response...");
         return null;
       }
 
@@ -2365,6 +2490,63 @@
       function extractChanakyaMessages(agentHistories) {
         const chanakyaHistory = (agentHistories || []).find((item) => item.agent_id === "agent_chanakya");
         return Array.isArray(chanakyaHistory?.messages) ? chanakyaHistory.messages : [];
+      }
+
+      function getCachedAssistantMessageCount() {
+        return extractChanakyaMessages(cachedAgentHistories || [])
+          .filter((message) => String(message?.role || "") === "assistant")
+          .length;
+      }
+
+      function isWorkReplyPendingError(error) {
+        const message = error instanceof Error ? error.message : String(error || "");
+        return isRecoverableNetworkError(error)
+          || /next message failed/i.test(message)
+          || /connection interrupted while waiting for queued replies/i.test(message)
+          || /networkerror when attempting to fetch resource/i.test(message);
+      }
+
+      function clearPendingReplyWatcher() {
+        pendingReplyWorkId = null;
+        pendingReplyBaselineAssistantCount = 0;
+        pendingReplyWatcher = null;
+        setWorkWaitingIndicatorActive(false);
+      }
+
+      async function waitForPendingWorkReply(workId, baselineAssistantCount) {
+        pendingReplyWorkId = workId;
+        pendingReplyBaselineAssistantCount = baselineAssistantCount;
+        setConversationQueueStatus("Work is still running. Waiting for the assistant response...");
+        setWorkWaitingIndicatorActive(true);
+        startLiveRefresh(900);
+        try {
+          while (activeWorkId === workId && pendingReplyWorkId === workId) {
+            await loadWorkHistory(workId, { background: true });
+            const assistantCount = getCachedAssistantMessageCount();
+            if (assistantCount > baselineAssistantCount) {
+              setConversationQueueStatus("");
+              clearPendingReplyWatcher();
+              startLiveRefresh(2400);
+              return true;
+            }
+            await delay(1500);
+          }
+        } finally {
+          if (pendingReplyWorkId === workId) {
+            clearPendingReplyWatcher();
+          }
+        }
+        return false;
+      }
+
+      function ensurePendingReplyWatcher(workId, baselineAssistantCount) {
+        const normalizedBaseline = Math.max(Number(baselineAssistantCount || 0), getCachedAssistantMessageCount());
+        pendingReplyBaselineAssistantCount = normalizedBaseline;
+        if (pendingReplyWatcher && pendingReplyWorkId === workId) {
+          return pendingReplyWatcher;
+        }
+        pendingReplyWatcher = waitForPendingWorkReply(workId, normalizedBaseline);
+        return pendingReplyWatcher;
       }
 
       async function recoverSubmittedWorkChat(workId, baselineMessageCount) {
@@ -2661,6 +2843,8 @@
         if (!activeWorkId) {
           return;
         }
+        const workIdAtSend = activeWorkId;
+        const baselineAssistantCount = getCachedAssistantMessageCount();
         const text = String(message || "").trim();
         if (!text) {
           return;
@@ -2675,10 +2859,17 @@
         startLiveRefresh(900);
         try {
           await submitWorkChatMessage(text, { messageMetadata });
+          clearPendingReplyWatcher();
         } catch (error) {
+          if (isWorkReplyPendingError(error)) {
+            ensurePendingReplyWatcher(workIdAtSend, baselineAssistantCount);
+            return;
+          }
           appendChatMessage("assistant", error instanceof Error ? error.message : String(error));
         } finally {
-          startLiveRefresh(2400);
+          if (!pendingReplyWatcher) {
+            startLiveRefresh(2400);
+          }
           syncComposerInputState();
         }
       }
@@ -2839,6 +3030,7 @@
       }
 
       function resetWorkView() {
+        clearPendingReplyWatcher();
         chatTitle.textContent = "Select a work";
         chatLog.innerHTML = '<div class="empty">No work selected.</div>';
         historyList.innerHTML = '<div class="empty">No histories yet.</div>';
@@ -3357,8 +3549,11 @@
         taskHost.replaceChildren(slideshow);
       }
 
-      function renderChatFromHistory(agentHistories) {
+      function renderChatFromHistory(agentHistories, options = {}) {
+        const { preserveScroll = false } = options;
         const chanakyaHistory = agentHistories.find((item) => item.agent_id === "agent_chanakya");
+        const previousScrollTop = chatLog.scrollTop;
+        const previousScrollHeight = chatLog.scrollHeight;
         chatLog.replaceChildren();
         const messages = chanakyaHistory ? chanakyaHistory.messages || [] : [];
         if (!messages.length) {
@@ -3366,8 +3561,14 @@
           return;
         }
         messages.forEach((message) => {
-          appendChatMessage(message.role === "user" ? "user" : "assistant", message.content || "");
+          appendChatMessage(message.role === "user" ? "user" : "assistant", message.content || "", { shouldScroll: false });
         });
+        if (preserveScroll) {
+          const heightDelta = chatLog.scrollHeight - previousScrollHeight;
+          chatLog.scrollTop = Math.max(0, previousScrollTop + heightDelta);
+        } else {
+          chatLog.scrollTop = chatLog.scrollHeight;
+        }
         if (airVoiceController && typeof airVoiceController.setLatestAssistantText === "function") {
           airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
         }
@@ -3497,6 +3698,12 @@
         cachedTasks = data.tasks || [];
         cachedRequests = data.requests || [];
         if (background) {
+          const latestAssistantCount = getCachedAssistantMessageCount();
+          const nextChatMessageCount = getHistoryChatMessageCount(cachedAgentHistories);
+          const renderedChatMessageCount = getRenderedChatMessageCount();
+          if (nextChatMessageCount !== renderedChatMessageCount || chatLog.querySelector(".empty")) {
+            renderChatFromHistory(cachedAgentHistories, { preserveScroll: true });
+          }
           const activeElement = document.activeElement;
           const taskHost = document.getElementById("taskFlowHost");
           const focusInsideTaskHost = Boolean(
@@ -3507,6 +3714,11 @@
           const interactionHold = Date.now() < taskUiInteractingUntil;
           if (!focusInsideTaskHost && !interactionHold) {
             renderTaskSection(cachedTaskFlow, cachedTasks, cachedAgentHistories, cachedRequests);
+          }
+          if (pendingReplyWorkId === workId && latestAssistantCount > pendingReplyBaselineAssistantCount) {
+            setConversationQueueStatus("");
+            clearPendingReplyWatcher();
+            startLiveRefresh(2400);
           }
         } else {
           renderAgentHistories(
