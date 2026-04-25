@@ -3773,6 +3773,9 @@
       if (/recording|listening|interruption/.test(voiceLower)) {
         return { state: "listening", text: voiceText || "Listening..." };
       }
+      if (assistantTurnPendingCount > 0) {
+        return { state: "thinking", text: queueText || "Thinking..." };
+      }
       if (/stopped/.test(voiceLower)) {
         return { state: "idle", text: voiceText || "Voice mode stopped." };
       }
