@@ -547,6 +547,11 @@
         animation: work-waiting-pulse 1.4s ease-in-out infinite;
         flex: 0 0 auto;
       }
+      .work-waiting-indicator[data-state="started"]::before {
+        background: #61d47a;
+        box-shadow: 0 0 10px rgba(97, 212, 122, 0.45);
+        animation: none;
+      }
       @keyframes work-waiting-pulse {
         0%, 100% { transform: scale(0.85); opacity: 0.65; }
         50% { transform: scale(1.15); opacity: 1; }
@@ -2361,6 +2366,7 @@
           return;
         }
         const nextValue = Boolean(isActive);
+        workWaitingIndicator.dataset.state = nextValue ? "waiting" : "idle";
         workWaitingIndicator.hidden = !nextValue;
         if (!nextValue) {
           if (workWaitingMessageTimer) {
@@ -2377,6 +2383,20 @@
             rotateWorkWaitingMessage();
           }, 6500);
         }
+      }
+
+      function showWorkStartedIndicator() {
+        if (!workWaitingIndicator) {
+          return;
+        }
+        if (workWaitingMessageTimer) {
+          window.clearInterval(workWaitingMessageTimer);
+          workWaitingMessageTimer = null;
+        }
+        workWaitingIndicator.dataset.state = "started";
+        workWaitingIndicator.hidden = false;
+        workWaitingIndicator.textContent = "Work has started.";
+        workWaitingMessageIndex = -1;
       }
 
       function syncSpeechStatus(text, isError = false) {
@@ -2850,6 +2870,7 @@
           return;
         }
         appendChatMessage("user", text);
+        showWorkStartedIndicator();
         if (messageInput) {
           messageInput.value = "";
           resizeComposerTextarea();
