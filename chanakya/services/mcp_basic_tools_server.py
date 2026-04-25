@@ -10,6 +10,7 @@ from urllib import error, parse, request
 
 from mcp.server.fastmcp import FastMCP
 from chanakya.config import get_data_dir
+from chanakya.services.mcp_feedback import build_recovery_payload
 from chanakya.services.sandbox_workspace import resolve_shared_workspace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -51,6 +52,41 @@ def _resolve_filesystem_path(path: str, work_id: str = "temp") -> tuple[Path, Pa
     candidate = (workspace_root / raw).resolve()
     candidate.relative_to(workspace_root)
     return workspace_root, candidate
+
+
+def _filesystem_error_payload(
+    *,
+    error: Exception,
+    path: str,
+    work_id: str,
+) -> dict[str, Any]:
+    hint = "Retry with a valid path inside the shared workspace."
+    workspace_root = ""
+    entries: list[dict[str, Any]] = []
+    try:
+        root = _resolve_filesystem_workspace(work_id)
+        workspace_root = str(root)
+        if root.exists():
+            entries = [
+                {
+                    "name": item.name,
+                    "path": str(item.relative_to(root)),
+                    "is_dir": item.is_dir(),
+                }
+                for item in sorted(root.iterdir(), key=lambda child: child.name.lower())[:10]
+            ]
+    except Exception:
+        hint = (
+            "Retry with a valid existing work_id or create the workspace through the appropriate tool first."
+        )
+    return build_recovery_payload(
+        error=str(error),
+        hint=hint,
+        path=path,
+        work_id=work_id,
+        workspace_root=workspace_root,
+        available_entries=entries,
+    )
 
 
 def _list_directory(path: str = ".", work_id: str = "temp") -> dict[str, Any]:
@@ -377,7 +413,10 @@ def _build_filesystem_server() -> FastMCP:
     @mcp.tool()
     def list_directory(path: str = ".", work_id: str = "temp") -> dict[str, Any]:
         """List files in the shared sandbox workspace for the given work_id."""
-        return _list_directory(path, work_id)
+        try:
+            return _list_directory(path, work_id)
+        except (FileNotFoundError, NotADirectoryError, PermissionError, ValueError) as exc:
+            return _filesystem_error_payload(error=exc, path=path, work_id=work_id)
 
     @mcp.tool()
     def read_text_file(
@@ -386,12 +425,18 @@ def _build_filesystem_server() -> FastMCP:
         max_chars: int = MAX_TEXT_CHARS,
     ) -> dict[str, Any]:
         """Read a UTF-8 text file from the shared sandbox workspace for the given work_id."""
-        return _read_text_file(path, work_id, max_chars)
+        try:
+            return _read_text_file(path, work_id, max_chars)
+        except (FileNotFoundError, IsADirectoryError, PermissionError, ValueError) as exc:
+            return _filesystem_error_payload(error=exc, path=path, work_id=work_id)
 
     @mcp.tool()
     def write_text_file(path: str, content: str, work_id: str = "temp") -> dict[str, Any]:
         """Write a UTF-8 text file inside the shared sandbox workspace for the given work_id."""
-        return _write_text_file(path, content, work_id)
+        try:
+            return _write_text_file(path, content, work_id)
+        except (FileNotFoundError, PermissionError, ValueError) as exc:
+            return _filesystem_error_payload(error=exc, path=path, work_id=work_id)
 
     return mcp
 

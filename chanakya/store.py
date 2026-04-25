@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, cast
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.db import session_scope
@@ -106,6 +107,20 @@ class ChatRepository:
             }
             for row in rows
         ]
+
+    def get_latest_assistant_request_id(self, session_id: str) -> str | None:
+        with session_scope(self.Session) as session:
+            row = session.scalars(
+                select(ChatMessageModel)
+                .where(ChatMessageModel.session_id == session_id)
+                .where(ChatMessageModel.role == "assistant")
+                .where(ChatMessageModel.request_id.isnot(None))
+                .order_by(ChatMessageModel.id.desc())
+                .limit(1)
+            ).first()
+        if row is None:
+            return None
+        return str(row.request_id).strip() or None
 
     def rewrite_latest_assistant_message(
         self,
@@ -241,12 +256,16 @@ class ArtifactRepository:
             "session_id": row.session_id,
             "work_id": row.work_id,
             "name": row.name,
+            "title": row.title,
+            "summary": row.summary,
             "path": row.path,
             "mime_type": row.mime_type,
             "kind": row.kind,
             "size_bytes": row.size_bytes,
             "source_agent_id": row.source_agent_id,
             "source_agent_name": row.source_agent_name,
+            "latest_request_id": row.latest_request_id,
+            "supersedes_artifact_id": row.supersedes_artifact_id,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
         }
@@ -259,14 +278,20 @@ class ArtifactRepository:
         session_id: str,
         work_id: str | None,
         name: str,
+        title: str | None = None,
+        summary: str | None = None,
         path: str,
         mime_type: str | None,
         kind: str,
         size_bytes: int,
         source_agent_id: str | None = None,
         source_agent_name: str | None = None,
+        latest_request_id: str | None = None,
+        supersedes_artifact_id: str | None = None,
     ) -> dict[str, Any]:
         timestamp = now_iso()
+        normalized_title = (title or "").strip() or Path(name).stem or name
+        normalized_summary = (summary or "").strip() or None
         with session_scope(self.Session) as session:
             row = ArtifactModel(
                 id=artifact_id,
@@ -274,16 +299,75 @@ class ArtifactRepository:
                 session_id=session_id,
                 work_id=work_id,
                 name=name,
+                title=normalized_title,
+                summary=normalized_summary,
                 path=path,
                 mime_type=mime_type,
                 kind=kind,
                 size_bytes=size_bytes,
                 source_agent_id=source_agent_id,
                 source_agent_name=source_agent_name,
+                latest_request_id=latest_request_id or request_id,
+                supersedes_artifact_id=supersedes_artifact_id,
                 created_at=timestamp,
                 updated_at=timestamp,
             )
             session.add(row)
+            session.commit()
+            return self._to_dict(row)
+
+    def update_artifact(
+        self,
+        artifact_id: str,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
+        work_id: str | None = None,
+        name: str | None = None,
+        title: str | None = None,
+        summary: str | None = None,
+        path: str | None = None,
+        mime_type: str | None = None,
+        kind: str | None = None,
+        size_bytes: int | None = None,
+        source_agent_id: str | None = None,
+        source_agent_name: str | None = None,
+        latest_request_id: str | None = None,
+        supersedes_artifact_id: str | None = None,
+    ) -> dict[str, Any]:
+        with session_scope(self.Session) as session:
+            row = session.get(ArtifactModel, artifact_id)
+            if row is None:
+                raise KeyError(f"Artifact not found: {artifact_id}")
+            if request_id is not None:
+                row.request_id = request_id
+            if session_id is not None:
+                row.session_id = session_id
+            if work_id is not None:
+                row.work_id = work_id
+            if name is not None:
+                row.name = name
+            if title is not None:
+                row.title = title.strip() or row.title
+            if summary is not None:
+                row.summary = summary.strip() or None
+            if path is not None:
+                row.path = path
+            if mime_type is not None:
+                row.mime_type = mime_type
+            if kind is not None:
+                row.kind = kind
+            if size_bytes is not None:
+                row.size_bytes = size_bytes
+            if source_agent_id is not None:
+                row.source_agent_id = source_agent_id
+            if source_agent_name is not None:
+                row.source_agent_name = source_agent_name
+            if latest_request_id is not None:
+                row.latest_request_id = latest_request_id
+            if supersedes_artifact_id is not None:
+                row.supersedes_artifact_id = supersedes_artifact_id
+            row.updated_at = now_iso()
             session.commit()
             return self._to_dict(row)
 
@@ -294,11 +378,24 @@ class ArtifactRepository:
                 raise KeyError(f"Artifact not found: {artifact_id}")
             return cast(ArtifactModel, row)
 
+    def delete_artifact(self, artifact_id: str) -> None:
+        with session_scope(self.Session) as session:
+            row = session.get(ArtifactModel, artifact_id)
+            if row is None:
+                raise KeyError(f"Artifact not found: {artifact_id}")
+            session.delete(row)
+            session.commit()
+
     def list_artifacts_for_request(self, request_id: str) -> list[dict[str, Any]]:
         with session_scope(self.Session) as session:
             rows = session.scalars(
                 select(ArtifactModel)
-                .where(ArtifactModel.request_id == request_id)
+                .where(
+                    or_(
+                        ArtifactModel.request_id == request_id,
+                        ArtifactModel.latest_request_id == request_id,
+                    )
+                )
                 .order_by(ArtifactModel.created_at.asc(), ArtifactModel.id.asc())
             ).all()
         return [self._to_dict(row) for row in rows]
@@ -309,6 +406,25 @@ class ArtifactRepository:
                 select(ArtifactModel)
                 .where(ArtifactModel.work_id == work_id)
                 .order_by(ArtifactModel.created_at.asc(), ArtifactModel.id.asc())
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+    def list_artifacts_for_session(self, session_id: str) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ArtifactModel)
+                .where(ArtifactModel.session_id == session_id)
+                .order_by(ArtifactModel.updated_at.desc(), ArtifactModel.id.desc())
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+    def list_recent_artifacts(self, limit: int = 10) -> list[dict[str, Any]]:
+        bounded = max(1, min(limit, 100))
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ArtifactModel)
+                .order_by(ArtifactModel.updated_at.desc(), ArtifactModel.id.desc())
+                .limit(bounded)
             ).all()
         return [self._to_dict(row) for row in rows]
 
@@ -1667,17 +1783,32 @@ class ChanakyaStore:
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
         return self.chat.list_messages(session_id)
 
+    def get_latest_assistant_request_id(self, session_id: str) -> str | None:
+        return self.chat.get_latest_assistant_request_id(session_id)
+
     def create_artifact(self, **kwargs: Any) -> dict[str, Any]:
         return self.artifacts.create_artifact(**kwargs)
 
+    def update_artifact(self, artifact_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.artifacts.update_artifact(artifact_id, **kwargs)
+
     def get_artifact(self, artifact_id: str) -> ArtifactModel:
         return self.artifacts.get_artifact(artifact_id)
+
+    def delete_artifact(self, artifact_id: str) -> None:
+        self.artifacts.delete_artifact(artifact_id)
 
     def list_artifacts_for_request(self, request_id: str) -> list[dict[str, Any]]:
         return self.artifacts.list_artifacts_for_request(request_id)
 
     def list_artifacts_for_work(self, work_id: str) -> list[dict[str, Any]]:
         return self.artifacts.list_artifacts_for_work(work_id)
+
+    def list_artifacts_for_session(self, session_id: str) -> list[dict[str, Any]]:
+        return self.artifacts.list_artifacts_for_session(session_id)
+
+    def list_recent_artifacts(self, limit: int = 10) -> list[dict[str, Any]]:
+        return self.artifacts.list_recent_artifacts(limit)
 
     def log_event(self, event_type: str, payload: dict[str, Any]) -> None:
         self.events.log_event(event_type, payload)

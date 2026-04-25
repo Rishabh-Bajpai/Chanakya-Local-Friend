@@ -43,6 +43,7 @@ from chanakya.services.ntfy import (
 )
 from chanakya.services.sandbox_workspace import (
     delete_shared_workspace,
+    get_artifact_storage_root,
     get_shared_workspace_root,
     resolve_shared_workspace,
 )
@@ -86,6 +87,10 @@ def _normalize_runtime_config(record: dict[str, Any] | None) -> dict[str, Any]:
         config[key] = normalized or None
     if config["a2a_url"] is None:
         config["a2a_url"] = get_a2a_agent_url()
+    if config["backend"] != "a2a":
+        config["a2a_remote_agent"] = None
+        config["a2a_model_provider"] = None
+        config["a2a_model_id"] = None
     return config
 
 
@@ -100,6 +105,10 @@ def _parse_runtime_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
         _parse_optional_string(payload, "conversation_tone_instruction") or None
     )
     tts_instruction = _parse_optional_string(payload, "tts_instruction") or None
+    if backend != "a2a":
+        a2a_remote_agent = None
+        a2a_model_provider = None
+        a2a_model_id = None
     return {
         "backend": backend,
         "model_id": model_id,
@@ -121,10 +130,9 @@ def _serialize_artifact_payload(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _resolve_artifact_file(record: dict[str, Any]) -> Path:
-    workspace_scope_id = str(record.get("work_id") or record.get("request_id") or "").strip()
-    workspace_root = resolve_shared_workspace(workspace_scope_id, create=False).resolve()
-    candidate = (workspace_root / str(record.get("path") or "")).resolve()
-    if workspace_root not in candidate.parents and candidate != workspace_root:
+    artifact_root = get_artifact_storage_root(create=False).resolve()
+    candidate = (artifact_root / str(record.get("path") or "")).resolve()
+    if artifact_root not in candidate.parents and candidate != artifact_root:
         raise PermissionError("Artifact path escapes workspace")
     return candidate
 
@@ -374,6 +382,11 @@ def create_app() -> Flask:
         )
         if a2a_model_id == "":
             a2a_model_id = None
+        if backend != "a2a":
+            a2a_url = None
+            a2a_remote_agent = None
+            a2a_model_provider = None
+            a2a_model_id = None
         raw_conversation_tone_instruction = payload.get("conversation_tone_instruction")
         conversation_tone_instruction = (
             str(raw_conversation_tone_instruction).strip()
@@ -390,6 +403,12 @@ def create_app() -> Flask:
         )
         if tts_instruction == "":
             tts_instruction = None
+        raw_message_metadata = payload.get("message_metadata")
+        message_metadata = (
+            dict(raw_message_metadata)
+            if isinstance(raw_message_metadata, dict)
+            else None
+        )
         debug_log(
             "api_chat_request",
             {
@@ -403,6 +422,7 @@ def create_app() -> Flask:
                 "a2a_model_id": a2a_model_id,
                 "conversation_tone_instruction": conversation_tone_instruction,
                 "tts_instruction": tts_instruction,
+                "message_metadata": message_metadata,
                 "message": message,
                 "has_existing_session": bool(payload.get("session_id")),
             },
@@ -423,6 +443,7 @@ def create_app() -> Flask:
                 a2a_model_id=a2a_model_id,
                 conversation_tone_instruction=conversation_tone_instruction,
                 tts_instruction=tts_instruction,
+                message_metadata=message_metadata,
             )
         except Exception as exc:
             debug_log(
@@ -777,12 +798,16 @@ def create_app() -> Flask:
                     "session_id": artifact.session_id,
                     "work_id": artifact.work_id,
                     "name": artifact.name,
+                    "title": artifact.title,
+                    "summary": artifact.summary,
                     "path": artifact.path,
                     "mime_type": artifact.mime_type,
                     "kind": artifact.kind,
                     "size_bytes": artifact.size_bytes,
                     "source_agent_id": artifact.source_agent_id,
                     "source_agent_name": artifact.source_agent_name,
+                    "latest_request_id": artifact.latest_request_id,
+                    "supersedes_artifact_id": artifact.supersedes_artifact_id,
                     "created_at": artifact.created_at,
                     "updated_at": artifact.updated_at,
                 }
@@ -802,12 +827,16 @@ def create_app() -> Flask:
             "session_id": artifact.session_id,
             "work_id": artifact.work_id,
             "name": artifact.name,
+            "title": artifact.title,
+            "summary": artifact.summary,
             "path": artifact.path,
             "mime_type": artifact.mime_type,
             "kind": artifact.kind,
             "size_bytes": artifact.size_bytes,
             "source_agent_id": artifact.source_agent_id,
             "source_agent_name": artifact.source_agent_name,
+            "latest_request_id": artifact.latest_request_id,
+            "supersedes_artifact_id": artifact.supersedes_artifact_id,
             "created_at": artifact.created_at,
             "updated_at": artifact.updated_at,
         }

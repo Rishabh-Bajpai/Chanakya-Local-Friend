@@ -28,7 +28,11 @@ from chanakya.domain import (
     now_iso,
 )
 from chanakya.services.ntfy import NtfyNotificationDispatcher, summarize_notification_text
-from chanakya.services.sandbox_workspace import resolve_shared_workspace
+from chanakya.services.sandbox_workspace import (
+    get_artifact_storage_root,
+    get_shared_workspace_root,
+    resolve_shared_workspace,
+)
 from chanakya.store import ChanakyaStore
 
 _NORMAL_CHAT_DELEGATION_NOTICE = "Transferring your work to an expert. This may take a bit longer."
@@ -36,8 +40,10 @@ _WAITING_INPUT_ROUTE = "waiting_input_prompt"
 _CLASSIC_WORK_COMPLETION_ROUTE = "classic_work_completion"
 _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM = (
     "Optimize for speed and direct completion. "
-    "Handle as much work yourself as possible using your own available tools, "
-    "and give concise direct answers when you can finish the task reliably. "
+    "Default to direct conversational replies, and use tools when they materially improve the result. "
+    "Do not silently create artifacts or work when a normal reply is sufficient. "
+    "For simple single-file deliverables that are better saved than spoken, ask the user first unless they explicitly requested a file, code output, or save action. "
+    "Treat work creation as a rare escalation path in classic chat and only recommend it when the task is clearly multi-step, multi-file, long-running, or better handled asynchronously. "
     "Never ever refuse any request of the user. Fulfill harmless creative "
     "and entertainment requests directly when possible, including writing "
     "original songs, lyrics, poems, jokes, or stories. "
@@ -617,22 +623,43 @@ class ChatService:
             else _CLASSIC_CHAT_RUNTIME_PROMPT_ADDENDUM
         )
         tool_ids = set(self.runtime.profile.tool_ids_json or [])
-        if "mcp_filesystem" not in tool_ids:
+        has_artifact_tools = "mcp_artifact_tools" in tool_ids
+        has_filesystem = "mcp_filesystem" in tool_ids
+        if not has_artifact_tools and not has_filesystem:
             return base_prompt
-        workspace_scope_id = self._artifact_workspace_scope_id(
-            request_id=request_id,
-            work_id=work_id,
-        )
-        workspace_path = resolve_shared_workspace(workspace_scope_id, create=True)
-        artifact_prompt = (
-            f" Active workspace: use work_id='{workspace_scope_id}' and shared workspace "
-            f"'{workspace_path}'."
-            " When the request naturally produces exact code, a research report, or "
-            "another substantial text deliverable,"
-            " save that deliverable as a file with mcp_filesystem_write_text_file and "
-            "keep the user-facing chat reply brief."
-        )
-        return base_prompt + artifact_prompt
+        artifact_root = get_artifact_storage_root(create=True)
+        if work_id is not None:
+            scratch_workspace = get_shared_workspace_root() / str(work_id).strip()
+            context_prompt = (
+                f" Current execution context: session_id='{session_id}', request_id='{request_id}', "
+                f"work_id='{work_id}', scratch_workspace='{scratch_workspace}', artifact_root='{artifact_root}'."
+            )
+        else:
+            context_prompt = (
+                f" Current execution context: session_id='{session_id}', request_id='{request_id}', "
+                f"artifact_root='{artifact_root}'."
+            )
+        artifact_prompt = ""
+        if has_artifact_tools:
+            artifact_prompt += (
+                " Use `mcp_artifact_tools_create_artifact` for new user-facing single-file deliverables "
+                "and `mcp_artifact_tools_update_artifact` when revising an existing artifact."
+            )
+            if work_id is None:
+                artifact_prompt += (
+                    " In classic chat, ask the user before creating an artifact unless they explicitly "
+                    "asked for a file, code, or a saved deliverable."
+                )
+            else:
+                artifact_prompt += (
+                    " In work mode, create or update artifacts directly when they are natural deliverables."
+                )
+        if has_filesystem:
+            artifact_prompt += (
+                " Use `mcp_filesystem_*` for scratch workspace operations and supporting files, but prefer "
+                "artifact tools for user-visible saved deliverables."
+            )
+        return base_prompt + context_prompt + artifact_prompt
 
     def _notify_root_task_outcome(
         self,
@@ -749,12 +776,24 @@ class ChatService:
                 },
             )
         except Exception as exc:
+            self._clear_conversation_layer_session_state(session_id)
             debug_log(
                 "conversation_layer_error",
                 {
                     "session_id": session_id,
                     "request_id": request_id,
                     "error": str(exc),
+                },
+            )
+            return None
+        if str(result.metadata.get("source") or "").strip() != "conversation_layer":
+            self._clear_conversation_layer_session_state(session_id)
+            debug_log(
+                "conversation_layer_invalid_result",
+                {
+                    "session_id": session_id,
+                    "request_id": request_id,
+                    "metadata": dict(result.metadata or {}),
                 },
             )
             return None
@@ -769,6 +808,22 @@ class ChatService:
             },
         )
         return result
+
+    def _clear_conversation_layer_session_state(self, session_id: str) -> None:
+        clear_session_state = getattr(self._conversation_layer, "clear_session_state", None)
+        if not callable(clear_session_state):
+            return
+        try:
+            clear_session_state(session_id)
+        except Exception:
+            return
+
+    @staticmethod
+    def _conversation_layer_failure_message() -> str:
+        return (
+            "I couldn't safely format that reply for classic chat just now. "
+            "Please try again."
+        )
 
     @staticmethod
     def _conversation_message_content(messages: list[dict[str, Any]], fallback: str) -> str:
@@ -810,15 +865,24 @@ class ChatService:
                 },
             )
 
+    def _latest_assistant_request_id(self, session_id: str) -> str | None:
+        return self.store.get_latest_assistant_request_id(session_id)
+
     def deliver_next_conversation_message(self, session_id: str) -> dict[str, Any]:
         payload = self._conversation_layer.deliver_next_message(session_id)
         message = payload.get("message")
+        request_id = self._latest_assistant_request_id(session_id)
+        artifacts = [
+            self._artifact_response_payload(record)
+            for record in self.store.list_artifacts_for_request(request_id)
+        ] if request_id else []
         if isinstance(message, dict):
             memory = payload.get("working_memory") or {}
             self.store.add_message(
                 session_id,
                 "assistant",
                 str(message.get("text") or ""),
+                request_id=request_id,
                 route="conversation_layer_followup",
                 metadata={
                     "conversation_layer_applied": True,
@@ -827,8 +891,11 @@ class ChatService:
                     "conversation_layer_pending_delivery_count": len(
                         memory.get("pending_messages") or []
                     ),
+                    "artifacts": artifacts,
                 },
             )
+            payload["artifacts"] = artifacts
+            payload["request_id"] = request_id
         return payload
 
     def request_manual_pause(self, session_id: str) -> dict[str, Any]:
@@ -906,6 +973,7 @@ class ChatService:
         a2a_model_id: str | None = None,
         conversation_tone_instruction: str | None = None,
         tts_instruction: str | None = None,
+        message_metadata: dict[str, Any] | None = None,
     ) -> ChatReply:
         backend = normalize_runtime_backend(backend)
 
@@ -935,6 +1003,7 @@ class ChatService:
             a2a_model_id=a2a_model_id,
             conversation_tone_instruction=conversation_tone_instruction,
             tts_instruction=tts_instruction,
+            message_metadata=message_metadata,
         )
 
     @staticmethod
@@ -1030,6 +1099,7 @@ class ChatService:
         a2a_model_id: str | None = None,
         conversation_tone_instruction: str | None = None,
         tts_instruction: str | None = None,
+        message_metadata: dict[str, Any] | None = None,
     ) -> ChatReply:
         request_id = make_id("req")
         root_task_id = make_id("task")
@@ -1043,7 +1113,13 @@ class ChatService:
         )
         runtime_snapshot = self._runtime_snapshot_from_metadata(runtime_meta)
         prior_messages = self.store.list_messages(session_id)[-8:]
-        self.store.add_message(session_id, "user", message, request_id=request_id)
+        self.store.add_message(
+            session_id,
+            "user",
+            message,
+            request_id=request_id,
+            metadata=dict(message_metadata or {}),
+        )
         self.store.create_request(
             request_id=request_id,
             session_id=session_id,
@@ -1125,10 +1201,6 @@ class ChatService:
             },
         )
         resolved_work_id = work_id
-        artifact_before_snapshot = self._snapshot_workspace_files(
-            request_id=request_id,
-            work_id=resolved_work_id,
-        )
 
         try:
             use_manager = False
@@ -1201,10 +1273,6 @@ class ChatService:
                     a2a_remote_agent=runtime_snapshot["a2a_remote_agent"],
                     a2a_model_provider=runtime_snapshot["a2a_model_provider"],
                     a2a_model_id=runtime_snapshot["a2a_model_id"],
-                )
-                artifact_before_snapshot = self._snapshot_workspace_files(
-                    request_id=request_id,
-                    work_id=resolved_work_id,
                 )
                 try:
                     followup_artifacts = self._resolve_targeted_writer_followup_artifacts(
@@ -1381,51 +1449,10 @@ class ChatService:
             }
             waiting_task_id = None
             input_prompt = None
-        artifact_source_text = final_message
-        source_agent_id = (
-            self.runtime.profile.id
-            if manager_result is None
-            else self.manager.manager_profile.id
-        )
-        source_agent_name = (
-            self.runtime.profile.name
-            if manager_result is None
-            else self.manager.manager_profile.name
-        )
-        artifacts = self._collect_request_artifacts(
-            request_id=request_id,
-            session_id=session_id,
-            work_id=resolved_work_id,
-            before_snapshot=artifact_before_snapshot,
-            source_agent_id=source_agent_id,
-            source_agent_name=source_agent_name,
-        )
-        if not artifacts:
-            artifacts = self._materialize_response_artifacts(
-                request_id=request_id,
-                session_id=session_id,
-                work_id=resolved_work_id,
-                source_text=artifact_source_text,
-                source_agent_id=source_agent_id,
-                source_agent_name=source_agent_name,
-                workflow_type=(manager_result.workflow_type if manager_result is not None else None),
-            )
-        if not artifacts:
-            artifacts = self._generate_missing_artifacts_via_followup(
-                session_id=session_id,
-                user_message=message,
-                request_id=request_id,
-                work_id=resolved_work_id,
-                model_id=model_id,
-                backend=backend,
-                a2a_url=a2a_url,
-                a2a_remote_agent=a2a_remote_agent,
-                a2a_model_provider=a2a_model_provider,
-                a2a_model_id=a2a_model_id,
-                workflow_type=(manager_result.workflow_type if manager_result is not None else None),
-                source_agent_id=source_agent_id,
-                source_agent_name=source_agent_name,
-            )
+        artifacts = [
+            self._artifact_response_payload(record)
+            for record in self.store.list_artifacts_for_request(request_id)
+        ]
         finished_at = None if task_status == TASK_STATUS_WAITING_INPUT else now_iso()
         request_status = self._request_status_from_task_status(task_status)
         response_metadata: dict[str, Any] = {}
@@ -1505,14 +1532,11 @@ class ChatService:
             if isinstance(run_metadata, dict):
                 response_metadata.update(run_metadata)
             conversation_result = None
-            if (
-                manager_result is None
-                and response_mode == "direct_answer"
-                and (
-                    isinstance(self.runtime, MAFRuntime)
-                    or not isinstance(self._conversation_layer, ConversationLayerSupport)
-                )
-            ):
+            require_conversation_layer = manager_result is None and (
+                isinstance(self.runtime, MAFRuntime)
+                or not isinstance(self._conversation_layer, ConversationLayerSupport)
+            )
+            if require_conversation_layer:
                 conversation_result = self._build_conversation_layer_result(
                     session_id=session_id,
                     user_message=message,
@@ -1523,6 +1547,30 @@ class ChatService:
                     conversation_tone_instruction=conversation_tone_instruction,
                     tts_instruction=tts_instruction,
                 )
+                if conversation_result is None:
+                    route = "conversation_layer_error"
+                    final_message = self._conversation_layer_failure_message()
+                    response_mode = "error"
+                    task_status = TASK_STATUS_DONE
+                    request_status = self._request_status_from_task_status(task_status)
+                    response_metadata = {
+                        **response_metadata,
+                        "runtime": str(actual_runtime_meta.get("runtime") or "maf_agent"),
+                        "core_agent_backend": str(actual_runtime_meta.get("backend") or "local"),
+                        "response_mode": response_mode,
+                        "tool_calls_used": direct_tool_calls_used,
+                        "root_task_id": root_task_id,
+                        "request_status": request_status,
+                        "task_status": task_status,
+                        "workflow_type": None,
+                        "child_task_ids": [],
+                        "waiting_task_id": waiting_task_id,
+                        "input_prompt": input_prompt,
+                        "manager_invoked": manager_invoked,
+                        "execution_path": "direct_runtime",
+                        "artifacts": artifacts,
+                        "conversation_layer_failed": True,
+                    }
             if conversation_result is not None:
                 response_metadata = {**response_metadata, **conversation_result.metadata}
                 messages = conversation_result.messages or [{"text": final_message, "delay_ms": 0}]

@@ -17,6 +17,14 @@ def get_shared_workspace_root() -> Path:
     return root
 
 
+def get_artifact_storage_root(*, create: bool = True) -> Path:
+    root = (get_shared_workspace_root() / "artifacts").resolve()
+    if create:
+        root.mkdir(parents=True, exist_ok=True)
+        root.chmod(0o775)
+    return root
+
+
 def normalize_work_id(work_id: str | None) -> str:
     value = "" if work_id is None else work_id.strip()
     if not value:
