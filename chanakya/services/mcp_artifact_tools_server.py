@@ -442,7 +442,7 @@ def _build_artifact_tools_server() -> FastMCP:
         artifact_root = get_artifact_storage_root(create=False).resolve()
         file_path = (artifact_root / artifact.path).resolve()
         if artifact_root not in file_path.parents and file_path != artifact_root:
-            return {"ok": False, "error": "Artifact path is invalid"}
+            return {"ok": False, "error": "Artifact path escapes storage root"}
         if not file_path.exists():
             return {"ok": False, "error": f"Artifact file missing: {artifact.path}"}
         return {

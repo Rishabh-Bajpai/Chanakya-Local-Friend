@@ -474,7 +474,8 @@
       activeAudio = new Audio(currentChunk.url);
       const scheduleNextChunk = () => {
         if (voiceTurnActive && !stopRequested && selectedValue(sttModelSelect)) {
-          waitForInterruptionWindow().catch(() => {
+          waitForInterruptionWindow().catch((err) => {
+            console.debug("Interruption window check failed:", err);
           });
         }
         nextAudioTimer = window.setTimeout(() => {
