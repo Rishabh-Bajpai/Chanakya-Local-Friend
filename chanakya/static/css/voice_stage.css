@@ -314,6 +314,7 @@
   position: relative;
   width: 270px;
   height: 270px;
+  transform-origin: center center;
   filter: drop-shadow(0 18px 46px rgba(112, 48, 0, 0.16));
 }
 
@@ -346,6 +347,7 @@
 .voice-sacred-geometry {
   position: absolute;
   inset: 0;
+  transform-origin: center center;
 }
 
 .voice-mandala-ring {
@@ -380,9 +382,7 @@
   position: absolute;
   width: 48px;
   height: 76px;
-  top: 50%;
-  left: 50%;
-  transform-origin: center bottom;
+  transform-origin: center center;
   opacity: 0.82;
 }
 
@@ -396,14 +396,14 @@
   animation: voice-petal-breath 4.4s ease-in-out infinite;
 }
 
-.voice-petal:nth-child(1) { transform: translate(-50%, -112%) rotate(0deg); }
-.voice-petal:nth-child(2) { transform: translate(-50%, -112%) rotate(45deg); }
-.voice-petal:nth-child(3) { transform: translate(-50%, -112%) rotate(90deg); }
-.voice-petal:nth-child(4) { transform: translate(-50%, -112%) rotate(135deg); }
-.voice-petal:nth-child(5) { transform: translate(-50%, -112%) rotate(180deg); }
-.voice-petal:nth-child(6) { transform: translate(-50%, -112%) rotate(225deg); }
-.voice-petal:nth-child(7) { transform: translate(-50%, -112%) rotate(270deg); }
-.voice-petal:nth-child(8) { transform: translate(-50%, -112%) rotate(315deg); }
+.voice-petal:nth-child(1) { left: calc(50% - 24px); top: calc(50% - 104px); transform: rotate(0deg); }
+.voice-petal:nth-child(2) { left: calc(50% + 26px); top: calc(50% - 84px); transform: rotate(45deg); }
+.voice-petal:nth-child(3) { left: calc(50% + 48px); top: calc(50% - 38px); transform: rotate(90deg); }
+.voice-petal:nth-child(4) { left: calc(50% + 26px); top: calc(50% + 8px); transform: rotate(135deg); }
+.voice-petal:nth-child(5) { left: calc(50% - 24px); top: calc(50% + 28px); transform: rotate(180deg); }
+.voice-petal:nth-child(6) { left: calc(50% - 74px); top: calc(50% + 8px); transform: rotate(225deg); }
+.voice-petal:nth-child(7) { left: calc(50% - 96px); top: calc(50% - 38px); transform: rotate(270deg); }
+.voice-petal:nth-child(8) { left: calc(50% - 74px); top: calc(50% - 84px); transform: rotate(315deg); }
 
 .voice-yantra-line {
   position: absolute;
@@ -430,7 +430,11 @@
 }
 
 .voice-avatar-shell[data-state="speaking"] .voice-lotus-petals {
-  animation: voice-stage-spin 12s linear infinite;
+  opacity: 0;
+}
+
+.voice-avatar-shell[data-state="speaking"] .voice-mythic {
+  transform: scale(0.9);
 }
 
 .voice-avatar-shell[data-state="error"] .voice-mandala-center {
@@ -761,8 +765,8 @@
   }
 
   .voice-mythic {
-    width: 200px;
-    height: 200px;
+    width: 188px;
+    height: 188px;
   }
 
   .voice-character {

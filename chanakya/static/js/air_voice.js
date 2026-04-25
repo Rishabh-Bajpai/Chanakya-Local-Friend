@@ -124,7 +124,7 @@
         populateSelect(llmModelSelect, models, "llm");
         populateSelect(sttModelSelect, models, "stt");
         populateSelect(ttsModelSelect, models, "tts");
-        setStatus(models.length ? "AIR models loaded." : "AIR is reachable but returned no models.");
+        setStatus(models.length ? "" : "AIR is reachable but returned no models.");
       } catch (error) {
         setStatus(error instanceof Error ? error.message : String(error), true);
       }

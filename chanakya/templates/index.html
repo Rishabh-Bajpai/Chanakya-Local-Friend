@@ -1554,6 +1554,11 @@
       display: none;
     }
 
+    #modeSettingsButton,
+    #modeCharacterButton {
+      display: none !important;
+    }
+
     .top-bar .brand {
       font-size: 1.1rem;
       letter-spacing: 0.22em;
@@ -1705,6 +1710,34 @@
       margin-inline: auto;
     }
 
+    .call-hero-status {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      min-height: 40px;
+      padding: 0 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(10, 14, 23, 0.72);
+      color: #e7f1fb;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .call-hero-status-label {
+      flex: 0 0 auto;
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #8fc8ef;
+    }
+
+    .call-hero-status-text {
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     .hero-actions {
       display: flex;
       justify-content: center;
@@ -1735,14 +1768,14 @@
 
     body.call-mode .hero-stage {
       display: grid;
-      align-content: center;
+      align-content: stretch;
       justify-items: center;
-      gap: 16px;
-      padding: 18px 16px 8px;
+      gap: 10px;
+      padding: 8px 12px 0;
     }
 
     body.call-mode .hero-copy {
-      text-align: center;
+      display: none;
     }
 
     body.call-mode .hero-actions .hero-action-button {
@@ -1750,7 +1783,33 @@
     }
 
     body.call-mode .hero-avatar-wrap {
-      width: min(100%, 640px);
+      width: 100%;
+      max-width: none;
+      flex: 1 1 auto;
+      align-self: stretch;
+    }
+
+    body.call-mode .hero-avatar-wrap .voice-avatar-stage {
+      width: 100%;
+      min-height: min(70vh, 780px);
+      align-content: center;
+      justify-items: center;
+    }
+
+    body.call-mode .hero-avatar-wrap .voice-avatar-shell {
+      width: min(82vw, 560px);
+      height: min(82vw, 560px);
+      min-width: 300px;
+      min-height: 300px;
+    }
+
+    body.call-mode .voice-avatar-meta {
+      gap: 10px;
+    }
+
+    body.call-mode .call-hero-status {
+      display: inline-flex;
+      max-width: min(100%, 420px);
     }
 
     body:not(.call-mode) .voice-avatar-chooser {
@@ -1907,7 +1966,7 @@
     }
 
     .config-shell .sidebar-panel-body {
-      padding: 0 20px 20px;
+      padding: 14px 20px 20px;
     }
 
     .config-shell .control-group,
@@ -2256,7 +2315,7 @@
 
     .call-control-bar {
       display: none;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: minmax(0, 1fr);
       gap: 8px;
     }
 
@@ -2265,8 +2324,8 @@
     }
 
     .call-control-button {
-      min-height: 54px;
-      padding: 0 10px;
+      min-height: 52px;
+      padding: 0 14px;
       border-radius: 18px;
       border: 1px solid rgba(255, 255, 255, 0.10);
       background: rgba(255, 255, 255, 0.05);
@@ -2314,6 +2373,10 @@
     }
 
     .voice-control-bank {
+      display: none;
+    }
+
+    body.call-mode .dock-status {
       display: none;
     }
 
@@ -2460,6 +2523,11 @@
         display: none;
       }
 
+      #modeSettingsButton,
+      #modeCharacterButton {
+        display: none !important;
+      }
+
       .hero-title {
         font-size: 2rem;
       }
@@ -2520,15 +2588,11 @@
       }
 
       .call-control-bar {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: minmax(0, 1fr);
       }
 
       .call-control-button {
         min-height: 48px;
-      }
-
-      .call-control-button.call-primary {
-        grid-column: 1 / -1;
       }
 
       .dock-status {
@@ -2671,6 +2735,10 @@
                 </div>
               </div>
             </div>
+            <div id="callHeroStatus" class="call-hero-status" hidden>
+              <span class="call-hero-status-label">Voice</span>
+              <span id="callHeroStatusText" class="call-hero-status-text"></span>
+            </div>
             <div class="hero-actions">
               <button id="heroChatToggle" type="button" class="hero-action-button">Open Chat</button>
             </div>
@@ -2730,18 +2798,6 @@
                 <button class="call-control-button call-primary" type="button" data-voice-proxy="loop">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a11.5 11.5 0 0 0 9 9l2-2.2c.4-.4 1-.5 1.5-.3l2.3 1c.6.3.9.9.8 1.5L23 20c-.1.8-.8 1.4-1.6 1.4C10.2 21.4 2.6 13.8 2.6 4.6 2.6 3.8 3.2 3.1 4 3l3.5-.5c.6-.1 1.2.2 1.5.8l1 2.3c.2.5.1 1.1-.3 1.5L8 7Z" /></svg>
                   <span id="callModePrimaryLabel" class="call-control-label">End Voice</span>
-                </button>
-                <button class="call-control-button" type="button" data-voice-proxy="mic">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2.5 2.5 0 0 0-2.5 2.5v5a2.5 2.5 0 1 0 5 0v-5A2.5 2.5 0 0 0 12 4Z" /><path d="M7 11.5a5 5 0 0 0 10 0" /><path d="M12 16.5V20" /><path d="M9 20h6" /></svg>
-                  <span class="call-control-label">Mic</span>
-                </button>
-                <button class="call-control-button" type="button" data-voice-proxy="pause">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6v12" /><path d="M14.5 6v12" /></svg>
-                  <span class="call-control-label">Pause</span>
-                </button>
-                <button class="call-control-button" type="button" data-voice-proxy="speak">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 14h3l4 3V7L8 10H5v4Z" /><path d="M16 9a4.5 4.5 0 0 1 0 6" /><path d="M18.5 6.5a8 8 0 0 1 0 11" /></svg>
-                  <span class="call-control-label">Speak</span>
                 </button>
               </div>
               <div class="chat-status-bar dock-status">
@@ -3207,6 +3263,8 @@
     const composerSettingsButton = document.getElementById("composerSettingsButton");
     const composerCharacterButton = document.getElementById("composerCharacterButton");
     const callModePrimaryLabel = document.getElementById("callModePrimaryLabel");
+    const callHeroStatus = document.getElementById("callHeroStatus");
+    const callHeroStatusText = document.getElementById("callHeroStatusText");
     const composerSubmitButton = chatForm ? chatForm.querySelector(".composer-submit") : null;
     let airVoiceController = null;
 
@@ -3238,13 +3296,18 @@
       setComposerMenuOpen(false);
     }
 
+    function shouldHideVoiceStatusText(text) {
+      const normalized = String(text || "").trim().toLowerCase();
+      return !normalized || normalized === "air models loaded.";
+    }
+
     function syncComposerStatusState() {
       const cards = Array.from(document.querySelectorAll(".air-status-card"));
       let visibleCount = 0;
       cards.forEach((card) => {
         const statusNode = card.querySelector(".air-status");
         const text = String(statusNode?.textContent || "").trim();
-        const shouldShow = Boolean(text);
+        const shouldShow = !shouldHideVoiceStatusText(text);
         card.hidden = !shouldShow;
         if (shouldShow) {
           visibleCount += 1;
@@ -3263,6 +3326,16 @@
       if (callModePrimaryLabel) {
         callModePrimaryLabel.textContent = isCallModeActive() ? "End Voice" : "Start Voice";
       }
+    }
+
+    function syncCallHeroStatus(text) {
+      if (!callHeroStatus || !callHeroStatusText) {
+        return;
+      }
+      const nextText = String(text || "").trim();
+      const shouldShow = isCallModeActive() && !shouldHideVoiceStatusText(nextText);
+      callHeroStatus.hidden = !shouldShow;
+      callHeroStatusText.textContent = shouldShow ? nextText : "";
     }
 
     function resizeComposerTextarea() {
@@ -3486,6 +3559,7 @@
       if (heroVoiceStage && typeof heroVoiceStage.syncVisibility === "function") {
         heroVoiceStage.syncVisibility();
       }
+      syncCallHeroStatus(inCallMode ? deriveHeroStatusState().text : "");
       syncVoiceControlState();
       syncComposerStatusState();
     }
@@ -3588,17 +3662,24 @@
       const queueText = String(conversationQueueStatus?.textContent || "").trim();
       const voiceText = String(airVoiceStatus?.textContent || "").trim();
       const combined = `${queueText} ${voiceText}`.trim().toLowerCase();
+      const preferredText = voiceText || queueText;
       if (conversationQueueStatus?.dataset.state === "error" || airVoiceStatus?.dataset.state === "error") {
-        return { state: "error", text: "" };
+        return { state: "error", text: preferredText || "Voice error" };
       }
-      if (/recording|listening|transcribing/.test(combined)) {
-        return { state: "listening", text: "" };
+      if (/transcribing/.test(combined)) {
+        return { state: "listening", text: voiceText || "Transcribing..." };
       }
-      if (/thinking|processing/.test(combined)) {
-        return { state: "thinking", text: "" };
+      if (/recording|listening|interruption/.test(combined)) {
+        return { state: "listening", text: voiceText || "Listening..." };
       }
-      if (/queued|speaking|replying|pacing|waiting/.test(combined)) {
-        return { state: queueText ? "queued" : "speaking", text: "" };
+      if (/thinking|processing|analyzing/.test(combined)) {
+        return { state: "thinking", text: queueText || voiceText || "Thinking..." };
+      }
+      if (/queued|speaking|replying|pacing|waiting|generating speech/.test(combined)) {
+        return { state: queueText ? "queued" : "speaking", text: preferredText || "Speaking..." };
+      }
+      if (/stopped/.test(combined)) {
+        return { state: "idle", text: voiceText || "Voice mode stopped." };
       }
       return { state: "idle", text: "" };
     }
@@ -3607,8 +3688,9 @@
       if (!heroVoiceStage) {
         return;
       }
-      const { state } = deriveHeroStatusState();
+      const { state, text } = deriveHeroStatusState();
       heroVoiceStage.setState(state);
+      syncCallHeroStatus(text);
       syncComposerStatusState();
       syncVoiceControlState();
       syncCallModeState();
