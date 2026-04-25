@@ -1320,7 +1320,6 @@
             <button id="utilityCloseButton" type="button" class="utility-close button-secondary" aria-label="Close controls">✕</button>
           </div>
           <p>Create and reopen long-running work contexts without crowding the main chat pane.</p>
-          <div class="link-row"><a href="/">Open classic chat</a></div>
         </div>
         <div class="body">
           <section class="sidebar-block">
@@ -1346,94 +1345,34 @@
             </details>
           </section>
           <section class="sidebar-block">
-            <details class="control-deck">
-              <summary>
-                <div class="control-deck-titlebar">
-                  <div>
-                    <p class="control-deck-kicker">Control Deck</p>
-                    <h3>Models and runtime</h3>
-                    <p>Keep work-chat routing controls in one place. Use Apply Changes to update future requests across the app.</p>
-                  </div>
-                  <span class="control-deck-toggle" aria-hidden="true"></span>
-                </div>
-              </summary>
-              <div class="control-deck-body">
-                <div class="control-grid">
-                  <section class="control-group">
-                    <p class="control-group-title">Chat Runtime</p>
-                    <div class="runtime-chip">Active work chat path</div>
-                    <div class="runtime-models">
-                      <label>
-                        Backend
-                        <select id="chatBackendSelect">
-                          <option value="local">Local OpenAI-compatible via AIR</option>
-                          {% if a2a_gui_enabled %}
-                          <option value="a2a">A2A</option>
-                          {% endif %}
-                        </select>
-                      </label>
-                      <label>
-                        Chanakya Model
-                        <select id="airLlmModel"></select>
-                      </label>
-                      {% if a2a_gui_enabled %}
-                      <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
-                      <label>
-                        A2A Agent Override
-                        <select id="a2aAgentInput"></select>
-                      </label>
-                      <label>
-                        A2A Model Provider
-                        <select id="a2aModelProviderInput"></select>
-                      </label>
-                      <label>
-                        A2A Model
-                        <select id="a2aModelIdInput"></select>
-                      </label>
-                      {% endif %}
-                    </div>
-                    {% if a2a_gui_enabled %}
-                    <p class="control-group-note">A2A sends the next work-chat turn through the app-managed bridge. The selected A2A agent applies to both direct replies and conversation-layer follow-ups. AIR model selection stays active only for local replies.</p>
-                    {% endif %}
-                    <div class="air-controls">
-                      <button id="runtimeConfigApplyButton" class="air-button" type="button">Apply Changes</button>
-                    </div>
-                    <p id="runtimeConfigStatus" class="control-field-hint"></p>
-                    {% if a2a_gui_enabled %}
-                    <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
-                    {% endif %}
-                  </section>
-                  <section class="control-group">
-                    <p class="control-group-title">Speech Tools</p>
-                    <p class="control-group-note">Manual speech-to-text for prompts and text-to-speech for the latest reply. No voice mode in workspaces.</p>
-                    <div class="air-links">
-                      <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
-                      <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
-                    </div>
-                    <div class="air-models">
-                      <label>
-                        STT Model
-                        <select id="airSttModel"></select>
-                      </label>
-                      <label>
-                        TTS Model
-                        <select id="airTtsModel"></select>
-                      </label>
-                    </div>
-                    <p id="airVoiceStatus" class="air-status history-mirror"></p>
-                  </section>
-                </div>
-                <div id="conversationQueueStatus" class="air-status history-mirror"></div>
-              </div>
-            </details>
-          </section>
-          <section class="sidebar-block">
             <div class="sidebar-block-header">
               <h3>Saved Workspaces</h3>
               <p>Reopen an existing context and continue where the workstream left off.</p>
             </div>
             <div id="workList" class="work-list"></div>
           </section>
+          <div hidden aria-hidden="true">
+            <select id="chatBackendSelect">
+              <option value="local">Local OpenAI-compatible via AIR</option>
+              {% if a2a_gui_enabled %}
+              <option value="a2a">A2A</option>
+              {% endif %}
+            </select>
+            <select id="airLlmModel"></select>
+            {% if a2a_gui_enabled %}
+            <button id="a2aRefreshOptionsButton" type="button">Refresh A2A Options</button>
+            {% endif %}
+            <select id="a2aAgentInput"></select>
+            <select id="a2aModelProviderInput"></select>
+            <select id="a2aModelIdInput"></select>
+            <button id="runtimeConfigApplyButton" type="button">Apply Changes</button>
+            <p id="runtimeConfigStatus"></p>
+            <p id="a2aDiscoveryStatus"></p>
+            <select id="airSttModel"></select>
+            <select id="airTtsModel"></select>
+            <p id="airVoiceStatus"></p>
+            <div id="conversationQueueStatus"></div>
+          </div>
         </div>
       </section>
 
