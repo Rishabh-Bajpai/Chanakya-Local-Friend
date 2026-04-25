@@ -382,7 +382,9 @@
   position: absolute;
   width: 48px;
   height: 76px;
-  transform-origin: center center;
+  top: 50%;
+  left: 50%;
+  transform-origin: center bottom;
   opacity: 0.82;
 }
 
@@ -396,14 +398,22 @@
   animation: voice-petal-breath 4.4s ease-in-out infinite;
 }
 
-.voice-petal:nth-child(1) { left: calc(50% - 24px); top: calc(50% - 104px); transform: rotate(0deg); }
-.voice-petal:nth-child(2) { left: calc(50% + 26px); top: calc(50% - 84px); transform: rotate(45deg); }
-.voice-petal:nth-child(3) { left: calc(50% + 48px); top: calc(50% - 38px); transform: rotate(90deg); }
-.voice-petal:nth-child(4) { left: calc(50% + 26px); top: calc(50% + 8px); transform: rotate(135deg); }
-.voice-petal:nth-child(5) { left: calc(50% - 24px); top: calc(50% + 28px); transform: rotate(180deg); }
-.voice-petal:nth-child(6) { left: calc(50% - 74px); top: calc(50% + 8px); transform: rotate(225deg); }
-.voice-petal:nth-child(7) { left: calc(50% - 96px); top: calc(50% - 38px); transform: rotate(270deg); }
-.voice-petal:nth-child(8) { left: calc(50% - 74px); top: calc(50% - 84px); transform: rotate(315deg); }
+.voice-petal:nth-child(1) { transform: translate(-50%, -112%) rotate(0deg); }
+.voice-petal:nth-child(2) { transform: translate(-50%, -112%) rotate(45deg); }
+.voice-petal:nth-child(3) { transform: translate(-50%, -112%) rotate(90deg); }
+.voice-petal:nth-child(4) { transform: translate(-50%, -112%) rotate(135deg); }
+.voice-petal:nth-child(5) { transform: translate(-50%, -112%) rotate(180deg); }
+.voice-petal:nth-child(6) { transform: translate(-50%, -112%) rotate(225deg); }
+.voice-petal:nth-child(7) { transform: translate(-50%, -112%) rotate(270deg); }
+.voice-petal:nth-child(8) { transform: translate(-50%, -112%) rotate(315deg); }
+
+.voice-petal:nth-child(2)::before { animation-delay: 0.45s; }
+.voice-petal:nth-child(3)::before { animation-delay: 0.9s; }
+.voice-petal:nth-child(4)::before { animation-delay: 1.35s; }
+.voice-petal:nth-child(5)::before { animation-delay: 1.8s; }
+.voice-petal:nth-child(6)::before { animation-delay: 2.25s; }
+.voice-petal:nth-child(7)::before { animation-delay: 2.7s; }
+.voice-petal:nth-child(8)::before { animation-delay: 3.15s; }
 
 .voice-yantra-line {
   position: absolute;
@@ -429,12 +439,12 @@
   animation-duration: 2.1s;
 }
 
-.voice-avatar-shell[data-state="speaking"] .voice-lotus-petals {
-  opacity: 0;
+.voice-avatar-shell[data-state="thinking"] .voice-yantra-line {
+  opacity: 0.64;
 }
 
-.voice-avatar-shell[data-state="speaking"] .voice-mythic {
-  transform: scale(0.9);
+.voice-avatar-shell[data-state="speaking"] .voice-lotus-petals {
+  animation: voice-lotus-rotate 12s linear infinite;
 }
 
 .voice-avatar-shell[data-state="error"] .voice-mandala-center {
@@ -547,14 +557,58 @@
 
 .voice-avatar-shell[data-state="listening"] .voice-character-aura {
   background: radial-gradient(circle at 50% 32%, rgba(88, 255, 191, 0.36), rgba(49, 176, 120, 0.06));
+  animation-duration: 2s;
+}
+
+.voice-avatar-shell[data-state="listening"] .voice-character-eye {
+  transform: translateY(-1px) scaleY(1.08);
+}
+
+.voice-avatar-shell[data-state="listening"] .voice-character-pupil {
+  animation: voice-character-pupil-excited 1s ease-in-out infinite;
 }
 
 .voice-avatar-shell[data-state="thinking"] .voice-character-head {
+  animation: voice-character-think-head 2.4s ease-in-out infinite;
   box-shadow: 0 10px 30px rgba(67, 24, 122, 0.24), inset 0 -10px 20px rgba(61, 0, 100, 0.22), inset 0 12px 18px rgba(255, 255, 255, 0.12);
+}
+
+.voice-avatar-shell[data-state="thinking"] .voice-character-mouth {
+  width: 22px;
+  height: 12px;
+  border-radius: 0 0 12px 12px;
+}
+
+.voice-avatar-shell[data-state="thinking"] .voice-character-pupil {
+  animation: voice-character-pupil-think 1.7s ease-in-out infinite;
+}
+
+.voice-avatar-shell[data-state="thinking"] .voice-character-aura {
+  animation: voice-character-think-aura 1.8s ease-in-out infinite;
 }
 
 .voice-avatar-shell[data-state="speaking"] .voice-character-mouth {
   animation-duration: 900ms;
+}
+
+.voice-avatar-shell[data-state="speaking"] .voice-character-torso {
+  animation-duration: 1.4s;
+}
+
+.voice-avatar-shell[data-state="speaking"] .voice-character-head {
+  animation-duration: 1.6s;
+}
+
+.voice-avatar-shell[data-state="speaking"] .voice-character-eye {
+  transform: translateY(-2px) scale(1.04);
+}
+
+.voice-avatar-shell[data-state="speaking"] .voice-character-pupil {
+  transform: translateX(-50%) translate(var(--char-gaze-x), var(--char-gaze-y)) scale(1.08);
+}
+
+.voice-avatar-shell[data-state="speaking"] .voice-character-aura {
+  opacity: 0.9;
 }
 
 .voice-komi {
@@ -709,6 +763,11 @@
   50% { transform: scaleY(1.14); opacity: 1; }
 }
 
+@keyframes voice-lotus-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 @keyframes voice-character-bob {
   0%, 100% { transform: translateX(-50%) translateY(0); }
   50% { transform: translateX(-50%) translateY(-8px); }
@@ -722,6 +781,30 @@
 @keyframes voice-character-breath {
   0%, 100% { transform: translateX(-50%) scaleY(1); }
   50% { transform: translateX(-50%) scaleY(1.04); }
+}
+
+@keyframes voice-character-pupil-excited {
+  0%, 100% { transform: translateX(-50%) translate(var(--char-gaze-x), var(--char-gaze-y)) scale(1); }
+  50% { transform: translateX(-50%) translate(var(--char-gaze-x), var(--char-gaze-y)) scale(1.3); }
+}
+
+@keyframes voice-character-think-head {
+  0%, 100% { transform: translateX(-50%) translateY(0) rotate(0deg); }
+  20% { transform: translateX(-50%) translateY(-2px) rotate(-7deg); }
+  55% { transform: translateX(-50%) translateY(-5px) rotate(3deg); }
+  80% { transform: translateX(-50%) translateY(-1px) rotate(6deg); }
+}
+
+@keyframes voice-character-pupil-think {
+  0%, 100% { transform: translateX(-50%) translate(0, 0); }
+  25% { transform: translateX(-50%) translate(-4px, -1px); }
+  50% { transform: translateX(-50%) translate(3px, 2px); }
+  75% { transform: translateX(-50%) translate(-1px, 1px); }
+}
+
+@keyframes voice-character-think-aura {
+  0%, 100% { transform: scale(0.94); opacity: 0.48; }
+  50% { transform: scale(1.08); opacity: 0.92; }
 }
 
 @keyframes voice-komi-halo {
@@ -765,8 +848,8 @@
   }
 
   .voice-mythic {
-    width: 188px;
-    height: 188px;
+    width: 200px;
+    height: 200px;
   }
 
   .voice-character {

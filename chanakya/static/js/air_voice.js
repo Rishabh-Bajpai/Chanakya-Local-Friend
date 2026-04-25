@@ -653,6 +653,7 @@
 
       setStatus("Transcribing...");
       const transcript = await transcribeAudio(audioBlob);
+      setStatus("");
       await submitTranscript(transcript, {
         metadata: pendingInterruptionSubmission
           ? {
@@ -702,6 +703,29 @@
       await runSingleVoiceTurn();
     }
 
+    async function stopVoiceMode() {
+      stopRequested = true;
+      continuousMode = false;
+      voiceTurnActive = false;
+      speechSequenceId += 1;
+      stopPlayback();
+      await cancelInterruptionWindow({ interrupted: false });
+      await teardownRecordingMonitor();
+      await stopRecordingSilently();
+      setStatus("");
+      syncButtons();
+    }
+
+    async function startVoiceMode() {
+      if (continuousMode) {
+        return;
+      }
+      stopRequested = false;
+      continuousMode = true;
+      syncButtons();
+      await runSingleVoiceTurn();
+    }
+
     recordButton.addEventListener("click", async () => {
       try {
         if (recordButton.dataset.state === "recording") {
@@ -721,22 +745,10 @@
     if (continuousButton) {
       continuousButton.addEventListener("click", async () => {
         if (continuousMode) {
-          stopRequested = true;
-          continuousMode = false;
-          voiceTurnActive = false;
-          speechSequenceId += 1;
-          stopPlayback();
-          await cancelInterruptionWindow({ interrupted: false });
-          await teardownRecordingMonitor();
-          await stopRecordingSilently();
-          setStatus("Voice mode stopped.");
-          syncButtons();
+          await stopVoiceMode();
           return;
         }
-        stopRequested = false;
-        continuousMode = true;
-        syncButtons();
-        await runSingleVoiceTurn();
+        await startVoiceMode();
       });
     }
 
@@ -760,6 +772,8 @@
 
     return {
       fetchModels,
+      startVoiceMode,
+      stopVoiceMode,
       isVoiceModeEnabled() {
         return continuousMode || voiceTurnActive;
       },

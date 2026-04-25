@@ -1766,6 +1766,7 @@
       display: grid;
       align-content: stretch;
       justify-items: center;
+      flex: 1 1 auto;
       gap: 10px;
       padding: 8px 12px 0;
     }
@@ -1787,25 +1788,33 @@
 
     body.call-mode .hero-avatar-wrap .voice-avatar-stage {
       width: 100%;
-      min-height: min(70vh, 780px);
+      min-height: min(52vh, 560px);
       align-content: center;
       justify-items: center;
     }
 
     body.call-mode .hero-avatar-wrap .voice-avatar-shell {
-      width: min(82vw, 560px);
-      height: min(82vw, 560px);
-      min-width: 300px;
-      min-height: 300px;
+      width: min(58vw, 460px);
+      height: min(58vw, 460px);
+      min-width: 240px;
+      min-height: 240px;
     }
 
     body.call-mode .voice-avatar-meta {
       gap: 10px;
     }
 
+    body.call-mode .voice-avatar-name {
+      display: none;
+    }
+
     body.call-mode .call-hero-status {
       display: inline-flex;
       max-width: min(100%, 420px);
+    }
+
+    body.call-mode .voice-avatar-chooser {
+      display: none;
     }
 
     body:not(.call-mode) .voice-avatar-chooser {
@@ -1837,6 +1846,8 @@
       transform: none;
       pointer-events: auto;
       gap: 18px;
+      justify-content: space-between;
+      overflow-y: auto;
     }
 
     body.call-mode .chat-shell.collapsed {
@@ -2223,11 +2234,7 @@
     }
 
     .dock-actions {
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      gap: 8px;
-      flex-wrap: wrap;
+      display: none;
     }
 
     .dock-actions button {
@@ -2295,6 +2302,7 @@
     }
 
     body.call-mode .composer-dock {
+      margin-top: auto;
       gap: 12px;
       padding: 14px 16px 16px;
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2320,6 +2328,12 @@
       transform: translateX(-50%);
       z-index: 2;
       max-width: min(100%, 320px);
+    }
+
+    body.call-mode .call-control-bar {
+      position: sticky;
+      bottom: 0;
+      z-index: 3;
     }
 
     .call-control-bar {
@@ -2594,6 +2608,17 @@
 
       .call-control-bar {
         grid-template-columns: minmax(0, 1fr);
+      }
+
+      body.call-mode .hero-avatar-wrap .voice-avatar-stage {
+        min-height: min(58vh, 520px);
+      }
+
+      body.call-mode .hero-avatar-wrap .voice-avatar-shell {
+        width: min(82vw, 420px);
+        height: min(82vw, 420px);
+        min-width: 220px;
+        min-height: 220px;
       }
 
       .call-control-button {
@@ -3282,6 +3307,23 @@
     const callHeroStatusText = document.getElementById("callHeroStatusText");
     const composerSubmitButton = chatForm ? chatForm.querySelector(".composer-submit") : null;
     let airVoiceController = null;
+    const CALL_MODE_VIEW_KEY = "chanakya-call-mode-view";
+    let preferredCallModeView = false;
+
+    function loadStoredCallModeView() {
+      try {
+        return window.localStorage.getItem(CALL_MODE_VIEW_KEY) === "true";
+      } catch {
+        return false;
+      }
+    }
+
+    function storeCallModeView(value) {
+      try {
+        window.localStorage.setItem(CALL_MODE_VIEW_KEY, value ? "true" : "false");
+      } catch {
+      }
+    }
 
     function isCompactComposerViewport() {
       return window.innerWidth <= 640;
@@ -3302,6 +3344,7 @@
       }
       const hasText = messageInput.value.trim().length > 0;
       composerDock.classList.toggle("has-text", hasText);
+      composerDock.classList.toggle("show-desktop-controls", !isCompactComposerViewport() && !hasText);
       if (composerSubmitButton) {
         composerSubmitButton.disabled = !hasText;
       }
@@ -3339,8 +3382,12 @@
         composerDock.classList.toggle("voice-mode-active", isCallModeActive());
       }
       if (callModePrimaryLabel) {
-        callModePrimaryLabel.textContent = isCallModeActive() ? "End Voice" : "Start Voice";
+        callModePrimaryLabel.textContent = isCallModeActive() ? "End Voice" : (preferredCallModeView ? "Resume Call" : "Start Voice");
       }
+    }
+
+    function isCallModeVisible() {
+      return preferredCallModeView || isCallModeActive();
     }
 
     function syncCallHeroStatus(text) {
@@ -3348,9 +3395,11 @@
         return;
       }
       const nextText = String(text || "").trim();
-      const shouldShow = isCallModeActive() && !shouldHideVoiceStatusText(nextText);
+      const resumeText = preferredCallModeView && !isCallModeActive() ? "Resume call to continue." : "";
+      const resolvedText = nextText || resumeText;
+      const shouldShow = isCallModeVisible() && !shouldHideVoiceStatusText(resolvedText);
       callHeroStatus.hidden = !shouldShow;
-      callHeroStatusText.textContent = shouldShow ? nextText : "";
+      callHeroStatusText.textContent = shouldShow ? resolvedText : "";
     }
 
     function resizeComposerTextarea() {
@@ -3435,6 +3484,7 @@
       "persistent-agents": "Persistent Agents",
     };
 
+    preferredCallModeView = loadStoredCallModeView();
     let sessionId = null;
     let selectedAgentId = null;
     let availableTools = [];
@@ -3557,7 +3607,7 @@
     }
 
     function syncCallModeState() {
-      const inCallMode = activeMainMode === "chat" && isCallModeActive();
+      const inCallMode = activeMainMode === "chat" && isCallModeVisible();
       document.body.classList.toggle("call-mode", inCallMode);
       if (inCallMode) {
         setComposerMenuOpen(false);
@@ -3582,10 +3632,10 @@
     function setChatExpanded(nextValue) {
       isChatExpanded = Boolean(nextValue);
       if (chatShell) {
-        chatShell.classList.toggle("collapsed", !isChatExpanded && !isCallModeActive());
+        chatShell.classList.toggle("collapsed", !isChatExpanded && !isCallModeVisible());
       }
       if (heroStage) {
-        heroStage.hidden = (isChatExpanded && !isCallModeActive()) || activeMainMode === "config";
+        heroStage.hidden = (isChatExpanded && !isCallModeVisible()) || activeMainMode === "config";
       }
       if (heroChatToggle) {
         heroChatToggle.textContent = isChatExpanded ? "Hide Chat" : "Open Chat";
@@ -3627,7 +3677,7 @@
     function syncMainMode() {
       const isConfigMode = activeMainMode === "config";
       if (heroStage) {
-        heroStage.hidden = isConfigMode || (isChatExpanded && !isCallModeActive());
+        heroStage.hidden = isConfigMode || (isChatExpanded && !isCallModeVisible());
       }
       if (configShell) {
         configShell.classList.toggle("is-active", isConfigMode);
@@ -3660,6 +3710,32 @@
     }
 
     function triggerVoiceControl(action) {
+      if (action === "loop") {
+        if (airVoiceController) {
+          if (isCallModeActive()) {
+            preferredCallModeView = false;
+            storeCallModeView(false);
+            void airVoiceController.stopVoiceMode().finally(() => {
+              syncHeroState();
+              syncCallModeState();
+            });
+            return;
+          }
+          preferredCallModeView = true;
+          storeCallModeView(true);
+          void airVoiceController.startVoiceMode().then(() => {
+            syncHeroState();
+            syncCallModeState();
+          }).catch((error) => {
+            preferredCallModeView = false;
+            storeCallModeView(false);
+            appendMessage("assistant", error instanceof Error ? error.message : String(error));
+            syncHeroState();
+            syncCallModeState();
+          });
+          return;
+        }
+      }
       const mapping = {
         mic: airMicButton,
         loop: airVoiceLoopButton,
@@ -3676,24 +3752,28 @@
     function deriveHeroStatusState() {
       const queueText = String(conversationQueueStatus?.textContent || "").trim();
       const voiceText = String(airVoiceStatus?.textContent || "").trim();
-      const combined = `${queueText} ${voiceText}`.trim().toLowerCase();
-      const preferredText = voiceText || queueText;
+      const queueLower = queueText.toLowerCase();
+      const voiceLower = voiceText.toLowerCase();
+      const preferredText = queueText || voiceText;
       if (conversationQueueStatus?.dataset.state === "error" || airVoiceStatus?.dataset.state === "error") {
         return { state: "error", text: preferredText || "Voice error" };
       }
-      if (/transcribing/.test(combined)) {
+      if (/thinking|processing|analyzing|assistant is still running|request is still being processed|recovering saved messages|waiting for the assistant response/.test(queueLower)) {
+        return { state: "thinking", text: queueText || "Thinking..." };
+      }
+      if (/queued|pacing|generating speech|finished replying|spoken follow-up|queued follow-up|speaking/.test(queueLower)) {
+        return { state: /queued|pacing/.test(queueLower) ? "queued" : "speaking", text: queueText || "Speaking..." };
+      }
+      if (/transcribing/.test(voiceLower)) {
         return { state: "listening", text: voiceText || "Transcribing..." };
       }
-      if (/recording|listening|interruption/.test(combined)) {
+      if (/generating speech|assistant reply spoken/.test(voiceLower)) {
+        return { state: "speaking", text: voiceText || "Speaking..." };
+      }
+      if (/recording|listening|interruption/.test(voiceLower)) {
         return { state: "listening", text: voiceText || "Listening..." };
       }
-      if (/thinking|processing|analyzing/.test(combined)) {
-        return { state: "thinking", text: queueText || voiceText || "Thinking..." };
-      }
-      if (/queued|speaking|replying|pacing|waiting|generating speech/.test(combined)) {
-        return { state: queueText ? "queued" : "speaking", text: preferredText || "Speaking..." };
-      }
-      if (/stopped/.test(combined)) {
+      if (/stopped/.test(voiceLower)) {
         return { state: "idle", text: voiceText || "Voice mode stopped." };
       }
       return { state: "idle", text: "" };
