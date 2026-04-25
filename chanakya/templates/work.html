@@ -25,6 +25,7 @@
         --glow-warm: #ff8d6b;
       }
       * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
       body {
         margin: 0;
         color: var(--text);
@@ -43,7 +44,7 @@
         padding: 24px;
         display: grid;
         gap: 20px;
-        grid-template-columns: 320px 1fr 1.2fr;
+        grid-template-columns: 320px minmax(0, 1fr);
       }
       .panel {
         position: relative;
@@ -67,14 +68,12 @@
           linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 26%);
       }
       .left,
-      .chat,
-      .history {
+      .chat {
         display: flex;
         flex-direction: column;
         min-height: 0;
       }
-      .left,
-      .history {
+      .left {
         max-height: calc(100vh - 48px);
         position: sticky;
         top: 24px;
@@ -108,12 +107,6 @@
           radial-gradient(circle at top right, rgba(79, 215, 255, 0.1), transparent 28%),
           linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
       }
-      .history .header {
-        padding: 20px 22px 16px;
-        background:
-          radial-gradient(circle at top right, rgba(143, 125, 255, 0.12), transparent 28%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
-      }
       .workspace-kicker {
         margin: 0 0 8px;
         font-size: 11px;
@@ -141,7 +134,36 @@
       .header-actions {
         margin-top: 12px;
         display: flex;
+        flex-wrap: wrap;
         gap: 8px;
+      }
+      .header-action-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 40px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+        font-weight: 600;
+      }
+      .header-action-button svg {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      #utilityToggleButton {
+        display: none;
+      }
+      .utility-close {
+        display: none;
       }
       .button-secondary {
         background: rgba(255, 255, 255, 0.05);
@@ -445,34 +467,129 @@
       .rendered-markdown a {
         color: #8ecbff;
       }
-      .composer {
+      .composer-dock {
         position: relative;
         z-index: 1;
         border-top: 1px solid rgba(255, 255, 255, 0.06);
         padding: 14px 16px 16px;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
         gap: 10px;
-        align-items: center;
         background: rgba(8, 10, 18, 0.84);
         backdrop-filter: blur(14px);
       }
-      .composer input {
-        min-height: 52px;
-        padding: 14px 18px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.05);
+      .composer {
+        position: relative;
+        display: grid;
+        gap: 10px;
       }
-      #sendButton,
+      .composer-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        gap: 10px;
+        align-items: end;
+      }
+      .composer-textarea {
+        min-height: 52px;
+        max-height: 128px;
+        padding: 14px 18px;
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.05);
+        resize: none;
+        overflow-y: hidden;
+        line-height: 1.5;
+      }
+      .composer-aux-button,
+      .composer-submit {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+      }
+      .composer-aux-button svg,
+      .composer-submit svg {
+        width: 20px;
+        height: 20px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .composer-menu {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(15, 18, 28, 0.95);
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28);
+      }
+      .composer-menu[hidden] {
+        display: none !important;
+      }
+      .composer-menu button {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        justify-content: flex-start;
+        text-align: left;
+        border-radius: 14px;
+        padding: 11px 12px;
+      }
+      .composer-menu button svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .composer-dock.has-text .composer-stt-proxy {
+        display: none;
+      }
+      .composer-dock:not(.has-text) .composer-submit {
+        opacity: 0.45;
+        pointer-events: none;
+      }
       #createWorkButton {
         border: 0;
         color: #fff;
         background: linear-gradient(45deg, #2bd1ff, #4561ff 62%, #835eff);
         box-shadow: 0 10px 24px rgba(57, 128, 255, 0.24);
       }
-      #sendButton:hover:not(:disabled),
       #createWorkButton:hover:not(:disabled) {
         background: linear-gradient(45deg, #1ec8f9, #3f59ea 62%, #7758ee);
+      }
+      .composer-submit {
+        border: 0;
+        color: #fff;
+        background: linear-gradient(45deg, #2bd1ff, #4561ff 62%, #835eff);
+        box-shadow: 0 10px 24px rgba(57, 128, 255, 0.24);
+      }
+      .composer-submit:hover:not(:disabled) {
+        background: linear-gradient(45deg, #1ec8f9, #3f59ea 62%, #7758ee);
+      }
+      .dock-status {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .air-status-card {
+        padding: 10px 12px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .air-status-title {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #d8f3ff;
       }
       .control-deck {
         margin-top: 0;
@@ -668,11 +785,11 @@
         border-top: 1px solid var(--line);
         padding-top: 12px;
       }
-      .history .body {
-        padding: 18px;
-        background:
-          radial-gradient(circle at top left, rgba(143, 125, 255, 0.09), transparent 25%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+      .history-mirror {
+        display: none;
+      }
+      .utility-scrim {
+        display: none;
       }
       details.section-toggle {
         margin-top: 14px;
@@ -891,22 +1008,6 @@
         border-radius: 16px;
         background: rgba(255, 255, 255, 0.025);
       }
-      @media (max-width: 1200px) {
-        .shell {
-          grid-template-columns: 1fr;
-          padding: 18px;
-        }
-        .left,
-        .chat,
-        .history {
-          min-height: auto;
-          max-height: none;
-          height: auto;
-          position: static;
-          top: auto;
-        }
-      }
-
       .runtime-chip {
         display: inline-flex;
         align-items: center;
@@ -938,6 +1039,67 @@
       .control-group.is-disabled {
         opacity: 0.6;
       }
+      @media (max-width: 1200px) {
+        .shell {
+          grid-template-columns: 300px minmax(0, 1fr);
+          padding: 18px;
+        }
+        .left,
+        .chat {
+          min-height: auto;
+          max-height: none;
+          height: auto;
+        }
+      }
+      @media (max-width: 960px) {
+        body.utility-panel-open {
+          overflow: hidden;
+        }
+        .shell {
+          grid-template-columns: 1fr;
+        }
+        .left {
+          position: fixed;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          width: min(88vw, 360px);
+          max-height: none;
+          z-index: 30;
+          border-radius: 0 24px 24px 0;
+          transform: translateX(-110%);
+          transition: transform 180ms ease;
+        }
+        body.utility-panel-open .left {
+          transform: translateX(0);
+        }
+        .utility-close {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 40px;
+          height: 40px;
+          padding: 0;
+          border-radius: 999px;
+        }
+        #utilityToggleButton {
+          display: inline-flex;
+        }
+        .utility-scrim {
+          position: fixed;
+          inset: 0;
+          display: block;
+          background: rgba(4, 7, 13, 0.68);
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 180ms ease;
+          z-index: 20;
+        }
+        body.utility-panel-open .utility-scrim {
+          opacity: 1;
+          pointer-events: auto;
+        }
+      }
       @media (max-width: 900px) {
         .control-grid {
           grid-template-columns: 1fr;
@@ -953,16 +1115,14 @@
         }
         .header,
         .left .header,
-        .chat .header,
-        .history .header {
+        .chat .header {
           padding-left: 16px;
           padding-right: 16px;
         }
         .body,
         .left .body,
-        .history .body,
         .chat-log,
-        .composer {
+        .composer-dock {
           padding-left: 14px;
           padding-right: 14px;
         }
@@ -971,7 +1131,11 @@
         .air-controls {
           grid-template-columns: 1fr;
         }
-        .composer {
+        .composer-row {
+          grid-template-columns: auto minmax(0, 1fr) auto auto;
+          gap: 8px;
+        }
+        .dock-status {
           grid-template-columns: 1fr;
         }
       }
@@ -981,8 +1145,13 @@
     <div class="shell">
       <section class="panel left">
         <div class="header">
-          <p class="workspace-kicker">Workspace Mode</p>
-          <h1>Works</h1>
+          <div class="header-actions">
+            <div>
+              <p class="workspace-kicker">Workspace Mode</p>
+              <h1>Works</h1>
+            </div>
+            <button id="utilityCloseButton" type="button" class="utility-close button-secondary" aria-label="Close controls">✕</button>
+          </div>
           <p>Create and reopen long-running work contexts without crowding the main chat pane.</p>
           <div class="link-row"><a href="/">Open classic chat</a></div>
         </div>
@@ -1057,6 +1226,25 @@
                     <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
                     {% endif %}
                   </section>
+                  <section class="control-group">
+                    <p class="control-group-title">Speech Tools</p>
+                    <p class="control-group-note">Manual speech-to-text for prompts and text-to-speech for the latest reply. No voice mode in workspaces.</p>
+                    <div class="air-links">
+                      <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
+                      <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
+                    </div>
+                    <div class="air-models">
+                      <label>
+                        STT Model
+                        <select id="airSttModel"></select>
+                      </label>
+                      <label>
+                        TTS Model
+                        <select id="airTtsModel"></select>
+                      </label>
+                    </div>
+                    <p id="airVoiceStatus" class="air-status"></p>
+                  </section>
                 </div>
                 <div id="conversationQueueStatus" class="air-status"></div>
               </div>
@@ -1077,24 +1265,65 @@
           <h2 id="chatTitle">Select a work</h2>
           <p id="chatSubtitle">Work-scoped chat with Chanakya.</p>
           <div class="header-actions">
+            <button id="utilityToggleButton" type="button" class="header-action-button button-secondary">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></svg>
+              Controls
+            </button>
+            <button id="openHistoriesButton" type="button" class="header-action-button button-secondary">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5" /><path d="M10 14 19 5" /><path d="M19 14v5h-5" /><path d="M5 10V5h5" /></svg>
+              Agent Histories
+            </button>
             <button id="deleteWorkButton" type="button" class="button-secondary" disabled>Delete Work</button>
           </div>
         </div>
         <div id="chatLog" class="chat-log"><div class="empty">No work selected.</div></div>
-        <form id="chatForm" class="composer">
-          <input id="messageInput" type="text" placeholder="Send update request for this work..." required />
-          <button id="sendButton" type="submit" disabled>Send</button>
-        </form>
-      </section>
-
-      <section class="panel history">
-        <div class="header">
-          <h2>Agent Histories</h2>
-          <p>All work-scoped sessions across agents.</p>
+        <div id="composerDock" class="composer-dock">
+          <form id="chatForm" class="composer">
+            <div class="composer-row">
+              <button id="composerMoreButton" class="composer-aux-button" type="button" title="More controls" aria-label="More controls" aria-expanded="false" aria-controls="composerMenu">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+              </button>
+              <textarea id="messageInput" class="composer-textarea" placeholder="Send update request for this work..." rows="1" required></textarea>
+              <button class="composer-aux-button composer-stt-proxy" type="button" data-voice-proxy="mic" title="Send voice note" aria-label="Send voice note">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2.5 2.5 0 0 0-2.5 2.5v5a2.5 2.5 0 1 0 5 0v-5A2.5 2.5 0 0 0 12 4Z" /><path d="M7 11.5a5 5 0 0 0 10 0" /><path d="M12 16.5V20" /><path d="M9 20h6" /></svg>
+              </button>
+              <button id="sendButton" type="submit" class="composer-submit" aria-label="Send message" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="m18 11-6-6-6 6" /></svg>
+              </button>
+            </div>
+          </form>
+          <div id="composerMenu" class="composer-menu" hidden>
+            <button type="button" data-voice-proxy="speak">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 14h3l4 3V7L8 10H5v4Z" /><path d="M16 9a4.5 4.5 0 0 1 0 6" /><path d="M18.5 6.5a8 8 0 0 1 0 11" /></svg>
+              Speak latest reply
+            </button>
+            <button type="button" data-voice-proxy="refresh">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M7.5 16A7 7 0 0 0 19 11" /><path d="M16.5 8A7 7 0 0 0 5 13" /></svg>
+              Refresh models
+            </button>
+          </div>
+          <div class="dock-status">
+            <div class="air-status-card">
+              <div class="air-status-title">Queue</div>
+              <div id="composerQueueStatus" class="air-status"></div>
+            </div>
+            <div class="air-status-card">
+              <div class="air-status-title">Speech</div>
+              <div id="composerVoiceStatus" class="air-status"></div>
+            </div>
+          </div>
+          <div class="history-mirror">
+            <div id="historyList" class="body"><div class="empty">No histories yet.</div></div>
+          </div>
+          <div class="history-mirror">
+            <button id="airMicButton" type="button">Mic</button>
+            <button id="airSpeakButton" type="button">Speak Reply</button>
+            <button id="airRefreshModelsButton" type="button">Refresh Models</button>
+          </div>
         </div>
-        <div id="historyList" class="body"><div class="empty">No histories yet.</div></div>
       </section>
     </div>
+    <div id="utilityScrim" class="utility-scrim"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
@@ -1115,6 +1344,7 @@
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-go.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-rust.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markdown.min.js"></script>
+    <script src="{{ url_for('static', filename='js/air_voice.js') }}"></script>
     <script>
       const AIR_SERVER_URL = {{ air_server_url | tojson }};
       const workForm = document.getElementById("workForm");
@@ -1125,10 +1355,21 @@
       const chatTitle = document.getElementById("chatTitle");
       const chatSubtitle = document.getElementById("chatSubtitle");
       const chatLog = document.getElementById("chatLog");
+      const composerDock = document.getElementById("composerDock");
       const chatForm = document.getElementById("chatForm");
+      const composerMoreButton = document.getElementById("composerMoreButton");
+      const composerMenu = document.getElementById("composerMenu");
       const messageInput = document.getElementById("messageInput");
       const sendButton = document.getElementById("sendButton");
       const airLlmModel = document.getElementById("airLlmModel");
+      const airSttModel = document.getElementById("airSttModel");
+      const airTtsModel = document.getElementById("airTtsModel");
+      const airVoiceStatus = document.getElementById("airVoiceStatus");
+      const composerQueueStatus = document.getElementById("composerQueueStatus");
+      const composerVoiceStatus = document.getElementById("composerVoiceStatus");
+      const airMicButton = document.getElementById("airMicButton");
+      const airSpeakButton = document.getElementById("airSpeakButton");
+      const airRefreshModelsButton = document.getElementById("airRefreshModelsButton");
       const chatBackendSelect = document.getElementById("chatBackendSelect");
       const a2aRefreshOptionsButton = document.getElementById("a2aRefreshOptionsButton");
       const a2aAgentInput = document.getElementById("a2aAgentInput");
@@ -1141,6 +1382,10 @@
       const historyList = document.getElementById("historyList");
       const INITIAL_WORK_ID = {{ initial_work_id|tojson }};
       const deleteWorkButton = document.getElementById("deleteWorkButton");
+      const openHistoriesButton = document.getElementById("openHistoriesButton");
+      const utilityToggleButton = document.getElementById("utilityToggleButton");
+      const utilityCloseButton = document.getElementById("utilityCloseButton");
+      const utilityScrim = document.getElementById("utilityScrim");
 
       const WORK_STORAGE_KEY = "chanakya-active-work";
       const SESSION_STORAGE_KEY = "chanakya-active-session";
@@ -1155,6 +1400,7 @@
       let works = [];
       let slideshowTimer = null;
       let workLiveRefreshTimer = null;
+      let historiesWindow = null;
       let historyInFlight = false;
       let historyFetchNonce = 0;
       let taskUiInteractingUntil = 0;
@@ -1176,6 +1422,49 @@
 
       function delay(ms) {
         return new Promise((resolve) => window.setTimeout(resolve, ms));
+      }
+
+      function isCompactComposerViewport() {
+        return window.innerWidth <= 640;
+      }
+
+      function setComposerMenuOpen(isOpen) {
+        if (!composerMenu || !composerMoreButton) {
+          return;
+        }
+        const nextValue = Boolean(isOpen);
+        composerMenu.hidden = !nextValue;
+        composerMoreButton.setAttribute("aria-expanded", nextValue ? "true" : "false");
+      }
+
+      function resizeComposerTextarea() {
+        if (!messageInput) {
+          return;
+        }
+        messageInput.style.height = "auto";
+        const maxHeight = 128;
+        messageInput.style.height = `${Math.min(messageInput.scrollHeight, maxHeight)}px`;
+        messageInput.style.overflowY = messageInput.scrollHeight > maxHeight ? "auto" : "hidden";
+      }
+
+      function syncComposerInputState() {
+        if (!composerDock || !messageInput || !sendButton) {
+          return;
+        }
+        const hasText = messageInput.value.trim().length > 0;
+        const sttProxy = composerDock.querySelector(".composer-stt-proxy");
+        composerDock.classList.toggle("has-text", hasText);
+        sendButton.disabled = !hasText || !activeWorkId;
+        if (sttProxy) {
+          sttProxy.disabled = !activeWorkId;
+        }
+        if (hasText) {
+          setComposerMenuOpen(false);
+        }
+      }
+
+      function setUtilityPanelOpen(isOpen) {
+        document.body.classList.toggle("utility-panel-open", Boolean(isOpen));
       }
 
       function isRecoverableNetworkError(error) {
@@ -1810,19 +2099,30 @@
       }
 
       function setConversationQueueStatus(text, isError = false) {
-        if (!conversationQueueStatus) {
-          return;
-        }
-        conversationQueueStatus.textContent = text || "";
-        conversationQueueStatus.dataset.state = isError ? "error" : "idle";
+        [conversationQueueStatus, composerQueueStatus].forEach((node) => {
+          if (!node) {
+            return;
+          }
+          node.textContent = text || "";
+          node.dataset.state = isError ? "error" : "idle";
+        });
+      }
+
+      function syncSpeechStatus(text, isError = false) {
+        [airVoiceStatus, composerVoiceStatus].forEach((node) => {
+          if (!node) {
+            return;
+          }
+          node.textContent = text || "";
+          node.dataset.state = isError ? "error" : "idle";
+        });
       }
 
       let voiceQueuePaused = false;
       let voiceQueueGeneration = 0;
 
       function isVoiceDeliveryMode() {
-        return Boolean(airVoiceController && typeof airVoiceController.isVoiceModeEnabled === "function"
-          && airVoiceController.isVoiceModeEnabled());
+        return false;
       }
 
       function resetVoiceQueueState() {
@@ -2126,7 +2426,7 @@
       }
 
       async function submitWorkChatMessage(message, options = {}) {
-        const { onAssistantMessage, voiceMode = false } = options;
+        const { onAssistantMessage, voiceMode = false, messageMetadata = null } = options;
         if (!activeWorkId) {
           throw new Error("Select a work before starting voice mode.");
         }
@@ -2153,6 +2453,7 @@
               a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
               a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
               a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
+              message_metadata: messageMetadata,
             }),
           });
         } catch (error) {
@@ -2210,6 +2511,33 @@
           airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
         }
         return data;
+      }
+
+      async function sendWorkMessage(message, options = {}) {
+        const { messageMetadata = null } = options;
+        if (!activeWorkId) {
+          return;
+        }
+        const text = String(message || "").trim();
+        if (!text) {
+          return;
+        }
+        appendChatMessage("user", text);
+        if (messageInput) {
+          messageInput.value = "";
+          resizeComposerTextarea();
+          syncComposerInputState();
+        }
+        slideshowState.followLatest = true;
+        startLiveRefresh(900);
+        try {
+          await submitWorkChatMessage(text, { messageMetadata });
+        } catch (error) {
+          appendChatMessage("assistant", error instanceof Error ? error.message : String(error));
+        } finally {
+          startLiveRefresh(2400);
+          syncComposerInputState();
+        }
       }
 
       if (chatBackendSelect) {
@@ -2286,6 +2614,46 @@
         void syncActiveWorkFromSession();
       });
 
+      window.addEventListener("air-voice-status", (event) => {
+        const detail = event instanceof CustomEvent ? event.detail || {} : {};
+        syncSpeechStatus(detail.text || "", Boolean(detail.isError));
+      });
+
+      if (window.createAirVoiceController && airMicButton && airSttModel && airTtsModel && airVoiceStatus) {
+        airVoiceController = window.createAirVoiceController({
+          baseUrl: AIR_SERVER_URL,
+          llmModelSelect: airLlmModel,
+          sttModelSelect: airSttModel,
+          ttsModelSelect: airTtsModel,
+          recordButton: airMicButton,
+          continuousButton: null,
+          speakButton: airSpeakButton,
+          statusNode: airVoiceStatus,
+          submitText: async (text, options = {}) => {
+            const { metadata = null } = options;
+            await sendWorkMessage(text, { messageMetadata: metadata });
+            return getLatestAssistantMessageText();
+          },
+          getLatestAssistantText: getLatestAssistantMessageText,
+          onTranscript: () => {},
+          beforeRecordStart: async () => {
+            if (!activeWorkId) {
+              throw new Error("Select a work before recording.");
+            }
+          },
+          pauseAssistantReplies: pauseConversationReplies,
+        });
+      }
+      if (airRefreshModelsButton) {
+        airRefreshModelsButton.addEventListener("click", async () => {
+          if (!airVoiceController || typeof airVoiceController.fetchModels !== "function") {
+            return;
+          }
+          await airVoiceController.fetchModels();
+          syncSpeechStatus(airVoiceStatus?.textContent || "", airVoiceStatus?.dataset.state === "error");
+        });
+      }
+
       function formatAsPrettyJSON(text) {
         if (typeof text !== "string") return "";
         const trimmed = text.trim();
@@ -2325,7 +2693,16 @@
         cachedRequests = [];
         sendButton.disabled = true;
         messageInput.disabled = true;
+        if (airMicButton) {
+          airMicButton.disabled = true;
+        }
+        const sttProxy = composerDock?.querySelector(".composer-stt-proxy");
+        if (sttProxy) {
+          sttProxy.disabled = true;
+        }
         deleteWorkButton.disabled = true;
+        syncHistoryWindowContent();
+        syncComposerInputState();
       }
 
       function stopSlideshow() {
@@ -2833,6 +3210,9 @@
         messages.forEach((message) => {
           appendChatMessage(message.role === "user" ? "user" : "assistant", message.content || "");
         });
+        if (airVoiceController && typeof airVoiceController.setLatestAssistantText === "function") {
+          airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
+        }
       }
 
       function renderAgentHistories(agentHistories, taskFlow, tasks, requests) {
@@ -2842,6 +3222,79 @@
         cachedRequests = requests || [];
         renderMessageSection(cachedAgentHistories);
         renderTaskSection(cachedTaskFlow, cachedTasks, cachedAgentHistories, cachedRequests);
+        syncHistoryWindowContent();
+      }
+
+      function syncHistoryWindowContent() {
+        if (!historiesWindow || historiesWindow.closed) {
+          historiesWindow = null;
+          return;
+        }
+        const doc = historiesWindow.document;
+        const titleNode = doc.getElementById("historyWindowTitle");
+        const subtitleNode = doc.getElementById("historyWindowSubtitle");
+        const contentNode = doc.getElementById("historyWindowContent");
+        if (!titleNode || !subtitleNode || !contentNode) {
+          return;
+        }
+        const activeWork = works.find((work) => work.id === activeWorkId);
+        titleNode.textContent = activeWork ? activeWork.title : "Agent Histories";
+        subtitleNode.textContent = activeWork
+          ? `${activeWork.id} | work-scoped agent sessions and task flow`
+          : "Select a work to inspect agent histories.";
+        contentNode.innerHTML = historyList ? historyList.innerHTML : '<div class="empty-state">No histories yet.</div>';
+      }
+
+      function openAgentHistoriesWindow() {
+        if (historiesWindow && !historiesWindow.closed) {
+          historiesWindow.focus();
+          syncHistoryWindowContent();
+          return;
+        }
+        historiesWindow = window.open("", "chanakya-work-histories", "width=1200,height=820,scrollbars=yes");
+        if (!historiesWindow) {
+          window.alert("Please allow popups for this site to open the Agent Histories window.");
+          return;
+        }
+        const doc = historiesWindow.document;
+        doc.open();
+        doc.write(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Chanakya Work Histories</title>
+<style>
+  :root { --bg: #0b0e17; --panel: rgba(17, 21, 34, 0.92); --line: rgba(255,255,255,0.1); --text: #e8eef8; --muted: #9aa8ba; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Inter','SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color: var(--text); background: var(--bg); }
+  .shell { max-width: 1280px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+  .header { display: grid; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .header h1 { margin: 0; font-size: 24px; }
+  .header p { margin: 0; color: var(--muted); font-size: 13px; }
+  .content { display: grid; gap: 16px; }
+  .content details, .content .empty, .content .empty-state { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+  .content summary { cursor: pointer; padding: 12px 14px; font-weight: 700; }
+  .content details > div { padding: 0 12px 12px; }
+  .content pre { white-space: pre-wrap; word-break: break-word; }
+  .content button { pointer-events: none; opacity: 0.85; }
+  .empty-state { padding: 18px; color: var(--muted); font-style: italic; }
+</style>
+</head>
+<body>
+  <div class="shell">
+    <div class="header">
+      <h1 id="historyWindowTitle">Agent Histories</h1>
+      <p id="historyWindowSubtitle">Select a work to inspect agent histories.</p>
+    </div>
+    <div id="historyWindowContent" class="content"></div>
+  </div>
+</body>
+</html>`);
+        doc.close();
+        historiesWindow.addEventListener("beforeunload", () => {
+          historiesWindow = null;
+        });
+        syncHistoryWindowContent();
       }
 
       async function loadWorks() {
@@ -2906,6 +3359,7 @@
             cachedRequests
           );
         }
+        syncHistoryWindowContent();
         if (!background && slideshowState.followLatest && Array.isArray(data.requests) && data.requests.length) {
           slideshowState.requestId = data.requests[data.requests.length - 1].id;
         }
@@ -2917,12 +3371,19 @@
         stopLiveRefresh();
         saveActiveWork(workId);
         renderWorks();
-        sendButton.disabled = false;
         messageInput.disabled = false;
+        if (airMicButton) {
+          airMicButton.disabled = false;
+        }
+        const sttProxy = composerDock?.querySelector(".composer-stt-proxy");
+        if (sttProxy) {
+          sttProxy.disabled = false;
+        }
         deleteWorkButton.disabled = false;
         await loadWorkHistory(workId);
         slideshowState.followLatest = true;
         startLiveRefresh(2400);
+        syncComposerInputState();
       }
 
       workForm.addEventListener("submit", async (event) => {
@@ -2948,32 +3409,100 @@
         }
       });
 
+      if (messageInput) {
+        messageInput.addEventListener("input", () => {
+          resizeComposerTextarea();
+          syncComposerInputState();
+        });
+        messageInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            if (!sendButton.disabled) {
+              chatForm.requestSubmit();
+            }
+          }
+        });
+      }
+
+      if (composerMoreButton) {
+        composerMoreButton.addEventListener("click", () => {
+          setComposerMenuOpen(composerMenu.hidden);
+        });
+      }
+
+      document.addEventListener("click", (event) => {
+        if (!composerMenu || composerMenu.hidden) {
+          return;
+        }
+        if (composerMenu.contains(event.target) || composerMoreButton?.contains(event.target)) {
+          return;
+        }
+        setComposerMenuOpen(false);
+      });
+
+      document.querySelectorAll("[data-voice-proxy]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const action = button.dataset.voiceProxy;
+          const mapping = {
+            mic: airMicButton,
+            speak: airSpeakButton,
+            refresh: airRefreshModelsButton,
+          };
+          const target = mapping[action];
+          if (target) {
+            target.click();
+          }
+          setComposerMenuOpen(false);
+        });
+      });
+
       chatForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        if (!activeWorkId) return;
-        const message = messageInput.value.trim();
-        if (!message) return;
-        appendChatMessage("user", message);
-        messageInput.value = "";
-        sendButton.disabled = true;
-        slideshowState.followLatest = true;
-        startLiveRefresh(900);
-        try {
-          await submitWorkChatMessage(message);
-        } catch (error) {
-          appendChatMessage("assistant", error instanceof Error ? error.message : String(error));
-        } finally {
-          startLiveRefresh(2400);
-          sendButton.disabled = false;
-        }
+        await sendWorkMessage(messageInput.value);
       });
 
       deleteWorkButton.addEventListener("click", () => {
         deleteActiveWork();
       });
 
+      if (openHistoriesButton) {
+        openHistoriesButton.addEventListener("click", () => {
+          openAgentHistoriesWindow();
+        });
+      }
+
+      if (utilityToggleButton) {
+        utilityToggleButton.addEventListener("click", () => {
+          setUtilityPanelOpen(true);
+        });
+      }
+
+      if (utilityCloseButton) {
+        utilityCloseButton.addEventListener("click", () => {
+          setUtilityPanelOpen(false);
+        });
+      }
+
+      if (utilityScrim) {
+        utilityScrim.addEventListener("click", () => {
+          setUtilityPanelOpen(false);
+        });
+      }
+
+      window.addEventListener("resize", () => {
+        resizeComposerTextarea();
+        syncComposerInputState();
+        if (window.innerWidth > 960) {
+          setUtilityPanelOpen(false);
+        }
+      });
+
       async function bootstrap() {
         await loadAppliedRuntimeConfig();
+        if (airVoiceController && typeof airVoiceController.fetchModels === "function") {
+          await airVoiceController.fetchModels();
+          syncSpeechStatus(airVoiceStatus?.textContent || "", airVoiceStatus?.dataset.state === "error");
+        }
         resetWorkView();
         await loadWorks();
         await syncActiveWorkFromSession();
@@ -2986,6 +3515,8 @@
         if (saved && works.some((work) => work.id === saved)) {
           await selectWork(saved);
         }
+        resizeComposerTextarea();
+        syncComposerInputState();
       }
 
       bootstrap();
