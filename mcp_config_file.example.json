@@ -122,6 +122,15 @@
       ],
       "transport": "stdio",
       "env": {}
+    },
+    "mcp_artifact_tools": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_artifact_tools_server"
+      ],
+      "transport": "stdio",
+      "env": {}
     }
   }
 }

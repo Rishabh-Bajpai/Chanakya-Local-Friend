@@ -77,6 +77,27 @@ def test_filesystem_tools_reject_unknown_classic_workspaces(
         server._write_text_file("notes.txt", "hello", work_id="cwork_missing")
 
 
+def test_filesystem_error_helper_lists_available_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    workspace = sandbox_workspace.resolve_shared_workspace("work_list")
+    (workspace / "src").mkdir(parents=True, exist_ok=True)
+    (workspace / "src" / "main.py").write_text("print('hi')", encoding="utf-8")
+
+    result = server._filesystem_error_payload(
+        error=FileNotFoundError("Path not found: missing.txt"),
+        path="missing.txt",
+        work_id="work_list",
+    )
+
+    assert result["ok"] is False
+    assert result["available_entries"][0]["name"] == "src"
+    assert "Retry with a valid path" in result["hint"]
+
+
 def test_http_get_json_failure_trims_with_map_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     oversized = "x" * (server.MAX_MAP_BODY_CHARS + 50)
 
@@ -217,3 +238,29 @@ def test_seed_agents_include_map_and_timer_tools() -> None:
     assert "mcp_map" not in tool_ids_by_agent["agent_researcher"]
     assert "mcp_timer" not in tool_ids_by_agent["agent_informer"]
     assert "mcp_timer" not in tool_ids_by_agent["agent_researcher"]
+
+
+def test_run_git_uses_repo_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _CompletedProcess:
+        def __init__(self) -> None:
+            self.returncode = 0
+            self.stdout = "ok\n"
+            self.stderr = ""
+
+    def _fake_run(command: list[str], **kwargs: object) -> _CompletedProcess:
+        captured["command"] = command
+        captured["cwd"] = kwargs.get("cwd")
+        return _CompletedProcess()
+
+    monkeypatch.setattr(server.subprocess, "run", _fake_run)
+
+    result = server._run_git(["status", "--short", "--branch"])
+
+    assert captured == {
+        "command": ["git", "status", "--short", "--branch"],
+        "cwd": server.REPO_ROOT,
+    }
+    assert result["ok"] is True
+    assert result["repo_root"] == str(server.REPO_ROOT)

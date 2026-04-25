@@ -8,13 +8,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, send_file
 
 from chanakya.agent.profile_files import default_heartbeat_relative_path, ensure_agent_profile_files
 from chanakya.agent.runtime import MAFRuntime, normalize_runtime_backend
 from chanakya.agent_manager import AgentManager
 from chanakya.chat_service import ChatService
-from chanakya.conversation_layer_support import get_conversation_preference_defaults
 from chanakya.config import (
     force_subagents_enabled,
     get_a2a_agent_url,
@@ -27,6 +26,7 @@ from chanakya.config import (
     get_ntfy_default_server_url,
     load_local_env,
 )
+from chanakya.conversation_layer_support import get_conversation_preference_defaults
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.debug import debug_log
 from chanakya.domain import make_id, now_iso
@@ -41,7 +41,12 @@ from chanakya.services.ntfy import (
     build_ntfy_qr_svg,
     is_valid_ntfy_topic,
 )
-from chanakya.services.sandbox_workspace import delete_shared_workspace, get_shared_workspace_root
+from chanakya.services.sandbox_workspace import (
+    delete_shared_workspace,
+    get_artifact_storage_root,
+    get_shared_workspace_root,
+    resolve_shared_workspace,
+)
 from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
 
@@ -82,6 +87,10 @@ def _normalize_runtime_config(record: dict[str, Any] | None) -> dict[str, Any]:
         config[key] = normalized or None
     if config["a2a_url"] is None:
         config["a2a_url"] = get_a2a_agent_url()
+    if config["backend"] != "a2a":
+        config["a2a_remote_agent"] = None
+        config["a2a_model_provider"] = None
+        config["a2a_model_id"] = None
     return config
 
 
@@ -96,6 +105,10 @@ def _parse_runtime_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
         _parse_optional_string(payload, "conversation_tone_instruction") or None
     )
     tts_instruction = _parse_optional_string(payload, "tts_instruction") or None
+    if backend != "a2a":
+        a2a_remote_agent = None
+        a2a_model_provider = None
+        a2a_model_id = None
     return {
         "backend": backend,
         "model_id": model_id,
@@ -106,6 +119,22 @@ def _parse_runtime_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "conversation_tone_instruction": conversation_tone_instruction,
         "tts_instruction": tts_instruction,
     }
+
+
+def _serialize_artifact_payload(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **record,
+        "download_url": f"/api/artifacts/{record['id']}/download",
+        "detail_url": f"/api/artifacts/{record['id']}",
+    }
+
+
+def _resolve_artifact_file(record: dict[str, Any]) -> Path:
+    artifact_root = get_artifact_storage_root(create=False).resolve()
+    candidate = (artifact_root / str(record.get("path") or "")).resolve()
+    if artifact_root not in candidate.parents and candidate != artifact_root:
+        raise PermissionError("Artifact path escapes workspace")
+    return candidate
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +382,11 @@ def create_app() -> Flask:
         )
         if a2a_model_id == "":
             a2a_model_id = None
+        if backend != "a2a":
+            a2a_url = None
+            a2a_remote_agent = None
+            a2a_model_provider = None
+            a2a_model_id = None
         raw_conversation_tone_instruction = payload.get("conversation_tone_instruction")
         conversation_tone_instruction = (
             str(raw_conversation_tone_instruction).strip()
@@ -369,6 +403,12 @@ def create_app() -> Flask:
         )
         if tts_instruction == "":
             tts_instruction = None
+        raw_message_metadata = payload.get("message_metadata")
+        message_metadata = (
+            dict(raw_message_metadata)
+            if isinstance(raw_message_metadata, dict)
+            else None
+        )
         debug_log(
             "api_chat_request",
             {
@@ -382,6 +422,7 @@ def create_app() -> Flask:
                 "a2a_model_id": a2a_model_id,
                 "conversation_tone_instruction": conversation_tone_instruction,
                 "tts_instruction": tts_instruction,
+                "message_metadata": message_metadata,
                 "message": message,
                 "has_existing_session": bool(payload.get("session_id")),
             },
@@ -402,6 +443,7 @@ def create_app() -> Flask:
                 a2a_model_id=a2a_model_id,
                 conversation_tone_instruction=conversation_tone_instruction,
                 tts_instruction=tts_instruction,
+                message_metadata=message_metadata,
             )
         except Exception as exc:
             debug_log(
@@ -513,6 +555,14 @@ def create_app() -> Flask:
         records = store.list_requests(session_id=session_id, limit=limit)
         debug_log("api_requests_request", {"request_count": len(records)})
         return jsonify({"requests": records})
+
+    @app.get("/api/requests/<request_id>/artifacts")
+    def api_request_artifacts(request_id: str) -> Any:
+        artifacts = [
+            _serialize_artifact_payload(item)
+            for item in store.list_artifacts_for_request(request_id)
+        ]
+        return jsonify({"request_id": request_id, "artifacts": artifacts})
 
     @app.get("/api/tasks")
     def api_tasks() -> Any:
@@ -720,6 +770,89 @@ def create_app() -> Flask:
         works = store.list_works(limit=limit, status=status)
         return jsonify({"works": works})
 
+    @app.get("/api/works/<work_id>/artifacts")
+    def api_work_artifacts(work_id: str) -> Any:
+        try:
+            store.get_work(work_id)
+        except KeyError as exc:
+            message = str(exc.args[0]) if exc.args else str(exc)
+            return jsonify({"error": message}), 404
+        artifacts = [
+            _serialize_artifact_payload(item)
+            for item in store.list_artifacts_for_work(work_id)
+        ]
+        return jsonify({"work_id": work_id, "artifacts": artifacts})
+
+    @app.get("/api/artifacts/<artifact_id>")
+    def api_artifact_detail(artifact_id: str) -> Any:
+        try:
+            artifact = store.get_artifact(artifact_id)
+        except KeyError as exc:
+            message = str(exc.args[0]) if exc.args else str(exc)
+            return jsonify({"error": message}), 404
+        return jsonify(
+            _serialize_artifact_payload(
+                {
+                    "id": artifact.id,
+                    "request_id": artifact.request_id,
+                    "session_id": artifact.session_id,
+                    "work_id": artifact.work_id,
+                    "name": artifact.name,
+                    "title": artifact.title,
+                    "summary": artifact.summary,
+                    "path": artifact.path,
+                    "mime_type": artifact.mime_type,
+                    "kind": artifact.kind,
+                    "size_bytes": artifact.size_bytes,
+                    "source_agent_id": artifact.source_agent_id,
+                    "source_agent_name": artifact.source_agent_name,
+                    "latest_request_id": artifact.latest_request_id,
+                    "supersedes_artifact_id": artifact.supersedes_artifact_id,
+                    "created_at": artifact.created_at,
+                    "updated_at": artifact.updated_at,
+                }
+            )
+        )
+
+    @app.get("/api/artifacts/<artifact_id>/download")
+    def api_artifact_download(artifact_id: str) -> Any:
+        try:
+            artifact = store.get_artifact(artifact_id)
+        except KeyError as exc:
+            message = str(exc.args[0]) if exc.args else str(exc)
+            return jsonify({"error": message}), 404
+        artifact_payload = {
+            "id": artifact.id,
+            "request_id": artifact.request_id,
+            "session_id": artifact.session_id,
+            "work_id": artifact.work_id,
+            "name": artifact.name,
+            "title": artifact.title,
+            "summary": artifact.summary,
+            "path": artifact.path,
+            "mime_type": artifact.mime_type,
+            "kind": artifact.kind,
+            "size_bytes": artifact.size_bytes,
+            "source_agent_id": artifact.source_agent_id,
+            "source_agent_name": artifact.source_agent_name,
+            "latest_request_id": artifact.latest_request_id,
+            "supersedes_artifact_id": artifact.supersedes_artifact_id,
+            "created_at": artifact.created_at,
+            "updated_at": artifact.updated_at,
+        }
+        try:
+            artifact_file = _resolve_artifact_file(artifact_payload)
+        except (PermissionError, ValueError):
+            return jsonify({"error": "Artifact path is invalid"}), 400
+        if not artifact_file.is_file():
+            return jsonify({"error": "Artifact file not found"}), 404
+        return send_file(
+            artifact_file,
+            as_attachment=True,
+            download_name=artifact.name,
+            mimetype=artifact.mime_type or "application/octet-stream",
+        )
+
     @app.delete("/api/works/<work_id>")
     def api_delete_work(work_id: str) -> Any:
         try:
@@ -729,17 +862,35 @@ def create_app() -> Flask:
             return jsonify({"error": message}), 404
         for session_id in deleted_session_ids:
             runtime.clear_session_state(session_id)
-        delete_shared_workspace(work_id)
+        workspace_cleanup = delete_shared_workspace(work_id)
         store.log_event(
             "work_deleted",
             {
                 "work_id": work_id,
                 "session_count": len(deleted_session_ids),
+                "workspace_cleanup_ok": bool(workspace_cleanup.get("ok")),
             },
         )
-        return jsonify(
-            {"deleted": True, "work_id": work_id, "session_count": len(deleted_session_ids)}
-        )
+        response = {
+            "deleted": True,
+            "work_id": work_id,
+            "session_count": len(deleted_session_ids),
+        }
+        if not workspace_cleanup.get("ok"):
+            response["warning"] = {
+                "code": "workspace_cleanup_failed",
+                "message": "Work deleted, but sandbox workspace cleanup failed.",
+                "workspace": workspace_cleanup,
+            }
+            store.log_event(
+                "work_workspace_cleanup_failed",
+                {
+                    "work_id": work_id,
+                    "session_count": len(deleted_session_ids),
+                    "workspace": workspace_cleanup,
+                },
+            )
+        return jsonify(response)
 
     @app.get("/api/a2a/options")
     def api_a2a_options() -> Any:

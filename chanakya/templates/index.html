@@ -5,12 +5,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Chanakya</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/voice_stage.css') }}" />
   <style>
     :root {
-      --bg: #121212;
-      --panel: rgba(25, 25, 25, 0.95);
-      --line: #333333;
+      --bg: #111111;
+      --panel: rgba(22, 22, 22, 0.96);
+      --line: #2a2a2a;
       --text: #e8e6e3;
       --muted: #9a9590;
       --accent: #d86b4a;
@@ -19,62 +24,215 @@
       --green: #4caf50;
       --red: #e74c3c;
       --yellow: #f39c12;
+      --sidebar-width: 320px;
     }
 
     * {
       box-sizing: border-box;
     }
 
+    [hidden] {
+      display: none !important;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     body {
       margin: 0;
-      font-family: Georgia, "Iowan Old Style", serif;
+      font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       color: var(--text);
-      background:
-        radial-gradient(circle at top left, rgba(50, 50, 50, 0.4), transparent 30%),
-        linear-gradient(135deg, #1a1a1a 0%, #121212 45%, #0d0d0d 100%);
+      background: var(--bg);
+      height: 100vh;
+      overflow: hidden;
     }
 
     .shell {
-      max-width: 1600px;
-      margin: 0 auto;
-      padding: 20px;
+      margin: 0;
+      padding: 0;
       display: grid;
-      grid-template-columns: 280px 1.4fr 1fr;
-      gap: 18px;
-      min-height: 100vh;
-      height: auto;
-      min-height: 0;
-      align-items: start;
-    }
-
-    /* ---- Left sidebar: Current Task Progress ---- */
-    .left-sidebar {
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-      max-height: calc(100vh - 40px);
-      position: sticky;
-      top: 20px;
+      grid-template-columns: 1fr var(--sidebar-width);
+      grid-template-rows: auto 1fr;
+      height: 100vh;
       overflow: hidden;
     }
 
-    .left-sidebar .panel {
+    /* ---- Top Bar ---- */
+    .top-bar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(17, 17, 17, 0.98);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      z-index: 10;
+      min-height: 48px;
+    }
+
+    .top-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .top-bar .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
+      color: var(--text);
+      font-family: 'Cormorant Garamond', Georgia, serif;
+    }
+
+    .top-bar .brand-primary {
+      font-size: 1.65rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1;
+    }
+
+    .top-bar .brand-secondary {
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: #d4cdc6;
+      white-space: nowrap;
+    }
+
+    .top-bar-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .debug-logs-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+
+    .debug-logs-button:hover {
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--text);
+      border-color: #444;
+    }
+
+    .debug-logs-button svg {
+      width: 14px;
+      height: 14px;
+      opacity: 0.7;
+    }
+
+    /* ---- Right Sidebar ---- */
+    .right-sidebar {
       display: flex;
       flex-direction: column;
-      overflow: hidden;
-      height: 100%;
-    }
-
-    .left-sidebar .section-header {
-      padding: 14px 14px 0;
-    }
-
-    .left-sidebar .section-body {
-      flex: 1;
+      border-left: 1px solid var(--line);
+      background: rgba(15, 15, 15, 0.98);
       overflow-y: auto;
-      padding: 10px 14px 14px;
+      overflow-x: hidden;
       scrollbar-width: thin;
-      scrollbar-color: #4a4a4a rgba(0, 0, 0, 0.3);
+      scrollbar-color: #3a3a3a transparent;
+    }
+
+    .right-sidebar::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .right-sidebar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .right-sidebar::-webkit-scrollbar-thumb {
+      background: #3a3a3a;
+      border-radius: 999px;
+    }
+
+    /* ---- Sidebar Accordion Panels ---- */
+    .sidebar-panel {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .sidebar-panel:last-child {
+      border-bottom: none;
+    }
+
+    .sidebar-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.12s ease;
+    }
+
+    .sidebar-panel-header:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .sidebar-panel-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      color: var(--text);
+    }
+
+    .sidebar-panel-title .panel-icon {
+      font-size: 14px;
+      opacity: 0.8;
+    }
+
+    .sidebar-panel-chevron {
+      width: 16px;
+      height: 16px;
+      color: var(--muted);
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .sidebar-panel.collapsed .sidebar-panel-chevron {
+      transform: rotate(-90deg);
+    }
+
+    .sidebar-panel-body {
+      padding: 0 16px 14px;
+      overflow: hidden;
+      transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.2s ease;
+    }
+
+    .sidebar-panel.collapsed .sidebar-panel-body {
+      max-height: 0 !important;
+      padding-top: 0;
+      padding-bottom: 0;
+      opacity: 0;
+      overflow: hidden;
     }
 
     .progress-item {
@@ -204,117 +362,39 @@
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 18px;
-      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+      border-radius: 0;
+      box-shadow: none;
       backdrop-filter: blur(10px);
       min-height: 0;
     }
 
     .control-deck {
-      margin-top: 18px;
-      border: 1px solid rgba(216, 107, 74, 0.22);
-      border-radius: 18px;
-      background:
-        linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(58, 138, 135, 0.04)),
-        rgba(255, 255, 255, 0.02);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-      overflow: hidden;
-    }
-
-    .control-deck summary {
-      list-style: none;
-      cursor: pointer;
-      padding: 16px 18px;
-    }
-
-    .control-deck summary::-webkit-details-marker {
       display: none;
-    }
-
-    .control-deck-titlebar {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-    }
-
-    .control-deck-kicker {
-      margin: 0 0 4px;
-      font-size: 11px;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: #d7b2a7;
-    }
-
-    .control-deck h3 {
-      margin: 0;
-      font-size: 18px;
-      line-height: 1.1;
-    }
-
-    .control-deck p {
-      margin: 6px 0 0;
-      color: var(--muted);
-      font-size: 12px;
-      max-width: 60ch;
-    }
-
-    .control-deck-toggle {
-      flex: 0 0 auto;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 34px;
-      height: 34px;
-      border-radius: 999px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(255, 255, 255, 0.03);
-      color: var(--text);
-      font-size: 16px;
-    }
-
-    .control-deck[open] .control-deck-toggle::before {
-      content: "-";
-    }
-
-    .control-deck:not([open]) .control-deck-toggle::before {
-      content: "+";
-    }
-
-    .control-deck-body {
-      padding: 0 18px 18px;
-      display: grid;
-      gap: 14px;
     }
 
     .control-grid {
       display: grid;
-      grid-template-columns: 1.2fr 1fr;
-      gap: 14px;
+      gap: 10px;
     }
 
     .control-group {
       display: grid;
-      gap: 10px;
-      padding: 14px;
-      border-radius: 14px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(0, 0, 0, 0.12);
+      gap: 8px;
     }
 
     .control-group-title {
       margin: 0;
-      font-size: 12px;
-      letter-spacing: 0.12em;
+      font-size: 11px;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: #d0cbc5;
+      color: #807a74;
     }
 
     .control-group-note {
-      margin: -4px 0 0;
+      margin: -2px 0 0;
       color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
+      font-size: 11px;
+      line-height: 1.4;
     }
 
     .air-links,
@@ -322,7 +402,7 @@
     .air-models,
     .runtime-models {
       display: grid;
-      gap: 8px;
+      gap: 6px;
     }
 
     .air-controls {
@@ -331,39 +411,48 @@
 
     .air-links,
     .runtime-models {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: 1fr;
     }
 
     .air-models label,
     .runtime-models label {
       display: grid;
-      gap: 4px;
-      font-size: 12px;
+      gap: 3px;
+      font-size: 11px;
       color: var(--muted);
     }
 
     .air-models select,
     .runtime-models select {
       width: 100%;
-      border-radius: 10px;
-      border: 1px solid #454545;
+      border-radius: 8px;
+      border: 1px solid #333;
       background: #1a1a1a;
       color: var(--text);
-      padding: 8px 10px;
+      padding: 7px 8px;
       font: inherit;
+      font-size: 12px;
     }
 
     .air-button,
     .air-link {
-      border: 1px solid #494949;
-      border-radius: 10px;
-      padding: 9px 12px;
-      background: #242424;
+      border: 1px solid #383838;
+      border-radius: 8px;
+      padding: 6px 10px;
+      background: #1e1e1e;
       color: var(--text);
       cursor: pointer;
       text-align: center;
       text-decoration: none;
       font: inherit;
+      font-size: 12px;
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+
+    .air-button:hover,
+    .air-link:hover {
+      background: #282828;
+      border-color: #444;
     }
 
     .air-button[data-state="recording"] {
@@ -372,79 +461,55 @@
     }
 
     .air-status {
-      min-height: 18px;
-      margin-top: 8px;
+      min-height: 14px;
+      margin-top: 4px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
     }
 
     .air-status[data-state="error"] {
       color: var(--red);
     }
 
+    /* Hero section hidden in new layout */
     .hero {
-      padding: 18px 20px 8px;
-    }
-
-    .hero-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .eyebrow {
-      margin: 0;
-      font-size: 12px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--muted);
+      display: none;
     }
 
     .debug-badge {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
+      gap: 6px;
+      padding: 3px 10px;
       border-radius: 999px;
-      border: 1px solid rgba(243, 156, 18, 0.45);
-      background: rgba(243, 156, 18, 0.14);
+      border: 1px solid rgba(243, 156, 18, 0.35);
+      background: rgba(243, 156, 18, 0.1);
       color: #ffd28a;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
       white-space: nowrap;
     }
 
     .debug-badge::before {
-      content: "";
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
       background: #f39c12;
-      box-shadow: 0 0 12px rgba(243, 156, 18, 0.65);
-    }
-
-    h1 {
-      margin: 8px 0 6px;
-      font-size: 34px;
-      line-height: 1.05;
-    }
-
-    .hero p {
-      margin: 0;
-      max-width: 54ch;
-      color: var(--muted);
+      box-shadow: 0 0 8px rgba(243, 156, 18, 0.5);
     }
 
     .chat {
       display: flex;
       flex-direction: column;
       min-height: 0;
-      height: calc(100vh - 40px);
-      position: sticky;
-      top: 20px;
+      height: 100%;
+      overflow: hidden;
+      border: none;
+      border-radius: 0;
+      background: transparent;
     }
 
     .chat-log {
@@ -455,8 +520,31 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
-      scrollbar-width: thin;
-      scrollbar-color: #4a4a4a rgba(0, 0, 0, 0.3);
+      scrollbar-width: auto;
+      scrollbar-color: #555 #1a1a1a;
+    }
+
+    /* Push messages to the bottom when there are few */
+    .chat-log::before {
+      content: '';
+      flex: 1 0 0px;
+    }
+
+    .chat-log::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .chat-log::-webkit-scrollbar-track {
+      background: #1a1a1a;
+    }
+
+    .chat-log::-webkit-scrollbar-thumb {
+      background: #555;
+      border-radius: 999px;
+    }
+
+    .chat-log::-webkit-scrollbar-thumb:hover {
+      background: #777;
     }
 
     .message {
@@ -626,62 +714,81 @@
 
     .composer {
       border-top: 1px solid var(--line);
-      padding: 14px;
+      padding: 14px 20px;
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 10px;
+      background: rgba(17, 17, 17, 0.9);
+      backdrop-filter: blur(8px);
+    }
+
+    .composer-inner {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      max-width: 900px;
+      margin: 0 auto;
+      width: 100%;
     }
 
     input[type="text"] {
       width: 100%;
-      padding: 13px 14px;
-      font-size: 15px;
-      border-radius: 14px;
-      border: 1px solid #444444;
+      padding: 12px 16px;
+      font-size: 14px;
+      border-radius: 12px;
+      border: 1px solid #333;
       background: #1a1a1a;
       color: var(--text);
+      font-family: inherit;
+      transition: border-color 0.15s ease;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: rgba(58, 138, 135, 0.5);
+      box-shadow: 0 0 0 3px rgba(58, 138, 135, 0.1);
     }
 
     button {
       border: 0;
-      border-radius: 14px;
-      padding: 0 18px;
+      border-radius: 12px;
+      padding: 0 20px;
       background: var(--accent);
       color: #fff;
-      font-size: 14px;
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: background 0.15s ease, transform 0.1s ease;
+      font-family: inherit;
     }
 
     button:hover {
       background: #c95b3a;
     }
 
+    button:active {
+      transform: scale(0.97);
+    }
+
+    /* ---- Chat status bar ---- */
+    .chat-status-bar {
+      padding: 4px 20px 8px;
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Old .side class kept for detached view compatibility */
     .side {
       display: flex;
       flex-direction: column;
       gap: 14px;
       min-height: 0;
-      max-height: calc(100vh - 40px);
       overflow-y: auto;
-      padding-right: 6px;
       scrollbar-width: thin;
-      scrollbar-color: #4a4a4a rgba(0, 0, 0, 0.3);
-    }
-
-    .side::-webkit-scrollbar {
-      width: 10px;
-    }
-
-    .side::-webkit-scrollbar-track {
-      background: rgba(0, 0, 0, 0.25);
-      border-radius: 999px;
-    }
-
-    .side::-webkit-scrollbar-thumb {
-      background: #4a4a4a;
-      border-radius: 999px;
-      border: 2px solid rgba(0, 0, 0, 0.25);
+      scrollbar-color: #3a3a3a transparent;
     }
 
     .section {
@@ -694,20 +801,16 @@
     }
 
     .section::before {
-      content: "";
+      content: '';
       position: absolute;
       inset: 0 0 auto 0;
-      height: 4px;
-      border-radius: 18px 18px 0 0;
+      height: 3px;
+      border-radius: 0;
       background: linear-gradient(90deg, var(--accent), rgba(216, 107, 74, 0.15));
     }
 
     .section[data-panel="task-progress"]::before {
       background: linear-gradient(90deg, #f39c12, rgba(243, 156, 18, 0.15));
-    }
-
-    .section[data-panel="task-progress"] {
-      background: linear-gradient(180deg, rgba(243, 156, 18, 0.08), rgba(25, 25, 25, 0.95) 32%);
     }
 
     .section[data-panel="request-trace"]::before {
@@ -738,47 +841,9 @@
       background: linear-gradient(90deg, #d14fd1, rgba(209, 79, 209, 0.15));
     }
 
-    .section[data-panel="request-trace"] {
-      background: linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(25, 25, 25, 0.95) 32%);
-    }
-
-    .section[data-panel="tool-traces"] {
-      background: linear-gradient(180deg, rgba(58, 138, 135, 0.08), rgba(25, 25, 25, 0.95) 32%);
-    }
-
-    .section[data-panel="tasks"] {
-      background: linear-gradient(180deg, rgba(124, 108, 242, 0.08), rgba(25, 25, 25, 0.95) 32%);
-    }
-
-    .section[data-panel="sandbox-guide"] {
-      background: linear-gradient(180deg, rgba(90, 169, 230, 0.08), rgba(25, 25, 25, 0.95) 32%);
-    }
-
-    .section[data-panel="task-timeline"] {
-      background: linear-gradient(180deg, rgba(243, 156, 18, 0.08), rgba(25, 25, 25, 0.95) 32%);
-    }
-
-    .section[data-panel="temporary-subagents"] {
-      background: linear-gradient(180deg, rgba(76, 175, 80, 0.08), rgba(25, 25, 25, 0.95) 32%);
-    }
-
-    .section[data-panel="persistent-agents"] {
-      background: linear-gradient(180deg, rgba(209, 79, 209, 0.08), rgba(25, 25, 25, 0.95) 32%);
-    }
-
-    .section[data-panel="request-trace"],
-    .section[data-panel="tool-traces"],
-    .section[data-panel="sandbox-guide"],
-    .section[data-panel="tasks"],
-    .section[data-panel="task-timeline"],
-    .section[data-panel="temporary-subagents"] {
-      min-height: 220px;
-      flex: 0 0 auto;
-    }
-
-    .section[data-panel="persistent-agents"] {
-      min-height: 420px;
-      flex: 1 0 auto;
+    /* Debug panels are shown in a separate window */
+    .debug-panel-hidden {
+      display: none !important;
     }
 
     .section-header {
@@ -1134,31 +1199,21 @@
       word-break: break-word;
     }
 
-    @media (max-width: 1200px) {
+    @media (max-width: 900px) {
       .shell {
         grid-template-columns: 1fr;
+        height: auto;
+        min-height: 100vh;
       }
 
-      .left-sidebar {
-        position: static;
-        max-height: none;
+      .right-sidebar {
+        border-left: none;
+        border-top: 1px solid var(--line);
       }
 
       .chat {
         min-height: 70vh;
         height: auto;
-        position: static;
-      }
-
-      .hero-top {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-
-      .side {
-        max-height: none;
-        overflow: visible;
-        padding-right: 0;
       }
 
       .agent-editor-grid {
@@ -1298,16 +1353,8 @@
       line-height: 1.45;
     }
 
-    @media (max-width: 1100px) {
-      .control-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
     @media (max-width: 760px) {
-      .air-controls,
-      .air-links,
-      .runtime-models {
+      .air-controls {
         grid-template-columns: 1fr;
       }
     }
@@ -1407,171 +1454,1724 @@
     .work-notifications-bar .wn-item .wn-actions a:hover {
       background: #333;
     }
+    /* ---- Main screen overhaul overrides ---- */
+    :root {
+      --app-shell-max: 1680px;
+      --assistant-shell-width: 860px;
+      --utility-rail-width: 360px;
+      --hero-ring: rgba(0, 212, 255, 0.28);
+      --hero-ring-warm: rgba(216, 107, 74, 0.26);
+      --hero-panel: rgba(18, 20, 34, 0.88);
+      --hero-panel-strong: rgba(10, 12, 24, 0.94);
+      --glow-cyan: #4fd7ff;
+      --glow-violet: #8f7dff;
+      --glow-warm: #ff8d6b;
+    }
+
+    body {
+      overflow: auto;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 15% 20%, rgba(79, 215, 255, 0.12), transparent 24%),
+        radial-gradient(circle at 82% 18%, rgba(143, 125, 255, 0.13), transparent 28%),
+        radial-gradient(circle at 50% 82%, rgba(216, 107, 74, 0.10), transparent 24%),
+        linear-gradient(160deg, #0a0d16 0%, #0f1220 42%, #0b0e17 100%);
+    }
+
+    body.utility-panel-open {
+      overflow: hidden;
+    }
+
+    .shell {
+      width: min(100%, var(--app-shell-max));
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto;
+      gap: 20px;
+      min-height: 100vh;
+      height: auto;
+      overflow: visible;
+      align-items: start;
+    }
+
+    .main-stage {
+      min-width: 0;
+      display: flex;
+      justify-content: center;
+    }
+
+    .assistant-shell {
+      width: min(100%, var(--assistant-shell-width));
+      height: calc(100vh - 48px);
+      min-height: calc(100vh - 48px);
+      display: flex;
+      flex-direction: column;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 28px;
+      overflow: hidden;
+      backdrop-filter: blur(18px);
+      box-shadow:
+        0 24px 60px rgba(0, 0, 0, 0.44),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      position: relative;
+    }
+
+    .assistant-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at top, rgba(79, 215, 255, 0.10), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 30%);
+    }
+
+    .top-bar {
+      grid-column: auto;
+      padding: 18px 22px 16px;
+      min-height: 74px;
+      background: linear-gradient(180deg, rgba(10, 14, 28, 0.84), rgba(7, 10, 20, 0.58));
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      position: relative;
+      z-index: 1;
+    }
+
+    .top-bar-left {
+      gap: 10px;
+    }
+
+    .mode-button,
+    .back-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(255, 255, 255, 0.04);
+      color: #e5eef8;
+      cursor: pointer;
+      font: inherit;
+      font-size: 18px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+    }
+
+    .mode-button svg,
+    .back-button svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .mode-button:hover,
+    .back-button:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(79, 215, 255, 0.24);
+      color: #ffffff;
+    }
+
+    .back-button[hidden] {
+      display: none;
+    }
+
+    #modeCharacterButton {
+      display: none !important;
+    }
+
+    .top-bar .brand {
+      color: #d8f3ff;
+      text-shadow: 0 0 18px rgba(79, 215, 255, 0.28);
+    }
+
+    .top-bar .brand-primary {
+      font-size: 2rem;
+      letter-spacing: 0.05em;
+    }
+
+    .top-bar .brand-secondary {
+      font-size: 0.9rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(216, 243, 255, 0.8);
+    }
+
+    .top-bar-right {
+      gap: 10px;
+    }
+
+    .stage-toggle,
+    .utility-toggle,
+    .debug-logs-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-width: 40px;
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(255, 255, 255, 0.04);
+      color: #d5dbe6;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .stage-toggle svg,
+    .utility-toggle svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: 0 0 auto;
+    }
+
+    .stage-toggle:hover,
+    .utility-toggle:hover,
+    .debug-logs-button:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(79, 215, 255, 0.25);
+      color: #f5fbff;
+    }
+
+    .stage-toggle,
+    .utility-toggle {
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .utility-toggle {
+      display: none;
+    }
+
+    .debug-logs-button {
+      font-size: 12px;
+    }
+
+    .main-stage-content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      padding: 20px 20px 18px;
+      gap: 16px;
+    }
+
+    .hero-stage {
+      position: relative;
+      flex: 1;
+      min-height: 320px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      padding: 24px 20px 10px;
+      border-radius: 24px;
+      background:
+        radial-gradient(circle at center, rgba(79, 215, 255, 0.12), transparent 26%),
+        radial-gradient(circle at 50% 18%, rgba(143, 125, 255, 0.16), transparent 22%),
+        radial-gradient(circle at 50% 88%, rgba(216, 107, 74, 0.11), transparent 22%),
+        linear-gradient(180deg, rgba(16, 22, 36, 0.84), rgba(7, 10, 18, 0.58));
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      overflow: hidden;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 18px 46px rgba(0, 0, 0, 0.22);
+    }
+
+    .hero-stage::before {
+      content: "";
+      position: absolute;
+      inset: auto -12% 8% -12%;
+      height: 42%;
+      background: radial-gradient(circle at center, rgba(216, 107, 74, 0.12), transparent 56%);
+      pointer-events: none;
+      filter: blur(24px);
+    }
+
+    .hero-copy {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 12px;
+      text-align: center;
+      justify-items: center;
+      max-width: 520px;
+    }
+
+    .hero-title {
+      margin: 0;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: clamp(2.5rem, 5vw, 4.1rem);
+      line-height: 0.92;
+      letter-spacing: -0.03em;
+      color: #f6fbff;
+      font-weight: 600;
+      text-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
+    }
+
+    .hero-subtitle {
+      margin: 0;
+      max-width: 42ch;
+      color: #b9c8d8;
+      font-size: 13px;
+      line-height: 1.6;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .hero-subtitle[hidden] {
+      display: none;
+    }
+
+    .hero-avatar-wrap {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 520px;
+      display: grid;
+      justify-items: center;
+    }
+
+    .hero-avatar-wrap .voice-avatar-stage {
+      width: 100%;
+      justify-items: center;
+    }
+
+    .hero-avatar-wrap .voice-avatar-shell {
+      margin-inline: auto;
+    }
+
+    .call-hero-status {
+      display: none;
+      align-items: center;
+      gap: 0;
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(10, 14, 23, 0.72);
+      color: #e7f1fb;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .call-hero-status-label {
+      display: none;
+    }
+
+    .call-hero-status-text {
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .hero-action-button {
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+      color: #edf5ff;
+      padding: 11px 16px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 24px rgba(0, 0, 0, 0.16);
+      transition: background 140ms ease, border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+    }
+
+    .hero-action-button:hover {
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
+      border-color: rgba(79, 215, 255, 0.28);
+      transform: translateY(-1px);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 14px 28px rgba(0, 0, 0, 0.22);
+    }
+
+    body.call-mode .hero-stage {
+      display: grid;
+      align-content: stretch;
+      justify-items: center;
+      flex: 1 1 auto;
+      gap: 10px;
+      padding: 8px 12px 0;
+    }
+
+    body.call-mode .hero-copy {
+      display: none;
+    }
+
+    body.call-mode .hero-actions .hero-action-button {
+      display: none;
+    }
+
+    body.call-mode .hero-avatar-wrap {
+      width: 100%;
+      max-width: none;
+      flex: 1 1 auto;
+      align-self: stretch;
+    }
+
+    body.call-mode .hero-avatar-wrap .voice-avatar-stage {
+      width: 100%;
+      min-height: min(52vh, 560px);
+      align-content: center;
+      justify-items: center;
+    }
+
+    body.call-mode .hero-avatar-wrap .voice-avatar-shell {
+      width: min(58vw, 460px);
+      height: min(58vw, 460px);
+      min-width: 240px;
+      min-height: 240px;
+    }
+
+    body.call-mode .voice-avatar-meta {
+      gap: 10px;
+    }
+
+    body.call-mode .voice-avatar-name {
+      display: none;
+    }
+
+    body.call-mode .call-hero-status {
+      display: inline-flex;
+      max-width: min(100%, 420px);
+    }
+
+    body.call-mode .voice-avatar-chooser {
+      display: none;
+    }
+
+    body:not(.call-mode) .voice-avatar-chooser {
+      display: none;
+    }
+
+    .chat-shell {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      gap: 12px;
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+      transition: opacity 180ms ease, transform 180ms ease, max-height 220ms ease;
+    }
+
+    .chat-shell.collapsed {
+      max-height: 0;
+      opacity: 0;
+      overflow: hidden;
+      transform: translateY(8px);
+      pointer-events: none;
+    }
+
+    body.call-mode .chat-shell {
+      max-height: none;
+      opacity: 1;
+      transform: none;
+      pointer-events: auto;
+      gap: 18px;
+      justify-content: space-between;
+      overflow-y: auto;
+    }
+
+    body.call-mode .chat-shell.collapsed {
+      max-height: none;
+      opacity: 1;
+      overflow: visible;
+      transform: none;
+      pointer-events: auto;
+    }
+
+    .config-shell {
+      display: none;
+      min-height: 0;
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 30px;
+      background:
+        radial-gradient(circle at top right, rgba(79, 215, 255, 0.10), transparent 26%),
+        radial-gradient(circle at top left, rgba(216, 107, 74, 0.08), transparent 24%),
+        linear-gradient(180deg, rgba(9, 12, 20, 0.94), rgba(14, 18, 28, 0.8));
+      overflow: hidden;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        0 22px 54px rgba(0, 0, 0, 0.24);
+    }
+
+    .config-shell.is-active {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    .config-shell-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 20px 22px 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
+        rgba(255, 255, 255, 0.01);
+    }
+
+    .config-shell-title {
+      margin: 0;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 1.75rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: #eef6ff;
+      font-weight: 600;
+    }
+
+    .config-shell-copy {
+      margin: 4px 0 0;
+      font-size: 13px;
+      color: #a7bacd;
+    }
+
+    .config-shell-body {
+      display: grid;
+      grid-auto-rows: min-content;
+      gap: 16px;
+      min-height: 0;
+      max-height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 20px 18px 24px;
+      flex: 1;
+      align-content: start;
+      scrollbar-gutter: stable both-edges;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(121, 168, 208, 0.55) transparent;
+    }
+
+    .config-shell-body::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    .config-shell-body::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(127, 175, 215, 0.78), rgba(95, 124, 196, 0.52));
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+
+    .config-shell-body::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .config-shell .sidebar-panel {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 24px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+        rgba(16, 20, 34, 0.76);
+      overflow: hidden;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        0 12px 30px rgba(0, 0, 0, 0.16);
+    }
+
+    .config-shell .sidebar-panel:last-child {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .config-shell .sidebar-panel-header {
+      padding: 18px 20px;
+      background:
+        linear-gradient(90deg, rgba(79, 215, 255, 0.06), transparent 38%),
+        rgba(255, 255, 255, 0.015);
+    }
+
+    .config-shell .sidebar-panel-header:hover {
+      background:
+        linear-gradient(90deg, rgba(79, 215, 255, 0.1), transparent 42%),
+        rgba(255, 255, 255, 0.04);
+    }
+
+    .config-shell .sidebar-panel-title {
+      font-size: 12px;
+      letter-spacing: 0.18em;
+    }
+
+    .config-shell .sidebar-panel-body {
+      padding: 14px 20px 20px;
+    }
+
+    .config-shell .control-group,
+    .config-shell .agent-editor,
+    .config-shell .runtime-pref-card,
+    .config-shell .notification-qr {
+      background: rgba(255, 255, 255, 0.03);
+      border-color: rgba(255, 255, 255, 0.10);
+    }
+
+    .config-shell .air-controls {
+      gap: 8px;
+    }
+
+    .chat {
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at top right, rgba(79, 215, 255, 0.05), transparent 24%),
+        linear-gradient(180deg, rgba(9, 12, 20, 0.84), rgba(14, 18, 28, 0.66));
+      overflow: hidden;
+      min-height: 0;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .chat-log {
+      padding: 18px;
+      gap: 14px;
+      min-height: 0;
+      max-height: none;
+      background:
+        radial-gradient(circle at top right, rgba(79, 215, 255, 0.06), transparent 24%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+    }
+
+    #chatLog {
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    .chat-log::before {
+      display: none;
+    }
+
+    .message {
+      max-width: 90%;
+      border-radius: 20px;
+      padding: 14px 15px;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+    }
+
+    .message.user {
+      background: linear-gradient(180deg, rgba(82, 50, 36, 0.96), rgba(55, 33, 25, 0.98));
+      border: 1px solid rgba(216, 107, 74, 0.26);
+    }
+
+    .message.assistant {
+      background: linear-gradient(180deg, rgba(34, 38, 54, 0.95), rgba(24, 27, 39, 0.98));
+      border: 1px solid rgba(97, 120, 129, 0.24);
+    }
+
+    .message.progress-inline {
+      align-self: flex-start;
+      max-width: none;
+      padding: 0;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .message.progress-inline .message-body {
+      display: block;
+      padding: 0;
+      background: transparent;
+    }
+
+    .inline-progress-status {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.5;
+      font-style: italic;
+      color: #9aa8ba;
+    }
+
+    .composer-dock {
+      display: grid;
+      flex: 0 0 auto;
+      position: relative;
+      gap: 10px;
+      padding: 12px 16px 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      background:
+        linear-gradient(180deg, rgba(18, 22, 36, 0.82), rgba(8, 10, 18, 0.9));
+      backdrop-filter: blur(14px);
+    }
+
+    .character-select-label {
+      display: grid;
+      gap: 6px;
+    }
+
+    .character-select-value {
+      font-size: 11px;
+      color: #95b4c8;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .composer {
+      border-top: none;
+      padding: 6px;
+      gap: 0;
+      display: block;
+      border-radius: 28px;
+      background: rgba(39, 41, 48, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .composer-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .composer-textarea {
+      min-height: 40px;
+      max-height: 128px;
+      padding: 9px 10px;
+      border-radius: 20px;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      box-shadow: none;
+      resize: none;
+      overflow-y: hidden;
+      line-height: 1.45;
+    }
+
+    .composer-textarea:focus {
+      outline: none;
+      box-shadow: none;
+    }
+
+    .composer-aux-button,
+    .composer-submit,
+    .composer-proxy-button {
+      width: 40px;
+      height: 40px;
+      min-height: 40px;
+      flex: 0 0 auto;
+      padding: 0;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #ecf5ff;
+      position: relative;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .composer-aux-button:hover,
+    .composer-submit:hover,
+    .composer-proxy-button:hover {
+      background: rgba(255, 255, 255, 0.10);
+      border-color: rgba(255, 255, 255, 0.18);
+      transform: none;
+    }
+
+    .composer-more-button {
+      display: inline-flex;
+    }
+
+    .composer-proxy-button {
+      display: inline-flex;
+    }
+
+    .composer-loop-proxy {
+      display: inline-flex;
+    }
+
+    .composer-aux-button svg,
+    .composer-submit svg,
+    .composer-proxy-button svg,
+    .call-control-button svg,
+    .composer-menu button svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .composer-submit {
+      min-height: 40px;
+      width: 40px;
+      padding: 0;
+      border-radius: 50%;
+      background: #f3f4f7;
+      color: #16181f;
+      border-color: transparent;
+      box-shadow: none;
+    }
+
+    .composer-submit:hover {
+      background: #ffffff;
+    }
+
+    .composer-submit[disabled] {
+      opacity: 0.45;
+    }
+
+    .composer-submit svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .composer-menu {
+      position: absolute;
+      left: 16px;
+      bottom: calc(100% + 8px);
+      min-width: 220px;
+      padding: 8px;
+      border-radius: 20px;
+      background: rgba(34, 36, 43, 0.97);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
+      display: grid;
+      gap: 4px;
+      z-index: 12;
+    }
+
+    .composer-menu button {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      min-height: 42px;
+      padding: 0 12px;
+      border-radius: 14px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-size: 13px;
+      justify-content: flex-start;
+    }
+
+    .composer-menu button:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.08);
+      transform: none;
+    }
+
+    .dock-actions {
+      display: none;
+    }
+
+    .dock-actions button {
+      width: auto;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #dbe4f0;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .dock-actions button:hover {
+      background: rgba(255, 255, 255, 0.09);
+      border-color: rgba(79, 215, 255, 0.24);
+      transform: none;
+    }
+
+    .dock-actions button[data-state="recording"] {
+      background: rgba(124, 51, 38, 0.92);
+      border-color: rgba(255, 168, 146, 0.34);
+    }
+
+    .composer-dock.voice-mode-active .composer-loop-proxy,
+    .composer-dock.voice-mode-active .dock-actions [data-voice-proxy="loop"] {
+      background: rgba(79, 215, 255, 0.12);
+      border-color: rgba(79, 215, 255, 0.26);
+      color: #eef9ff;
+    }
+
+    .dock-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chat-status-bar {
+      padding: 0;
+      gap: 0;
+    }
+
+    .air-status-card {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      min-height: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .chat-status-bar .air-status-title {
+      display: none;
+    }
+
+    body.call-mode #chatLog,
+    body.call-mode #workNotificationsBar,
+    body.call-mode #chatForm {
+      display: none;
+    }
+
+    body.call-mode .composer-dock {
+      margin-top: auto;
+      gap: 12px;
+      padding: 14px 16px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at top, rgba(79, 215, 255, 0.10), transparent 56%),
+        rgba(8, 10, 18, 0.88);
+    }
+
+    body.call-mode .dock-actions,
+    body.call-mode .composer-menu {
+      display: none;
+    }
+
+    body.call-mode .hero-stage {
+      grid-template-rows: 1fr;
+    }
+
+    body.call-mode .call-hero-status {
+      position: absolute;
+      left: 50%;
+      bottom: 22px;
+      transform: translateX(-50%);
+      z-index: 2;
+      max-width: min(100%, 320px);
+    }
+
+    body.call-mode .call-control-bar {
+      position: sticky;
+      bottom: 0;
+      z-index: 3;
+    }
+
+    .call-control-bar {
+      display: none;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    body.call-mode .call-control-bar {
+      display: grid;
+    }
+
+    .call-control-button {
+      min-height: 52px;
+      padding: 0 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(255, 255, 255, 0.05);
+      color: #edf4ff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .call-control-button:hover {
+      background: rgba(255, 255, 255, 0.08);
+      transform: none;
+    }
+
+    .call-control-button.call-primary {
+      background: linear-gradient(180deg, rgba(206, 95, 72, 0.96), rgba(150, 48, 34, 0.94));
+      border-color: rgba(255, 196, 181, 0.28);
+      color: #fff7f4;
+    }
+
+    .call-control-label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    .air-status-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: #89b6d0;
+    }
+
+    .air-status {
+      min-height: 0;
+      margin-top: 0;
+      font-size: 12px;
+      color: #dfe8f5;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 22ch;
+    }
+
+    .voice-control-bank {
+      display: none;
+    }
+
+    body.call-mode .dock-status {
+      display: none;
+    }
+
+    .right-sidebar {
+      display: none;
+    }
+
+    .right-sidebar.config-mode {
+      border-color: rgba(255, 255, 255, 0.06);
+    }
+
+    .utility-rail-header {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 18px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .utility-rail-header h2 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #d4e6f4;
+    }
+
+    .utility-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.05);
+      color: #dce6f3;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .utility-scrim {
+      display: none;
+    }
+
+    .sidebar-panel-header {
+      padding: 16px 18px;
+    }
+
+    .sidebar-panel-title {
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #d8e4ef;
+    }
+
+    .sidebar-panel-body {
+      padding: 0 18px 16px;
+    }
+
+    .control-group,
+    .runtime-pref-card,
+    .agent-editor,
+    .notification-qr {
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.025);
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+
+    .work-notifications-bar {
+      margin: 0;
+      border-radius: 18px;
+      background: rgba(26, 28, 46, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .debug-panel-hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 1180px) {
+      .shell {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .assistant-shell {
+        height: calc(100vh - 48px);
+        min-height: calc(100vh - 48px);
+      }
+
+      .utility-toggle,
+      .utility-scrim,
+      .utility-rail-header {
+        display: none !important;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .shell {
+        padding: 14px;
+      }
+
+      .assistant-shell {
+        height: calc(100vh - 28px);
+        min-height: calc(100vh - 28px);
+        border-radius: 24px;
+      }
+
+      .top-bar {
+        padding: 16px;
+      }
+
+      .main-stage-content {
+        padding: 16px;
+      }
+
+      .hero-stage {
+        min-height: 280px;
+        padding: 20px 16px 10px;
+      }
+
+      .hero-avatar-wrap {
+        width: min(100%, 320px);
+      }
+
+      .dock-status {
+        gap: 6px;
+      }
+
+      .debug-logs-button span,
+      .stage-toggle span,
+      .utility-toggle span {
+        display: none;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .top-bar-left {
+        gap: 8px;
+      }
+
+      .debug-badge {
+        display: none;
+      }
+
+      #modeCharacterButton {
+        display: none !important;
+      }
+
+      .top-bar .brand {
+        gap: 6px;
+      }
+
+      .top-bar .brand-primary {
+        font-size: 1.45rem;
+      }
+
+      .top-bar .brand-secondary {
+        font-size: 0.72rem;
+        letter-spacing: 0.08em;
+      }
+
+      .hero-title {
+        font-size: 2rem;
+      }
+
+      .composer-dock {
+        gap: 8px;
+        padding: 10px 12px 12px;
+      }
+
+      .composer-row {
+        grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+      }
+
+      .composer-textarea {
+        min-height: 52px;
+        padding: 10px 6px;
+        line-height: 1.35;
+      }
+
+      .composer-proxy-button,
+      .composer-more-button,
+      .composer-submit {
+        width: 38px;
+        height: 38px;
+        min-height: 38px;
+      }
+
+      .composer-textarea::placeholder {
+        font-size: 13px;
+      }
+
+      .composer-dock .composer-loop-proxy,
+      .composer-dock .composer-mic-proxy {
+        display: inline-flex;
+      }
+
+      .composer-dock.has-text .composer-loop-proxy,
+      .composer-dock.has-text .composer-mic-proxy,
+      .dock-actions {
+        display: none;
+      }
+
+      .composer-dock:not(.has-text) .composer-submit {
+        display: none;
+      }
+
+      .composer-dock.has-text .composer-submit {
+        display: inline-flex;
+      }
+
+      .composer-dock:not(.has-text) .composer-menu {
+        left: 12px;
+        right: 12px;
+        min-width: 0;
+      }
+
+      .call-control-bar {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      body.call-mode .hero-avatar-wrap .voice-avatar-stage {
+        min-height: min(58vh, 520px);
+      }
+
+      body.call-mode .hero-avatar-wrap .voice-avatar-shell {
+        width: min(82vw, 420px);
+        height: min(82vw, 420px);
+        min-width: 220px;
+        min-height: 220px;
+      }
+
+      .call-control-button {
+        min-height: 48px;
+      }
+
+      .dock-status {
+        gap: 6px;
+      }
+
+      .air-status-card {
+        max-width: 100%;
+      }
+
+    }
+
+    .composer-dock.has-text .composer-loop-proxy,
+    .composer-dock.has-text .composer-mic-proxy,
+    .composer-dock:not(.has-text) .composer-submit {
+      display: none;
+    }
+
+    .composer-dock.has-text .composer-submit {
+      display: inline-flex;
+    }
   </style>
 </head>
 
 <body>
   <div class="shell">
-    <!-- Left Sidebar: Current Task Progress -->
-    <aside class="left-sidebar">
-      <div class="panel section" data-panel="task-progress" style="height:calc(100vh - 40px)">
-        <div class="section-header">
-          <div class="section-copy">
-            <h2 style="font-size:16px;">Current Task Progress</h2>
-            <p>Live status of the current task.</p>
-          </div>
-        </div>
-        <div class="section-body">
-          <div id="taskProgress"></div>
-        </div>
-        <div id="taskProgressSummary" class="progress-summary"></div>
-      </div>
-    </aside>
-
-    <section class="panel chat">
-      <div class="hero">
-        <div class="hero-top">
-          <p class="eyebrow">Chanakya Operating System</p>
-          {% if force_subagents_enabled %}
-          <span class="debug-badge">Force Subagents: ON</span>
-          {% endif %}
-        </div>
-        <h1>Chat with tools, visible in real-time.</h1>
-        <p>
-          Chanakya uses external MCP tools (calculator, fetch) when needed.
-          Tool selections, inputs, outputs, and errors are traced in the panel on the right.
-        </p>
-        <details class="control-deck" open>
-          <summary>
-            <div class="control-deck-titlebar">
-              <div>
-                <p class="control-deck-kicker">Control Deck</p>
-                <h3>Voice, models, and runtime</h3>
-                <p>Keep AIR voice controls and chat routing in one place. Use Apply Changes to update future requests across the app.</p>
-              </div>
-              <span class="control-deck-toggle" aria-hidden="true"></span>
+    <main class="main-stage">
+      <div class="assistant-shell">
+        <header class="top-bar">
+          <div class="top-bar-left">
+            <button id="modeSettingsButton" type="button" class="mode-button" title="Open settings" aria-label="Open settings">☰
+            </button>
+            <button id="modeBackButton" type="button" class="back-button" title="Back to chat" hidden>←</button>
+            <div class="brand" aria-label="Chanakya, your PA">
+              <span class="brand-primary">Chanakya</span>
+              <span class="brand-secondary">your PA</span>
             </div>
-          </summary>
-          <div class="control-deck-body">
-            <div class="control-grid">
-              <section class="control-group">
-                <p class="control-group-title">Chat Runtime</p>
-                <div class="runtime-chip">Active chat path</div>
-                <div class="runtime-models">
-                  <label>
-                    Backend
-                    <select id="chatBackendSelect">
-                      <option value="local">Local OpenAI-compatible via AIR</option>
-                      {% if a2a_gui_enabled %}
-                      <option value="a2a">A2A</option>
-                      {% endif %}
-                    </select>
-                  </label>
-                  <label>
-                    Chanakya Model
-                    <select id="airLlmModel"></select>
-                  </label>
+            {% if force_subagents_enabled %}
+            <span class="debug-badge">Force Subagents: ON</span>
+            {% endif %}
+          </div>
+          <div class="top-bar-right">
+            <button id="workspacesButton" type="button" class="stage-toggle" title="Open workspaces" aria-label="Open workspaces">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18" /><path d="M6 7V5h12v2" /><path d="M5 7v11h14V7" /><path d="M9 11h6" /></svg>
+              <span>Work</span>
+            </button>
+            <button id="modeCharacterButton" type="button" class="stage-toggle" title="Choose character">
+              <span>Character</span>
+            </button>
+            <button id="utilityToggleButton" type="button" class="utility-toggle">
+              <span>Controls</span>
+            </button>
+          </div>
+        </header>
+
+        <div class="main-stage-content">
+          <section class="hero-stage">
+            <div class="hero-copy">
+              <h1 class="hero-title">Chanakya</h1>
+              <p class="hero-subtitle">Voice chamber active for classic chat. Choose a presence, speak naturally, interrupt anytime.</p>
+            </div>
+            <div class="hero-avatar-wrap">
+              <div id="heroAvatarStage" class="voice-avatar-stage" data-character="eyes" aria-label="Chanakya voice avatar">
+                <div class="voice-avatar-shell" data-state="idle">
+                  <div class="voice-avatar-backdrop"></div>
+                  <div class="voice-avatar-bg-particles"></div>
+                  <div class="voice-avatar-body" aria-hidden="true">
+                    <div class="voice-avatar-panel" data-character="eyes">
+                      <div class="voice-eyes">
+                        <div class="voice-eyes-eye left">
+                          <div class="voice-eyes-glow"></div>
+                          <div class="voice-eyes-pupil"></div>
+                        </div>
+                        <div class="voice-eyes-eye right">
+                          <div class="voice-eyes-glow"></div>
+                          <div class="voice-eyes-pupil"></div>
+                        </div>
+                        <div class="voice-eyes-bridge"></div>
+                      </div>
+                    </div>
+                    <div class="voice-avatar-panel" data-character="mythic">
+                      <div class="voice-mythic">
+                        <div class="voice-mandala-center"></div>
+                        <div class="voice-mandala-rings">
+                          <div class="voice-mandala-ring"></div>
+                          <div class="voice-mandala-ring"></div>
+                          <div class="voice-mandala-ring"></div>
+                        </div>
+                        <div class="voice-lotus-petals">
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                          <div class="voice-petal"></div>
+                        </div>
+                        <div class="voice-sacred-geometry">
+                          <div class="voice-yantra-line"></div>
+                          <div class="voice-yantra-line"></div>
+                          <div class="voice-yantra-line"></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="voice-avatar-panel" data-character="character">
+                      <div class="voice-character">
+                        <div class="voice-character-aura"></div>
+                        <div class="voice-character-body">
+                          <div class="voice-character-head">
+                            <div class="voice-character-eye left">
+                              <div class="voice-character-pupil"></div>
+                            </div>
+                            <div class="voice-character-eye right">
+                              <div class="voice-character-pupil"></div>
+                            </div>
+                            <div class="voice-character-mouth"></div>
+                          </div>
+                          <div class="voice-character-torso"></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="voice-avatar-panel" data-character="komi">
+                      <div class="voice-komi">
+                        <div class="voice-komi-halo"></div>
+                        <div class="voice-komi-curtain left"></div>
+                        <div class="voice-komi-curtain right"></div>
+                        <div class="voice-komi-sparkles">
+                          <div class="voice-komi-spark"></div>
+                          <div class="voice-komi-spark"></div>
+                          <div class="voice-komi-spark"></div>
+                          <div class="voice-komi-spark"></div>
+                          <div class="voice-komi-spark"></div>
+                        </div>
+                        <div class="voice-komi-canvas-shell">
+                          <canvas id="voiceAvatarKomiCanvas"></canvas>
+                          <div id="voiceAvatarKomiLoading" class="voice-avatar-loading">Loading Komi...</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <canvas class="voice-avatar-particle-canvas"></canvas>
+                </div>
+                <div class="voice-avatar-meta">
+                  <div id="voiceAvatarName" class="voice-avatar-name">Eyes-Driven</div>
+                  <div class="voice-avatar-chooser">
+                    <div class="voice-avatar-chooser-label">Characters</div>
+                    <div class="voice-avatar-chooser-pills" role="group" aria-label="Choose avatar character">
+                      <button type="button" class="voice-avatar-pill" data-character="eyes" aria-pressed="true">Eyes</button>
+                      <button type="button" class="voice-avatar-pill" data-character="mythic" aria-pressed="false">Mythic</button>
+                      <button type="button" class="voice-avatar-pill" data-character="character" aria-pressed="false">Character</button>
+                      <button type="button" class="voice-avatar-pill" data-character="komi" aria-pressed="false">Komi</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="callHeroStatus" class="call-hero-status" hidden>
+              <span class="call-hero-status-label">Voice</span>
+              <span id="callHeroStatusText" class="call-hero-status-text"></span>
+            </div>
+            <div class="hero-actions">
+              <button id="heroChatToggle" type="button" class="hero-action-button">Open Chat</button>
+            </div>
+          </section>
+
+          <section id="chatShell" class="chat-shell collapsed">
+            <div id="chatLog" class="chat chat-log"></div>
+            <div id="workNotificationsBar" class="work-notifications-bar">
+              <div class="wn-header" onclick="toggleWorkNotifications()">
+                <span>📋 Work Notifications</span>
+                <span id="wnBadge" class="wn-badge">0</span>
+              </div>
+              <div id="wnItems" class="wn-items"></div>
+            </div>
+            <div id="composerDock" class="composer-dock">
+              <form id="chatForm" class="composer">
+                <div class="composer-row">
+                  <button id="composerMoreButton" class="composer-more-button composer-aux-button" type="button" title="More controls" aria-label="More controls" aria-expanded="false" aria-controls="composerMenu">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                  </button>
+                  <textarea id="messageInput" class="composer-textarea" placeholder="Ask Chanakya anything" rows="1" required></textarea>
+                  <button class="composer-proxy-button composer-loop-proxy" type="button" data-voice-proxy="loop" title="Start or stop voice mode" aria-label="Start or stop voice mode">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 7.5l-3 3 3 3" /><path d="M11.5 16.5A6.5 6.5 0 1 0 11.5 3.5" /><path d="M15 7.5a5 5 0 0 1 0 9" /></svg>
+                  </button>
+                  <button class="composer-proxy-button composer-mic-proxy" type="button" data-voice-proxy="mic" title="Send voice message" aria-label="Send voice message">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2.5 2.5 0 0 0-2.5 2.5v5a2.5 2.5 0 1 0 5 0v-5A2.5 2.5 0 0 0 12 4Z" /><path d="M7 11.5a5 5 0 0 0 10 0" /><path d="M12 16.5V20" /><path d="M9 20h6" /></svg>
+                  </button>
+                  <button type="submit" class="composer-submit" aria-label="Send message">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="m18 11-6-6-6 6" /></svg>
+                  </button>
+                </div>
+              </form>
+              <div id="composerMenu" class="composer-menu" hidden>
+                <button id="composerCharacterButton" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M5 20a7 7 0 0 1 14 0" /></svg>
+                  Character
+                </button>
+                <button type="button" onclick="openDebugLogs()">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M4.25 2A2.25 2.25 0 002 4.25v11.5A2.25 2.25 0 004.25 18h11.5A2.25 2.25 0 0018 15.75V4.25A2.25 2.25 0 0015.75 2H4.25zm4.03 6.28a.75.75 0 00-1.06-1.06L4.97 9.47a.75.75 0 000 1.06l2.25 2.25a.75.75 0 001.06-1.06L6.56 10l1.72-1.72zm4.5-1.06a.75.75 0 10-1.06 1.06L13.44 10l-1.72 1.72a.75.75 0 101.06 1.06l2.25-2.25a.75.75 0 000-1.06l-2.25-2.25z" clip-rule="evenodd"/></svg>
+                  Debug
+                </button>
+                <button type="button" data-voice-proxy="speak">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 14h3l4 3V7L8 10H5v4Z" /><path d="M16 9a4.5 4.5 0 0 1 0 6" /><path d="M18.5 6.5a8 8 0 0 1 0 11" /></svg>
+                  Speak latest reply
+                </button>
+                <button type="button" data-voice-proxy="refresh">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M7.5 16A7 7 0 0 0 19 11" /><path d="M16.5 8A7 7 0 0 0 5 13" /></svg>
+                  Refresh models
+                </button>
+              </div>
+              <div class="dock-actions" role="toolbar" aria-label="Voice controls">
+                <button class="air-button" type="button" data-voice-proxy="loop">Voice</button>
+                <button class="air-button" type="button" data-voice-proxy="speak">Speak Reply</button>
+                <button class="air-button" type="button" data-voice-proxy="refresh">Refresh Models</button>
+              </div>
+              <div class="call-control-bar" aria-label="Call controls">
+                <button class="call-control-button call-primary" type="button" data-voice-proxy="loop">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a11.5 11.5 0 0 0 9 9l2-2.2c.4-.4 1-.5 1.5-.3l2.3 1c.6.3.9.9.8 1.5L23 20c-.1.8-.8 1.4-1.6 1.4C10.2 21.4 2.6 13.8 2.6 4.6 2.6 3.8 3.2 3.1 4 3l3.5-.5c.6-.1 1.2.2 1.5.8l1 2.3c.2.5.1 1.1-.3 1.5L8 7Z" /></svg>
+                  <span id="callModePrimaryLabel" class="call-control-label">End Voice</span>
+                </button>
+              </div>
+              <div class="chat-status-bar dock-status">
+                <div class="air-status-card">
+                  <div class="air-status-title">Queue</div>
+                  <div id="conversationQueueStatus" class="air-status"></div>
+                </div>
+                <div class="air-status-card">
+                  <div class="air-status-title">Voice</div>
+                  <div id="airVoiceStatus" class="air-status"></div>
+                </div>
+              </div>
+              <div class="voice-control-bank" aria-hidden="true">
+                <button id="airMicButton" class="air-button" type="button" title="Manual microphone recording">Mic</button>
+                <button id="airVoiceLoopButton" class="air-button" type="button" title="Start or stop voice mode">Start Voice</button>
+                <button id="airSpeakButton" class="air-button" type="button" title="Speak the latest assistant reply">Speak Reply</button>
+                <button id="airPauseRepliesButton" class="air-button" type="button" title="Pause queued assistant replies">Pause Replies</button>
+                <button id="airRefreshModelsButton" class="air-button" type="button" title="Refresh AIR model list">Refresh Models</button>
+              </div>
+            </div>
+          </section>
+
+          <section id="configShell" class="config-shell">
+            <div class="config-shell-header">
+              <div>
+                <h2 class="config-shell-title">Configuration</h2>
+                <p class="config-shell-copy">Settings, voice, workers, and notifications in one scrollable control deck.</p>
+              </div>
+            </div>
+            <div id="configShellBody" class="config-shell-body"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <div id="utilityScrim" class="utility-scrim"></div>
+
+    <aside class="right-sidebar">
+      <div class="utility-rail-header">
+        <h2>Controls</h2>
+        <button id="utilityCloseButton" type="button" class="utility-close">✕</button>
+      </div>
+      <!-- Settings Panel -->
+      <div class="sidebar-panel" data-sidebar-panel="settings">
+        <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
+          <div class="sidebar-panel-title">
+            <span class="panel-icon">⚙️</span>
+            Settings
+          </div>
+          <svg class="sidebar-panel-chevron" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/></svg>
+        </div>
+        <div class="sidebar-panel-body">
+          <div class="control-group">
+            <div class="runtime-models">
+              <label>
+                Backend
+                <select id="chatBackendSelect">
+                  <option value="local">Local OpenAI-compatible via AIR</option>
                   {% if a2a_gui_enabled %}
-                  <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
-                  <label>
-                    A2A Agent Override
-                    <select id="a2aAgentInput"></select>
-                  </label>
-                  <label>
-                    A2A Model Provider
-                    <select id="a2aModelProviderInput"></select>
-                  </label>
-                  <label>
-                    A2A Model
-                    <select id="a2aModelIdInput"></select>
-                  </label>
+                  <option value="a2a">A2A</option>
                   {% endif %}
+                </select>
+              </label>
+              <label>
+                Chanakya Model
+                <select id="airLlmModel"></select>
+              </label>
+              {% if a2a_gui_enabled %}
+              <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
+              <label>
+                A2A Worker Override
+                <select id="a2aAgentInput"></select>
+              </label>
+              <label>
+                A2A Model Provider
+                <select id="a2aModelProviderInput"></select>
+              </label>
+              <label>
+                A2A Model
+                <select id="a2aModelIdInput"></select>
+              </label>
+              {% endif %}
+            </div>
+            <div class="runtime-textareas">
+              <div class="runtime-pref-card">
+                <div class="runtime-pref-head">
+                  <p class="runtime-pref-title">Conversation Tone</p>
                 </div>
-                {% if a2a_gui_enabled %}
-                <p class="control-group-note">In A2A mode, Chanakya sends the next chat turn through the configured endpoint and can include remote agent and model overrides. The selected A2A agent applies to both direct replies and conversation-layer follow-ups.</p>
-                {% endif %}
-                <div class="runtime-textareas">
-                  <div class="runtime-pref-card">
-                    <div class="runtime-pref-head">
-                      <p class="runtime-pref-title">Conversation Tone</p>
-                      <span class="runtime-pref-badge">Default Loaded</span>
-                    </div>
-                    <p class="runtime-pref-copy">Controls the voice and style of Chanakya's delivered classic-chat replies.</p>
-                    <textarea id="conversationToneInstructionInput" placeholder="Optional instruction for the conversational voice and style of classic-chat delivery."></textarea>
-                    <p class="runtime-pref-footnote">Best for nudging warmth, formality, directness, or personality without changing the actual answer.</p>
-                  </div>
-                  <div class="runtime-pref-card">
-                    <div class="runtime-pref-head">
-                      <p class="runtime-pref-title">TTS Instruction</p>
-                      <span class="runtime-pref-badge">Voice Ready</span>
-                    </div>
-                    <p class="runtime-pref-copy">Shapes phrasing so replies sound cleaner and more natural when spoken aloud.</p>
-                    <textarea id="ttsInstructionInput" placeholder="Optional instruction for TTS-friendly formatting and spoken delivery."></textarea>
-                    <p class="runtime-pref-footnote">Use this for pacing, spoken clarity, expressive markup, or avoiding awkward punctuation patterns.</p>
-                  </div>
+                <textarea id="conversationToneInstructionInput" placeholder="Tone and style instruction..."></textarea>
+              </div>
+              <div class="runtime-pref-card">
+                <div class="runtime-pref-head">
+                  <p class="runtime-pref-title">TTS Instruction</p>
                 </div>
-                <p class="control-group-note">These apply to future classic-chat conversation-layer delivery, shaping how Chanakya phrases replies and formats them for spoken output.</p>
-                <div class="air-controls">
-                  <button id="runtimeConfigApplyButton" class="air-button" type="button">Apply Changes</button>
-                </div>
-                <p id="runtimeConfigStatus" class="control-field-hint"></p>
-                {% if a2a_gui_enabled %}
-                <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
-                {% endif %}
-              </section>
-              <section class="control-group">
-                <p class="control-group-title">AIR Voice</p>
-                <div class="air-links">
-                  <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
-                  <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
-                </div>
-                <div class="air-models">
-                  <label>
-                    STT Model
-                    <select id="airSttModel"></select>
-                  </label>
-                  <label>
-                    TTS Model
-                    <select id="airTtsModel"></select>
-                  </label>
-                </div>
-              </section>
+                <textarea id="ttsInstructionInput" placeholder="TTS formatting instruction..."></textarea>
+              </div>
             </div>
             <div class="air-controls">
-              <button id="airMicButton" class="air-button" type="button">Mic</button>
-              <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
-              <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
-              <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
-              <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
+              <button id="runtimeConfigApplyButton" class="air-button" type="button">Apply Changes</button>
             </div>
-            <div id="airVoiceStatus" class="air-status"></div>
-            <div id="conversationQueueStatus" class="air-status"></div>
+            <p id="runtimeConfigStatus" class="control-field-hint"></p>
+            {% if a2a_gui_enabled %}
+            <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
+            {% endif %}
           </div>
-        </details>
-      </div>
-      <div id="chatLog" class="chat-log"></div>
-      <div id="workNotificationsBar" class="work-notifications-bar">
-        <div class="wn-header" onclick="toggleWorkNotifications()">
-          <span>📋 Work Notifications</span>
-          <span id="wnBadge" class="wn-badge">0</span>
         </div>
-        <div id="wnItems" class="wn-items"></div>
       </div>
-      <form id="chatForm" class="composer">
-        <input id="messageInput" type="text" placeholder="Talk to Chanakya..." required />
-        <button type="submit">Send</button>
-      </form>
-    </section>
 
-    <section class="side">
+      <!-- Voice Panel -->
+      <div class="sidebar-panel" data-sidebar-panel="voice">
+        <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
+          <div class="sidebar-panel-title">
+            <span class="panel-icon">🎙️</span>
+            Voice
+          </div>
+          <svg class="sidebar-panel-chevron" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/></svg>
+        </div>
+        <div class="sidebar-panel-body">
+          <div class="control-group">
+            <div class="air-links">
+              <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
+              <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
+            </div>
+            <div class="air-models">
+              <label>
+                STT Model
+                <select id="airSttModel"></select>
+              </label>
+              <label>
+                TTS Model
+                <select id="airTtsModel"></select>
+              </label>
+              <label class="character-select-label">
+                Character Presence
+                <select id="voiceCharacterSelect">
+                  <option value="eyes">Eyes-Driven</option>
+                  <option value="mythic">Mythic Indian</option>
+                  <option value="character">Character</option>
+                  <option value="komi">Komi Live2D</option>
+                </select>
+                <span id="voiceCharacterCurrent" class="character-select-value">Current: Eyes-Driven</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Workers Panel -->
+      <div class="sidebar-panel collapsed" data-sidebar-panel="agents">
+        <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
+          <div class="sidebar-panel-title">
+            <span class="panel-icon">🤖</span>
+            Workers
+          </div>
+          <svg class="sidebar-panel-chevron" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/></svg>
+        </div>
+        <div class="sidebar-panel-body">
+          <form id="agentForm" class="agent-editor">
+            <div class="agent-editor-grid">
+              <label>
+                Name
+                <input id="agentName" type="text" required />
+              </label>
+              <label>
+                Role
+                <input id="agentRole" type="text" required placeholder="builder, tester, researcher..." />
+              </label>
+            </div>
+            <label>
+              System Prompt
+              <textarea id="agentSystemPrompt" required></textarea>
+            </label>
+            <label>
+              Personality
+              <input id="agentPersonality" type="text" placeholder="calm, direct, task-oriented" />
+            </label>
+            <div class="agent-editor-grid">
+              <label>
+                Workspace
+                <input id="agentWorkspace" type="text" placeholder="dev-workspace" />
+              </label>
+              <label>
+                Heartbeat File Path
+                <input id="agentHeartbeatFilePath" type="text" placeholder="chanakya_data/heartbeats/developer.md" />
+              </label>
+            </div>
+            <div class="agent-editor-grid">
+              <label>
+                Heartbeat Interval Seconds
+                <input id="agentHeartbeatInterval" type="number" min="1" value="300" />
+              </label>
+              <div>
+                <div class="status-text">Allowed Tools</div>
+                <div id="agentToolOptions" class="tool-checkboxes"></div>
+              </div>
+            </div>
+            <div class="agent-flags">
+              <label><input id="agentIsActive" type="checkbox" checked /> Active</label>
+              <label><input id="agentHeartbeatEnabled" type="checkbox" /> Heartbeat Enabled</label>
+            </div>
+            <div class="form-actions">
+              <button id="agentSaveButton" type="submit">Create Worker</button>
+              <button id="agentResetButton" type="button" class="button-secondary">New Worker</button>
+              <span id="agentFormStatus" class="status-text"></span>
+            </div>
+          </form>
+          <div id="agentList"></div>
+        </div>
+      </div>
+
+      <!-- Notifications Panel -->
+      <div class="sidebar-panel collapsed" data-sidebar-panel="notifications">
+        <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
+          <div class="sidebar-panel-title">
+            <span class="panel-icon">📱</span>
+            Notifications
+          </div>
+          <svg class="sidebar-panel-chevron" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/></svg>
+        </div>
+        <div class="sidebar-panel-body">
+          <form id="notificationForm" class="agent-editor">
+            <div class="agent-flags">
+              <label><input id="notificationEnabled" type="checkbox" /> Enable phone notifications</label>
+              <label><input id="notificationIncludePreview" type="checkbox" checked /> Include short result summary</label>
+            </div>
+            <label>
+              Server URL
+              <input id="notificationServerUrl" type="text" placeholder="https://ntfy.sh" />
+            </label>
+            <label>
+              Topic
+              <input id="notificationTopic" type="text" placeholder="chanakya-..." />
+            </label>
+            <p class="status-text">Install the ntfy app, subscribe to this topic once on your phone, then send a test notification.</p>
+            <div class="form-actions">
+              <button id="notificationSaveButton" type="submit">Save Settings</button>
+              <button id="notificationGenerateButton" type="button" class="button-secondary">Generate Topic</button>
+              <button id="notificationDeleteButton" type="button" class="button-secondary">Delete Topic</button>
+              <button id="notificationTestButton" type="button" class="button-secondary">Send Test</button>
+              <span id="notificationStatus" class="status-text"></span>
+            </div>
+            <div id="notificationQrCard" class="notification-qr" hidden>
+              <div>
+                <strong>Android onboarding QR</strong>
+                <p class="status-text">Scan this with the ntfy app installed to open and subscribe to the topic directly.</p>
+              </div>
+              <img id="notificationQrImage" alt="ntfy topic QR code" />
+              <a id="notificationDeepLink" class="notification-link" href="#"></a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Hidden debug panels (rendered into new window) -->
+  <section class="side debug-panel-hidden">
       <div class="panel section" data-panel="request-trace">
         <div class="section-header">
           <div class="section-copy">
             <h2>Request Trace</h2>
             <p>Route metadata for the latest request.</p>
           </div>
-          <button type="button" class="detach-button" data-detach-panel="request-trace" title="Open in new tab"
-            aria-label="Open Request Trace in new tab">&#x2197;</button>
         </div>
         <div class="section-body">
           <div id="requestTrace"></div>
@@ -1584,8 +3184,6 @@
             <h2>Tool Traces</h2>
             <p>MCP tool selections, inputs, outputs, and errors.</p>
           </div>
-          <button type="button" class="detach-button" data-detach-panel="tool-traces" title="Open in new tab"
-            aria-label="Open Tool Traces in new tab">&#x2197;</button>
         </div>
         <div class="section-body">
           <div id="toolTraceList"></div>
@@ -1596,10 +3194,7 @@
         <div class="section-header">
           <div class="section-copy">
             <h2>Sandbox Guide</h2>
-            <p>What agents can read, write, and recover from during sandbox execution.</p>
           </div>
-          <button type="button" class="detach-button" data-detach-panel="sandbox-guide" title="Open in new tab"
-            aria-label="Open Sandbox Guide in new tab">&#x2197;</button>
         </div>
         <div class="section-body">
           <div class="sandbox-guide">
@@ -1637,8 +3232,6 @@
             <h2>Tasks</h2>
             <p>Persisted task graph, workflow type, owners, and lifecycle state.</p>
           </div>
-          <button type="button" class="detach-button" data-detach-panel="tasks" title="Open in new tab"
-            aria-label="Open Tasks in new tab">&#x2197;</button>
         </div>
         <div class="section-body">
           <div id="taskList"></div>
@@ -1651,8 +3244,6 @@
             <h2>Task Timeline</h2>
             <p>Ordered request and task lifecycle events for this session.</p>
           </div>
-          <button type="button" class="detach-button" data-detach-panel="task-timeline" title="Open in new tab"
-            aria-label="Open Task Timeline in new tab">&#x2197;</button>
         </div>
         <div class="section-body">
           <div id="taskTimeline"></div>
@@ -1665,121 +3256,12 @@
             <h2>Temporary Subagents</h2>
             <p>Worker-scoped helper agents, their purpose, and cleanup lifecycle.</p>
           </div>
-          <button type="button" class="detach-button" data-detach-panel="temporary-subagents" title="Open in new tab"
-            aria-label="Open Temporary Subagents in new tab">&#x2197;</button>
         </div>
         <div class="section-body">
           <div id="subagentList"></div>
         </div>
       </div>
-
-      <div class="panel section" data-panel="phone-notifications">
-        <div class="section-header">
-          <div class="section-copy">
-            <h2>Phone Notifications</h2>
-            <p>Send request completion, failure, and input-needed updates to your phone via ntfy.</p>
-          </div>
-          <button type="button" class="detach-button" data-detach-panel="phone-notifications" title="Open in new tab"
-            aria-label="Open Phone Notifications in new tab">&#x2197;</button>
-        </div>
-        <div class="section-body">
-          <form id="notificationForm" class="agent-editor">
-            <div class="agent-flags">
-              <label><input id="notificationEnabled" type="checkbox" /> Enable phone notifications</label>
-              <label><input id="notificationIncludePreview" type="checkbox" checked /> Include short result summary</label>
-            </div>
-            <label>
-              Server URL
-              <input id="notificationServerUrl" type="text" placeholder="https://ntfy.sh" />
-            </label>
-            <label>
-              Topic
-              <input id="notificationTopic" type="text" placeholder="chanakya-..." />
-            </label>
-            <p class="status-text">Install the ntfy app, subscribe to this topic once on your phone, then send a test notification.</p>
-            <div class="form-actions">
-              <button id="notificationSaveButton" type="submit">Save Settings</button>
-              <button id="notificationGenerateButton" type="button" class="button-secondary">Generate Topic</button>
-              <button id="notificationDeleteButton" type="button" class="button-secondary">Delete Topic</button>
-              <button id="notificationTestButton" type="button" class="button-secondary">Send Test</button>
-              <span id="notificationStatus" class="status-text"></span>
-            </div>
-            <div id="notificationQrCard" class="notification-qr" hidden>
-              <div>
-                <strong>Android onboarding QR</strong>
-                <p class="status-text">Scan this with the ntfy app installed to open and subscribe to the topic directly.</p>
-              </div>
-              <img id="notificationQrImage" alt="ntfy topic QR code" />
-              <a id="notificationDeepLink" class="notification-link" href="#"></a>
-            </div>
-          </form>
-        </div>
-      </div>
-
-      <div class="panel section" data-panel="persistent-agents">
-        <div class="section-header">
-          <div class="section-copy">
-            <h2>Persistent Agents</h2>
-            <p>Create and edit saved agents used by the manager workflow.</p>
-          </div>
-          <button type="button" class="detach-button" data-detach-panel="persistent-agents" title="Open in new tab"
-            aria-label="Open Persistent Agents in new tab">&#x2197;</button>
-        </div>
-        <div class="section-body">
-          <form id="agentForm" class="agent-editor">
-            <div class="agent-editor-grid">
-              <label>
-                Name
-                <input id="agentName" type="text" required />
-              </label>
-              <label>
-                Role
-                <input id="agentRole" type="text" required placeholder="developer, tester, researcher..." />
-              </label>
-            </div>
-            <label>
-              System Prompt
-              <textarea id="agentSystemPrompt" required></textarea>
-            </label>
-            <label>
-              Personality
-              <input id="agentPersonality" type="text" placeholder="calm, direct, task-oriented" />
-            </label>
-            <div class="agent-editor-grid">
-              <label>
-                Workspace
-                <input id="agentWorkspace" type="text" placeholder="dev-workspace" />
-              </label>
-              <label>
-                Heartbeat File Path
-                <input id="agentHeartbeatFilePath" type="text" placeholder="chanakya_data/heartbeats/developer.md" />
-              </label>
-            </div>
-            <div class="agent-editor-grid">
-              <label>
-                Heartbeat Interval Seconds
-                <input id="agentHeartbeatInterval" type="number" min="1" value="300" />
-              </label>
-              <div>
-                <div class="status-text">Allowed Tools</div>
-                <div id="agentToolOptions" class="tool-checkboxes"></div>
-              </div>
-            </div>
-            <div class="agent-flags">
-              <label><input id="agentIsActive" type="checkbox" checked /> Active</label>
-              <label><input id="agentHeartbeatEnabled" type="checkbox" /> Heartbeat Enabled</label>
-            </div>
-            <div class="form-actions">
-              <button id="agentSaveButton" type="submit">Create Agent</button>
-              <button id="agentResetButton" type="button" class="button-secondary">New Agent</button>
-              <span id="agentFormStatus" class="status-text"></span>
-            </div>
-          </form>
-          <div id="agentList"></div>
-        </div>
-      </div>
     </section>
-  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
@@ -1800,6 +3282,10 @@
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-go.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-rust.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markdown.min.js"></script>
+  <script src="{{ url_for('static', filename='live2d/live2dcubismcore.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/pixi.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/pixi-live2d-display-cubism4.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/voice_stage.js') }}"></script>
   <script src="{{ url_for('static', filename='js/air_voice.js') }}"></script>
   <script>
     const AIR_SERVER_URL = {{ air_server_url | tojson }};
@@ -1860,6 +3346,196 @@
     const agentSaveButton = document.getElementById("agentSaveButton");
     const agentResetButton = document.getElementById("agentResetButton");
     const agentFormStatus = document.getElementById("agentFormStatus");
+    const chatShell = document.getElementById("chatShell");
+    const heroChatToggle = document.getElementById("heroChatToggle");
+    const heroAvatarStage = document.getElementById("heroAvatarStage");
+    const voiceAvatarName = document.getElementById("voiceAvatarName");
+    const voiceCharacterSelect = document.getElementById("voiceCharacterSelect");
+    const voiceCharacterCurrent = document.getElementById("voiceCharacterCurrent");
+    const modeCharacterButton = document.getElementById("modeCharacterButton");
+    const heroStage = document.querySelector(".hero-stage");
+    const modeSettingsButton = document.getElementById("modeSettingsButton");
+    const modeBackButton = document.getElementById("modeBackButton");
+    const configShell = document.getElementById("configShell");
+    const configShellBody = document.getElementById("configShellBody");
+    const utilityToggleButton = document.getElementById("utilityToggleButton");
+    const workspacesButton = document.getElementById("workspacesButton");
+    const utilityCloseButton = document.getElementById("utilityCloseButton");
+    const utilityScrim = document.getElementById("utilityScrim");
+    const composerDock = document.getElementById("composerDock");
+    const composerMoreButton = document.getElementById("composerMoreButton");
+    const composerMenu = document.getElementById("composerMenu");
+    const composerSettingsButton = document.getElementById("composerSettingsButton");
+    const composerCharacterButton = document.getElementById("composerCharacterButton");
+    const callModePrimaryLabel = document.getElementById("callModePrimaryLabel");
+    const callHeroStatus = document.getElementById("callHeroStatus");
+    const callHeroStatusText = document.getElementById("callHeroStatusText");
+    const composerSubmitButton = chatForm ? chatForm.querySelector(".composer-submit") : null;
+    let airVoiceController = null;
+    const CALL_MODE_VIEW_KEY = "chanakya-call-mode-view";
+    let preferredCallModeView = false;
+
+    function loadStoredCallModeView() {
+      try {
+        return window.localStorage.getItem(CALL_MODE_VIEW_KEY) === "true";
+      } catch {
+        return false;
+      }
+    }
+
+    function storeCallModeView(value) {
+      try {
+        window.localStorage.setItem(CALL_MODE_VIEW_KEY, value ? "true" : "false");
+      } catch {
+      }
+    }
+
+    function isCompactComposerViewport() {
+      return window.innerWidth <= 640;
+    }
+
+    function setComposerMenuOpen(isOpen) {
+      if (!composerMenu || !composerMoreButton) {
+        return;
+      }
+      const nextValue = Boolean(isOpen) && !isCallModeActive();
+      composerMenu.hidden = !nextValue;
+      composerMoreButton.setAttribute("aria-expanded", nextValue ? "true" : "false");
+    }
+
+    function syncComposerInputState() {
+      if (!composerDock || !messageInput) {
+        return;
+      }
+      const hasText = messageInput.value.trim().length > 0;
+      composerDock.classList.toggle("has-text", hasText);
+      composerDock.classList.toggle("show-desktop-controls", !isCompactComposerViewport() && !hasText);
+      if (composerSubmitButton) {
+        composerSubmitButton.disabled = !hasText;
+      }
+      if (!hasText) {
+        return;
+      }
+      setComposerMenuOpen(false);
+    }
+
+    function shouldHideVoiceStatusText(text) {
+      const normalized = String(text || "").trim().toLowerCase();
+      return !normalized || normalized === "air models loaded." || normalized === "voice mode stopped.";
+    }
+
+    function syncComposerStatusState() {
+      const cards = Array.from(document.querySelectorAll(".air-status-card"));
+      let visibleCount = 0;
+      cards.forEach((card) => {
+        const statusNode = card.querySelector(".air-status");
+        const text = String(statusNode?.textContent || "").trim();
+        const shouldShow = !shouldHideVoiceStatusText(text);
+        card.hidden = !shouldShow;
+        if (shouldShow) {
+          visibleCount += 1;
+        }
+      });
+      const strip = document.querySelector(".dock-status");
+      if (strip) {
+        strip.hidden = visibleCount === 0;
+      }
+    }
+
+    function syncVoiceControlState() {
+      if (composerDock) {
+        composerDock.classList.toggle("voice-mode-active", isCallModeActive());
+      }
+      if (callModePrimaryLabel) {
+        callModePrimaryLabel.textContent = isCallModeActive() ? "End Voice" : (preferredCallModeView ? "Resume Call" : "Start Voice");
+      }
+    }
+
+    function isCallModeVisible() {
+      return preferredCallModeView || isCallModeActive();
+    }
+
+    function syncCallHeroStatus(text) {
+      if (!callHeroStatus || !callHeroStatusText) {
+        return;
+      }
+      const nextText = String(text || "").trim();
+      const resumeText = preferredCallModeView && !isCallModeActive() ? "Resume call to continue." : "";
+      const resolvedText = nextText || resumeText;
+      const shouldShow = isCallModeVisible() && !shouldHideVoiceStatusText(resolvedText);
+      callHeroStatus.hidden = !shouldShow;
+      callHeroStatusText.textContent = shouldShow ? resolvedText : "";
+    }
+
+    function resizeComposerTextarea() {
+      if (!messageInput) {
+        return;
+      }
+      messageInput.style.height = "auto";
+      const maxHeight = 128;
+      messageInput.style.height = `${Math.min(messageInput.scrollHeight, maxHeight)}px`;
+      messageInput.style.overflowY = messageInput.scrollHeight > maxHeight ? "auto" : "hidden";
+    }
+
+    messageInput.addEventListener("input", () => {
+      resizeComposerTextarea();
+      syncComposerInputState();
+    });
+    messageInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey) {
+        return;
+      }
+      event.preventDefault();
+      chatForm.requestSubmit();
+    });
+    resizeComposerTextarea();
+    syncComposerInputState();
+    syncComposerStatusState();
+    syncVoiceControlState();
+
+    if (composerMoreButton) {
+      composerMoreButton.addEventListener("click", () => {
+        setComposerMenuOpen(composerMenu.hidden);
+      });
+    }
+
+    if (composerSettingsButton) {
+      composerSettingsButton.addEventListener("click", () => {
+        setComposerMenuOpen(false);
+        setMainMode("config");
+        expandSidebarPanel("settings");
+      });
+    }
+
+    if (composerCharacterButton) {
+      composerCharacterButton.addEventListener("click", () => {
+        setComposerMenuOpen(false);
+        openVoiceCharacterSettings();
+      });
+    }
+
+    if (composerMenu) {
+      composerMenu.addEventListener("click", (event) => {
+        const target = event.target instanceof HTMLElement ? event.target.closest("button") : null;
+        if (!target) {
+          return;
+        }
+        if (target.dataset.voiceProxy) {
+          setComposerMenuOpen(false);
+        }
+      });
+    }
+
+    document.addEventListener("click", (event) => {
+      if (!composerDock || composerMenu?.hidden) {
+        return;
+      }
+      const target = event.target;
+      if (target instanceof Node && composerDock.contains(target)) {
+        return;
+      }
+      setComposerMenuOpen(false);
+    });
     const detachedPanel = new URLSearchParams(window.location.search).get("panel");
     const COLLAPSE_STORAGE_KEY = "chanakya-collapsed-panels";
     const panelTitles = {
@@ -1873,9 +3549,9 @@
       "persistent-agents": "Persistent Agents",
     };
 
+    preferredCallModeView = loadStoredCallModeView();
     let sessionId = null;
     let selectedAgentId = null;
-    let airVoiceController = null;
     let availableTools = [];
     let a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
     let a2aDiscoveryHealthy = false;
@@ -1889,6 +3565,16 @@
     const CONVERSATION_PREFERENCE_DEFAULTS = {{ conversation_preferences_defaults | tojson }};
     const CHAT_RECOVERY_MAX_WAIT_MS = 180000;
     const CHAT_RECOVERY_POLL_MS = 1500;
+    let activeMainMode = "chat";
+    let activeInlineProgressRequestId = null;
+    const heroVoiceStage = window.createVoiceAvatarStage
+      ? window.createVoiceAvatarStage({
+        stage: heroAvatarStage,
+        nameNode: voiceAvatarName,
+        selectNode: voiceCharacterSelect,
+        statusNode: voiceCharacterCurrent,
+      })
+      : null;
 
     function delay(ms) {
       return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -1939,15 +3625,16 @@
 
     function normalizeRuntimeConfig(config) {
       const normalized = config || {};
+      const backend = A2A_GUI_ENABLED && normalized.backend === "a2a" ? "a2a" : "local";
       return {
-        backend: A2A_GUI_ENABLED && normalized.backend === "a2a" ? "a2a" : "local",
+        backend,
         model_id: typeof normalized.model_id === "string" && normalized.model_id.trim() ? normalized.model_id.trim() : null,
-        a2a_url: A2A_GUI_ENABLED
+        a2a_url: A2A_GUI_ENABLED && backend === "a2a"
           ? (typeof normalized.a2a_url === "string" && normalized.a2a_url.trim() ? normalized.a2a_url.trim() : (DEFAULT_A2A_URL || null))
           : null,
-        a2a_remote_agent: A2A_GUI_ENABLED && typeof normalized.a2a_remote_agent === "string" && normalized.a2a_remote_agent.trim() ? normalized.a2a_remote_agent.trim() : null,
-        a2a_model_provider: A2A_GUI_ENABLED && typeof normalized.a2a_model_provider === "string" && normalized.a2a_model_provider.trim() ? normalized.a2a_model_provider.trim() : null,
-        a2a_model_id: A2A_GUI_ENABLED && typeof normalized.a2a_model_id === "string" && normalized.a2a_model_id.trim() ? normalized.a2a_model_id.trim() : null,
+        a2a_remote_agent: A2A_GUI_ENABLED && backend === "a2a" && typeof normalized.a2a_remote_agent === "string" && normalized.a2a_remote_agent.trim() ? normalized.a2a_remote_agent.trim() : null,
+        a2a_model_provider: A2A_GUI_ENABLED && backend === "a2a" && typeof normalized.a2a_model_provider === "string" && normalized.a2a_model_provider.trim() ? normalized.a2a_model_provider.trim() : null,
+        a2a_model_id: A2A_GUI_ENABLED && backend === "a2a" && typeof normalized.a2a_model_id === "string" && normalized.a2a_model_id.trim() ? normalized.a2a_model_id.trim() : null,
         conversation_tone_instruction: typeof normalized.conversation_tone_instruction === "string" && normalized.conversation_tone_instruction.trim()
           ? normalized.conversation_tone_instruction.trim()
           : (CONVERSATION_PREFERENCE_DEFAULTS.conversation_tone_instruction || null),
@@ -1972,6 +3659,204 @@
           ? ttsInstructionInput.value.trim()
           : null,
       });
+    }
+
+    let isChatExpanded = false;
+
+    function isCallModeActive() {
+      return Boolean(
+        airVoiceController
+        && typeof airVoiceController.isVoiceModeEnabled === "function"
+        && airVoiceController.isVoiceModeEnabled()
+      );
+    }
+
+    function syncCallModeState() {
+      const inCallMode = activeMainMode === "chat" && isCallModeVisible();
+      document.body.classList.toggle("call-mode", inCallMode);
+      if (inCallMode) {
+        setComposerMenuOpen(false);
+      }
+      if (heroStage) {
+        heroStage.hidden = activeMainMode === "config" || (!inCallMode && isChatExpanded);
+      }
+      if (heroChatToggle) {
+        heroChatToggle.hidden = inCallMode;
+      }
+      if (chatShell) {
+        chatShell.classList.toggle("collapsed", !inCallMode && !isChatExpanded);
+      }
+      if (heroVoiceStage && typeof heroVoiceStage.syncVisibility === "function") {
+        heroVoiceStage.syncVisibility();
+      }
+      syncCallHeroStatus(inCallMode ? deriveHeroStatusState().text : "");
+      syncVoiceControlState();
+      syncComposerStatusState();
+    }
+
+    function setChatExpanded(nextValue) {
+      isChatExpanded = Boolean(nextValue);
+      if (chatShell) {
+        chatShell.classList.toggle("collapsed", !isChatExpanded && !isCallModeVisible());
+      }
+      if (heroStage) {
+        heroStage.hidden = (isChatExpanded && !isCallModeVisible()) || activeMainMode === "config";
+      }
+      if (heroChatToggle) {
+        heroChatToggle.textContent = isChatExpanded ? "Hide Chat" : "Open Chat";
+      }
+      if (isChatExpanded) {
+        window.setTimeout(() => {
+          chatLog.scrollTop = chatLog.scrollHeight;
+          messageInput.focus();
+        }, 80);
+      }
+      syncCallModeState();
+    }
+
+    function setUtilityPanelOpen(nextValue) {
+      document.body.classList.toggle("utility-panel-open", Boolean(nextValue));
+    }
+
+    function expandSidebarPanel(panelId) {
+      const panel = document.querySelector(`.sidebar-panel[data-sidebar-panel="${panelId}"]`);
+      if (!panel) {
+        return;
+      }
+      panel.classList.remove("collapsed");
+      const state = new Set(loadSidebarCollapsedState());
+      state.delete(panelId);
+      saveSidebarCollapsedState(Array.from(state));
+    }
+
+    function openVoiceCharacterSettings() {
+      setMainMode("config");
+      expandSidebarPanel("voice");
+      window.setTimeout(() => {
+        if (voiceCharacterSelect) {
+          voiceCharacterSelect.focus();
+        }
+      }, 80);
+    }
+
+    function syncMainMode() {
+      const isConfigMode = activeMainMode === "config";
+      if (heroStage) {
+        heroStage.hidden = isConfigMode || (isChatExpanded && !isCallModeVisible());
+      }
+      if (configShell) {
+        configShell.classList.toggle("is-active", isConfigMode);
+      }
+      if (chatShell) {
+        chatShell.hidden = isConfigMode;
+      }
+      if (modeSettingsButton) {
+        modeSettingsButton.hidden = isConfigMode;
+      }
+      if (modeBackButton) {
+        modeBackButton.hidden = !isConfigMode;
+      }
+      const rightSidebar = document.querySelector(".right-sidebar");
+      if (rightSidebar) {
+        rightSidebar.classList.toggle("config-mode", isConfigMode);
+      }
+      syncCallModeState();
+    }
+
+    function setMainMode(mode) {
+      activeMainMode = mode === "config" ? "config" : "chat";
+      if (activeMainMode !== "chat") {
+        setComposerMenuOpen(false);
+      }
+      syncMainMode();
+      if (activeMainMode === "chat") {
+        setChatExpanded(isChatExpanded);
+      }
+    }
+
+    function triggerVoiceControl(action) {
+      if (action === "loop") {
+        if (airVoiceController) {
+          if (isCallModeActive()) {
+            preferredCallModeView = false;
+            storeCallModeView(false);
+            void airVoiceController.stopVoiceMode().finally(() => {
+              syncHeroState();
+              syncCallModeState();
+            });
+            return;
+          }
+          preferredCallModeView = true;
+          storeCallModeView(true);
+          void airVoiceController.startVoiceMode().then(() => {
+            syncHeroState();
+            syncCallModeState();
+          }).catch((error) => {
+            preferredCallModeView = false;
+            storeCallModeView(false);
+            appendMessage("assistant", error instanceof Error ? error.message : String(error));
+            syncHeroState();
+            syncCallModeState();
+          });
+          return;
+        }
+      }
+      const mapping = {
+        mic: airMicButton,
+        loop: airVoiceLoopButton,
+        speak: airSpeakButton,
+        pause: airPauseRepliesButton,
+        refresh: airRefreshModelsButton,
+      };
+      const target = mapping[action];
+      if (target) {
+        target.click();
+      }
+    }
+
+    function deriveHeroStatusState() {
+      const queueText = String(conversationQueueStatus?.textContent || "").trim();
+      const voiceText = String(airVoiceStatus?.textContent || "").trim();
+      const queueLower = queueText.toLowerCase();
+      const voiceLower = voiceText.toLowerCase();
+      const preferredText = queueText || voiceText;
+      if (conversationQueueStatus?.dataset.state === "error" || airVoiceStatus?.dataset.state === "error") {
+        return { state: "error", text: preferredText || "Voice error" };
+      }
+      if (/thinking|processing|analyzing|assistant is still running|request is still being processed|recovering saved messages|waiting for the assistant response/.test(queueLower)) {
+        return { state: "thinking", text: queueText || "Thinking..." };
+      }
+      if (/queued|pacing|generating speech|finished replying|spoken follow-up|queued follow-up|speaking/.test(queueLower)) {
+        return { state: /queued|pacing/.test(queueLower) ? "queued" : "speaking", text: queueText || "Speaking..." };
+      }
+      if (/transcribing/.test(voiceLower)) {
+        return { state: "listening", text: voiceText || "Transcribing..." };
+      }
+      if (/generating speech|assistant reply spoken/.test(voiceLower)) {
+        return { state: "speaking", text: voiceText || "Speaking..." };
+      }
+      if (/recording|listening|interruption/.test(voiceLower)) {
+        return { state: "listening", text: voiceText || "Listening..." };
+      }
+      if (assistantTurnPendingCount > 0) {
+        return { state: "thinking", text: queueText || "Thinking..." };
+      }
+      if (/stopped/.test(voiceLower)) {
+        return { state: "idle", text: voiceText || "Voice mode stopped." };
+      }
+      return { state: "idle", text: "" };
+    }
+
+    function syncHeroState() {
+      if (!heroVoiceStage) {
+        return;
+      }
+      const { state, text } = deriveHeroStatusState();
+      heroVoiceStage.setState(state);
+      syncCallHeroStatus(text);
+      syncComposerStatusState();
+      syncVoiceControlState();
+      syncCallModeState();
     }
 
     function runtimeConfigsEqual(left, right) {
@@ -2109,7 +3994,7 @@
     function applyA2ADiscoveryOptions(sourceConfig = null) {
       const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
       const providers = a2aDiscoveredOptions.providers || [];
-      setSelectOptions(a2aAgentInput, a2aDiscoveredOptions.remote_agents || [], settings.a2a_remote_agent, "Select A2A agent");
+      setSelectOptions(a2aAgentInput, a2aDiscoveredOptions.remote_agents || [], settings.a2a_remote_agent, "Select A2A worker");
       setSelectOptions(a2aModelProviderInput, providers, settings.a2a_model_provider, "Select model provider");
       syncA2AModelOptions(settings);
       updateRuntimeConfigDirtyState();
@@ -2130,7 +4015,7 @@
         return;
       }
       setA2ASelectLoading(true);
-      setA2ADiscoveryStatus("Loading A2A agents and models...");
+      setA2ADiscoveryStatus("Loading A2A workers and models...");
       try {
         const response = await fetch(`/api/a2a/options?url=${encodeURIComponent(url)}`);
         const payload = await readJsonResponse(response);
@@ -2146,7 +4031,7 @@
         a2aDiscoveryError = "";
         applyA2ADiscoveryOptions(settings);
         setA2ADiscoveryStatus(
-          `Loaded ${a2aDiscoveredOptions.remote_agents.length} agent${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
+          `Loaded ${a2aDiscoveredOptions.remote_agents.length} worker${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
         );
       } catch (error) {
         a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
@@ -2321,6 +4206,207 @@
           window.open(url.toString(), "_blank", "noopener,noreferrer");
         });
       });
+    }
+
+    // ---- Sidebar Panel Toggle ----
+    const SIDEBAR_COLLAPSE_KEY = "chanakya-sidebar-collapsed";
+
+    function loadSidebarCollapsedState() {
+      try {
+        const raw = window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveSidebarCollapsedState(panelIds) {
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, JSON.stringify(panelIds));
+      } catch {}
+    }
+
+    function toggleSidebarPanel(headerElement) {
+      const panel = headerElement.closest(".sidebar-panel");
+      if (!panel) return;
+      const isCollapsed = panel.classList.toggle("collapsed");
+      const panelId = panel.getAttribute("data-sidebar-panel");
+      if (panelId) {
+        const state = new Set(loadSidebarCollapsedState());
+        if (isCollapsed) {
+          state.add(panelId);
+        } else {
+          state.delete(panelId);
+        }
+        saveSidebarCollapsedState(Array.from(state));
+      }
+    }
+
+    function restoreSidebarCollapsedState() {
+      const collapsed = new Set(loadSidebarCollapsedState());
+      document.querySelectorAll(".sidebar-panel[data-sidebar-panel]").forEach((panel) => {
+        const panelId = panel.getAttribute("data-sidebar-panel");
+        if (collapsed.has(panelId)) {
+          panel.classList.add("collapsed");
+        } else {
+          panel.classList.remove("collapsed");
+        }
+      });
+    }
+
+    // ---- Debug Logs Window ----
+    let debugLogsWindow = null;
+    let debugLogsEventSource = null;
+    let debugLogsReconnectTimer = null;
+
+    function updateDebugLogsStatus(text) {
+      const statusNode = debugLogsWindow?.document?.getElementById("debugSSEStatus");
+      if (statusNode) statusNode.textContent = text;
+    }
+
+    function disconnectDebugLogsStream() {
+      if (debugLogsReconnectTimer) {
+        window.clearTimeout(debugLogsReconnectTimer);
+        debugLogsReconnectTimer = null;
+      }
+      if (debugLogsEventSource) {
+        debugLogsEventSource.close();
+        debugLogsEventSource = null;
+      }
+    }
+
+    function connectDebugLogsStream() {
+      if (!debugLogsWindow || debugLogsWindow.closed) {
+        disconnectDebugLogsStream();
+        return;
+      }
+      disconnectDebugLogsStream();
+      updateDebugLogsStatus("Connecting...");
+      debugLogsEventSource = new EventSource("/api/stream");
+      debugLogsEventSource.addEventListener("connected", () => {
+        updateDebugLogsStatus("● Live");
+      });
+      debugLogsEventSource.addEventListener("update", () => syncDebugPanelContent());
+      debugLogsEventSource.onerror = () => {
+        disconnectDebugLogsStream();
+        updateDebugLogsStatus("Reconnecting...");
+        debugLogsReconnectTimer = window.setTimeout(() => {
+          debugLogsReconnectTimer = null;
+          connectDebugLogsStream();
+        }, 3000);
+      };
+    }
+
+    function openDebugLogs() {
+      if (debugLogsWindow && !debugLogsWindow.closed) {
+        debugLogsWindow.focus();
+        connectDebugLogsStream();
+        return;
+      }
+      debugLogsWindow = window.open("", "chanakya-debug-logs", "width=1100,height=800,scrollbars=yes");
+      if (!debugLogsWindow) {
+        alert("Please allow popups for this site to open the Debug Logs window.");
+        return;
+      }
+      const doc = debugLogsWindow.document;
+      doc.open();
+      doc.write(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Chanakya — Debug Logs</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css"/>
+<style>
+  :root { --bg: #111111; --panel: rgba(22,22,22,0.96); --line: #2a2a2a; --text: #e8e6e3; --muted: #9a9590; --accent: #d86b4a; --ink: #3a8a87; --green: #4caf50; --red: #e74c3c; --yellow: #f39c12; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Inter','SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color: var(--text); background: var(--bg); }
+  .debug-shell { max-width: 1200px; margin: 0 auto; padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .debug-header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  .debug-header h1 { margin: 0; font-size: 20px; font-weight: 700; }
+  .debug-header .sse-status { font-size: 11px; color: var(--muted); }
+  .debug-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-height: 200px; overflow: hidden; display: flex; flex-direction: column; }
+  .debug-panel h2 { margin: 0 0 4px; font-size: 15px; }
+  .debug-panel p { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+  .debug-panel-body { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #3a3a3a transparent; }
+  .card { border: 1px solid #383838; border-left: 4px solid var(--ink); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: rgba(255,255,255,0.03); }
+  .card h3 { margin: 0 0 6px; font-size: 14px; }
+  .card pre { white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; font-family: 'SFMono-Regular',Consolas,monospace; font-size: 11px; color: #b0aea8; }
+  .pill { display: inline-block; margin-right: 6px; margin-bottom: 6px; padding: 3px 8px; border-radius: 999px; background: rgba(45,37,32,0.8); font-size: 11px; }
+  .pill.succeeded { background: rgba(76,175,80,0.2); color: var(--green); }
+  .pill.failed { background: rgba(231,76,60,0.2); color: var(--red); }
+  .pill.tool { background: rgba(58,138,135,0.2); color: var(--ink); }
+  .tool-trace-card { border-left-color: var(--ink); }
+  .tool-trace-card.failed { border-left-color: var(--red); }
+  .empty-state { color: var(--muted); font-style: italic; font-size: 12px; padding: 4px 0; }
+  .meta { margin-top: 6px; font-size: 11px; color: var(--muted); }
+  .sandbox-guide { display: grid; gap: 10px; }
+  .sandbox-note { border: 1px solid rgba(90,169,230,0.26); border-left: 4px solid #5aa9e6; border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); }
+  .sandbox-note h3 { margin: 0 0 6px; font-size: 13px; }
+  .sandbox-list { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12px; display: grid; gap: 4px; }
+  .sandbox-path { display: inline-block; margin-top: 4px; font-family: 'SFMono-Regular',Consolas,monospace; font-size: 11px; color: #d7d3ce; word-break: break-word; }
+  code { font-family: 'SFMono-Regular',Consolas,monospace; font-size: 0.9em; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.1em 0.3em; }
+  .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { border: 0; border-radius: 10px; padding: 6px 14px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  button:hover { background: #c95b3a; }
+  .button-secondary { background: transparent; border: 1px solid #444; color: var(--text); }
+  .button-secondary:hover { background: #252525; }
+  input[type="text"] { width: 100%; padding: 8px 10px; font-size: 13px; border-radius: 10px; border: 1px solid #333; background: #1a1a1a; color: var(--text); font-family: inherit; }
+  @media (max-width: 700px) { .debug-shell { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="debug-shell">
+  <div class="debug-header">
+    <h1>Chanakya Debug Logs</h1>
+    <span class="sse-status" id="debugSSEStatus">Connecting...</span>
+  </div>
+  <div class="debug-panel"><h2>Request Trace</h2><p>Route metadata for the latest request.</p><div class="debug-panel-body" id="dbgRequestTrace"></div></div>
+  <div class="debug-panel"><h2>Tool Traces</h2><p>MCP tool selections, inputs, outputs, and errors.</p><div class="debug-panel-body" id="dbgToolTraces"></div></div>
+  <div class="debug-panel"><h2>Tasks</h2><p>Persisted task graph, workflow type, owners, and lifecycle state.</p><div class="debug-panel-body" id="dbgTasks"></div></div>
+  <div class="debug-panel"><h2>Task Timeline</h2><p>Ordered request and task lifecycle events.</p><div class="debug-panel-body" id="dbgTimeline"></div></div>
+  <div class="debug-panel"><h2>Temporary Subagents</h2><p>Worker-scoped helper agents, their purpose, and cleanup lifecycle.</p><div class="debug-panel-body" id="dbgSubagents"></div></div>
+  <div class="debug-panel"><h2>Sandbox Guide</h2><div class="debug-panel-body" id="dbgSandbox"></div></div>
+</div>
+</body>
+</html>`);
+      doc.close();
+
+      // Copy initial content from hidden panels into the debug window.
+      syncDebugPanelContent();
+
+      connectDebugLogsStream();
+
+      debugLogsWindow.addEventListener("beforeunload", () => {
+        disconnectDebugLogsStream();
+        debugLogsWindow = null;
+      });
+    }
+
+    function syncDebugPanelContent() {
+      if (!debugLogsWindow || debugLogsWindow.closed) return;
+      const doc = debugLogsWindow.document;
+      const mapping = {
+        requestTrace: "dbgRequestTrace",
+        toolTraceList: "dbgToolTraces",
+        taskList: "dbgTasks",
+        taskTimeline: "dbgTimeline",
+        subagentList: "dbgSubagents",
+      };
+      for (const [srcId, destId] of Object.entries(mapping)) {
+        const src = document.getElementById(srcId);
+        const dest = doc.getElementById(destId);
+        if (src && dest) {
+          dest.innerHTML = src.innerHTML;
+        }
+      }
+      // sandbox guide is static, copy once if empty
+      const sandboxDest = doc.getElementById("dbgSandbox");
+      if (sandboxDest && !sandboxDest.innerHTML.trim()) {
+        const sandboxSrc = document.querySelector(".sandbox-guide");
+        if (sandboxSrc) {
+          sandboxDest.innerHTML = sandboxSrc.outerHTML;
+        }
+      }
     }
 
     function renderInlineMarkdown(text) {
@@ -2536,8 +4622,28 @@
       window.Prism.highlightAllUnder(container);
     }
 
+    function renderArtifactLinks(artifacts) {
+      if (!Array.isArray(artifacts) || !artifacts.length) {
+        return null;
+      }
+      const container = document.createElement("div");
+      container.className = "message-artifacts";
+      artifacts.forEach((artifact) => {
+        const link = document.createElement("a");
+        link.className = "message-artifact-link";
+        link.href = String(artifact.download_url || "#");
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        const kind = String(artifact.kind || "artifact").trim();
+        const name = String(artifact.name || "download").trim();
+        link.textContent = kind ? `${name} (${kind})` : name;
+        container.appendChild(link);
+      });
+      return container;
+    }
+
     function appendMessage(role, text, meta, options = {}) {
-      const { badge } = options;
+      const { badge, artifacts = [] } = options;
       const node = document.createElement("div");
       node.className = `message ${role}`;
       if (badge) {
@@ -2550,6 +4656,10 @@
       bodyNode.className = "message-body";
       bodyNode.appendChild(renderMarkdownContent(text));
       node.appendChild(bodyNode);
+      const artifactNode = renderArtifactLinks(artifacts);
+      if (artifactNode) {
+        node.appendChild(artifactNode);
+      }
       if (meta) {
         const metaNode = document.createElement("div");
         metaNode.className = "meta";
@@ -2559,10 +4669,76 @@
       chatLog.appendChild(node);
       highlightRenderedCode(bodyNode);
       chatLog.scrollTop = chatLog.scrollHeight;
+      syncHeroState();
       return node;
     }
 
+    function ensureInlineProgressNode() {
+      let node = chatLog.querySelector('.message.progress-inline');
+      if (!node) {
+        node = document.createElement('div');
+        node.className = 'message progress-inline';
+        const body = document.createElement('div');
+        body.className = 'message-body';
+        node.appendChild(body);
+        chatLog.appendChild(node);
+      }
+      return node;
+    }
+
+    function removeInlineProgressNode() {
+      const node = chatLog.querySelector('.message.progress-inline');
+      if (node) {
+        node.remove();
+      }
+      activeInlineProgressRequestId = null;
+    }
+
+    function renderInlineProgressStatus(text, options = {}) {
+      const { requestId = null } = options;
+      if (!text) {
+        removeInlineProgressNode();
+        return;
+      }
+
+      const node = ensureInlineProgressNode();
+      const bodyNode = node.querySelector('.message-body') || node;
+      activeInlineProgressRequestId = requestId;
+
+      const statusNode = document.createElement('p');
+      statusNode.className = 'inline-progress-status';
+      statusNode.textContent = text;
+
+      bodyNode.replaceChildren(statusNode);
+      chatLog.appendChild(node);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function renderPendingInlineProgress(message) {
+      renderInlineProgressStatus('Task received by Chanakya', { requestId: 'pending' });
+    }
+
+    function renderInlineProgress(tasks, events, rootTaskId, requestId) {
+      if (!requestId) {
+        removeInlineProgressNode();
+        return;
+      }
+      const responsePersisted = (events || []).some((event) => event.event_type === 'response_persisted');
+      if (responsePersisted) {
+        removeInlineProgressNode();
+        return;
+      }
+      const relevantTasks = (tasks || []).filter((task) => !rootTaskId || task.id === rootTaskId || task.parent_task_id);
+      if (!relevantTasks.length) {
+        return;
+      }
+      renderInlineProgressStatus('Chanakya is processing the request', { requestId });
+    }
+
     function messageBadgeForHistoryItem(item) {
+      if (item && item.metadata && item.metadata.voice_interruption) {
+        return "Interruption";
+      }
       if (!item || !item.route) {
         return "";
       }
@@ -2600,6 +4776,7 @@
       }
       conversationQueueStatus.textContent = text || "";
       conversationQueueStatus.dataset.state = isError ? "error" : "idle";
+      syncHeroState();
     }
 
     let voiceQueuePaused = false;
@@ -2695,12 +4872,17 @@
     }
 
     async function deliverAssistantText(text, options = {}) {
-      const { onAssistantMessage, alreadyRendered = false, metadata = null } = options;
+      const { onAssistantMessage, alreadyRendered = false, metadata = null, artifacts = [] } = options;
+      const resolvedArtifacts = Array.isArray(artifacts) && artifacts.length
+        ? artifacts
+        : Array.isArray(metadata?.artifacts)
+          ? metadata.artifacts
+          : [];
       if (!text) {
         return;
       }
       if (!alreadyRendered) {
-        appendMessage("assistant", text);
+        appendMessage("assistant", text, null, { artifacts: resolvedArtifacts });
       }
       const isBackgroundCompletion = Boolean(metadata && metadata.completion_notification);
       if (isBackgroundCompletion && hasActiveVoiceInteraction()) {
@@ -2728,7 +4910,11 @@
       try {
         return JSON.parse(raw);
       } catch {
-        return { error: raw.trim() || `HTTP ${response.status}` };
+        // Server returned non-JSON (e.g. Flask HTML error page). Strip HTML tags.
+        const stripped = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        const errorText = stripped || `HTTP ${response.status}`;
+        // Keep it concise — cap at a reasonable length
+        return { error: errorText.length > 300 ? errorText.slice(0, 300) + '…' : errorText };
       }
     }
 
@@ -2964,7 +5150,11 @@
           if (payload.status === "delivered" && payload.message) {
             const text = payload.message.text || "";
             if (text) {
-            await deliverAssistantText(text, { onAssistantMessage });
+            await deliverAssistantText(text, {
+              onAssistantMessage,
+              metadata: payload.message.metadata || null,
+              artifacts: Array.isArray(payload.artifacts) ? payload.artifacts : [],
+            });
             }
           const pendingCount = Number(payload.working_memory?.pending_messages?.length || 0);
           setConversationQueueStatus(
@@ -2995,11 +5185,12 @@
     }
 
     async function submitChatMessage(message, options = {}) {
-      const { onAssistantMessage, voiceMode = false } = options;
+      const { onAssistantMessage, voiceMode = false, messageMetadata = null } = options;
       if (voiceMode) {
         resetVoiceQueueState();
       }
       beginAssistantTurn();
+      renderInlineProgressStatus('Chanakya is processing the request', { requestId: activeInlineProgressRequestId || 'pending' });
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
       if (runtimeConfig.backend === "a2a" && !canUseA2A()) {
         throw new Error(getA2AUnavailableMessage());
@@ -3024,6 +5215,7 @@
             a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
             conversation_tone_instruction: runtimeConfig.conversation_tone_instruction,
             tts_instruction: runtimeConfig.tts_instruction,
+            message_metadata: messageMetadata,
           }),
         });
       } catch (error) {
@@ -3047,12 +5239,16 @@
         const messages = Array.isArray(data.messages) && data.messages.length
           ? data.messages
           : [{ text: data.message || "", delay_ms: 0 }];
-        for (const item of messages) {
+        for (const [index, item] of messages.entries()) {
           const text = item.text || "";
           if (!text) {
             continue;
           }
-          await deliverAssistantText(text, { onAssistantMessage, metadata: data.metadata || null });
+          await deliverAssistantText(text, {
+            onAssistantMessage,
+            metadata: data.metadata || null,
+            artifacts: Array.isArray(data.artifacts) ? data.artifacts : [],
+          });
         }
         if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
           const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
@@ -3394,24 +5590,28 @@
     function renderChatHistory(messages) {
       chatLog.replaceChildren();
       if (!messages.length) {
+        setChatExpanded(false);
+        removeInlineProgressNode();
         appendMessage(
           "assistant",
           "I am Chanakya. I can answer questions directly, calculate expressions, and fetch web pages. Try asking me something!",
         );
         return;
       }
+      setChatExpanded(true);
       messages.forEach((item) => {
-        const meta = [];
-        if (item.route) meta.push(`route=${item.route}`);
-        if (item.request_id) meta.push(`request=${item.request_id}`);
-        if (item.metadata && item.metadata.runtime) meta.push(`runtime=${item.metadata.runtime}`);
         appendMessage(
           item.role === "user" ? "user" : "assistant",
           item.content,
-          meta.join(" "),
-          { badge: messageBadgeForHistoryItem(item) }
+          null,
+          {
+            badge: messageBadgeForHistoryItem(item),
+            artifacts: Array.isArray(item.metadata?.artifacts) ? item.metadata.artifacts : [],
+          }
         );
       });
+      removeInlineProgressNode();
+      syncHeroState();
     }
 
     function renderTrace(data) {
@@ -3522,6 +5722,9 @@
     }
 
     function renderTaskProgressSummary(tasks) {
+      if (!taskProgressSummary) {
+        return;
+      }
       const counts = (tasks || []).reduce((acc, task) => {
         const status = task.status || "created";
         acc[status] = (acc[status] || 0) + 1;
@@ -3990,6 +6193,9 @@
     }
 
     function renderTaskProgress(tasks, events, rootTaskId) {
+      if (!taskProgress || !taskProgressSummary) {
+        return;
+      }
       if ((!tasks || !tasks.length) && (!events || !events.length)) {
         taskProgress.innerHTML = '<div class="progress-empty">No active task sequence yet. Send a message to see progress.</div>';
         taskProgressSummary.innerHTML = '';
@@ -4079,6 +6285,12 @@
           : (timelineData.events || []);
         renderTaskTimeline(latestTimeline);
         renderTaskProgress(latestRequestTasks, latestTimeline, latestRequest ? latestRequest.root_task_id : null);
+        renderInlineProgress(
+          latestRequestTasks,
+          latestTimeline,
+          latestRequest ? latestRequest.root_task_id : null,
+          latestRequest ? latestRequest.id : null,
+        );
         if (latestRequest) {
           renderTrace({
             request_id: latestRequest.id,
@@ -4100,11 +6312,13 @@
         renderAgents([]);
         renderTasks([]);
         renderTaskProgress([], [], null);
+        removeInlineProgressNode();
         renderTaskTimeline([]);
         renderSubagents([]);
         renderTrace(null);
       }
       await refreshToolTraces();
+      syncDebugPanelContent();
     }
 
     async function loadSessionHistory(targetSessionId = null) {
@@ -4129,16 +6343,96 @@
       await refreshSidePanels();
     }
 
+    if (heroChatToggle) {
+      heroChatToggle.addEventListener("click", () => {
+        setChatExpanded(!isChatExpanded);
+      });
+    }
+
+    if (modeSettingsButton) {
+      modeSettingsButton.addEventListener("click", () => {
+        setMainMode("config");
+      });
+    }
+
+    if (modeCharacterButton) {
+      modeCharacterButton.addEventListener("click", () => {
+        openVoiceCharacterSettings();
+      });
+    }
+
+    if (modeBackButton) {
+      modeBackButton.addEventListener("click", () => {
+        setMainMode("chat");
+      });
+    }
+
+    if (utilityToggleButton) {
+      utilityToggleButton.addEventListener("click", () => {
+        setUtilityPanelOpen(true);
+      });
+    }
+
+    if (workspacesButton) {
+      workspacesButton.addEventListener("click", () => {
+        window.location.href = "/work";
+      });
+    }
+
+    if (utilityCloseButton) {
+      utilityCloseButton.addEventListener("click", () => {
+        setUtilityPanelOpen(false);
+      });
+    }
+
+    if (utilityScrim) {
+      utilityScrim.addEventListener("click", () => {
+        setUtilityPanelOpen(false);
+      });
+    }
+
+    window.addEventListener("resize", () => {
+      if (window.innerWidth > 1180) {
+        setUtilityPanelOpen(false);
+      }
+      resizeComposerTextarea();
+      syncComposerInputState();
+    });
+
+    document.querySelectorAll("[data-voice-proxy]").forEach((button) => {
+      button.addEventListener("click", () => {
+        triggerVoiceControl(button.dataset.voiceProxy);
+      });
+    });
+
+    ["settings", "voice", "agents", "notifications"].forEach((panelId) => {
+      const panel = document.querySelector(`.sidebar-panel[data-sidebar-panel="${panelId}"]`);
+      if (panel && configShellBody) {
+        configShellBody.appendChild(panel);
+      }
+    });
+
+    window.addEventListener("air-voice-status", syncHeroState);
+
+    setChatExpanded(false);
+    setMainMode("chat");
+    syncHeroState();
+
     chatForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const message = messageInput.value.trim();
       if (!message) return;
+      setComposerMenuOpen(false);
       appendMessage("user", message);
+      renderPendingInlineProgress(message);
       messageInput.value = "";
+      resizeComposerTextarea();
+      syncComposerInputState();
 
       try {
         await submitChatMessage(message);
       } catch (error) {
+        removeInlineProgressNode();
         appendMessage("assistant", error instanceof Error ? error.message : String(error));
         return;
       }
@@ -4225,6 +6519,7 @@
     applyDetachedView();
     setupCollapseButtons();
     setupDetachButtons();
+    restoreSidebarCollapsedState();
     resetAgentForm();
     airVoiceController = window.createAirVoiceController({
       baseUrl: AIR_SERVER_URL,
@@ -4236,10 +6531,18 @@
       speakButton: airSpeakButton,
       statusNode: airVoiceStatus,
       submitText: async (text, options = {}) => {
-        const { onAssistantMessage } = options;
-        appendMessage("user", text, "voice transcript");
+        const { onAssistantMessage, metadata = null } = options;
+        const isInterruption = Boolean(metadata && metadata.voice_interruption);
+        appendMessage(
+          "user",
+          text,
+          isInterruption ? "voice interruption" : "voice transcript",
+          { badge: isInterruption ? "Interruption" : "" }
+        );
+        renderPendingInlineProgress(text);
         const data = await submitChatMessage(text, {
           voiceMode: true,
+          messageMetadata: metadata,
           onAssistantMessage: (content) => {
             if (typeof onAssistantMessage === "function") {
               return onAssistantMessage(content);
@@ -4251,7 +6554,7 @@
       },
       getLatestAssistantText: getLatestAssistantMessageText,
       onTranscript: (text) => {
-        messageInput.value = text;
+        // Transcript is sent directly via submitText; no need to echo into the input box.
       },
       beforeRecordStart: async ({ isPlaybackActive }) => {
         if (currentDeferredVoiceNotification) {
@@ -4259,6 +6562,12 @@
         }
         if (!isPlaybackActive) {
           return;
+        }
+        await pauseConversationReplies();
+      },
+      pauseAssistantReplies: async () => {
+        if (currentDeferredVoiceNotification) {
+          requeueCurrentDeferredVoiceNotification();
         }
         await pauseConversationReplies();
       },

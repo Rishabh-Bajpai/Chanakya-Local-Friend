@@ -86,6 +86,7 @@ def test_load_agent_seeds_creates_missing_agents_and_refreshes_existing_profiles
     assert developer.heartbeat_interval_seconds == 300
     assert developer.heartbeat_file_path == "chanakya_data/agents/agent_developer/heartbeat.md"
     assert developer.created_at == "2026-04-01T00:00:00+00:00"
+    assert developer.updated_at != "2026-04-01T00:00:00+00:00"
 
     assert tester.name == "Seed Tester"
     assert tester.role == "tester"

@@ -10,6 +10,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 from chanakya.config import get_data_dir
+from chanakya.services.mcp_feedback import build_recovery_payload
 from chanakya.services.sandbox_workspace import resolve_shared_workspace
 
 DEFAULT_TIMEOUT_SECONDS = 30
@@ -121,30 +122,32 @@ def _run_in_sandbox(
     try:
         workspace = resolve_shared_workspace(work_id, allow_create_missing_classic=False)
     except (ValueError, PermissionError, FileNotFoundError) as exc:
-        return {
-            "ok": False,
-            "exit_code": None,
-            "output": str(exc),
-            "truncated": False,
-            "timed_out": False,
-            "workspace": "",
-            "runtime": runtime.engine,
-            "image": image,
-        }
+        return build_recovery_payload(
+            error=str(exc),
+            hint="Retry with a valid existing work_id or use temp for ephemeral execution.",
+            exit_code=None,
+            output=str(exc),
+            truncated=False,
+            timed_out=False,
+            workspace="",
+            runtime=runtime.engine,
+            image=image,
+        )
     try:
         _ensure_workspace_writable(workspace)
     except PermissionError as exc:
         message = _annotate_permission_error(str(exc), workspace)
-        return {
-            "ok": False,
-            "exit_code": None,
-            "output": message,
-            "truncated": False,
-            "timed_out": False,
-            "workspace": str(workspace),
-            "runtime": runtime.engine,
-            "image": image,
-        }
+        return build_recovery_payload(
+            error=message,
+            hint="Write only inside /workspace or copy source files into the sandbox workspace before modifying them.",
+            exit_code=None,
+            output=message,
+            truncated=False,
+            timed_out=False,
+            workspace=str(workspace),
+            runtime=runtime.engine,
+            image=image,
+        )
     bounded_timeout = _bounded_timeout(timeout_seconds)
     cmd = [
         *_build_runtime_base_args(
@@ -170,16 +173,17 @@ def _run_in_sandbox(
         merged = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
         merged = _annotate_permission_error(merged, workspace)
         trimmed, truncated = _trim_output(merged)
-        return {
-            "ok": False,
-            "exit_code": None,
-            "output": trimmed,
-            "truncated": truncated,
-            "timed_out": True,
-            "workspace": str(workspace),
-            "runtime": runtime.engine,
-            "image": image,
-        }
+        return build_recovery_payload(
+            error=trimmed,
+            hint="Retry with simpler code, a longer timeout_seconds, or smaller input.",
+            exit_code=None,
+            output=trimmed,
+            truncated=truncated,
+            timed_out=True,
+            workspace=str(workspace),
+            runtime=runtime.engine,
+            image=image,
+        )
 
     merged_output = "\n".join(
         part for part in (result.stdout.strip(), result.stderr.strip()) if part
@@ -211,16 +215,17 @@ def execute_python(
         workspace = resolve_shared_workspace(work_id, allow_create_missing_classic=False)
     except (ValueError, PermissionError, FileNotFoundError) as exc:
         runtime = _select_runtime()
-        return {
-            "ok": False,
-            "exit_code": None,
-            "output": str(exc),
-            "truncated": False,
-            "timed_out": False,
-            "workspace": "",
-            "runtime": runtime.engine,
-            "image": PYTHON_IMAGE,
-        }
+        return build_recovery_payload(
+            error=str(exc),
+            hint="Retry with a valid existing work_id or use temp for ephemeral execution.",
+            exit_code=None,
+            output=str(exc),
+            truncated=False,
+            timed_out=False,
+            workspace="",
+            runtime=runtime.engine,
+            image=PYTHON_IMAGE,
+        )
     script_path = workspace / safe_name
     with tempfile.NamedTemporaryFile("w", delete=False, dir=workspace, suffix=".py") as handle:
         handle.write(code)

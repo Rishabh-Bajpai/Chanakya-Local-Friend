@@ -35,7 +35,7 @@
 
 ## Repo-Specific Gotchas
 
-- `chanakya/seed.py` only loads agent seeds if the profile does **not** already exist. Editing `chanakya/seeds/agents.json` does not update existing DB rows; use the app UI/API or reset DB state if you need seeded prompt changes to take effect on an existing profile.
+- `chanakya/seed.py` always refreshes seeded agent profiles on load. Editing `chanakya/seeds/agents.json` updates existing DB rows for matching seeded profiles; current behavior is overwrite, not merge, while preserving each profile's original `created_at`.
 - `chanakya_data/` is runtime state, not source of truth. It contains the SQLite DB and shared sandbox workspace and is ignored by git.
 - Sandboxed code execution writes only under `chanakya_data/shared_workspace/`; host project files may be mounted read-only.
 

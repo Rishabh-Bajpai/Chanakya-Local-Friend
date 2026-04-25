@@ -37,3 +37,6 @@ Agent-Framework-Samples/
 .chanakya-app.pid
 .*.log
 .*.pid
+
+chanakya-UI
+mobile-opencode-control

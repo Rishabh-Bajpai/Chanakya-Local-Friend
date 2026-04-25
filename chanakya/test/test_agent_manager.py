@@ -332,7 +332,9 @@ def test_manager_profile_prompt_fallback_persists_cto_review_messages(
 
     monkeypatch.setattr("chanakya.agent_manager.build_profile_agent", _fake_build_profile_agent)
 
-    tokens = manager.bind_execution_context(session_id="session_root", work_id="work_cto_review")
+    tokens = manager.bind_execution_context(
+        session_id="session_root", request_id="req_test", work_id="work_cto_review"
+    )
     try:
         result = manager._run_profile_prompt_with_options(cto_profile, "Review the worker outputs.")
     finally:
@@ -358,7 +360,9 @@ def test_specialist_review_persists_cto_exchange_without_history_runtime() -> No
     cto_profile = store.get_agent_profile("agent_cto")
 
     store.create_work(work_id="work_cto_visible", title="CTO Visible", description="")
-    tokens = manager.bind_execution_context(session_id="session_root", work_id="work_cto_visible")
+    tokens = manager.bind_execution_context(
+        session_id="session_root", request_id="req_test", work_id="work_cto_visible"
+    )
     original = manager._run_profile_prompt_with_options
     manager._run_profile_prompt_with_options = lambda *args, **kwargs: "Final CTO answer"  # type: ignore[method-assign]
     try:
@@ -427,6 +431,7 @@ def test_work_agent_memory_is_isolated_per_agent_for_local_backend(
 
     tokens = manager.bind_execution_context(
         session_id="session_work_local",
+        request_id="req_local_memory",
         work_id="work_local_memory",
         backend="local",
     )
@@ -498,6 +503,7 @@ def test_work_agent_memory_is_isolated_per_agent_for_a2a_backend(
 
     tokens = manager.bind_execution_context(
         session_id="session_work_a2a",
+        request_id="req_a2a_memory",
         work_id="work_a2a_memory",
         backend="a2a",
         a2a_url="http://a2a.test:8000",
@@ -555,6 +561,7 @@ def test_profile_prompt_uses_a2a_runner_when_backend_active() -> None:
     manager._run_profile_prompt_a2a_async = _fake_run_profile_prompt_a2a_async  # type: ignore[method-assign]
     tokens = manager.bind_execution_context(
         session_id="session_a2a_profile",
+        request_id="req_a2a_profile",
         work_id=None,
         backend="a2a",
         a2a_url="http://a2a.test:8000",
@@ -838,6 +845,7 @@ def test_worker_prompt_addendum_includes_active_workspace_tool_guidance(
 
     tokens = manager.bind_execution_context(
         session_id="session_tool_guidance",
+        request_id="req_tool_guidance",
         work_id="work_tool_guidance",
     )
     try:
@@ -3131,6 +3139,7 @@ def test_resolving_current_shared_workspace_does_not_create_work_dir(
 
     tokens = manager.bind_execution_context(
         session_id="session_no_mkdir",
+        request_id="req_no_mkdir",
         work_id=work_id,
         backend="local",
     )

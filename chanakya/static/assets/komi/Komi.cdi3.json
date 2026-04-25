@@ -1,0 +1,349 @@
+{
+	"Version": 3,
+	"Parameters": [
+		{
+			"Id": "ParamAngleX",
+			"GroupId": "ParamGroup5",
+			"Name": "Angle X"
+		},
+		{
+			"Id": "ParamAngleY",
+			"GroupId": "ParamGroup5",
+			"Name": "Angle Y"
+		},
+		{
+			"Id": "ParamAngleZ",
+			"GroupId": "ParamGroup5",
+			"Name": "Angle Z"
+		},
+		{
+			"Id": "ParamCheek",
+			"GroupId": "ParamGroup5",
+			"Name": "Cheek"
+		},
+		{
+			"Id": "ParamNose",
+			"GroupId": "ParamGroup5",
+			"Name": "Nose"
+		},
+		{
+			"Id": "ParamWorry",
+			"GroupId": "ParamGroup5",
+			"Name": "Worry"
+		},
+		{
+			"Id": "ParamBrowRForm",
+			"GroupId": "ParamGroup2",
+			"Name": "BrowR Form"
+		},
+		{
+			"Id": "ParamBrowLForm",
+			"GroupId": "ParamGroup2",
+			"Name": "BrowL Form"
+		},
+		{
+			"Id": "ParamEyeLOpen",
+			"GroupId": "ParamGroup",
+			"Name": "EyeL Open"
+		},
+		{
+			"Id": "ParamEyeLSmile",
+			"GroupId": "ParamGroup",
+			"Name": "EyeL Smile"
+		},
+		{
+			"Id": "ParamEyeROpen",
+			"GroupId": "ParamGroup",
+			"Name": "EyeR Open"
+		},
+		{
+			"Id": "ParamEyeRSmile",
+			"GroupId": "ParamGroup",
+			"Name": "EyeR Smile"
+		},
+		{
+			"Id": "ParamEyeShine",
+			"GroupId": "ParamGroup",
+			"Name": "Eye Shine"
+		},
+		{
+			"Id": "ParamEyeSize",
+			"GroupId": "ParamGroup",
+			"Name": "Eye Size"
+		},
+		{
+			"Id": "ParamEyeBallX",
+			"GroupId": "ParamGroup",
+			"Name": "Eyeball X"
+		},
+		{
+			"Id": "ParamEyeBallY",
+			"GroupId": "ParamGroup",
+			"Name": "Eyeball Y"
+		},
+		{
+			"Id": "ParamLowerLashX",
+			"GroupId": "ParamGroup",
+			"Name": "LowerLash X"
+		},
+		{
+			"Id": "ParamLowerLashY",
+			"GroupId": "ParamGroup",
+			"Name": "LowerLash Y"
+		},
+		{
+			"Id": "ParamMouthForm",
+			"GroupId": "ParamGroup8",
+			"Name": "Mouth Form"
+		},
+		{
+			"Id": "ParamMouthOpenY",
+			"GroupId": "ParamGroup8",
+			"Name": "Mouth Open"
+		},
+		{
+			"Id": "ParamPouting",
+			"GroupId": "ParamGroup8",
+			"Name": "Pouting"
+		},
+		{
+			"Id": "ParamMouthAppear",
+			"GroupId": "ParamGroup8",
+			"Name": "Mouth Appear"
+		},
+		{
+			"Id": "ParamCatEarX",
+			"GroupId": "ParamGroup6",
+			"Name": "Cat Ear X"
+		},
+		{
+			"Id": "ParamCatEarY",
+			"GroupId": "ParamGroup6",
+			"Name": "Cat Ear Y"
+		},
+		{
+			"Id": "ParamCatEarAppear",
+			"GroupId": "ParamGroup6",
+			"Name": "Cat Ear Appear"
+		},
+		{
+			"Id": "ParamHairFront",
+			"GroupId": "ParamGroup9",
+			"Name": "Hair Move Front"
+		},
+		{
+			"Id": "ParamHairBack",
+			"GroupId": "ParamGroup9",
+			"Name": "Hair Move Back"
+		},
+		{
+			"Id": "ParamHairSide",
+			"GroupId": "ParamGroup9",
+			"Name": "Hair Move Side"
+		},
+		{
+			"Id": "ParamBodyAngleX",
+			"GroupId": "ParamGroup7",
+			"Name": "Body X"
+		},
+		{
+			"Id": "ParamBodyAngleY",
+			"GroupId": "ParamGroup7",
+			"Name": "Body Y"
+		},
+		{
+			"Id": "ParamBodyAngleZ",
+			"GroupId": "ParamGroup7",
+			"Name": "Body Z"
+		},
+		{
+			"Id": "ParamBreath",
+			"GroupId": "ParamGroup7",
+			"Name": "Breathing"
+		},
+		{
+			"Id": "ParamBodyShaking",
+			"GroupId": "ParamGroup7",
+			"Name": "Body Shaking"
+		},
+		{
+			"Id": "ParamEnlargement",
+			"GroupId": "ParamGroup7",
+			"Name": "Enlargement"
+		},
+		{
+			"Id": "ParamPositionX",
+			"GroupId": "ParamGroup7",
+			"Name": "Position X"
+		},
+		{
+			"Id": "ParamShaking",
+			"GroupId": "ParamGroup4",
+			"Name": "Shaking"
+		},
+		{
+			"Id": "ParamShakingForm",
+			"GroupId": "ParamGroup4",
+			"Name": "Shaking Form"
+		},
+		{
+			"Id": "ParamWriggling",
+			"GroupId": "ParamGroup4",
+			"Name": "Wriggling"
+		},
+		{
+			"Id": "ParamExclamation",
+			"GroupId": "ParamGroup4",
+			"Name": "Exclamation"
+		},
+		{
+			"Id": "ParamPanting",
+			"GroupId": "ParamGroup4",
+			"Name": "Panting"
+		},
+		{
+			"Id": "Param_Angle_Rotation6",
+			"GroupId": "ParamGroup3",
+			"Name": "[0]Hair Side Skinning"
+		},
+		{
+			"Id": "Param_Angle_Rotation7",
+			"GroupId": "ParamGroup3",
+			"Name": "[1]Hair Side Skinning"
+		},
+		{
+			"Id": "Param_Angle_Rotation8",
+			"GroupId": "ParamGroup3",
+			"Name": "[2]Hair Side Skinning"
+		},
+		{
+			"Id": "Param_Angle_Rotation9",
+			"GroupId": "ParamGroup3",
+			"Name": "[3]Hair Side Skinning"
+		},
+		{
+			"Id": "Param_Angle_Rotation10",
+			"GroupId": "ParamGroup3",
+			"Name": "[4]Hair Side Skinning"
+		},
+		{
+			"Id": "Param_Angle_Rotation11",
+			"GroupId": "ParamGroup3",
+			"Name": "[5]Hair Side Skinning"
+		},
+		{
+			"Id": "Param_Angle_Rotation12",
+			"GroupId": "ParamGroup3",
+			"Name": "[6]Hair Side Skinning"
+		}
+	],
+	"ParameterGroups": [
+		{
+			"Id": "ParamGroup5",
+			"GroupId": "",
+			"Name": "Face"
+		},
+		{
+			"Id": "ParamGroup2",
+			"GroupId": "",
+			"Name": "Brow"
+		},
+		{
+			"Id": "ParamGroup",
+			"GroupId": "",
+			"Name": "Eye"
+		},
+		{
+			"Id": "ParamGroup8",
+			"GroupId": "",
+			"Name": "Mouth"
+		},
+		{
+			"Id": "ParamGroup6",
+			"GroupId": "",
+			"Name": "Cat Ear"
+		},
+		{
+			"Id": "ParamGroup9",
+			"GroupId": "",
+			"Name": "Hair"
+		},
+		{
+			"Id": "ParamGroup7",
+			"GroupId": "",
+			"Name": "Body"
+		},
+		{
+			"Id": "ParamGroup4",
+			"GroupId": "",
+			"Name": "Effects"
+		},
+		{
+			"Id": "ParamGroup3",
+			"GroupId": "",
+			"Name": "Hair Side Skinning"
+		}
+	],
+	"Parts": [
+		{
+			"Id": "Part3",
+			"Name": "Komiv2- Face outline added.psd (Corresponding layer not found)"
+		},
+		{
+			"Id": "Part2",
+			"Name": "Komiv2- Face outline added.psd (Corresponding layer not found)"
+		},
+		{
+			"Id": "Part",
+			"Name": "Komi.psd (Corresponding layer not found)"
+		},
+		{
+			"Id": "ArtMesh0_Skinning",
+			"Name": "Hair Side(Skinning)"
+		},
+		{
+			"Id": "Eye",
+			"Name": "Eye"
+		},
+		{
+			"Id": "Face",
+			"Name": "Face"
+		},
+		{
+			"Id": "Ear",
+			"Name": "Ear"
+		},
+		{
+			"Id": "Neck",
+			"Name": "Neck"
+		},
+		{
+			"Id": "Body",
+			"Name": "Body"
+		},
+		{
+			"Id": "Effects",
+			"Name": "Effects"
+		},
+		{
+			"Id": "Reference",
+			"Name": "Reference"
+		},
+		{
+			"Id": "PartSketch0",
+			"Name": "[ Guide Image]"
+		},
+		{
+			"Id": "Eye2",
+			"Name": "Eye"
+		},
+		{
+			"Id": "Effects2",
+			"Name": "Effects"
+		},
+		{
+			"Id": "Face3",
+			"Name": "Face"
+		}
+	]
+}

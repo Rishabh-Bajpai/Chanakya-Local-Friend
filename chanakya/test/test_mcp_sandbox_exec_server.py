@@ -37,3 +37,21 @@ def test_workspace_probe_creates_and_removes_file(tmp_path: Path) -> None:
 
     assert tmp_path.exists()
     assert not (tmp_path / ".sandbox_write_probe").exists()
+
+
+def test_run_in_sandbox_invalid_work_id_returns_hint(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sandbox_exec,
+        "_select_runtime",
+        lambda: sandbox_exec.RuntimeSelection(binary="docker", engine="docker"),
+    )
+
+    result = sandbox_exec._run_in_sandbox(
+        image="python:3.11-alpine",
+        command=["python", "snippet.py"],
+        work_id="cwork_missing",
+        timeout_seconds=30,
+    )
+
+    assert result["ok"] is False
+    assert "valid existing work_id" in str(result["hint"])

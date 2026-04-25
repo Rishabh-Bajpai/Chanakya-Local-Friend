@@ -28,9 +28,52 @@ def test_delete_shared_workspace_removes_work_directory(
     workspace = sandbox_workspace.resolve_shared_workspace("cwork_123")
     (workspace / "artifact.txt").write_text("hello", encoding="utf-8")
 
-    sandbox_workspace.delete_shared_workspace("cwork_123")
+    result = sandbox_workspace.delete_shared_workspace("cwork_123")
 
+    assert result == {
+        "ok": True,
+        "work_id": "cwork_123",
+        "path": str(workspace),
+        "deleted": True,
+    }
     assert not workspace.exists()
+
+
+def test_delete_shared_workspace_returns_failure_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    events: list[tuple[str, dict[str, str]]] = []
+    monkeypatch.setattr(
+        sandbox_workspace,
+        "debug_log",
+        lambda label, payload=None: events.append((label, payload or {})),
+    )
+    workspace = sandbox_workspace.resolve_shared_workspace("cwork_123")
+
+    def _raise_rmtree(_: Path) -> None:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(sandbox_workspace.shutil, "rmtree", _raise_rmtree)
+
+    result = sandbox_workspace.delete_shared_workspace("cwork_123")
+
+    assert result == {
+        "ok": False,
+        "work_id": "cwork_123",
+        "path": str(workspace),
+        "error": "permission denied",
+    }
+    assert events[-1] == (
+        "sandbox_workspace_delete_failed",
+        {
+            "work_id": "cwork_123",
+            "path": str(workspace),
+            "error_type": "OSError",
+            "error": "permission denied",
+        },
+    )
 
 
 def test_resolve_shared_workspace_can_skip_creation(

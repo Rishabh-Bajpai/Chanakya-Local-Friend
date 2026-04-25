@@ -125,6 +125,7 @@ class _ChatServiceCaptureStub:
         a2a_model_id: str | None = None,
         conversation_tone_instruction: str | None = None,
         tts_instruction: str | None = None,
+        message_metadata: dict[str, object] | None = None,
     ) -> ChatReply:
         self.calls.append(
             {
@@ -139,6 +140,7 @@ class _ChatServiceCaptureStub:
                 "a2a_model_id": a2a_model_id,
                 "conversation_tone_instruction": conversation_tone_instruction,
                 "tts_instruction": tts_instruction,
+                "message_metadata": message_metadata,
             }
         )
         return ChatReply(
@@ -496,6 +498,40 @@ def test_api_chat_request_overrides_stored_conversation_preferences(
     assert response.status_code == 200
     assert captured[0].calls[0]["conversation_tone_instruction"] == "Request tone."
     assert captured[0].calls[0]["tts_instruction"] == "Request tts."
+
+
+def test_api_chat_request_passes_message_metadata(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: list[_ChatServiceCaptureStub] = []
+
+    def _build_chat_service(store, runtime, manager):
+        stub = _ChatServiceCaptureStub(store, runtime, manager)
+        captured.append(stub)
+        return stub
+
+    monkeypatch.setattr(app_module, "ChatService", _build_chat_service)
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "session_id": "session_voice_interrupt",
+            "message": "wait, stop there",
+            "message_metadata": {
+                "voice_interruption": True,
+                "input_mode": "voice",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured[0].calls[0]["message_metadata"] == {
+        "voice_interruption": True,
+        "input_mode": "voice",
+    }
 
 
 def test_api_a2a_options_returns_discovered_agents_and_models(
@@ -965,6 +1001,47 @@ def test_work_delete_clears_runtime_session_state(
 
     assert deleted.status_code == 200
     assert len(cleared) == 2
+
+
+def test_work_delete_api_returns_warning_when_workspace_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    created = client.post(
+        "/api/works",
+        json={"title": "Disposable Work", "description": "delete me"},
+    )
+    work_id = created.get_json()["id"]
+
+    monkeypatch.setattr(
+        app_module,
+        "delete_shared_workspace",
+        lambda current_work_id: {
+            "ok": False,
+            "work_id": current_work_id,
+            "path": f"/tmp/{current_work_id}",
+            "error": "permission denied",
+        },
+    )
+
+    deleted = client.delete(f"/api/works/{work_id}")
+
+    assert deleted.status_code == 200
+    payload = deleted.get_json()
+    assert payload["deleted"] is True
+    assert payload["warning"] == {
+        "code": "workspace_cleanup_failed",
+        "message": "Work deleted, but sandbox workspace cleanup failed.",
+        "workspace": {
+            "ok": False,
+            "work_id": work_id,
+            "path": f"/tmp/{work_id}",
+            "error": "permission denied",
+        },
+    }
 
 
 def test_work_api_preserves_per_agent_memory_for_local_backend(

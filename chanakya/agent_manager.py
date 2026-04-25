@@ -14,6 +14,7 @@ from agent_framework.openai import OpenAIChatClient
 from agent_framework.orchestrations import SequentialBuilder
 from sqlalchemy.orm import Session, sessionmaker
 
+from chanakya.agent.profile_files import load_agent_prompt
 from chanakya.agent.runtime import (
     MAFRuntime,
     build_profile_agent,
@@ -21,7 +22,6 @@ from chanakya.agent.runtime import (
     create_openai_chat_client,
     normalize_runtime_backend,
 )
-from chanakya.agent.profile_files import load_agent_prompt
 from chanakya.config import (
     force_subagents_enabled,
     get_a2a_agent_url,
@@ -64,6 +64,7 @@ WORKFLOW_MANAGER_DIRECT = "manager_direct_fallback"
 MAX_UNTRUSTED_ARTIFACT_CHARS = 12000
 
 _ACTIVE_WORK_ID: ContextVar[str | None] = ContextVar("active_work_id", default=None)
+_ACTIVE_REQUEST_ID: ContextVar[str | None] = ContextVar("active_request_id", default=None)
 _ACTIVE_SESSION_ID: ContextVar[str | None] = ContextVar("active_session_id", default=None)
 _ACTIVE_MODEL_ID: ContextVar[str | None] = ContextVar("active_model_id", default=None)
 _ACTIVE_BACKEND: ContextVar[str | None] = ContextVar("active_backend", default=None)
@@ -174,6 +175,7 @@ class AgentManager:
         self,
         *,
         session_id: str,
+        request_id: str,
         work_id: str | None,
         model_id: str | None = None,
         backend: str | None = None,
@@ -181,9 +183,10 @@ class AgentManager:
         a2a_remote_agent: str | None = None,
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
-    ) -> tuple[Token, Token, Token, Token, Token, Token, Token, Token]:
+    ) -> tuple[Token, Token, Token, Token, Token, Token, Token, Token, Token]:
         return (
             _ACTIVE_WORK_ID.set(work_id),
+            _ACTIVE_REQUEST_ID.set(request_id),
             _ACTIVE_SESSION_ID.set(session_id),
             _ACTIVE_MODEL_ID.set(model_id),
             _ACTIVE_BACKEND.set(backend),
@@ -195,10 +198,11 @@ class AgentManager:
 
     def reset_execution_context(
         self,
-        tokens: tuple[Token, Token, Token, Token, Token, Token, Token, Token],
+        tokens: tuple[Token, Token, Token, Token, Token, Token, Token, Token, Token],
     ) -> None:
         (
             work_token,
+            request_token,
             session_token,
             model_token,
             backend_token,
@@ -208,6 +212,7 @@ class AgentManager:
             a2a_model_id_token,
         ) = tokens
         _ACTIVE_WORK_ID.reset(work_token)
+        _ACTIVE_REQUEST_ID.reset(request_token)
         _ACTIVE_SESSION_ID.reset(session_token)
         _ACTIVE_MODEL_ID.reset(model_token)
         _ACTIVE_BACKEND.reset(backend_token)
@@ -2454,14 +2459,14 @@ class AgentManager:
         return repaired
 
     def _resolve_current_shared_workspace(self) -> str:
-        work_id = _ACTIVE_WORK_ID.get()
+        work_id = _ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get()
         try:
             return str(resolve_shared_workspace(work_id, create=False))
         except (ValueError, PermissionError):
             return str(resolve_shared_workspace("temp", create=False))
 
     def _resolve_current_sandbox_work_id(self) -> str:
-        work_id = _ACTIVE_WORK_ID.get()
+        work_id = _ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get()
         try:
             return normalize_work_id(work_id)
         except ValueError:
@@ -3727,7 +3732,7 @@ class AgentManager:
         self,
         profile: AgentProfileModel,
     ) -> str | None:
-        if not _ACTIVE_WORK_ID.get():
+        if not (_ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get()):
             return None
         tool_ids = set(profile.tool_ids_json or [])
         if not ({"mcp_filesystem", "mcp_code_execution"} & tool_ids):
@@ -3737,14 +3742,20 @@ class AgentManager:
         lines = [
             f"Active work context: use work_id='{sandbox_work_id}'.",
             f"Shared workspace host path: {sandbox_workspace}",
-            "Inside sandbox execution tools, /workspace already points to this same work directory.",
+            "Inside sandbox execution tools, /workspace already points to this same work "
+            "directory.",
+            "If you generate exact code, a report, or another substantial deliverable, save "
+            "it as a file in this workspace and keep the chat text concise.",
         ]
         if "mcp_filesystem" in tool_ids:
             lines.extend(
                 [
                     "For filesystem tool calls, always pass the current work_id explicitly.",
-                    f"Use mcp_filesystem_write_text_file(path=..., content=..., work_id='{sandbox_work_id}') to save text files for this work.",
-                    f"Use mcp_filesystem_read_text_file(path=..., work_id='{sandbox_work_id}') and mcp_filesystem_list_directory(path=..., work_id='{sandbox_work_id}') to inspect the same workspace.",
+                    f"Use mcp_filesystem_write_text_file(path=..., content=..., "
+                    f"work_id='{sandbox_work_id}') to save text files for this work.",
+                    f"Use mcp_filesystem_read_text_file(path=..., work_id='{sandbox_work_id}') "
+                    f"and mcp_filesystem_list_directory(path=..., work_id='{sandbox_work_id}') "
+                    "to inspect the same workspace.",
                     "If you omit work_id, files may go to temp instead of the active work.",
                 ]
             )
@@ -3752,7 +3763,8 @@ class AgentManager:
             lines.extend(
                 [
                     f"For sandbox execution, always pass work_id='{sandbox_work_id}'.",
-                    "Files written with the filesystem tools for this work_id are visible inside sandbox execution at /workspace/.",
+                    "Files written with the filesystem tools for this work_id are visible "
+                    "inside sandbox execution at /workspace/.",
                 ]
             )
         return "\n".join(lines)

@@ -215,6 +215,9 @@ class ConversationLayerSupport:
         )
         return wrapper.deliver_next_message(session_id)
 
+    def clear_session_state(self, session_id: str) -> None:
+        self._state_store.clear(session_id)
+
     def request_manual_pause(self, session_id: str) -> dict[str, Any]:
         if not self.enabled:
             return {"session_id": session_id}

@@ -37,6 +37,12 @@ Manual review before porting:
 - `start_stack.sh`: only needed if this script is still used directly from the conversation-layer package
 - timezone compatibility changes in `conversation_wrapper.py`, `working_memory.py`, `agent_session_context.py`, and `a2a_example_app/chatflash/store.py`
 
+Confirmed in this workspace:
+
+- `scripts/start_chanakya_air.sh` currently launches the stack with `/home/diogenes/miniconda3/envs/chanakya-maf/bin/python`, which is Python 3.10.
+- Under that runtime, `datetime.UTC` crashes both the conversation layer and the main Chanakya app during import.
+- The local fix was to replace `datetime.UTC` usage with `timezone.utc` in the four files listed above.
+
 Do not port as product logic:
 
 - deleted log and pid files
@@ -377,8 +383,14 @@ Representative hunks:
 
 Recommendation:
 
-- Port only if you need Python 3.10 compatibility in practice.
-- If the conversation-layer package really runs on Python 3.11+, keep the V2 `UTC` style.
+- Port if V2 will be started through the same shared stack/runtime pattern used here, because the current startup path uses Python 3.10 in practice.
+- Keep the V2 `UTC` style only if you have also moved the real runtime to Python 3.11+ and verified that the startup scripts use that interpreter.
+
+Observed failure in this workspace:
+
+- `chanakya_conversation_layer.log` showed `ImportError: cannot import name 'UTC' from 'datetime'`.
+- `chanakya.log` showed the same import failure because the main app imports the conversation-layer package.
+- After switching these call sites to `timezone.utc`, both `http://127.0.0.1:5514/` and `http://127.0.0.1:5513/` returned `200 OK`.
 
 ### 6. Tests added in V1_mod
 
@@ -436,22 +448,22 @@ Recommendation:
 
 - V1_mod status: timezone compatibility only
 - V2 status: not present, plus many upstream changes
-- action: do not blindly port; decide based on Python version
+- action: port if V2 will run under the current Python 3.10-based startup flow; otherwise decide based on the actual runtime Python version
 
 `working_memory.py`
 
 - V1_mod status: timezone compatibility only
 - V2 status: not present
-- action: optional based on Python version
+- action: port if V2 will run under the current Python 3.10-based startup flow; otherwise optional based on actual runtime Python version
 
 `agent_session_context.py`
 
 - V1_mod status: timezone compatibility only
 - V2 status: not present
-- action: optional based on Python version
+- action: port if V2 will run under the current Python 3.10-based startup flow; otherwise optional based on actual runtime Python version
 
 `a2a_example_app/chatflash/store.py`
 
 - V1_mod status: timezone compatibility only
 - V2 status: not present
-- action: optional based on Python version
+- action: port if V2 will run under the current Python 3.10-based startup flow; otherwise optional based on actual runtime Python version
