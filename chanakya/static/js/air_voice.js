@@ -67,6 +67,21 @@
       }));
     }
 
+    function setButtonLabel(button, label) {
+      if (!button) {
+        return;
+      }
+      const nextLabel = label || "";
+      button.setAttribute("aria-label", nextLabel);
+      button.setAttribute("title", nextLabel);
+      const labelNode = button.querySelector(".control-button-label");
+      if (labelNode) {
+        labelNode.textContent = nextLabel;
+        return;
+      }
+      button.textContent = nextLabel;
+    }
+
     function selectedValue(select) {
       return select && select.value ? select.value : "";
     }
@@ -330,7 +345,7 @@
       pendingInterruptionSubmission = interruptionTriggered;
       await startRecordingMonitor(stream);
       recordButton.dataset.state = "recording";
-      recordButton.textContent = "Stop Mic";
+      setButtonLabel(recordButton, "Stop Mic");
       setStatus(interruptionTriggered ? "Recording interruption..." : (continuousMode ? "Listening for your next turn..." : "Recording..."));
     }
 
@@ -422,7 +437,7 @@
       mediaRecorder = null;
       audioChunks = [];
       recordButton.dataset.state = "idle";
-      recordButton.textContent = continuousMode ? "Listening" : "Mic";
+      setButtonLabel(recordButton, continuousMode ? "Listening" : "Mic");
     }
 
     function normalizeAudioContentType(contentType) {
@@ -634,7 +649,7 @@
       stream.getTracks().forEach((track) => track.stop());
       mediaRecorder = null;
       recordButton.dataset.state = "idle";
-      recordButton.textContent = continuousMode ? "Listening" : "Mic";
+      setButtonLabel(recordButton, continuousMode ? "Listening" : "Mic");
 
       setStatus("Transcribing...");
       const transcript = await transcribeAudio(audioBlob);
@@ -669,12 +684,12 @@
 
     function syncButtons() {
       if (continuousButton) {
-        continuousButton.textContent = continuousMode ? "Stop Voice" : "Start Voice";
+        setButtonLabel(continuousButton, continuousMode ? "Stop Voice" : "Start Voice");
         continuousButton.dataset.state = continuousMode ? "recording" : "idle";
       }
       if (!continuousMode && recordButton.dataset.state !== "recording") {
         recordButton.dataset.state = "idle";
-        recordButton.textContent = "Mic";
+        setButtonLabel(recordButton, "Mic");
       }
     }
 
