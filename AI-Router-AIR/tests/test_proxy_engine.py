@@ -93,6 +93,41 @@ class TestProxyEngine:
                 assert call_kwargs["headers"]["Authorization"] == "Bearer test-api-key"
 
     @pytest.mark.asyncio
+    async def test_forward_request_replaces_inbound_authorization_header(self, proxy_engine, mock_provider, mock_request):
+        """Test that inbound auth headers are stripped before provider auth is applied."""
+        mock_request.headers = {
+            "authorization": "Bearer caller-token",
+            "x-api-key": "caller-api-key",
+            "user-agent": "test-client",
+        }
+
+        async def mock_json():
+            return {"model": "gpt-4"}
+
+        mock_request.json = mock_json
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {}
+
+        with patch.object(proxy_engine._client, 'build_request') as mock_build:
+            with patch.object(proxy_engine._client, 'send', new_callable=AsyncMock) as mock_send:
+                mock_send.return_value = mock_response
+
+                await proxy_engine.forward_request(
+                    mock_request,
+                    mock_provider,
+                    "chat/completions",
+                    is_stream=False
+                )
+
+                call_kwargs = mock_build.call_args[1]
+                assert call_kwargs["headers"]["Authorization"] == "Bearer test-api-key"
+                assert "authorization" not in call_kwargs["headers"]
+                assert "x-api-key" not in call_kwargs["headers"]
+
+    @pytest.mark.asyncio
     async def test_forward_request_no_api_key_if_na(self, proxy_engine, mock_request):
         """Test that Authorization header is not added when api_key is 'na'"""
         provider_no_key = ProviderConfig(
