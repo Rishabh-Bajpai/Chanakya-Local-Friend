@@ -558,6 +558,11 @@ class ProxyEngine:
                 body = await request.json()
                 if is_stream is None:
                     is_stream = body.get("stream", False)
+
+                # Strip the `store` parameter to prevent 400 Bad Request errors from non-OpenAI models
+                if isinstance(body, dict):
+                    body.pop("store", None)
+
                 _log_request_snapshot(
                     request_id=request_id,
                     trace_id=trace_id,
