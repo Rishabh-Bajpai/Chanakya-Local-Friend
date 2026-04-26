@@ -1,3 +1,5 @@
+"""Administrative endpoints for managing AIR provider configuration."""
+
 from fastapi import APIRouter, HTTPException
 from typing import List
 import httpx
@@ -10,13 +12,22 @@ import os
 router = APIRouter(tags=["Configuration/Admin"])
 logger = logging.getLogger(__name__)
 
+
+async def refresh_model_registry() -> None:
+    """Refresh the cached provider model registry after config changes."""
+    try:
+        await provider_manager.refresh_models()
+    except Exception as exc:
+        logger.warning("Failed to refresh model registry after provider config change: %s", exc)
+
 @router.get("/providers", response_model=List[ProviderConfig])
 async def get_providers():
+    """Return the currently configured providers."""
     return settings.PROVIDERS
 
 @router.post("/providers")
 async def add_provider(provider: ProviderInput):
-    current_count = 0
+    """Add a provider of the requested type to the environment-backed config."""
     prefix = ""
     if provider.type == "llm":
         prefix = "LLM"
@@ -32,18 +43,20 @@ async def add_provider(provider: ProviderInput):
         if os.getenv(f"{prefix}_BASE_URL_{i}") is None:
             break
         i += 1
-    
+
     new_index = i
-    
+
     settings.update_env_variable(f"{prefix}_BASE_URL_{new_index}", provider.base_url)
     if provider.api_key:
         settings.update_env_variable(f"{prefix}_API_KEY_{new_index}", provider.api_key)
-    
+
     settings.reload()
+    await refresh_model_registry()
     return {"message": "Provider added", "index": new_index}
 
 @router.put("/providers/{index}")
 async def update_provider(index: int, provider: ProviderInput):
+    """Update an existing provider entry by index."""
     prefix = ""
     if provider.type == "llm":
         prefix = "LLM"
@@ -55,17 +68,19 @@ async def update_provider(index: int, provider: ProviderInput):
         raise HTTPException(status_code=400, detail="Invalid provider type")
 
     settings.update_env_variable(f"{prefix}_BASE_URL_{index}", provider.base_url)
-    
+
     if provider.api_key and provider.api_key != "na":
         settings.update_env_variable(f"{prefix}_API_KEY_{index}", provider.api_key)
     else:
         settings.update_env_variable(f"{prefix}_API_KEY_{index}", "na")
 
     settings.reload()
+    await refresh_model_registry()
     return {"message": "Provider updated", "index": index}
 
 @router.delete("/providers/{index}")
 async def delete_provider(type: str, index: int):
+    """Remove a provider entry and its API key from the environment."""
     prefix = ""
     if type == "llm":
         prefix = "LLM"
@@ -78,17 +93,19 @@ async def delete_provider(type: str, index: int):
 
     settings.remove_env_variable(f"{prefix}_BASE_URL_{index}")
     settings.remove_env_variable(f"{prefix}_API_KEY_{index}")
-    
+
     settings.reload()
+    await refresh_model_registry()
     return {"message": "Provider removed"}
 
 @router.post("/providers/check")
 async def check_provider_status(provider: ProviderInput):
+    """Probe a provider's models endpoint and summarize its availability."""
     url = f"{provider.base_url.rstrip('/')}/models"
     headers = {"Content-Type": "application/json"}
     if provider.api_key and provider.api_key != "na":
         headers["Authorization"] = f"Bearer {provider.api_key}"
-        
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(url, headers=headers)
@@ -101,6 +118,7 @@ async def check_provider_status(provider: ProviderInput):
 
 @router.get("/status")
 async def get_all_status():
+    """Return connectivity status for every configured provider."""
     results = []
     for p in settings.PROVIDERS:
         status = "unknown"
@@ -109,7 +127,7 @@ async def get_all_status():
         headers = {"Content-Type": "application/json"}
         if p.api_key and p.api_key != "na":
             headers["Authorization"] = f"Bearer {p.api_key}"
-            
+
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 resp = await client.get(url, headers=headers)
@@ -122,7 +140,7 @@ async def get_all_status():
         except Exception:
             status = "offline"
             details = "Unreachable"
-            
+
         results.append(ProviderStatus(
             name=p.name,
             type=p.type,
@@ -134,6 +152,7 @@ async def get_all_status():
 
 @router.get("/discovered")
 async def get_discovered_providers():
+    """Return newly discovered providers that are not yet configured."""
     if not settings.DISCOVERY_ENABLED:
         return []
 
@@ -147,10 +166,11 @@ async def get_discovered_providers():
 
 @router.post("/discovered/accept")
 async def accept_discovered_providers(providers: List[AcceptProviderInput]):
+    """Persist selected discovered providers into the environment-backed config."""
     added = []
     for prov in providers:
         for p_type in prov.detected_types:
-            prefix = p_type.upper() 
+            prefix = p_type.upper()
             if prefix not in ("LLM", "STT", "TTS"):
                 continue
 
@@ -175,4 +195,5 @@ async def accept_discovered_providers(providers: List[AcceptProviderInput]):
             added.append({"type": p_type, "base_url": prov.base_url, "index": target_index})
 
     settings.reload()
+    await refresh_model_registry()
     return {"message": f"Processed {len(added)} provider mapping(s)", "added": added}

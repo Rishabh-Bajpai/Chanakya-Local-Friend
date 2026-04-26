@@ -44,12 +44,14 @@ def create_openai_chat_client(
     *,
     model_id: str | None = None,
     env_file_path: str = ".env",
+    default_headers: dict[str, str] | None = None,
 ) -> OpenAIChatClient:
     cfg = get_openai_compatible_config()
     return OpenAIChatClient(
         model_id=model_id or cfg.get("model"),
         api_key=cfg.get("api_key"),
         base_url=cfg.get("base_url"),
+        default_headers=default_headers,
         env_file_path=env_file_path,
     )
 
@@ -286,7 +288,17 @@ class MAFRuntime:
     ) -> RunResult:
         tool_traces: list[ToolExecutionTrace] = []
 
-        run_client = self.client if not model_id else create_openai_chat_client(model_id=model_id)
+        request_headers = {
+            "x-request-id": request_id,
+            "x-chanakya-request-id": request_id,
+            "x-session-id": session_id,
+        }
+
+        run_client = create_openai_chat_client(
+            model_id=model_id,
+            env_file_path=self.env_file_path,
+            default_headers=request_headers,
+        )
 
         debug_log(
             "maf_runtime_before_run",

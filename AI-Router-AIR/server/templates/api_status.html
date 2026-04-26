@@ -80,7 +80,7 @@
             </div>
             <nav>
                 <a href="/" class="btn btn-sm">← Back to Dashboard</a>
-                <a href="http://localhost:5011" target="_blank" class="btn btn-primary">Open Test Client ↗</a>
+                <a href="http://localhost:5511" target="_blank" class="btn btn-primary">Open Test Client ↗</a>
             </nav>
         </header>
 
@@ -173,6 +173,173 @@
                                             style="background:currentColor"></span> Active</span>
                                     {% else %}
                                     <span class="status-badge status-inactive">Inactive</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- Batches - List/Create -->
+                            <tr>
+                                <td>
+                                    <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                                        <span class="method-badge method-GET">GET</span>
+                                        <span class="method-badge method-POST">POST</span>
+                                    </div>
+                                </td>
+                                <td><code>/v1/batches</code></td>
+                                <td>List or create batches</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No LLM Provider)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- Batches - Retrieve -->
+                            <tr>
+                                <td><span class="method-badge method-GET">GET</span></td>
+                                <td><code>/v1/batches/{id}</code></td>
+                                <td>Retrieve a batch</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No LLM Provider)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- Batches - Cancel -->
+                            <tr>
+                                <td><span class="method-badge method-POST">POST</span></td>
+                                <td><code>/v1/batches/{id}/cancel</code></td>
+                                <td>Cancel a batch</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No LLM Provider)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- Realtime - Client Secrets -->
+                            <tr>
+                                <td><span class="method-badge method-POST">POST</span></td>
+                                <td><code>/v1/realtime/client_secrets</code></td>
+                                <td>Create a realtime client secret</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No LLM Provider)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- Realtime - Accept Call -->
+                            <tr>
+                                <td><span class="method-badge method-POST">POST</span></td>
+                                <td><code>/v1/realtime/calls/{call_id}/accept</code></td>
+                                <td>Accept a SIP call</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No LLM Provider)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- Realtime - Hangup Call -->
+                            <tr>
+                                <td><span class="method-badge method-POST">POST</span></td>
+                                <td><code>/v1/realtime/calls/{call_id}/hangup</code></td>
+                                <td>End an active call</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No LLM Provider)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- Evals - List/Create -->
+                            <tr>
+                                <td>
+                                    <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                                        <span class="method-badge method-GET">GET</span>
+                                        <span class="method-badge method-POST">POST</span>
+                                    </div>
+                                </td>
+                                <td><code>/v1/evals</code></td>
+                                <td>List or create evaluations</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No LLM Provider)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- Evals - Retrieve/Update/Delete -->
+                            <tr>
+                                <td>
+                                    <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                                        <span class="method-badge method-GET">GET</span>
+                                        <span class="method-badge method-POST">POST</span>
+                                        <span class="method-badge"
+                                            style="color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);">DEL</span>
+                                    </div>
+                                </td>
+                                <td><code>/v1/evals/{id}</code></td>
+                                <td>Retrieve, update, or delete an evaluation</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No LLM Provider)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- Evals - Runs -->
+                            <tr>
+                                <td><span class="method-badge method-POST">POST</span></td>
+                                <td><code>/v1/evals/{id}/runs</code></td>
+                                <td>Create an evaluation run</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No LLM Provider)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+
+                            <!-- Evals - Run Output Items -->
+                            <tr>
+                                <td><span class="method-badge method-GET">GET</span></td>
+                                <td><code>/v1/evals/runs/{id}/output_items</code></td>
+                                <td>List output items for an evaluation run</td>
+                                <td>
+                                    {% if status.llm %}
+                                    <span class="status-badge status-active"><span class="dot"
+                                            style="background:currentColor"></span> Active</span>
+                                    {% else %}
+                                    <span class="status-badge status-inactive">Inactive (No LLM Provider)</span>
                                     {% endif %}
                                 </td>
                             </tr>

@@ -26,6 +26,9 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
+[tool.interrogate]
+ignore-private = true
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["server*", "client*"]
