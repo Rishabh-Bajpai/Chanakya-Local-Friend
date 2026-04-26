@@ -867,14 +867,7 @@ class ChatService:
             )
 
     def _latest_assistant_request_id(self, session_id: str) -> str | None:
-        messages = self.store.list_messages(session_id)
-        for item in reversed(messages):
-            if str(item.get("role") or "") != "assistant":
-                continue
-            request_id = str(item.get("request_id") or "").strip()
-            if request_id:
-                return request_id
-        return None
+        return self.store.get_latest_assistant_request_id(session_id)
 
     def deliver_next_conversation_message(self, session_id: str) -> dict[str, Any]:
         payload = self._conversation_layer.deliver_next_message(session_id)

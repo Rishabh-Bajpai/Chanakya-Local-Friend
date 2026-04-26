@@ -43,5 +43,9 @@ L= “Aura”
 *You can try out various combination on expression!*
 
 
-Do not use this model for commercial purposes!
+License / Usage Notice:
+This model is a third-party asset created by Shiranui_bzw and is provided with attribution above.
+Non-commercial use only. Do not use, include, or redistribute this model as part of any commercial product, service, build, or distribution without explicit permission from the creator.
+Keep this notice and the attribution information with the asset in any allowed redistribution or internal use.
+If this repository or product is distributed under terms incompatible with this restriction, this asset must be excluded from that distribution.
 If you have any feedbacks or questions, feel free to contact me.

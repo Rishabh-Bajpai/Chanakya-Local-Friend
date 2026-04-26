@@ -67,6 +67,21 @@
       }));
     }
 
+    function setButtonLabel(button, label) {
+      if (!button) {
+        return;
+      }
+      const nextLabel = label || "";
+      button.setAttribute("aria-label", nextLabel);
+      button.setAttribute("title", nextLabel);
+      const labelNode = button.querySelector(".control-button-label");
+      if (labelNode) {
+        labelNode.textContent = nextLabel;
+        return;
+      }
+      button.textContent = nextLabel;
+    }
+
     function selectedValue(select) {
       return select && select.value ? select.value : "";
     }
@@ -109,7 +124,7 @@
         populateSelect(llmModelSelect, models, "llm");
         populateSelect(sttModelSelect, models, "stt");
         populateSelect(ttsModelSelect, models, "tts");
-        setStatus(models.length ? "AIR models loaded." : "AIR is reachable but returned no models.");
+        setStatus(models.length ? "" : "AIR is reachable but returned no models.");
       } catch (error) {
         setStatus(error instanceof Error ? error.message : String(error), true);
       }
@@ -330,7 +345,7 @@
       pendingInterruptionSubmission = interruptionTriggered;
       await startRecordingMonitor(stream);
       recordButton.dataset.state = "recording";
-      recordButton.textContent = "Stop Mic";
+      setButtonLabel(recordButton, "Stop Mic");
       setStatus(interruptionTriggered ? "Recording interruption..." : (continuousMode ? "Listening for your next turn..." : "Recording..."));
     }
 
@@ -422,7 +437,7 @@
       mediaRecorder = null;
       audioChunks = [];
       recordButton.dataset.state = "idle";
-      recordButton.textContent = continuousMode ? "Listening" : "Mic";
+      setButtonLabel(recordButton, continuousMode ? "Listening" : "Mic");
     }
 
     function normalizeAudioContentType(contentType) {
@@ -457,17 +472,11 @@
       isPlayingQueue = true;
       const currentChunk = audioQueue.shift();
       activeAudio = new Audio(currentChunk.url);
-      const scheduleNextChunk = async () => {
-        try {
-          const listeningResult = await waitForInterruptionWindow();
-          if (listeningResult && listeningResult.interrupted) {
-            isPlayingQueue = false;
-            return;
-          }
-        } catch (error) {
-          isPlayingQueue = false;
-          setStatus(error instanceof Error ? error.message : String(error), true);
-          return;
+      const scheduleNextChunk = () => {
+        if (voiceTurnActive && !stopRequested && selectedValue(sttModelSelect)) {
+          waitForInterruptionWindow().catch((err) => {
+            console.debug("Interruption window check failed:", err);
+          });
         }
         nextAudioTimer = window.setTimeout(() => {
           nextAudioTimer = null;
@@ -477,17 +486,17 @@
       activeAudio.onended = () => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        void scheduleNextChunk();
+        scheduleNextChunk();
       };
       activeAudio.onerror = () => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        void scheduleNextChunk();
+        scheduleNextChunk();
       };
       activeAudio.play().catch(() => {
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
-        void scheduleNextChunk();
+        scheduleNextChunk();
       });
     }
 
@@ -634,10 +643,11 @@
       stream.getTracks().forEach((track) => track.stop());
       mediaRecorder = null;
       recordButton.dataset.state = "idle";
-      recordButton.textContent = continuousMode ? "Listening" : "Mic";
+      setButtonLabel(recordButton, continuousMode ? "Listening" : "Mic");
 
       setStatus("Transcribing...");
       const transcript = await transcribeAudio(audioBlob);
+      setStatus("");
       await submitTranscript(transcript, {
         metadata: pendingInterruptionSubmission
           ? {
@@ -669,12 +679,12 @@
 
     function syncButtons() {
       if (continuousButton) {
-        continuousButton.textContent = continuousMode ? "Stop Voice" : "Start Voice";
+        setButtonLabel(continuousButton, continuousMode ? "Stop Voice" : "Start Voice");
         continuousButton.dataset.state = continuousMode ? "recording" : "idle";
       }
       if (!continuousMode && recordButton.dataset.state !== "recording") {
         recordButton.dataset.state = "idle";
-        recordButton.textContent = "Mic";
+        setButtonLabel(recordButton, "Mic");
       }
     }
 
@@ -684,6 +694,29 @@
         syncButtons();
         return;
       }
+      await runSingleVoiceTurn();
+    }
+
+    async function stopVoiceMode() {
+      stopRequested = true;
+      continuousMode = false;
+      voiceTurnActive = false;
+      speechSequenceId += 1;
+      stopPlayback();
+      await cancelInterruptionWindow({ interrupted: false });
+      await teardownRecordingMonitor();
+      await stopRecordingSilently();
+      setStatus("");
+      syncButtons();
+    }
+
+    async function startVoiceMode() {
+      if (continuousMode) {
+        return;
+      }
+      stopRequested = false;
+      continuousMode = true;
+      syncButtons();
       await runSingleVoiceTurn();
     }
 
@@ -706,22 +739,10 @@
     if (continuousButton) {
       continuousButton.addEventListener("click", async () => {
         if (continuousMode) {
-          stopRequested = true;
-          continuousMode = false;
-          voiceTurnActive = false;
-          speechSequenceId += 1;
-          stopPlayback();
-          await cancelInterruptionWindow({ interrupted: false });
-          await teardownRecordingMonitor();
-          await stopRecordingSilently();
-          setStatus("Voice mode stopped.");
-          syncButtons();
+          await stopVoiceMode();
           return;
         }
-        stopRequested = false;
-        continuousMode = true;
-        syncButtons();
-        await runSingleVoiceTurn();
+        await startVoiceMode();
       });
     }
 
@@ -745,6 +766,8 @@
 
     return {
       fetchModels,
+      startVoiceMode,
+      stopVoiceMode,
       isVoiceModeEnabled() {
         return continuousMode || voiceTurnActive;
       },

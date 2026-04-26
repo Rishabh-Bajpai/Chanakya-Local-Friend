@@ -403,7 +403,15 @@ def _build_artifact_tools_server() -> FastMCP:
         elif request_id.strip():
             artifacts = store.list_artifacts_for_request(request_id.strip())
         else:
-            return {"ok": False, "error": "session_id, work_id, or request_id is required"}
+            return {
+                "ok": False,
+                "error": {
+                    "code": "missing_argument",
+                    "message": "One of session_id, work_id, or request_id is required.",
+                    "acceptable_fields": ["session_id", "work_id", "request_id"],
+                    "hint": "Retry with exactly one non-empty selector: session_id, work_id, or request_id.",
+                },
+            }
         return {
             "ok": True,
             "artifacts": [_artifact_payload(item) for item in artifacts],
@@ -431,8 +439,10 @@ def _build_artifact_tools_server() -> FastMCP:
             artifact = store.get_artifact(artifact_id)
         except KeyError:
             return _artifact_not_found_payload(store, artifact_id=artifact_id)
-        artifact_root = get_artifact_storage_root(create=False)
-        file_path = artifact_root / artifact.path
+        artifact_root = get_artifact_storage_root(create=False).resolve()
+        file_path = (artifact_root / artifact.path).resolve()
+        if artifact_root not in file_path.parents and file_path != artifact_root:
+            return {"ok": False, "error": "Artifact path escapes storage root"}
         if not file_path.exists():
             return {"ok": False, "error": f"Artifact file missing: {artifact.path}"}
         return {

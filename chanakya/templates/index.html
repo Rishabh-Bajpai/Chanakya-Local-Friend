@@ -35,6 +35,18 @@
       display: none !important;
     }
 
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     body {
       margin: 0;
       font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -73,13 +85,31 @@
       display: flex;
       align-items: center;
       gap: 12px;
+      min-width: 0;
     }
 
     .top-bar .brand {
-      font-size: 17px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
       color: var(--text);
+      font-family: 'Cormorant Garamond', Georgia, serif;
+    }
+
+    .top-bar .brand-primary {
+      font-size: 1.65rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1;
+    }
+
+    .top-bar .brand-secondary {
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: #d4cdc6;
+      white-space: nowrap;
     }
 
     .top-bar-right {
@@ -1531,6 +1561,17 @@
       transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
     }
 
+    .mode-button svg,
+    .back-button svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     .mode-button:hover,
     .back-button:hover {
       background: rgba(255, 255, 255, 0.08);
@@ -1542,12 +1583,25 @@
       display: none;
     }
 
+    #modeCharacterButton {
+      display: none !important;
+    }
+
     .top-bar .brand {
-      font-size: 1.1rem;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
       color: #d8f3ff;
       text-shadow: 0 0 18px rgba(79, 215, 255, 0.28);
+    }
+
+    .top-bar .brand-primary {
+      font-size: 2rem;
+      letter-spacing: 0.05em;
+    }
+
+    .top-bar .brand-secondary {
+      font-size: 0.9rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(216, 243, 255, 0.8);
     }
 
     .top-bar-right {
@@ -1569,6 +1623,18 @@
       background: rgba(255, 255, 255, 0.04);
       color: #d5dbe6;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .stage-toggle svg,
+    .utility-toggle svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: 0 0 auto;
     }
 
     .stage-toggle:hover,
@@ -1678,9 +1744,43 @@
     .hero-avatar-wrap {
       position: relative;
       z-index: 1;
-      width: min(100%, 520px);
+      width: 100%;
+      max-width: 520px;
       display: grid;
       justify-items: center;
+    }
+
+    .hero-avatar-wrap .voice-avatar-stage {
+      width: 100%;
+      justify-items: center;
+    }
+
+    .hero-avatar-wrap .voice-avatar-shell {
+      margin-inline: auto;
+    }
+
+    .call-hero-status {
+      display: none;
+      align-items: center;
+      gap: 0;
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(10, 14, 23, 0.72);
+      color: #e7f1fb;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .call-hero-status-label {
+      display: none;
+    }
+
+    .call-hero-status-text {
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .hero-actions {
@@ -1713,14 +1813,15 @@
 
     body.call-mode .hero-stage {
       display: grid;
-      align-content: center;
+      align-content: stretch;
       justify-items: center;
-      gap: 16px;
-      padding: 18px 16px 8px;
+      flex: 1 1 auto;
+      gap: 10px;
+      padding: 8px 12px 0;
     }
 
     body.call-mode .hero-copy {
-      text-align: center;
+      display: none;
     }
 
     body.call-mode .hero-actions .hero-action-button {
@@ -1728,7 +1829,41 @@
     }
 
     body.call-mode .hero-avatar-wrap {
-      width: min(100%, 640px);
+      width: 100%;
+      max-width: none;
+      flex: 1 1 auto;
+      align-self: stretch;
+    }
+
+    body.call-mode .hero-avatar-wrap .voice-avatar-stage {
+      width: 100%;
+      min-height: min(52vh, 560px);
+      align-content: center;
+      justify-items: center;
+    }
+
+    body.call-mode .hero-avatar-wrap .voice-avatar-shell {
+      width: min(58vw, 460px);
+      height: min(58vw, 460px);
+      min-width: 240px;
+      min-height: 240px;
+    }
+
+    body.call-mode .voice-avatar-meta {
+      gap: 10px;
+    }
+
+    body.call-mode .voice-avatar-name {
+      display: none;
+    }
+
+    body.call-mode .call-hero-status {
+      display: inline-flex;
+      max-width: min(100%, 420px);
+    }
+
+    body.call-mode .voice-avatar-chooser {
+      display: none;
     }
 
     body:not(.call-mode) .voice-avatar-chooser {
@@ -1760,6 +1895,8 @@
       transform: none;
       pointer-events: auto;
       gap: 18px;
+      justify-content: space-between;
+      overflow-y: auto;
     }
 
     body.call-mode .chat-shell.collapsed {
@@ -1885,7 +2022,7 @@
     }
 
     .config-shell .sidebar-panel-body {
-      padding: 0 20px 20px;
+      padding: 14px 20px 20px;
     }
 
     .config-shell .control-group,
@@ -1973,8 +2110,9 @@
     .composer-dock {
       display: grid;
       flex: 0 0 auto;
-      gap: 12px;
-      padding: 16px 18px 18px;
+      position: relative;
+      gap: 10px;
+      padding: 12px 16px 14px;
       border-top: 1px solid rgba(255, 255, 255, 0.06);
       background:
         linear-gradient(180deg, rgba(18, 22, 36, 0.82), rgba(8, 10, 18, 0.9));
@@ -1995,111 +2133,198 @@
 
     .composer {
       border-top: none;
-      padding: 0;
+      padding: 6px;
       gap: 0;
-      background: transparent;
       display: block;
+      border-radius: 28px;
+      background: rgba(39, 41, 48, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
 
     .composer-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 10px;
+      grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+      gap: 6px;
       align-items: center;
     }
 
-    .composer input[type="text"] {
-      min-height: 52px;
-      padding: 14px 18px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.10);
+    .composer-textarea {
+      min-height: 40px;
+      max-height: 128px;
+      padding: 9px 10px;
+      border-radius: 20px;
+      background: transparent;
+      border: none;
       color: var(--text);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      box-shadow: none;
+      resize: none;
+      overflow-y: hidden;
+      line-height: 1.45;
     }
 
-    .composer input[type="text"]:focus {
+    .composer-textarea:focus {
       outline: none;
-      border-color: rgba(79, 215, 255, 0.32);
-      box-shadow: 0 0 0 3px rgba(79, 215, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      box-shadow: none;
     }
 
-    .composer-submit {
-      min-height: 52px;
-      padding: 0 22px;
-      border-radius: 999px;
-      background: linear-gradient(45deg, #2bd1ff, #4561ff 62%, #835eff);
-      box-shadow: 0 10px 24px rgba(57, 128, 255, 0.24);
-    }
-
-    .composer-submit:hover {
-      background: linear-gradient(45deg, #1ec8f9, #3f59ea 62%, #7758ee);
-    }
-
-    .dock-actions {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .dock-actions .air-button {
-      width: 50px;
-      height: 50px;
+    .composer-aux-button,
+    .composer-submit,
+    .composer-proxy-button {
+      width: 40px;
+      height: 40px;
+      min-height: 40px;
+      flex: 0 0 auto;
       padding: 0;
       border-radius: 50%;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.03));
+      background: rgba(255, 255, 255, 0.06);
       border: 1px solid rgba(255, 255, 255, 0.12);
       color: #ecf5ff;
-      font-size: 0;
       position: relative;
-      box-shadow: 0 10px 18px rgba(0, 0, 0, 0.20);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
 
-    .dock-actions .air-button::before {
-      font-size: 18px;
-      line-height: 1;
+    .composer-aux-button:hover,
+    .composer-submit:hover,
+    .composer-proxy-button:hover {
+      background: rgba(255, 255, 255, 0.10);
+      border-color: rgba(255, 255, 255, 0.18);
+      transform: none;
     }
 
-    #airMicButton::before {
-      content: "🎤";
+    .composer-more-button {
+      display: inline-flex;
     }
 
-    #airVoiceLoopButton::before {
-      content: "📞";
+    .composer-proxy-button {
+      display: inline-flex;
     }
 
-    #airSpeakButton::before {
-      content: "🔊";
+    .composer-loop-proxy {
+      display: inline-flex;
     }
 
-    #airPauseRepliesButton::before {
-      content: "⏸";
+    .composer-aux-button svg,
+    .composer-submit svg,
+    .composer-proxy-button svg,
+    .call-control-button svg,
+    .composer-menu button svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
-    #airRefreshModelsButton::before {
-      content: "↻";
-      font-size: 19px;
+    .composer-submit {
+      min-height: 40px;
+      width: 40px;
+      padding: 0;
+      border-radius: 50%;
+      background: #f3f4f7;
+      color: #16181f;
+      border-color: transparent;
+      box-shadow: none;
     }
 
-    .dock-actions .air-button:hover {
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06));
-      border-color: rgba(79, 215, 255, 0.28);
+    .composer-submit:hover {
+      background: #ffffff;
     }
 
-    .dock-actions .air-button[data-state="recording"] {
-      background: linear-gradient(180deg, rgba(255, 133, 104, 0.96), rgba(174, 54, 35, 0.92));
-      border-color: rgba(255, 168, 146, 0.5);
+    .composer-submit[disabled] {
+      opacity: 0.45;
+    }
+
+    .composer-submit svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .composer-menu {
+      position: absolute;
+      left: 16px;
+      bottom: calc(100% + 8px);
+      min-width: 220px;
+      padding: 8px;
+      border-radius: 20px;
+      background: rgba(34, 36, 43, 0.97);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
+      display: grid;
+      gap: 4px;
+      z-index: 12;
+    }
+
+    .composer-menu button {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      min-height: 42px;
+      padding: 0 12px;
+      border-radius: 14px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-size: 13px;
+      justify-content: flex-start;
+    }
+
+    .composer-menu button:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.08);
+      transform: none;
+    }
+
+    .dock-actions {
+      display: none;
+    }
+
+    .dock-actions button {
+      width: auto;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #dbe4f0;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .dock-actions button:hover {
+      background: rgba(255, 255, 255, 0.09);
+      border-color: rgba(79, 215, 255, 0.24);
+      transform: none;
+    }
+
+    .dock-actions button[data-state="recording"] {
+      background: rgba(124, 51, 38, 0.92);
+      border-color: rgba(255, 168, 146, 0.34);
+    }
+
+    .composer-dock.voice-mode-active .composer-loop-proxy,
+    .composer-dock.voice-mode-active .dock-actions [data-voice-proxy="loop"] {
+      background: rgba(79, 215, 255, 0.12);
+      border-color: rgba(79, 215, 255, 0.26);
+      color: #eef9ff;
     }
 
     .dock-status {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
     .chat-status-bar {
@@ -2108,15 +2333,19 @@
     }
 
     .air-status-card {
-      padding: 14px 15px;
-      border-radius: 18px;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255, 255, 255, 0.08);
-      min-height: 52px;
-      display: grid;
-      gap: 4px;
-      align-content: center;
+      min-height: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .chat-status-bar .air-status-title {
+      display: none;
     }
 
     body.call-mode #chatLog,
@@ -2126,51 +2355,105 @@
     }
 
     body.call-mode .composer-dock {
-      gap: 18px;
-      padding: 18px 20px 22px;
+      margin-top: auto;
+      gap: 12px;
+      padding: 14px 16px 16px;
       border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 24px;
+      border-radius: 22px;
       background:
         radial-gradient(circle at top, rgba(79, 215, 255, 0.10), transparent 56%),
         rgba(8, 10, 18, 0.88);
     }
 
-    body.call-mode .dock-actions {
-      gap: 14px;
+    body.call-mode .dock-actions,
+    body.call-mode .composer-menu {
+      display: none;
     }
 
-    body.call-mode .dock-actions .air-button {
-      width: 64px;
-      height: 64px;
-      box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
+    body.call-mode .hero-stage {
+      grid-template-rows: 1fr;
     }
 
-    body.call-mode .dock-actions .air-button::before {
-      font-size: 22px;
+    body.call-mode .call-hero-status {
+      position: absolute;
+      left: 50%;
+      bottom: 22px;
+      transform: translateX(-50%);
+      z-index: 2;
+      max-width: min(100%, 320px);
     }
 
-    body.call-mode .dock-status {
-      grid-template-columns: 1fr;
+    body.call-mode .call-control-bar {
+      position: sticky;
+      bottom: 0;
+      z-index: 3;
     }
 
-    body.call-mode .air-status-card {
-      min-height: 62px;
+    .call-control-bar {
+      display: none;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    body.call-mode .call-control-bar {
+      display: grid;
+    }
+
+    .call-control-button {
+      min-height: 52px;
+      padding: 0 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
       background: rgba(255, 255, 255, 0.05);
-      border-color: rgba(79, 215, 255, 0.14);
+      color: #edf4ff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .call-control-button:hover {
+      background: rgba(255, 255, 255, 0.08);
+      transform: none;
+    }
+
+    .call-control-button.call-primary {
+      background: linear-gradient(180deg, rgba(206, 95, 72, 0.96), rgba(150, 48, 34, 0.94));
+      border-color: rgba(255, 196, 181, 0.28);
+      color: #fff7f4;
+    }
+
+    .call-control-label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
     }
 
     .air-status-title {
-      font-size: 11px;
+      font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 0.16em;
+      letter-spacing: 0.14em;
       color: #89b6d0;
     }
 
     .air-status {
-      min-height: 16px;
+      min-height: 0;
       margin-top: 0;
       font-size: 12px;
       color: #dfe8f5;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 22ch;
+    }
+
+    .voice-control-bank {
+      display: none;
+    }
+
+    body.call-mode .dock-status {
+      display: none;
     }
 
     .right-sidebar {
@@ -2297,7 +2580,7 @@
       }
 
       .dock-status {
-        grid-template-columns: 1fr;
+        gap: 6px;
       }
 
       .debug-logs-button span,
@@ -2316,18 +2599,116 @@
         display: none;
       }
 
+      #modeCharacterButton {
+        display: none !important;
+      }
+
+      .top-bar .brand {
+        gap: 6px;
+      }
+
+      .top-bar .brand-primary {
+        font-size: 1.45rem;
+      }
+
+      .top-bar .brand-secondary {
+        font-size: 0.72rem;
+        letter-spacing: 0.08em;
+      }
+
       .hero-title {
         font-size: 2rem;
       }
 
+      .composer-dock {
+        gap: 8px;
+        padding: 10px 12px 12px;
+      }
+
       .composer-row {
-        grid-template-columns: 1fr;
+        grid-template-columns: auto minmax(0, 1fr) auto auto auto;
       }
 
+      .composer-textarea {
+        min-height: 52px;
+        padding: 10px 6px;
+        line-height: 1.35;
+      }
+
+      .composer-proxy-button,
+      .composer-more-button,
       .composer-submit {
-        width: 100%;
+        width: 38px;
+        height: 38px;
+        min-height: 38px;
       }
 
+      .composer-textarea::placeholder {
+        font-size: 13px;
+      }
+
+      .composer-dock .composer-loop-proxy,
+      .composer-dock .composer-mic-proxy {
+        display: inline-flex;
+      }
+
+      .composer-dock.has-text .composer-loop-proxy,
+      .composer-dock.has-text .composer-mic-proxy,
+      .dock-actions {
+        display: none;
+      }
+
+      .composer-dock:not(.has-text) .composer-submit {
+        display: none;
+      }
+
+      .composer-dock.has-text .composer-submit {
+        display: inline-flex;
+      }
+
+      .composer-dock:not(.has-text) .composer-menu {
+        left: 12px;
+        right: 12px;
+        min-width: 0;
+      }
+
+      .call-control-bar {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      body.call-mode .hero-avatar-wrap .voice-avatar-stage {
+        min-height: min(58vh, 520px);
+      }
+
+      body.call-mode .hero-avatar-wrap .voice-avatar-shell {
+        width: min(82vw, 420px);
+        height: min(82vw, 420px);
+        min-width: 220px;
+        min-height: 220px;
+      }
+
+      .call-control-button {
+        min-height: 48px;
+      }
+
+      .dock-status {
+        gap: 6px;
+      }
+
+      .air-status-card {
+        max-width: 100%;
+      }
+
+    }
+
+    .composer-dock.has-text .composer-loop-proxy,
+    .composer-dock.has-text .composer-mic-proxy,
+    .composer-dock:not(.has-text) .composer-submit {
+      display: none;
+    }
+
+    .composer-dock.has-text .composer-submit {
+      display: inline-flex;
     }
   </style>
 </head>
@@ -2338,22 +2719,27 @@
       <div class="assistant-shell">
         <header class="top-bar">
           <div class="top-bar-left">
-            <button id="modeSettingsButton" type="button" class="mode-button" title="Open configuration">⚙</button>
+            <button id="modeSettingsButton" type="button" class="mode-button" title="Open settings" aria-label="Open settings">☰
+            </button>
             <button id="modeBackButton" type="button" class="back-button" title="Back to chat" hidden>←</button>
+            <div class="brand" aria-label="Chanakya, your PA">
+              <span class="brand-primary">Chanakya</span>
+              <span class="brand-secondary">your PA</span>
+            </div>
             {% if force_subagents_enabled %}
             <span class="debug-badge">Force Subagents: ON</span>
             {% endif %}
           </div>
           <div class="top-bar-right">
+            <button id="workspacesButton" type="button" class="stage-toggle" title="Open workspaces" aria-label="Open workspaces">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18" /><path d="M6 7V5h12v2" /><path d="M5 7v11h14V7" /><path d="M9 11h6" /></svg>
+              <span>Work</span>
+            </button>
             <button id="modeCharacterButton" type="button" class="stage-toggle" title="Choose character">
               <span>Character</span>
             </button>
             <button id="utilityToggleButton" type="button" class="utility-toggle">
               <span>Controls</span>
-            </button>
-            <button type="button" class="debug-logs-button" onclick="openDebugLogs()">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.25 2A2.25 2.25 0 002 4.25v11.5A2.25 2.25 0 004.25 18h11.5A2.25 2.25 0 0018 15.75V4.25A2.25 2.25 0 0015.75 2H4.25zm4.03 6.28a.75.75 0 00-1.06-1.06L4.97 9.47a.75.75 0 000 1.06l2.25 2.25a.75.75 0 001.06-1.06L6.56 10l1.72-1.72zm4.5-1.06a.75.75 0 10-1.06 1.06L13.44 10l-1.72 1.72a.75.75 0 101.06 1.06l2.25-2.25a.75.75 0 000-1.06l-2.25-2.25z" clip-rule="evenodd"/></svg>
-              <span>Debug</span>
             </button>
           </div>
         </header>
@@ -2460,6 +2846,10 @@
                 </div>
               </div>
             </div>
+            <div id="callHeroStatus" class="call-hero-status" hidden>
+              <span class="call-hero-status-label">Voice</span>
+              <span id="callHeroStatusText" class="call-hero-status-text"></span>
+            </div>
             <div class="hero-actions">
               <button id="heroChatToggle" type="button" class="hero-action-button">Open Chat</button>
             </div>
@@ -2474,19 +2864,52 @@
               </div>
               <div id="wnItems" class="wn-items"></div>
             </div>
-            <div class="composer-dock">
+            <div id="composerDock" class="composer-dock">
               <form id="chatForm" class="composer">
                 <div class="composer-row">
-                  <input id="messageInput" type="text" placeholder="Send a message to Chanakya..." required />
-                  <button type="submit" class="composer-submit">Send</button>
+                  <button id="composerMoreButton" class="composer-more-button composer-aux-button" type="button" title="More controls" aria-label="More controls" aria-expanded="false" aria-controls="composerMenu">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                  </button>
+                  <textarea id="messageInput" class="composer-textarea" placeholder="Ask Chanakya anything" rows="1" required></textarea>
+                  <button class="composer-proxy-button composer-loop-proxy" type="button" data-voice-proxy="loop" title="Start or stop voice mode" aria-label="Start or stop voice mode">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 7.5l-3 3 3 3" /><path d="M11.5 16.5A6.5 6.5 0 1 0 11.5 3.5" /><path d="M15 7.5a5 5 0 0 1 0 9" /></svg>
+                  </button>
+                  <button class="composer-proxy-button composer-mic-proxy" type="button" data-voice-proxy="mic" title="Send voice message" aria-label="Send voice message">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2.5 2.5 0 0 0-2.5 2.5v5a2.5 2.5 0 1 0 5 0v-5A2.5 2.5 0 0 0 12 4Z" /><path d="M7 11.5a5 5 0 0 0 10 0" /><path d="M12 16.5V20" /><path d="M9 20h6" /></svg>
+                  </button>
+                  <button type="submit" class="composer-submit" aria-label="Send message">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="m18 11-6-6-6 6" /></svg>
+                  </button>
                 </div>
               </form>
-              <div class="dock-actions">
-                <button id="airMicButton" class="air-button" type="button" title="Manual microphone recording">Mic</button>
-                <button id="airVoiceLoopButton" class="air-button" type="button" title="Start or stop voice mode">Start Voice</button>
-                <button id="airSpeakButton" class="air-button" type="button" title="Speak the latest assistant reply">Speak Reply</button>
-                <button id="airPauseRepliesButton" class="air-button" type="button" title="Pause queued assistant replies">Pause Replies</button>
-                <button id="airRefreshModelsButton" class="air-button" type="button" title="Refresh AIR model list">Refresh Models</button>
+              <div id="composerMenu" class="composer-menu" hidden>
+                <button id="composerCharacterButton" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M5 20a7 7 0 0 1 14 0" /></svg>
+                  Character
+                </button>
+                <button type="button" onclick="openDebugLogs()">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M4.25 2A2.25 2.25 0 002 4.25v11.5A2.25 2.25 0 004.25 18h11.5A2.25 2.25 0 0018 15.75V4.25A2.25 2.25 0 0015.75 2H4.25zm4.03 6.28a.75.75 0 00-1.06-1.06L4.97 9.47a.75.75 0 000 1.06l2.25 2.25a.75.75 0 001.06-1.06L6.56 10l1.72-1.72zm4.5-1.06a.75.75 0 10-1.06 1.06L13.44 10l-1.72 1.72a.75.75 0 101.06 1.06l2.25-2.25a.75.75 0 000-1.06l-2.25-2.25z" clip-rule="evenodd"/></svg>
+                  Debug
+                </button>
+                <button type="button" data-voice-proxy="speak">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 14h3l4 3V7L8 10H5v4Z" /><path d="M16 9a4.5 4.5 0 0 1 0 6" /><path d="M18.5 6.5a8 8 0 0 1 0 11" /></svg>
+                  Speak latest reply
+                </button>
+                <button type="button" data-voice-proxy="refresh">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M7.5 16A7 7 0 0 0 19 11" /><path d="M16.5 8A7 7 0 0 0 5 13" /></svg>
+                  Refresh models
+                </button>
+              </div>
+              <div class="dock-actions" role="toolbar" aria-label="Voice controls">
+                <button class="air-button" type="button" data-voice-proxy="loop">Voice</button>
+                <button class="air-button" type="button" data-voice-proxy="speak">Speak Reply</button>
+                <button class="air-button" type="button" data-voice-proxy="refresh">Refresh Models</button>
+              </div>
+              <div class="call-control-bar" aria-label="Call controls">
+                <button class="call-control-button call-primary" type="button" data-voice-proxy="loop">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a11.5 11.5 0 0 0 9 9l2-2.2c.4-.4 1-.5 1.5-.3l2.3 1c.6.3.9.9.8 1.5L23 20c-.1.8-.8 1.4-1.6 1.4C10.2 21.4 2.6 13.8 2.6 4.6 2.6 3.8 3.2 3.1 4 3l3.5-.5c.6-.1 1.2.2 1.5.8l1 2.3c.2.5.1 1.1-.3 1.5L8 7Z" /></svg>
+                  <span id="callModePrimaryLabel" class="call-control-label">End Voice</span>
+                </button>
               </div>
               <div class="chat-status-bar dock-status">
                 <div class="air-status-card">
@@ -2498,6 +2921,13 @@
                   <div id="airVoiceStatus" class="air-status"></div>
                 </div>
               </div>
+              <div class="voice-control-bank" aria-hidden="true">
+                <button id="airMicButton" class="air-button" type="button" title="Manual microphone recording">Mic</button>
+                <button id="airVoiceLoopButton" class="air-button" type="button" title="Start or stop voice mode">Start Voice</button>
+                <button id="airSpeakButton" class="air-button" type="button" title="Speak the latest assistant reply">Speak Reply</button>
+                <button id="airPauseRepliesButton" class="air-button" type="button" title="Pause queued assistant replies">Pause Replies</button>
+                <button id="airRefreshModelsButton" class="air-button" type="button" title="Refresh AIR model list">Refresh Models</button>
+              </div>
             </div>
           </section>
 
@@ -2505,7 +2935,7 @@
             <div class="config-shell-header">
               <div>
                 <h2 class="config-shell-title">Configuration</h2>
-                <p class="config-shell-copy">Settings, voice, agents, and notifications in one scrollable control deck.</p>
+                <p class="config-shell-copy">Settings, voice, workers, and notifications in one scrollable control deck.</p>
               </div>
             </div>
             <div id="configShellBody" class="config-shell-body"></div>
@@ -2549,7 +2979,7 @@
               {% if a2a_gui_enabled %}
               <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
               <label>
-                A2A Agent Override
+                A2A Worker Override
                 <select id="a2aAgentInput"></select>
               </label>
               <label>
@@ -2622,23 +3052,16 @@
                 <span id="voiceCharacterCurrent" class="character-select-value">Current: Eyes-Driven</span>
               </label>
             </div>
-            <div class="air-controls utility-voice-links">
-              <button type="button" class="air-button" data-voice-proxy="mic" title="Manual microphone recording">Mic</button>
-              <button type="button" class="air-button" data-voice-proxy="loop" title="Start or stop voice mode">Start Voice</button>
-              <button type="button" class="air-button" data-voice-proxy="speak" title="Speak the latest assistant reply">Speak Reply</button>
-              <button type="button" class="air-button" data-voice-proxy="pause" title="Pause queued assistant replies">Pause Replies</button>
-              <button type="button" class="air-button" data-voice-proxy="refresh" title="Refresh AIR model list">Refresh Models</button>
-            </div>
           </div>
         </div>
       </div>
 
-      <!-- Agents Panel -->
+      <!-- Workers Panel -->
       <div class="sidebar-panel collapsed" data-sidebar-panel="agents">
         <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
           <div class="sidebar-panel-title">
             <span class="panel-icon">🤖</span>
-            Agents
+            Workers
           </div>
           <svg class="sidebar-panel-chevron" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/></svg>
         </div>
@@ -2651,7 +3074,7 @@
               </label>
               <label>
                 Role
-                <input id="agentRole" type="text" required placeholder="developer, tester, researcher..." />
+                <input id="agentRole" type="text" required placeholder="builder, tester, researcher..." />
               </label>
             </div>
             <label>
@@ -2687,8 +3110,8 @@
               <label><input id="agentHeartbeatEnabled" type="checkbox" /> Heartbeat Enabled</label>
             </div>
             <div class="form-actions">
-              <button id="agentSaveButton" type="submit">Create Agent</button>
-              <button id="agentResetButton" type="button" class="button-secondary">New Agent</button>
+              <button id="agentSaveButton" type="submit">Create Worker</button>
+              <button id="agentResetButton" type="button" class="button-secondary">New Worker</button>
               <span id="agentFormStatus" class="status-text"></span>
             </div>
           </form>
@@ -2936,8 +3359,183 @@
     const configShell = document.getElementById("configShell");
     const configShellBody = document.getElementById("configShellBody");
     const utilityToggleButton = document.getElementById("utilityToggleButton");
+    const workspacesButton = document.getElementById("workspacesButton");
     const utilityCloseButton = document.getElementById("utilityCloseButton");
     const utilityScrim = document.getElementById("utilityScrim");
+    const composerDock = document.getElementById("composerDock");
+    const composerMoreButton = document.getElementById("composerMoreButton");
+    const composerMenu = document.getElementById("composerMenu");
+    const composerSettingsButton = document.getElementById("composerSettingsButton");
+    const composerCharacterButton = document.getElementById("composerCharacterButton");
+    const callModePrimaryLabel = document.getElementById("callModePrimaryLabel");
+    const callHeroStatus = document.getElementById("callHeroStatus");
+    const callHeroStatusText = document.getElementById("callHeroStatusText");
+    const composerSubmitButton = chatForm ? chatForm.querySelector(".composer-submit") : null;
+    let airVoiceController = null;
+    const CALL_MODE_VIEW_KEY = "chanakya-call-mode-view";
+    let preferredCallModeView = false;
+
+    function loadStoredCallModeView() {
+      try {
+        return window.localStorage.getItem(CALL_MODE_VIEW_KEY) === "true";
+      } catch {
+        return false;
+      }
+    }
+
+    function storeCallModeView(value) {
+      try {
+        window.localStorage.setItem(CALL_MODE_VIEW_KEY, value ? "true" : "false");
+      } catch {
+      }
+    }
+
+    function isCompactComposerViewport() {
+      return window.innerWidth <= 640;
+    }
+
+    function setComposerMenuOpen(isOpen) {
+      if (!composerMenu || !composerMoreButton) {
+        return;
+      }
+      const nextValue = Boolean(isOpen) && !isCallModeActive();
+      composerMenu.hidden = !nextValue;
+      composerMoreButton.setAttribute("aria-expanded", nextValue ? "true" : "false");
+    }
+
+    function syncComposerInputState() {
+      if (!composerDock || !messageInput) {
+        return;
+      }
+      const hasText = messageInput.value.trim().length > 0;
+      composerDock.classList.toggle("has-text", hasText);
+      composerDock.classList.toggle("show-desktop-controls", !isCompactComposerViewport() && !hasText);
+      if (composerSubmitButton) {
+        composerSubmitButton.disabled = !hasText;
+      }
+      if (!hasText) {
+        return;
+      }
+      setComposerMenuOpen(false);
+    }
+
+    function shouldHideVoiceStatusText(text) {
+      const normalized = String(text || "").trim().toLowerCase();
+      return !normalized || normalized === "air models loaded." || normalized === "voice mode stopped.";
+    }
+
+    function syncComposerStatusState() {
+      const cards = Array.from(document.querySelectorAll(".air-status-card"));
+      let visibleCount = 0;
+      cards.forEach((card) => {
+        const statusNode = card.querySelector(".air-status");
+        const text = String(statusNode?.textContent || "").trim();
+        const shouldShow = !shouldHideVoiceStatusText(text);
+        card.hidden = !shouldShow;
+        if (shouldShow) {
+          visibleCount += 1;
+        }
+      });
+      const strip = document.querySelector(".dock-status");
+      if (strip) {
+        strip.hidden = visibleCount === 0;
+      }
+    }
+
+    function syncVoiceControlState() {
+      if (composerDock) {
+        composerDock.classList.toggle("voice-mode-active", isCallModeActive());
+      }
+      if (callModePrimaryLabel) {
+        callModePrimaryLabel.textContent = isCallModeActive() ? "End Voice" : (preferredCallModeView ? "Resume Call" : "Start Voice");
+      }
+    }
+
+    function isCallModeVisible() {
+      return preferredCallModeView || isCallModeActive();
+    }
+
+    function syncCallHeroStatus(text) {
+      if (!callHeroStatus || !callHeroStatusText) {
+        return;
+      }
+      const nextText = String(text || "").trim();
+      const resumeText = preferredCallModeView && !isCallModeActive() ? "Resume call to continue." : "";
+      const resolvedText = nextText || resumeText;
+      const shouldShow = isCallModeVisible() && !shouldHideVoiceStatusText(resolvedText);
+      callHeroStatus.hidden = !shouldShow;
+      callHeroStatusText.textContent = shouldShow ? resolvedText : "";
+    }
+
+    function resizeComposerTextarea() {
+      if (!messageInput) {
+        return;
+      }
+      messageInput.style.height = "auto";
+      const maxHeight = 128;
+      messageInput.style.height = `${Math.min(messageInput.scrollHeight, maxHeight)}px`;
+      messageInput.style.overflowY = messageInput.scrollHeight > maxHeight ? "auto" : "hidden";
+    }
+
+    messageInput.addEventListener("input", () => {
+      resizeComposerTextarea();
+      syncComposerInputState();
+    });
+    messageInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey) {
+        return;
+      }
+      event.preventDefault();
+      chatForm.requestSubmit();
+    });
+    resizeComposerTextarea();
+    syncComposerInputState();
+    syncComposerStatusState();
+    syncVoiceControlState();
+
+    if (composerMoreButton) {
+      composerMoreButton.addEventListener("click", () => {
+        setComposerMenuOpen(composerMenu.hidden);
+      });
+    }
+
+    if (composerSettingsButton) {
+      composerSettingsButton.addEventListener("click", () => {
+        setComposerMenuOpen(false);
+        setMainMode("config");
+        expandSidebarPanel("settings");
+      });
+    }
+
+    if (composerCharacterButton) {
+      composerCharacterButton.addEventListener("click", () => {
+        setComposerMenuOpen(false);
+        openVoiceCharacterSettings();
+      });
+    }
+
+    if (composerMenu) {
+      composerMenu.addEventListener("click", (event) => {
+        const target = event.target instanceof HTMLElement ? event.target.closest("button") : null;
+        if (!target) {
+          return;
+        }
+        if (target.dataset.voiceProxy) {
+          setComposerMenuOpen(false);
+        }
+      });
+    }
+
+    document.addEventListener("click", (event) => {
+      if (!composerDock || composerMenu?.hidden) {
+        return;
+      }
+      const target = event.target;
+      if (target instanceof Node && composerDock.contains(target)) {
+        return;
+      }
+      setComposerMenuOpen(false);
+    });
     const detachedPanel = new URLSearchParams(window.location.search).get("panel");
     const COLLAPSE_STORAGE_KEY = "chanakya-collapsed-panels";
     const panelTitles = {
@@ -2951,9 +3549,9 @@
       "persistent-agents": "Persistent Agents",
     };
 
+    preferredCallModeView = loadStoredCallModeView();
     let sessionId = null;
     let selectedAgentId = null;
-    let airVoiceController = null;
     let availableTools = [];
     let a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
     let a2aDiscoveryHealthy = false;
@@ -3074,8 +3672,11 @@
     }
 
     function syncCallModeState() {
-      const inCallMode = activeMainMode === "chat" && isCallModeActive();
+      const inCallMode = activeMainMode === "chat" && isCallModeVisible();
       document.body.classList.toggle("call-mode", inCallMode);
+      if (inCallMode) {
+        setComposerMenuOpen(false);
+      }
       if (heroStage) {
         heroStage.hidden = activeMainMode === "config" || (!inCallMode && isChatExpanded);
       }
@@ -3088,15 +3689,18 @@
       if (heroVoiceStage && typeof heroVoiceStage.syncVisibility === "function") {
         heroVoiceStage.syncVisibility();
       }
+      syncCallHeroStatus(inCallMode ? deriveHeroStatusState().text : "");
+      syncVoiceControlState();
+      syncComposerStatusState();
     }
 
     function setChatExpanded(nextValue) {
       isChatExpanded = Boolean(nextValue);
       if (chatShell) {
-        chatShell.classList.toggle("collapsed", !isChatExpanded && !isCallModeActive());
+        chatShell.classList.toggle("collapsed", !isChatExpanded && !isCallModeVisible());
       }
       if (heroStage) {
-        heroStage.hidden = (isChatExpanded && !isCallModeActive()) || activeMainMode === "config";
+        heroStage.hidden = (isChatExpanded && !isCallModeVisible()) || activeMainMode === "config";
       }
       if (heroChatToggle) {
         heroChatToggle.textContent = isChatExpanded ? "Hide Chat" : "Open Chat";
@@ -3138,7 +3742,7 @@
     function syncMainMode() {
       const isConfigMode = activeMainMode === "config";
       if (heroStage) {
-        heroStage.hidden = isConfigMode || (isChatExpanded && !isCallModeActive());
+        heroStage.hidden = isConfigMode || (isChatExpanded && !isCallModeVisible());
       }
       if (configShell) {
         configShell.classList.toggle("is-active", isConfigMode);
@@ -3161,6 +3765,9 @@
 
     function setMainMode(mode) {
       activeMainMode = mode === "config" ? "config" : "chat";
+      if (activeMainMode !== "chat") {
+        setComposerMenuOpen(false);
+      }
       syncMainMode();
       if (activeMainMode === "chat") {
         setChatExpanded(isChatExpanded);
@@ -3168,6 +3775,32 @@
     }
 
     function triggerVoiceControl(action) {
+      if (action === "loop") {
+        if (airVoiceController) {
+          if (isCallModeActive()) {
+            preferredCallModeView = false;
+            storeCallModeView(false);
+            void airVoiceController.stopVoiceMode().finally(() => {
+              syncHeroState();
+              syncCallModeState();
+            });
+            return;
+          }
+          preferredCallModeView = true;
+          storeCallModeView(true);
+          void airVoiceController.startVoiceMode().then(() => {
+            syncHeroState();
+            syncCallModeState();
+          }).catch((error) => {
+            preferredCallModeView = false;
+            storeCallModeView(false);
+            appendMessage("assistant", error instanceof Error ? error.message : String(error));
+            syncHeroState();
+            syncCallModeState();
+          });
+          return;
+        }
+      }
       const mapping = {
         mic: airMicButton,
         loop: airVoiceLoopButton,
@@ -3184,18 +3817,32 @@
     function deriveHeroStatusState() {
       const queueText = String(conversationQueueStatus?.textContent || "").trim();
       const voiceText = String(airVoiceStatus?.textContent || "").trim();
-      const combined = `${queueText} ${voiceText}`.trim().toLowerCase();
+      const queueLower = queueText.toLowerCase();
+      const voiceLower = voiceText.toLowerCase();
+      const preferredText = queueText || voiceText;
       if (conversationQueueStatus?.dataset.state === "error" || airVoiceStatus?.dataset.state === "error") {
-        return { state: "error", text: "" };
+        return { state: "error", text: preferredText || "Voice error" };
       }
-      if (/recording|listening|transcribing/.test(combined)) {
-        return { state: "listening", text: "" };
+      if (/thinking|processing|analyzing|assistant is still running|request is still being processed|recovering saved messages|waiting for the assistant response/.test(queueLower)) {
+        return { state: "thinking", text: queueText || "Thinking..." };
       }
-      if (/thinking|processing/.test(combined)) {
-        return { state: "thinking", text: "" };
+      if (/queued|pacing|generating speech|finished replying|spoken follow-up|queued follow-up|speaking/.test(queueLower)) {
+        return { state: /queued|pacing/.test(queueLower) ? "queued" : "speaking", text: queueText || "Speaking..." };
       }
-      if (/queued|speaking|replying|pacing|waiting/.test(combined)) {
-        return { state: queueText ? "queued" : "speaking", text: "" };
+      if (/transcribing/.test(voiceLower)) {
+        return { state: "listening", text: voiceText || "Transcribing..." };
+      }
+      if (/generating speech|assistant reply spoken/.test(voiceLower)) {
+        return { state: "speaking", text: voiceText || "Speaking..." };
+      }
+      if (/recording|listening|interruption/.test(voiceLower)) {
+        return { state: "listening", text: voiceText || "Listening..." };
+      }
+      if (assistantTurnPendingCount > 0) {
+        return { state: "thinking", text: queueText || "Thinking..." };
+      }
+      if (/stopped/.test(voiceLower)) {
+        return { state: "idle", text: voiceText || "Voice mode stopped." };
       }
       return { state: "idle", text: "" };
     }
@@ -3204,8 +3851,11 @@
       if (!heroVoiceStage) {
         return;
       }
-      const { state } = deriveHeroStatusState();
+      const { state, text } = deriveHeroStatusState();
       heroVoiceStage.setState(state);
+      syncCallHeroStatus(text);
+      syncComposerStatusState();
+      syncVoiceControlState();
       syncCallModeState();
     }
 
@@ -3344,7 +3994,7 @@
     function applyA2ADiscoveryOptions(sourceConfig = null) {
       const settings = normalizeRuntimeConfig(sourceConfig || collectPendingRuntimeConfig());
       const providers = a2aDiscoveredOptions.providers || [];
-      setSelectOptions(a2aAgentInput, a2aDiscoveredOptions.remote_agents || [], settings.a2a_remote_agent, "Select A2A agent");
+      setSelectOptions(a2aAgentInput, a2aDiscoveredOptions.remote_agents || [], settings.a2a_remote_agent, "Select A2A worker");
       setSelectOptions(a2aModelProviderInput, providers, settings.a2a_model_provider, "Select model provider");
       syncA2AModelOptions(settings);
       updateRuntimeConfigDirtyState();
@@ -3365,7 +4015,7 @@
         return;
       }
       setA2ASelectLoading(true);
-      setA2ADiscoveryStatus("Loading A2A agents and models...");
+      setA2ADiscoveryStatus("Loading A2A workers and models...");
       try {
         const response = await fetch(`/api/a2a/options?url=${encodeURIComponent(url)}`);
         const payload = await readJsonResponse(response);
@@ -3381,7 +4031,7 @@
         a2aDiscoveryError = "";
         applyA2ADiscoveryOptions(settings);
         setA2ADiscoveryStatus(
-          `Loaded ${a2aDiscoveredOptions.remote_agents.length} agent${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
+          `Loaded ${a2aDiscoveredOptions.remote_agents.length} worker${a2aDiscoveredOptions.remote_agents.length === 1 ? "" : "s"} and ${a2aDiscoveredOptions.models.length} model${a2aDiscoveredOptions.models.length === 1 ? "" : "s"}.`
         );
       } catch (error) {
         a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
@@ -4950,14 +5600,10 @@
       }
       setChatExpanded(true);
       messages.forEach((item) => {
-        const meta = [];
-        if (item.route) meta.push(`route=${item.route}`);
-        if (item.request_id) meta.push(`request=${item.request_id}`);
-        if (item.metadata && item.metadata.runtime) meta.push(`runtime=${item.metadata.runtime}`);
         appendMessage(
           item.role === "user" ? "user" : "assistant",
           item.content,
-          meta.join(" "),
+          null,
           {
             badge: messageBadgeForHistoryItem(item),
             artifacts: Array.isArray(item.metadata?.artifacts) ? item.metadata.artifacts : [],
@@ -5727,6 +6373,12 @@
       });
     }
 
+    if (workspacesButton) {
+      workspacesButton.addEventListener("click", () => {
+        window.location.href = "/work";
+      });
+    }
+
     if (utilityCloseButton) {
       utilityCloseButton.addEventListener("click", () => {
         setUtilityPanelOpen(false);
@@ -5743,6 +6395,8 @@
       if (window.innerWidth > 1180) {
         setUtilityPanelOpen(false);
       }
+      resizeComposerTextarea();
+      syncComposerInputState();
     });
 
     document.querySelectorAll("[data-voice-proxy]").forEach((button) => {
@@ -5768,9 +6422,12 @@
       event.preventDefault();
       const message = messageInput.value.trim();
       if (!message) return;
+      setComposerMenuOpen(false);
       appendMessage("user", message);
       renderPendingInlineProgress(message);
       messageInput.value = "";
+      resizeComposerTextarea();
+      syncComposerInputState();
 
       try {
         await submitChatMessage(message);

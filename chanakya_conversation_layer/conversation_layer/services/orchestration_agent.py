@@ -8,6 +8,7 @@ from typing import Any
 
 from agent_framework import Agent
 from agent_framework.openai import OpenAIChatClient
+from openai import AsyncOpenAI
 
 
 class OrchestrationAgentError(RuntimeError):
@@ -50,12 +51,7 @@ class MAFOrchestrationAgent:
                     url=self.remote_agent_url,
                 )
             else:
-                client = OpenAIChatClient(
-                    model_id=self.model,
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                    env_file_path=self.env_file_path,
-                )
+                client = self._build_openai_chat_client(self.model)
                 self._agent = Agent(
                     client=client,
                     name="ConversationLayerPlanner",
@@ -211,6 +207,7 @@ class MAFOrchestrationAgent:
             env_file_path=self.env_file_path,
             default_headers=request_headers,
         )
+        client = self._build_openai_chat_client(model_id)
         created = Agent(
             client=client,
             name=f"ConversationLayerPlanner[{model_id}]",
@@ -253,3 +250,15 @@ class MAFOrchestrationAgent:
         if not header_parts:
             return prompt
         return f"[[opencode-options:{';'.join(header_parts)}]]\n{prompt}"
+
+    def _build_openai_chat_client(self, model_id: str) -> OpenAIChatClient:
+        async_client = AsyncOpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            max_retries=0,
+        )
+        return OpenAIChatClient(
+            model_id=model_id,
+            async_client=async_client,
+            env_file_path=self.env_file_path,
+        )

@@ -331,6 +331,7 @@
       });
       this.handlePointerMove = this.handlePointerMove.bind(this);
       this.handleResize = this.handleResize.bind(this);
+      this.rafId = null;
       this.init();
     }
 
@@ -458,7 +459,21 @@
       if (this.currentState === "speaking" && Math.random() < 0.08) {
         this.createParticles(2, "#ffae75");
       }
-      window.requestAnimationFrame(() => this.animateParticles());
+      this.rafId = window.requestAnimationFrame(() => this.animateParticles());
+    }
+
+    dispose() {
+      document.removeEventListener("mousemove", this.handlePointerMove);
+      window.removeEventListener("resize", this.handleResize);
+      if (this.blinkTimer !== null) {
+        window.clearTimeout(this.blinkTimer);
+        this.blinkTimer = null;
+      }
+      if (this.rafId !== null) {
+        window.cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      this.particleCtx = null;
     }
 
     startBlinkLoop() {
