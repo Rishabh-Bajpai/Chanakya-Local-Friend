@@ -1,3 +1,5 @@
+"""Launcher script for starting both the AIR server and client processes."""
+
 import subprocess
 import time
 import signal
@@ -11,7 +13,6 @@ load_dotenv()
 # Define processes
 server_process = None
 client_process = None
-
 
 def cleanup(signum, frame):
     """Handler for signals to ensure processes are killed."""
@@ -36,13 +37,12 @@ def cleanup(signum, frame):
     print("All services stopped. Ports should be free.")
     sys.exit(0)
 
-
 # Register signal handlers
 signal.signal(signal.SIGINT, cleanup)
 signal.signal(signal.SIGTERM, cleanup)
 
-
 def main():
+    """Start the AIR server and client subprocesses."""
     global server_process, client_process
 
     # Get python executable (use the same env)
@@ -56,14 +56,20 @@ def main():
     # Ensure stdout/stderr are unbuffered so we see output
     env["PYTHONUNBUFFERED"] = "1"
 
-    server_process = subprocess.Popen([python_exe, "-m", "server.main"], env=env)
+    server_process = subprocess.Popen(
+        [python_exe, "-m", "server.main"],
+        env=env
+    )
 
     # Wait a bit for server to start
     time.sleep(2)
 
     # Start Client
     print("Launching Client (Frontend)...")
-    client_process = subprocess.Popen([python_exe, "-m", "client.main"], env=env)
+    client_process = subprocess.Popen(
+        [python_exe, "-m", "client.main"],
+        env=env
+    )
 
     print("\n✅ AI Router is running!")
     print(f"   - Server Dashboard: http://localhost:{env.get('SERVER_PORT', 5512)}")
@@ -76,7 +82,6 @@ def main():
         client_process.wait()
     except KeyboardInterrupt:
         cleanup(None, None)
-
 
 if __name__ == "__main__":
     main()

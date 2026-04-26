@@ -138,3 +138,77 @@ def test_forward_request_logs_trace_summary_block():
         assert any("-----------------------------*****-----------------------------" in message for message in info_messages)
 
     asyncio.run(run_test())
+
+
+def test_forward_request_shared_trace_emits_single_summary_after_last_response():
+    async def run_test() -> None:
+        engine = ProxyEngine()
+        provider = ProviderConfig(name="P1", base_url="http://p1/v1", api_key="secret-key", type="llm")
+        gate = asyncio.Event()
+        started = 0
+
+        async def send_side_effect(*_args, **_kwargs):
+            nonlocal started
+            started += 1
+            if started == 2:
+                gate.set()
+            await gate.wait()
+            return httpx.Response(
+                200,
+                json={"id": f"chatcmpl-{started}", "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}},
+                request=httpx.Request("POST", "http://p1/v1/chat/completions"),
+            )
+
+        request_one = _build_request({"model": "gpt-4", "messages": [{"role": "user", "content": "first"}]})
+        request_two = _build_request({"model": "gpt-4", "messages": [{"role": "user", "content": "second"}]})
+
+        with patch("server.core.proxy_engine.logger") as mock_logger:
+            with patch.object(engine._client, "send", new=AsyncMock(side_effect=send_side_effect)):
+                await asyncio.gather(
+                    engine.forward_request(request_one, provider, "chat/completions"),
+                    engine.forward_request(request_two, provider, "chat/completions"),
+                )
+
+        info_messages = _render_log_calls(mock_logger.info.call_args_list)
+        trace_summaries = [message for message in info_messages if "Trace Summary: trace-abc" in message]
+
+        assert len(trace_summaries) == 1
+        assert any("Counts: total_requests=2 total_prompt_tokens=2 total_completion_tokens=2" in message for message in info_messages)
+        assert any("seq=1" in message for message in info_messages)
+        assert any("seq=2" in message for message in info_messages)
+
+    asyncio.run(run_test())
+
+
+def test_streaming_request_logs_summary_after_stream_completion():
+    async def run_test() -> None:
+        engine = ProxyEngine()
+        payload = {
+            "model": "gpt-4",
+            "stream": True,
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        request = _build_request(payload)
+        provider = ProviderConfig(name="P1", base_url="http://p1/v1", api_key="secret-key", type="llm")
+        upstream_response = AsyncMock()
+        upstream_response.status_code = 200
+        upstream_response.headers = {"content-type": "text/event-stream"}
+
+        async def iter_bytes():
+            yield b"data: chunk\n\n"
+
+        upstream_response.aiter_bytes = iter_bytes
+        upstream_response.aclose = AsyncMock()
+
+        with patch("server.core.proxy_engine.logger") as mock_logger:
+            with patch.object(engine._client, "send", new=AsyncMock(return_value=upstream_response)):
+                response = await engine.forward_request(request, provider, "chat/completions")
+                chunks = [chunk async for chunk in response.body_iterator]
+
+        assert chunks == [b"data: chunk\n\n"]
+        info_messages = _render_log_calls(mock_logger.info.call_args_list)
+        assert any("[trace=trace-abc req=req-123 seq=1] Upstream response status=200 content_type=text/event-stream" in message for message in info_messages)
+        assert any("Trace Summary: trace-abc" in message for message in info_messages)
+        upstream_response.aclose.assert_awaited_once()
+
+    asyncio.run(run_test())

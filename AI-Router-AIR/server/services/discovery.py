@@ -61,6 +61,7 @@ class DiscoveredProvider:
         self.detected_types = detected_types  # e.g. ["llm"], ["stt", "tts"]
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize a discovered provider for API responses."""
         return {
             "name": self.name,
             "base_url": self.base_url,
@@ -119,6 +120,7 @@ class DiscoveryService:
         ports: Set[int] = set()
 
         def _parse_proc_file(proc_path: str, valid_ips: Set[str]):
+            """Collect listening ports from a proc net file for accepted local bindings."""
             if not os.path.exists(proc_path):
                 logger.debug(f"[Discovery] {proc_path} not found — skipping")
                 return
@@ -425,6 +427,7 @@ class DiscoveryService:
 
     @property
     def last_results(self) -> List[DiscoveredProvider]:
+        """Return the most recent scan results cached by the discovery service."""
         return self._last_results
 
 

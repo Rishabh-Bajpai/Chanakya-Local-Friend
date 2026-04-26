@@ -1,9 +1,16 @@
+"""FastAPI entrypoint for the AIR server and dashboard views."""
+
+import os
+
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.middleware.cors import CORSMiddleware
-import os
-from dotenv import load_dotenv
+
+from server.api import router as api_router
+from server.core.exceptions import global_exception_handler
+from server.core.logging import LOG_FILE_PATH, logger as air_logger
 
 # Load environment variables
 load_dotenv()
@@ -26,11 +33,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Placeholder for routes - will be imported later
-from server.api import router as api_router
-from server.core.exceptions import global_exception_handler
-from server.core.logging import LOG_FILE_PATH, logger as air_logger
-
 app.add_exception_handler(Exception, global_exception_handler)
 
 app.include_router(api_router.router)
@@ -51,6 +53,7 @@ async def startup_discovery():
     air_logger.info("AIR startup complete. Realtime log file: %s", LOG_FILE_PATH)
 
     async def run_refresh():
+        """Discover new providers and refresh the shared model cache."""
         try:
             logging.info("🔍 Running auto-discovery of AI providers...")
             discovered = await discovery_service.scan()
@@ -77,6 +80,7 @@ async def startup_discovery():
 
         # Even if discovery is off, we still want to refresh configured models in background
         async def refresh_only():
+            """Refresh configured provider models when discovery is disabled."""
             try:
                 await provider_manager.refresh_models()
             except Exception as e:
@@ -91,15 +95,21 @@ async def startup_discovery():
 
 @app.get("/")
 async def root(request: Request):
-    return templates.TemplateResponse(request, "dashboard.html", {})
+    """Render the main AIR dashboard."""
+    return templates.TemplateResponse(request=request, name="dashboard.html", context={"request": request})
 
 
 @app.get("/status")
 async def api_status_page(request: Request):
+    """Render the service status dashboard page."""
     from server.services.provider_manager import provider_manager
 
     status = provider_manager.get_service_status()
-    return templates.TemplateResponse(request, "api_status.html", {"status": status})
+    return templates.TemplateResponse(
+        request=request,
+        name="api_status.html",
+        context={"request": request, "status": status},
+    )
 
 
 if __name__ == "__main__":

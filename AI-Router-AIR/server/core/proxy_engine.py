@@ -1,6 +1,7 @@
+"""Proxying utilities for forwarding AIR requests to upstream providers."""
+
 import json
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from uuid import uuid4
 
@@ -13,12 +14,13 @@ from server.core.logging import logger
 
 LOG_PREVIEW_CHAR_LIMIT = 12000
 STREAM_PROGRESS_CHUNK_INTERVAL = 10
-_request_sequence_by_trace: defaultdict[str, int] = defaultdict(int)
 TRACE_SUMMARY_DIVIDER = "-----------------------------*****-----------------------------"
 
 
 @dataclass(slots=True)
 class TraceRequestRecord:
+    """Trace metadata captured for a single upstream request."""
+
     sequence: int
     path: str
     model: str | None
@@ -34,9 +36,13 @@ class TraceRequestRecord:
 
 @dataclass(slots=True)
 class TraceSummary:
+    """Aggregated trace state for a top-level AIR request."""
+
     trace_id: str
     top_level_request_id: str
     original_message: str = ""
+    next_sequence: int = 1
+    active_requests: set[int] = field(default_factory=set)
     requests: list[TraceRequestRecord] = field(default_factory=list)
 
 
@@ -44,6 +50,7 @@ _trace_summaries: dict[str, TraceSummary] = {}
 
 
 def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Return a copy of headers with sensitive authorization values removed."""
     redacted_headers = dict(headers)
     for header_name in ("authorization", "x-api-key", "api-key", "proxy-authorization"):
         for existing_name in list(redacted_headers.keys()):
@@ -53,6 +60,7 @@ def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
 
 
 def _truncate_text(text: str, limit: int = LOG_PREVIEW_CHAR_LIMIT) -> str:
+    """Trim long log payloads to the configured preview limit."""
     if len(text) <= limit:
         return text
     truncated_chars = len(text) - limit
@@ -60,6 +68,7 @@ def _truncate_text(text: str, limit: int = LOG_PREVIEW_CHAR_LIMIT) -> str:
 
 
 def _serialize_for_log(payload: object) -> str:
+    """Serialize an arbitrary payload into a bounded log-safe string."""
     try:
         serialized = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
     except TypeError:
@@ -68,6 +77,7 @@ def _serialize_for_log(payload: object) -> str:
 
 
 def _response_preview(content: bytes, content_type: str) -> str:
+    """Build a human-readable preview for text and binary upstream responses."""
     lowered_content_type = content_type.lower()
     if any(token in lowered_content_type for token in ("json", "text", "xml", "html", "javascript")):
         return _truncate_text(content.decode("utf-8", errors="replace"))
@@ -75,10 +85,12 @@ def _response_preview(content: bytes, content_type: str) -> str:
 
 
 def _request_id_for(request: Request) -> str:
+    """Return the request identifier used for per-request trace logging."""
     return request.headers.get("x-request-id") or uuid4().hex[:8]
 
 
 def _trace_id_for(request: Request, request_id: str) -> str:
+    """Resolve the broader trace identifier shared across chained requests."""
     return (
         request.headers.get("x-chanakya-request-id")
         or request.headers.get("x-session-id")
@@ -88,11 +100,17 @@ def _trace_id_for(request: Request, request_id: str) -> str:
 
 
 def _request_sequence_for(trace_id: str) -> int:
-    _request_sequence_by_trace[trace_id] += 1
-    return _request_sequence_by_trace[trace_id]
+    """Allocate the next sequence number for a trace."""
+    summary = _trace_summaries.get(trace_id)
+    if summary is None:
+        return 1
+    sequence = summary.next_sequence
+    summary.next_sequence += 1
+    return sequence
 
 
 def _message_count(payload: object) -> int | None:
+    """Extract the number of chat messages from a JSON payload when present."""
     if isinstance(payload, dict):
         messages = payload.get("messages")
         if isinstance(messages, list):
@@ -101,6 +119,7 @@ def _message_count(payload: object) -> int | None:
 
 
 def _tool_count(payload: object) -> int | None:
+    """Extract the number of tool definitions from a JSON payload when present."""
     if isinstance(payload, dict):
         tools = payload.get("tools")
         if isinstance(tools, list):
@@ -109,6 +128,7 @@ def _tool_count(payload: object) -> int | None:
 
 
 def _model_name(payload: object) -> str | None:
+    """Extract the requested model name from a JSON payload when present."""
     if isinstance(payload, dict):
         model = payload.get("model")
         if model is not None:
@@ -117,6 +137,7 @@ def _model_name(payload: object) -> str | None:
 
 
 def _summary_payload(payload: object) -> dict[str, object]:
+    """Reduce a request payload to the fields used in summary logging."""
     summary: dict[str, object] = {}
     message_count = _message_count(payload)
     if message_count is not None:
@@ -138,6 +159,7 @@ def _summary_payload(payload: object) -> dict[str, object]:
 
 
 def _extract_original_message(payload: object) -> str:
+    """Extract the most recent user message text for trace summaries."""
     if not isinstance(payload, dict):
         return ""
     messages = payload.get("messages")
@@ -155,6 +177,7 @@ def _extract_original_message(payload: object) -> str:
 
 
 def _usage_from_payload(payload: object | None) -> tuple[int | None, int | None, int | None]:
+    """Extract token usage counters from a JSON response payload."""
     if not isinstance(payload, dict):
         return None, None, None
     usage = payload.get("usage")
@@ -178,12 +201,17 @@ def _record_trace_request(
     path: str,
     payload: object,
 ) -> None:
+    """Create or update trace state for an outbound upstream request."""
     summary = _trace_summaries.get(trace_id)
     if summary is None:
         summary = TraceSummary(trace_id=trace_id, top_level_request_id=request_id)
+        summary.next_sequence = sequence + 1
         _trace_summaries[trace_id] = summary
+    else:
+        summary.next_sequence = max(summary.next_sequence, sequence + 1)
     if not summary.original_message:
         summary.original_message = _extract_original_message(payload)
+    summary.active_requests.add(sequence)
     summary.requests.append(
         TraceRequestRecord(
             sequence=sequence,
@@ -195,6 +223,17 @@ def _record_trace_request(
     )
 
 
+def _complete_trace_request(trace_id: str, sequence: int) -> TraceSummary | None:
+    """Mark a traced upstream request complete and return the finished summary if any."""
+    summary = _trace_summaries.get(trace_id)
+    if summary is None:
+        return None
+    summary.active_requests.discard(sequence)
+    if summary.active_requests:
+        return None
+    return _trace_summaries.pop(trace_id, None)
+
+
 def _update_trace_response(
     *,
     trace_id: str,
@@ -204,6 +243,7 @@ def _update_trace_response(
     elapsed_ms: float,
     payload: object | None,
 ) -> None:
+    """Attach response metadata and usage information to a traced request."""
     summary = _trace_summaries.get(trace_id)
     if summary is None:
         return
@@ -221,6 +261,7 @@ def _update_trace_response(
 
 
 def _request_kind(record: TraceRequestRecord) -> str:
+    """Classify a traced request into a coarse request kind for logs."""
     if record.messages and record.messages > 2 and record.tools:
         return "core_agent"
     if record.messages == 2:
@@ -228,8 +269,8 @@ def _request_kind(record: TraceRequestRecord) -> str:
     return "request"
 
 
-def _emit_trace_summary(trace_id: str) -> None:
-    summary = _trace_summaries.pop(trace_id, None)
+def _emit_trace_summary(summary: TraceSummary | None) -> None:
+    """Emit the aggregated trace summary once all related requests finish."""
     if summary is None or not summary.requests:
         return
 
@@ -279,6 +320,7 @@ def _log_request_snapshot(
     payload: object,
     is_stream: bool | None,
 ) -> None:
+    """Record summary and debug logs for an outbound upstream request."""
     _record_trace_request(
         trace_id=trace_id,
         request_id=request_id,
@@ -323,6 +365,7 @@ def _log_response_snapshot(
     payload_preview: str,
     payload: object | None = None,
 ) -> None:
+    """Record summary and debug logs for a completed upstream response."""
     usage_summary = ""
     if isinstance(payload, dict):
         usage = payload.get("usage")
@@ -352,23 +395,58 @@ def _log_response_snapshot(
         elapsed_ms=elapsed_ms,
         payload=payload,
     )
-    _emit_trace_summary(trace_id)
+    _emit_trace_summary(_complete_trace_request(trace_id, sequence))
+
+
+def _finalize_stream_trace(
+    *,
+    request_id: str,
+    trace_id: str,
+    sequence: int,
+    status_code: int,
+    content_type: str,
+    started_at: float,
+) -> None:
+    """Close out trace bookkeeping for a streamed upstream response."""
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "[trace=%s req=%s seq=%s] Upstream response status=%s content_type=%s elapsed_ms=%.2f",
+        trace_id,
+        request_id,
+        sequence,
+        status_code,
+        content_type or "<unknown>",
+        elapsed_ms,
+    )
+    _update_trace_response(
+        trace_id=trace_id,
+        sequence=sequence,
+        status_code=status_code,
+        content_type=content_type,
+        elapsed_ms=elapsed_ms,
+        payload=None,
+    )
+    _emit_trace_summary(_complete_trace_request(trace_id, sequence))
 
 class ProxyEngine:
+    """Forward JSON and multipart requests to upstream AI providers."""
+
     def __init__(self):
         # Long-lived client for connection pooling
         self._client = httpx.AsyncClient(timeout=60.0)
 
     async def forward_request(self, request: Request, provider: ProviderConfig, path: str, body_bytes: bytes | None = None, *, is_stream: bool | None = None):
+        """Forward a JSON or raw-byte request to the selected provider."""
         url = f"{provider.base_url.rstrip('/')}/{path}"
         headers = dict(request.headers)
         headers.pop("host", None)
         headers.pop("content-length", None)
+        headers.pop("accept-encoding", None)
         request_id = _request_id_for(request)
         trace_id = _trace_id_for(request, request_id)
         sequence = _request_sequence_for(trace_id)
         started_at = time.perf_counter()
-        
+
         if provider.api_key and provider.api_key != "na":
             headers["Authorization"] = f"Bearer {provider.api_key}"
 
@@ -409,8 +487,9 @@ class ProxyEngine:
                         r.status_code,
                         r.headers.get("content-type", "<unknown>"),
                     )
-                    
+
                     async def stream_generator():
+                        """Yield raw upstream bytes while updating stream progress logs."""
                         try:
                             chunk_count = 0
                             byte_count = 0
@@ -439,6 +518,14 @@ class ProxyEngine:
                                 (time.perf_counter() - started_at) * 1000,
                             )
                         finally:
+                            _finalize_stream_trace(
+                                request_id=request_id,
+                                trace_id=trace_id,
+                                sequence=sequence,
+                                status_code=r.status_code,
+                                content_type=r.headers.get("content-type", ""),
+                                started_at=started_at,
+                            )
                             await r.aclose()
 
                     return StreamingResponse(
@@ -478,14 +565,14 @@ class ProxyEngine:
                     payload=body,
                     is_stream=is_stream,
                 )
-                
+
                 req = self._client.build_request(
                     request.method,
                     url,
                     headers=headers,
                     json=body
                 )
-                
+
                 if is_stream:
                     r = await self._client.send(req, stream=True)
                     logger.info(
@@ -496,8 +583,9 @@ class ProxyEngine:
                         r.status_code,
                         r.headers.get("content-type", "<unknown>"),
                     )
-                    
+
                     async def stream_generator():
+                        """Yield streamed JSON or audio bytes from the upstream response."""
                         try:
                             chunk_count = 0
                             byte_count = 0
@@ -526,6 +614,14 @@ class ProxyEngine:
                                 (time.perf_counter() - started_at) * 1000,
                             )
                         finally:
+                            _finalize_stream_trace(
+                                request_id=request_id,
+                                trace_id=trace_id,
+                                sequence=sequence,
+                                status_code=r.status_code,
+                                content_type=r.headers.get("content-type", ""),
+                                started_at=started_at,
+                            )
                             await r.aclose()
 
                     headers = {
@@ -533,13 +629,13 @@ class ProxyEngine:
                         "Cache-Control": "no-cache",
                         "Connection": "keep-alive",
                     }
-                    
+
                     # Propagate content type from upstream exactly, default to event-stream if text
                     content_type = r.headers.get("content-type", "text/event-stream")
                     if "audio" in content_type.lower():
                         # For audio streaming, do not use SSE headers
                         headers.pop("X-Accel-Buffering", None)
-                    
+
                     return StreamingResponse(
                         stream_generator(),
                         status_code=r.status_code,
@@ -552,7 +648,7 @@ class ProxyEngine:
                     resp = await self._client.send(req)
                     content_type = resp.headers.get("content-type", "")
                     elapsed_ms = (time.perf_counter() - started_at) * 1000
-                    
+
                     if "application/json" in content_type:
                         response_json = resp.json()
                         _log_response_snapshot(
@@ -581,7 +677,7 @@ class ProxyEngine:
                             elapsed_ms=elapsed_ms,
                             payload_preview=_response_preview(resp.content, content_type),
                         )
-                        
+
                         return Response(
                             content=resp.content,
                             status_code=resp.status_code,
@@ -601,16 +697,18 @@ class ProxyEngine:
             raise ProxyError(detail=str(e)) from e
 
     async def forward_multipart_request(self, request: Request, provider: ProviderConfig, path: str, data: dict, files: dict, *, is_stream: bool | None = False):
+        """Forward multipart form data and file uploads to the selected provider."""
         url = f"{provider.base_url.rstrip('/')}/{path}"
         headers = dict(request.headers)
         headers.pop("host", None)
         headers.pop("content-length", None)
+        headers.pop("accept-encoding", None)
         headers.pop("content-type", None) # httpx will set this with the boundary
         request_id = _request_id_for(request)
         trace_id = _trace_id_for(request, request_id)
         sequence = _request_sequence_for(trace_id)
         started_at = time.perf_counter()
-        
+
         if provider.api_key and provider.api_key != "na":
             headers["Authorization"] = f"Bearer {provider.api_key}"
 
@@ -642,7 +740,7 @@ class ProxyEngine:
                 data=data,
                 files=files
             )
-            
+
             if is_stream:
                 r = await self._client.send(req, stream=True)
                 logger.info(
@@ -653,8 +751,9 @@ class ProxyEngine:
                     r.status_code,
                     r.headers.get("content-type", "<unknown>"),
                 )
-                
+
                 async def stream_generator():
+                    """Yield streamed multipart response bytes from the upstream response."""
                     try:
                         chunk_count = 0
                         byte_count = 0
@@ -683,6 +782,14 @@ class ProxyEngine:
                             (time.perf_counter() - started_at) * 1000,
                         )
                     finally:
+                        _finalize_stream_trace(
+                            request_id=request_id,
+                            trace_id=trace_id,
+                            sequence=sequence,
+                            status_code=r.status_code,
+                            content_type=r.headers.get("content-type", ""),
+                            started_at=started_at,
+                        )
                         await r.aclose()
 
                 resp_headers = {
@@ -690,9 +797,9 @@ class ProxyEngine:
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
                 }
-                
+
                 content_type = r.headers.get("content-type", "text/event-stream")
-                
+
                 return StreamingResponse(
                     stream_generator(),
                     status_code=r.status_code,

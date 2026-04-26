@@ -2,8 +2,8 @@
 let models = [];
 let mediaRecorder;
 let audioChunks = [];
-// Injected by template, fallback to localhost:5012
-const BASE_URL = window.AIR_SERVER_URL || 'http://localhost:5012';
+// Injected by template, fallback to the default AIR server port
+const BASE_URL = window.AIR_SERVER_URL || 'http://localhost:5512';
 
 // DOM Elements
 const modelSelect = document.getElementById('model-select');
@@ -62,6 +62,31 @@ async function fetchModels() {
     }
 }
 
+function isEmbeddingModel(model) {
+    const task = String(model?.task || '').toLowerCase();
+    if (task.includes('embedding')) {
+        return true;
+    }
+
+    const modelId = String(model?.id || '').toLowerCase();
+    return /(^|[^a-z0-9])(embed|embedding|embeddings)([^a-z0-9]|$)/.test(modelId);
+}
+
+function getModelsForType(type) {
+    return allModels.filter(model => {
+        const providerType = model.provider_type || 'llm';
+        if (providerType !== type) {
+            return false;
+        }
+
+        if (type === 'llm' && isEmbeddingModel(model)) {
+            return false;
+        }
+
+        return true;
+    });
+}
+
 /**
  * Updates the Model Dropdown based on the selected tab type (LLM, STT, TTS).
  * Filters the master list `allModels` to show only relevant models.
@@ -70,8 +95,7 @@ async function fetchModels() {
 function updateModelDropdown(type) {
     modelSelect.innerHTML = '<option value="" disabled selected>Select a Model...</option>';
 
-    // Filter models by type
-    const filtered = allModels.filter(m => (m.provider_type || 'llm') === type);
+    const filtered = getModelsForType(type);
 
     if (filtered.length === 0) {
         const option = document.createElement('option');
@@ -284,7 +308,7 @@ function setupSTT() {
     recordBtn.addEventListener('click', () => {
         // Validation moved to start? Or can we just record?
         // Actually, we need the model when sending.
-        // It's better to warn user BEFORE they start recording if possible, 
+        // It's better to warn user BEFORE they start recording if possible,
         // OR allow recording but check before sending.
         // Let's check before recording to save time.
         if (!recordBtn.classList.contains('recording')) {
@@ -552,7 +576,7 @@ function updateVoiceModeDropdowns() {
 
     // Populate STT
     voiceSttModel.innerHTML = '';
-    const sttModels = allModels.filter(m => m.provider_type === 'stt');
+    const sttModels = getModelsForType('stt');
     if (sttModels.length === 0) {
         const option = document.createElement('option');
         option.disabled = true;
@@ -570,7 +594,7 @@ function updateVoiceModeDropdowns() {
 
     // Populate LLM
     voiceLlmModel.innerHTML = '';
-    const llmModels = allModels.filter(m => m.provider_type === 'llm');
+    const llmModels = getModelsForType('llm');
     if (llmModels.length === 0) {
         const option = document.createElement('option');
         option.disabled = true;
@@ -588,7 +612,7 @@ function updateVoiceModeDropdowns() {
 
     // Populate TTS
     voiceTtsModel.innerHTML = '';
-    const ttsModels = allModels.filter(m => m.provider_type === 'tts');
+    const ttsModels = getModelsForType('tts');
     if (ttsModels.length === 0) {
         const option = document.createElement('option');
         option.disabled = true;

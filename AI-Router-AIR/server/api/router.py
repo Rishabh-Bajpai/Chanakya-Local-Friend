@@ -1,3 +1,5 @@
+"""API router aggregating all v1, admin, and health sub-routers."""
+
 from fastapi import APIRouter
 from server.api.v1 import router as v1_router
 from server.api import admin, health
