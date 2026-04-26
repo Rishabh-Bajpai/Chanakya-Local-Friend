@@ -196,7 +196,7 @@ class MAFOrchestrationAgent:
         cached = self._agent_by_model.get(model_id)
         if cached is not None:
             return cached
-        client = self._build_openai_chat_client(model_id)
+        client = self._build_openai_chat_client(model_id, default_headers=request_headers)
         created = Agent(
             client=client,
             name=f"ConversationLayerPlanner[{model_id}]",
