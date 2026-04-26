@@ -155,7 +155,7 @@
       }
     }
 
-    async function teardownInterruptionWindow() {
+    async function teardownInterruptionWindow(keepStream = false) {
       stopInterruptionMonitorTimers();
       const stream = interruptionStream;
       const context = interruptionAudioContext;
@@ -163,8 +163,13 @@
       interruptionAudioContext = null;
       interruptionAnalyser = null;
       interruptionSource = null;
-      if (stream) {
+      if (stream && !keepStream) {
         stream.getTracks().forEach((track) => track.stop());
+      }
+      if (!keepStream && mediaRecorder && mediaRecorder.stream === stream) {
+        mediaRecorder.stop();
+        mediaRecorder = null;
+        audioChunks = [];
       }
       if (context) {
         try {
@@ -180,7 +185,7 @@
       interruptionWindowActive = false;
       interruptionTriggerInFlight = false;
       interruptionConsecutiveVoiceFrames = 0;
-      await teardownInterruptionWindow();
+      await teardownInterruptionWindow(result && result.startedRecording);
       if (typeof resolve === "function") {
         resolve(result);
       }
@@ -211,8 +216,14 @@
 
     async function submitTranscript(transcript, options = {}) {
       const { metadata = null } = options;
+      console.debug("[air-voice] submitTranscript: transcript=%s, isInterruption=%s", transcript ? `'${transcript.substring(0, 50)}...'` : '(empty)', Boolean(metadata?.voice_interruption));
       if (!transcript) {
         setStatus("No speech detected.", true);
+        if (metadata && metadata.voice_interruption) {
+          window.dispatchEvent(new CustomEvent("air-voice-interruption-empty", {
+            detail: { reason: "no_speech" },
+          }));
+        }
         return "";
       }
       if (typeof onTranscript === "function") {
@@ -222,6 +233,7 @@
       startAssistantSpeechQueue();
       voiceTurnActive = true;
       try {
+        console.debug("[air-voice] submitTranscript: calling submitText...");
         const replyText = await submitText(transcript, {
           llmModel,
           voiceMode: true,
@@ -230,6 +242,7 @@
             await speakAssistantMessageAndWait(assistantMessage);
           },
         });
+        console.debug("[air-voice] submitTranscript: submitText complete");
         latestAssistantText = typeof replyText === "string" ? replyText : "";
         if (selectedValue(ttsModelSelect)) {
           await waitForSpeechQueueToFinish();
@@ -269,14 +282,20 @@
     }
 
     async function autoSubmitCurrentRecording() {
+      console.debug("[air-voice] autoSubmitCurrentRecording: called (inFlight=%s, hasRecorder=%s, state=%s)",
+        recordingSubmitInFlight, Boolean(mediaRecorder), mediaRecorder?.state);
       if (recordingSubmitInFlight || !mediaRecorder || mediaRecorder.state === "inactive") {
         return;
       }
       recordingSubmitInFlight = true;
       try {
+        console.debug("[air-voice] autoSubmitCurrentRecording: calling stopRecordingAndProcess...");
         await stopRecordingAndProcess();
+        console.debug("[air-voice] autoSubmitCurrentRecording: stopRecordingAndProcess complete, continuing loop...");
         await continueLoopIfNeeded();
+        console.debug("[air-voice] autoSubmitCurrentRecording: continueLoopIfNeeded complete");
       } catch (error) {
+        console.error("[air-voice] autoSubmitCurrentRecording: error", error);
         setStatus(error instanceof Error ? error.message : String(error), true);
       } finally {
         recordingSubmitInFlight = false;
@@ -293,8 +312,8 @@
       recordingAnalyser = recordingAudioContext.createAnalyser();
       recordingAnalyser.fftSize = 2048;
       recordingSource.connect(recordingAnalyser);
-      recordingSpeechDetected = false;
-      recordingLastVoiceAt = 0;
+      recordingSpeechDetected = pendingInterruptionSubmission;
+      recordingLastVoiceAt = pendingInterruptionSubmission ? Date.now() : 0;
       recordingConsecutiveVoiceFrames = 0;
       recordingMonitorTimer = window.setInterval(() => {
         if (!mediaRecorder || mediaRecorder.state === "inactive" || recordingSubmitInFlight) {
@@ -321,8 +340,12 @@
       const {
         interruptionTriggered = false,
         skipBeforeRecordStart = false,
+        reuseStream = false,
       } = options;
-      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      console.debug("[air-voice] beginActiveRecording: reuseStream=%s, hasRecorder=%s, recorderState=%s",
+        reuseStream, Boolean(mediaRecorder), mediaRecorder?.state);
+      if (!reuseStream && mediaRecorder && mediaRecorder.state !== "inactive") {
+        console.debug("[air-voice] beginActiveRecording: skipped (already recording, reuseStream=false)");
         return;
       }
       if (!skipBeforeRecordStart && typeof beforeRecordStart === "function") {
@@ -333,15 +356,20 @@
       if (activeAudio || audioQueue.length || nextAudioTimer) {
         stopPlayback();
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunks = [];
-      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunks.push(event.data);
-        }
-      };
-      mediaRecorder.start();
+      let stream;
+      if (reuseStream && mediaRecorder && mediaRecorder.state !== "inactive") {
+        stream = mediaRecorder.stream;
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data);
+          }
+        };
+        mediaRecorder.start(250);
+      }
       pendingInterruptionSubmission = interruptionTriggered;
       await startRecordingMonitor(stream);
       recordButton.dataset.state = "recording";
@@ -351,23 +379,36 @@
 
     async function triggerInterruptionRecording(token) {
       if (interruptionTriggerInFlight || token !== interruptionWindowToken) {
+        console.debug("[air-voice] triggerInterruptionRecording: skipped (inFlight=%s, tokenMatch=%s)", interruptionTriggerInFlight, token === interruptionWindowToken);
         return;
       }
       interruptionTriggerInFlight = true;
+      if (interruptionListenTimer) {
+        window.clearTimeout(interruptionListenTimer);
+        interruptionListenTimer = null;
+      }
+      console.debug("[air-voice] triggerInterruptionRecording: starting pause...");
       setStatus("Voice activity detected. Pausing assistant...");
       try {
         if (typeof pauseAssistantReplies === "function") {
           await pauseAssistantReplies({ source: "voice_interruption" });
         }
+        console.debug("[air-voice] triggerInterruptionRecording: pause complete. token=%s, current=%s", token, interruptionWindowToken);
         if (token !== interruptionWindowToken) {
+          console.debug("[air-voice] triggerInterruptionRecording: token mismatch after pause, aborting");
           return;
         }
-        await finishInterruptionWindow({ interrupted: true, startedRecording: false });
+        console.debug("[air-voice] triggerInterruptionRecording: finishing interruption window...");
+        await finishInterruptionWindow({ interrupted: true, startedRecording: true });
+        console.debug("[air-voice] triggerInterruptionRecording: beginning active recording (reuseStream)...");
         await beginActiveRecording({
           interruptionTriggered: true,
           skipBeforeRecordStart: true,
+          reuseStream: true,
         });
+        console.debug("[air-voice] triggerInterruptionRecording: active recording started successfully");
       } catch (error) {
+        console.error("[air-voice] triggerInterruptionRecording: error", error);
         await finishInterruptionWindow({ interrupted: true, startedRecording: false, error: error instanceof Error ? error.message : String(error) });
         setStatus(error instanceof Error ? error.message : String(error), true);
       } finally {
@@ -390,6 +431,16 @@
         return { interrupted: false };
       }
       interruptionStream = stream;
+      if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data);
+          }
+        };
+        mediaRecorder.start(250);
+      }
       interruptionWindowActive = true;
       interruptionTriggerInFlight = false;
       interruptionConsecutiveVoiceFrames = 0;
@@ -477,6 +528,7 @@
           try {
             const result = await waitForInterruptionWindow();
             if (result && result.interrupted) {
+              isPlayingQueue = false;
               return;
             }
           } catch (err) {
@@ -637,6 +689,8 @@
         return;
       }
       await teardownRecordingMonitor();
+      const isInterruption = pendingInterruptionSubmission;
+      pendingInterruptionSubmission = false;
       const recorder = mediaRecorder;
       const stream = recorder.stream;
       const audioBlob = await new Promise((resolve) => {
@@ -651,10 +705,15 @@
       setButtonLabel(recordButton, continuousMode ? "Listening" : "Mic");
 
       setStatus("Transcribing...");
-      const transcript = await transcribeAudio(audioBlob);
+      let transcript = "";
+      try {
+        transcript = await transcribeAudio(audioBlob);
+      } catch (err) {
+        console.debug("STT failed (likely silent/empty audio):", err);
+      }
       setStatus("");
       await submitTranscript(transcript, {
-        metadata: pendingInterruptionSubmission
+        metadata: isInterruption
           ? {
             voice_interruption: true,
             input_mode: "voice",
@@ -663,7 +722,6 @@
             input_mode: "voice",
           },
       });
-      pendingInterruptionSubmission = false;
     }
 
     async function runSingleVoiceTurn() {

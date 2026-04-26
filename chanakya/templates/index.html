@@ -6580,6 +6580,23 @@
         setConversationQueueStatus(error instanceof Error ? error.message : String(error), true);
       }
     });
+    window.addEventListener("air-voice-interruption-empty", async () => {
+      resetVoiceQueueState();
+      setConversationQueueStatus("Interruption had no speech. Resuming delivery...");
+      if (sessionId) {
+        try {
+          await pollNextConversationMessages(sessionId, {
+            onAssistantMessage: async (content) => {
+              if (airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
+                await airVoiceController.speakAssistantMessageAndWait(content);
+              }
+            },
+          });
+        } catch (error) {
+          setConversationQueueStatus(error instanceof Error ? error.message : String(error), true);
+        }
+      }
+    });
     airVoiceController.fetchModels()
       .then(() => loadAppliedRuntimeConfig())
       .catch((error) => {
