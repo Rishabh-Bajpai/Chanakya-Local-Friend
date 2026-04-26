@@ -177,12 +177,8 @@ class MAFOrchestrationAgent:
         model_id = str(model_override or "").strip()
         if not model_id or model_id == self.model:
             if request_headers:
-                client = OpenAIChatClient(
-                    model_id=self.model,
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                    env_file_path=self.env_file_path,
-                    default_headers=request_headers,
+                client = self._build_openai_chat_client(
+                    self.model, default_headers=request_headers
                 )
                 return Agent(
                     client=client,
@@ -200,13 +196,6 @@ class MAFOrchestrationAgent:
         cached = self._agent_by_model.get(model_id)
         if cached is not None:
             return cached
-        client = OpenAIChatClient(
-            model_id=model_id,
-            api_key=self.api_key,
-            base_url=self.base_url,
-            env_file_path=self.env_file_path,
-            default_headers=request_headers,
-        )
         client = self._build_openai_chat_client(model_id)
         created = Agent(
             client=client,
@@ -251,11 +240,16 @@ class MAFOrchestrationAgent:
             return prompt
         return f"[[opencode-options:{';'.join(header_parts)}]]\n{prompt}"
 
-    def _build_openai_chat_client(self, model_id: str) -> OpenAIChatClient:
+    def _build_openai_chat_client(
+        self,
+        model_id: str,
+        default_headers: dict[str, str] | None = None,
+    ) -> OpenAIChatClient:
         async_client = AsyncOpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
             max_retries=0,
+            default_headers=default_headers,
         )
         return OpenAIChatClient(
             model_id=model_id,

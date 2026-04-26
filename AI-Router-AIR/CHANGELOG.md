@@ -1,5 +1,3 @@
-No new content to add - the CHANGELOG.md already contains entries for this PR's changes (auto-discovery service, proxy engine, admin API, and test coverage) dated 2026-03-05.
-
 ## 2026-03-05
 
 ### Added
