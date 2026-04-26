@@ -16,6 +16,7 @@ __pycache__/
 .venv/
 venv/
 env/
+.env.lock
 
 # Build and packaging artifacts
 build/
