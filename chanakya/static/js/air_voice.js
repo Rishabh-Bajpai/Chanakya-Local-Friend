@@ -472,11 +472,16 @@
       isPlayingQueue = true;
       const currentChunk = audioQueue.shift();
       activeAudio = new Audio(currentChunk.url);
-      const scheduleNextChunk = () => {
+      const scheduleNextChunk = async () => {
         if (voiceTurnActive && !stopRequested && selectedValue(sttModelSelect)) {
-          waitForInterruptionWindow().catch((err) => {
+          try {
+            const result = await waitForInterruptionWindow();
+            if (result && result.interrupted) {
+              return;
+            }
+          } catch (err) {
             console.debug("Interruption window check failed:", err);
-          });
+          }
         }
         nextAudioTimer = window.setTimeout(() => {
           nextAudioTimer = null;
