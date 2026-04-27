@@ -73,6 +73,8 @@ WORKFLOW_GROUP_CHAT = "work_group_chat"
 MAX_UNTRUSTED_ARTIFACT_CHARS = 12000
 GROUP_CHAT_MAX_ROUNDS_MESSAGE = "The group chat has reached the maximum number of rounds."
 GROUP_CHAT_TERMINATION_CONDITION_MESSAGE = "The group chat has reached its termination condition."
+GROUP_CHAT_SEEDED_HISTORY_LIMIT = 12
+GROUP_CHAT_CONTEXT_POLICY = "recent_visible_transcript_window"
 
 _ACTIVE_WORK_ID: ContextVar[str | None] = ContextVar("active_work_id", default=None)
 _ACTIVE_REQUEST_ID: ContextVar[str | None] = ContextVar("active_request_id", default=None)
@@ -648,6 +650,12 @@ class AgentManager:
                 parent_task_id=manager_task_id,
                 visible_messages=visible_messages,
             )
+            self._record_group_chat_visible_message_events(
+                session_id=session_id,
+                request_id=request_id,
+                manager_task_id=manager_task_id,
+                visible_messages=visible_messages,
+            )
             child_task_ids.extend(turn_task_ids)
             result_json = {
                 "workflow_type": WORKFLOW_GROUP_CHAT,
@@ -690,6 +698,22 @@ class AgentManager:
                 )
                 manager_input["group_chat_state"] = group_chat_state
                 self.store.update_task(manager_task_id, input_json=manager_input)
+                self.store.create_task_event(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=manager_task_id,
+                    event_type="group_chat_clarification_requested",
+                    payload={
+                        "workflow_type": WORKFLOW_GROUP_CHAT,
+                        "waiting_task_id": manager_task_id,
+                        "pending_request_id": pending_request_id,
+                        "question": str(completion_payload.get("question") or "").strip(),
+                        "reason": str(completion_payload.get("reason") or "").strip() or None,
+                        "requesting_agent_id": completion_payload.get("requesting_agent_id"),
+                        "requesting_agent_name": completion_payload.get("requesting_agent_name"),
+                        "latest_synchronized_conversation_cursor": group_chat_state.get("latest_synchronized_conversation_cursor"),
+                    },
+                )
                 self._transition_task(
                     session_id=session_id,
                     request_id=request_id,
@@ -891,7 +915,7 @@ class AgentManager:
         records: list[dict[str, Any]],
     ) -> list[Message]:
         seeded: list[Message] = []
-        for record in records[-12:]:
+        for record in records[-GROUP_CHAT_SEEDED_HISTORY_LIMIT:]:
             role = str(record.get("role") or "assistant")
             content = self._bounded_text(str(record.get("content") or "").strip(), limit=1200)
             if not content:
@@ -1301,6 +1325,12 @@ class AgentManager:
         return {
             "workflow_type": WORKFLOW_GROUP_CHAT,
             "capture_mode": "runtime_traced" if manager_decisions else "reconstructed",
+            "context_policy": {
+                "strategy": GROUP_CHAT_CONTEXT_POLICY,
+                "seeded_history_limit": GROUP_CHAT_SEEDED_HISTORY_LIMIT,
+                "include_agent_local_history": False,
+                "shared_context_source": "visible_transcript_only",
+            },
             "request_message": request_message,
             "seeded_context": seeded_context,
             "orchestrator": orchestrator_snapshot,
@@ -1377,6 +1407,12 @@ class AgentManager:
         return {
             "workflow_type": WORKFLOW_GROUP_CHAT,
             "manager_task_id": manager_task_id,
+            "context_policy": {
+                "strategy": GROUP_CHAT_CONTEXT_POLICY,
+                "seeded_history_limit": GROUP_CHAT_SEEDED_HISTORY_LIMIT,
+                "include_agent_local_history": False,
+                "shared_context_source": "visible_transcript_only",
+            },
             "visible_turn_count": len(visible_messages),
             "latest_visible_turn_index": latest_turn_index,
             "latest_synchronized_conversation_cursor": len(seeded_context) + len(visible_messages),
@@ -1584,6 +1620,30 @@ class AgentManager:
             )
             task_ids.append(task_id)
         return task_ids
+
+    def _record_group_chat_visible_message_events(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        manager_task_id: str,
+        visible_messages: list[dict[str, Any]],
+    ) -> None:
+        for item in visible_messages:
+            self.store.create_task_event(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=manager_task_id,
+                event_type="group_chat_visible_message_emitted",
+                payload={
+                    "workflow_type": WORKFLOW_GROUP_CHAT,
+                    "turn_index": item.get("turn_index"),
+                    "agent_id": item.get("agent_id"),
+                    "agent_name": item.get("agent_name"),
+                    "agent_role": item.get("agent_role"),
+                    "text": str(item.get("text") or ""),
+                },
+            )
 
     def _group_chat_final_summary(
         self,

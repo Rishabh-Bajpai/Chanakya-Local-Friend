@@ -122,8 +122,18 @@ def _parse_runtime_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _serialize_artifact_payload(record: dict[str, Any]) -> dict[str, Any]:
+    request_id = str(record.get("request_id") or "").strip() or None
+    latest_request_id = str(record.get("latest_request_id") or "").strip() or None
+    if request_id and latest_request_id and request_id != latest_request_id:
+        request_relation = "updated_in_later_request"
+    elif latest_request_id:
+        request_relation = "created_in_request"
+    else:
+        request_relation = "unknown"
     return {
         **record,
+        "origin_request_id": request_id,
+        "request_relation": request_relation,
         "download_url": f"/api/artifacts/{record['id']}/download",
         "detail_url": f"/api/artifacts/{record['id']}",
     }
@@ -558,10 +568,21 @@ def create_app() -> Flask:
 
     @app.get("/api/requests/<request_id>/artifacts")
     def api_request_artifacts(request_id: str) -> Any:
-        artifacts = [
-            _serialize_artifact_payload(item)
-            for item in store.list_artifacts_for_request(request_id)
-        ]
+        raw_artifacts = store.list_artifacts_for_request(request_id)
+        artifacts = []
+        for item in raw_artifacts:
+            payload = _serialize_artifact_payload(item)
+            origin_request_id = str(item.get("request_id") or "").strip() or None
+            latest_request_id = str(item.get("latest_request_id") or "").strip() or None
+            if origin_request_id == request_id and latest_request_id == request_id:
+                payload["request_relation"] = "created_and_latest_in_request"
+            elif origin_request_id == request_id:
+                payload["request_relation"] = "created_in_request"
+            elif latest_request_id == request_id:
+                payload["request_relation"] = "updated_in_request"
+            else:
+                payload["request_relation"] = "related_via_lineage"
+            artifacts.append(payload)
         return jsonify({"request_id": request_id, "artifacts": artifacts})
 
     @app.get("/api/tasks")
@@ -1182,6 +1203,33 @@ def create_app() -> Flask:
                     "execution_trace": execution_trace,
                 }
             )
+        latest_root_task = next((item for item in reversed(task_records) if item.get("is_root")), None)
+        active_runtime: dict[str, Any] | None = None
+        if latest_root_task is not None:
+            latest_input = dict(latest_root_task.get("input") or {})
+            pending_interaction = latest_input.get("work_pending_interaction")
+            if not isinstance(pending_interaction, dict):
+                pending_interaction = None
+            group_chat_state = latest_input.get("work_group_chat_state")
+            if not isinstance(group_chat_state, dict):
+                group_chat_state = None
+            active_runtime = {
+                "root_task_id": latest_root_task.get("id"),
+                "request_id": latest_root_task.get("request_id"),
+                "task_status": latest_root_task.get("status"),
+                "workflow_type": (
+                    None
+                    if group_chat_state is None
+                    else group_chat_state.get("workflow_type")
+                ),
+                "pending_interaction": pending_interaction,
+                "group_chat_state": group_chat_state,
+                "reload_reproducible": bool(group_chat_state or pending_interaction),
+            }
+        work_artifacts = [
+            _serialize_artifact_payload(item)
+            for item in store.list_artifacts_for_work(work_record.id)
+        ]
         conversation_assistant_count = sum(
             1 for item in conversation_messages if str(item.get("role") or "") == "assistant"
         )
@@ -1211,6 +1259,8 @@ def create_app() -> Flask:
                     "run_count": len(group_chat_runs),
                     "runs": group_chat_runs,
                 },
+                "active_runtime": active_runtime,
+                "artifacts": work_artifacts,
                 "task_flow": task_flow,
                 "tasks": task_records,
                 "requests": request_records,

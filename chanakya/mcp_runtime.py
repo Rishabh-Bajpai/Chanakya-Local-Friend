@@ -16,6 +16,33 @@ class ToolExecutionTrace:
     error_text: str | None
 
 
+def _tool_spec_id(spec: Any) -> str | None:
+    raw = getattr(spec, "id", None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    raw_name = getattr(spec, "name", None)
+    if isinstance(raw_name, str) and raw_name.strip():
+        return raw_name.strip()
+    return None
+
+
+def _tool_spec_name(spec: Any, fallback: str = "unknown_tool") -> str:
+    raw = getattr(spec, "name", None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    spec_id = _tool_spec_id(spec)
+    if spec_id:
+        return spec_id
+    return fallback
+
+
+def _tool_spec_server_name(spec: Any) -> str:
+    raw = getattr(spec, "server_name", None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return "unknown_server"
+
+
 def _tool_id_from_function_name(function_name: str, known_specs: dict[str, Any]) -> str | None:
     for tool_id in known_specs:
         if function_name.startswith(f"{tool_id}_"):
@@ -35,7 +62,11 @@ def _stringify_payload(value: Any) -> str | None:
 
 
 def extract_tool_execution_traces(response: Any, specs: list[Any]) -> list[ToolExecutionTrace]:
-    known_specs = {spec.id: spec for spec in specs}
+    known_specs: dict[str, Any] = {}
+    for spec in specs:
+        tool_id = _tool_spec_id(spec)
+        if tool_id and tool_id not in known_specs:
+            known_specs[tool_id] = spec
     calls_by_id: dict[str, dict[str, str | None]] = {}
     traces: list[ToolExecutionTrace] = []
 
@@ -51,9 +82,9 @@ def extract_tool_execution_traces(response: Any, specs: list[Any]) -> list[ToolE
                 spec = known_specs.get(tool_id) if tool_id else None
                 if call_id:
                     calls_by_id[str(call_id)] = {
-                        "tool_id": spec.id if spec else "unknown_tool",
-                        "tool_name": spec.name if spec else function_name,
-                        "server_name": spec.server_name if spec else "unknown_server",
+                        "tool_id": _tool_spec_id(spec) if spec else (tool_id or "unknown_tool"),
+                        "tool_name": _tool_spec_name(spec, fallback=function_name) if spec else function_name,
+                        "server_name": _tool_spec_server_name(spec) if spec else "unknown_server",
                         "input_payload": _stringify_payload(getattr(content, "arguments", None)),
                     }
             if content_type == "function_result":

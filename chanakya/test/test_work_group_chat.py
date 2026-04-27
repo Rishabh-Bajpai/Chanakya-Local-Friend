@@ -205,9 +205,15 @@ def test_work_group_chat_persists_visible_agent_turns_and_mirrors_history() -> N
         item for item in store.list_task_events(session_id=work_session_id)
         if item.get("event_type") == "group_chat_termination_decided"
     )
+    visible_message_events = [
+        item for item in store.list_task_events(session_id=work_session_id)
+        if item.get("event_type") == "group_chat_visible_message_emitted"
+    ]
     assert speaker_event["payload"]["selected_speaker"] == "Researcher"
     assert speaker_event["payload"]["selected_agent_id"] == "agent_researcher"
     assert termination_event["payload"]["termination_case"] == "user_request_satisfied"
+    assert len(visible_message_events) == 2
+    assert execution_trace["context_policy"]["strategy"] == "recent_visible_transcript_window"
     chanakya_messages = store.list_messages(work_session_id)
     assistant_messages = [item for item in chanakya_messages if item.get("role") == "assistant"]
     assert [item.get("metadata", {}).get("visible_agent_name") for item in assistant_messages] == [
@@ -279,6 +285,16 @@ def test_work_group_chat_waiting_input_resumes_same_request() -> None:
         == "I need one detail before I can continue: Should we use Flask or FastAPI?"
     )
     assert all("NEEDS_USER_INPUT:" not in str(item.get("text") or "") for item in first.messages)
+    root_task = next(task for task in store.list_tasks(session_id=work_session_id, root_only=True) if task["is_root"])
+    group_chat_state = dict(root_task["input"]).get("work_group_chat_state")
+    assert isinstance(group_chat_state, dict)
+    assert group_chat_state["context_policy"]["strategy"] == "recent_visible_transcript_window"
+    clarification_event = next(
+        item for item in store.list_task_events(session_id=work_session_id)
+        if item.get("event_type") == "group_chat_clarification_requested"
+    )
+    assert clarification_event["payload"]["requesting_agent_name"] == "Developer"
+    assert clarification_event["payload"]["latest_synchronized_conversation_cursor"] >= 1
 
     resumed = service.submit_task_input(first.waiting_task_id, "Use Flask")
 

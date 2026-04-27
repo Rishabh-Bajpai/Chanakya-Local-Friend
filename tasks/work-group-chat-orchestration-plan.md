@@ -49,6 +49,8 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - Added explicit manager speaker-selection and termination task events for `/work` group chat.
 - Tightened participant/orchestrator prompts with explicit role boundaries and removed raw `NEEDS_USER_INPUT:` scaffolding from visible `/work` transcript turns.
 - Normalized bounded round-limit termination into explicit persisted failure state and richer termination metadata for `/work` group chat.
+- Added explicit clarification-request and visible-message task events plus a persisted transcript-context policy marker for group-chat runs.
+- Added work-history `active_runtime` state and explicit artifact lineage metadata so reload state and request-vs-latest artifact attribution are first-class in the `/work` APIs.
 
 ## Implementation Strategy
 
@@ -114,11 +116,12 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [x] Build explicit group-chat history synchronization before each selected turn.
 - [ ] Ensure each participant receives the correct work-scoped transcript, not just its isolated agent-local memory.
 - [ ] Decide how much history is injected each turn:
-  - [ ] full visible transcript window
+  - [x] full visible transcript window
   - [ ] compact manager summary + recent turns
   - [ ] agent-local session history + synchronized group conversation excerpt
 - [ ] Refactor `/api/works/<work_id>/history` expectations so the visible work conversation and internal agent sessions remain understandable together.
-- [ ] Validate that all visible `/work` transcript turns are reproducible from persisted state after reload.
+- [x] Refactor `/api/works/<work_id>/history` expectations so the visible work conversation and internal agent sessions remain understandable together.
+- [x] Validate that all visible `/work` transcript turns are reproducible from persisted state after reload.
 
 ### Phase 6: Clarification and HITL Flow
 
@@ -140,7 +143,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [ ] Update task events to capture:
   - [x] selected speaker
   - [x] manager selection reason
-  - [ ] clarification requested
+  - [x] clarification requested
   - [x] visible message emitted
   - [x] conversation terminated
 - [ ] Preserve notifications and work completion semantics at the root task level.
@@ -149,6 +152,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 
 - [ ] Preserve the current per-work shared sandbox/workspace model.
 - [ ] Fix artifact attribution so files created during one request are not ambiguously claimed by later requests in the same work.
+- [x] Fix artifact attribution so files created during one request are not ambiguously claimed by later requests in the same work.
 - [ ] Decide whether artifacts should be attached to:
   - [ ] current request only
   - [ ] current request plus originating agent turn
@@ -177,7 +181,8 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [x] Add tests for resume-after-user-input on non-developer participants.
 - [ ] Add tests for concurrent work-message rejection/serialization.
 - [ ] Add tests for artifact attribution across multiple requests in one work.
-- [ ] Add tests for work history API correctness under group chat.
+- [x] Add tests for artifact attribution across multiple requests in one work.
+- [x] Add tests for work history API correctness under group chat.
 
 ## Known Current Bugs / Risks To Address During Refactor
 
