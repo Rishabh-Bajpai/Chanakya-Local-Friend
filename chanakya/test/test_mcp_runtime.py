@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from chanakya.mcp_runtime import extract_tool_execution_traces
+from chanakya.mcp_runtime import extract_tool_execution_traces, normalize_tool_spec_summary
 
 
 class _ToolWithoutId:
@@ -72,3 +72,15 @@ def test_extract_tool_execution_traces_falls_back_to_unknown_tool_when_unmapped(
     assert traces[0].tool_name == "some_tool_run"
     assert traces[0].server_name == "unknown_server"
     assert traces[0].status == "failed"
+
+
+def test_normalize_tool_spec_summary_tolerates_sparse_tool_object() -> None:
+    spec = SimpleNamespace(name="mcp_fetch")
+
+    summary = normalize_tool_spec_summary(spec)
+
+    assert summary == {
+        "tool_id": "mcp_fetch",
+        "tool_name": "mcp_fetch",
+        "server_name": "unknown_server",
+    }

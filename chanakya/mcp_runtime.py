@@ -43,6 +43,15 @@ def _tool_spec_server_name(spec: Any) -> str:
     return "unknown_server"
 
 
+def normalize_tool_spec_summary(spec: Any) -> dict[str, str | None]:
+    tool_id = _tool_spec_id(spec)
+    return {
+        "tool_id": tool_id,
+        "tool_name": _tool_spec_name(spec, fallback=tool_id or "unknown_tool"),
+        "server_name": _tool_spec_server_name(spec),
+    }
+
+
 def _tool_id_from_function_name(function_name: str, known_specs: dict[str, Any]) -> str | None:
     for tool_id in known_specs:
         if function_name.startswith(f"{tool_id}_"):

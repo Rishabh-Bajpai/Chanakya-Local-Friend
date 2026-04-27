@@ -48,7 +48,11 @@ from chanakya.domain import (
     now_iso,
 )
 from chanakya.maf_workflows import ManagerWorkflowRuntime
-from chanakya.mcp_runtime import ToolExecutionTrace, extract_tool_execution_traces
+from chanakya.mcp_runtime import (
+    ToolExecutionTrace,
+    extract_tool_execution_traces,
+    normalize_tool_spec_summary,
+)
 from chanakya.model import AgentProfileModel
 from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.services.mcp_sandbox_exec_server import execute_python
@@ -172,10 +176,21 @@ class TracedAgentExecutor(AgentExecutor):
     def _record_trace(self, *, input_messages: list[dict[str, Any]], response: Any) -> None:
         if response is None:
             return
-        tool_traces = [
-            _serialize_tool_trace(item)
-            for item in extract_tool_execution_traces(response, self._tool_specs)
-        ]
+        tool_traces: list[dict[str, Any]] = []
+        try:
+            tool_traces = [
+                _serialize_tool_trace(item)
+                for item in extract_tool_execution_traces(response, self._tool_specs)
+            ]
+        except Exception as exc:
+            debug_log(
+                "group_chat_tool_trace_capture_failed",
+                {
+                    "agent_id": self._profile.id,
+                    "agent_name": self._profile.name,
+                    "error": str(exc),
+                },
+            )
         response_messages = [_serialize_trace_message(item) for item in list(response.messages or [])]
         self._trace_store.participant_calls.append(
             {
@@ -897,13 +912,13 @@ class AgentManager:
     def _serialize_tool_summaries(self, tool_specs: list[Any] | None) -> list[dict[str, Any]]:
         summaries: list[dict[str, Any]] = []
         for spec in list(tool_specs or []):
-            summaries.append(
-                {
-                    "tool_id": getattr(spec, "id", None),
-                    "tool_name": getattr(spec, "name", None),
-                    "server_name": getattr(spec, "server_name", None),
-                }
-            )
+            try:
+                summaries.append(normalize_tool_spec_summary(spec))
+            except Exception as exc:
+                debug_log(
+                    "group_chat_tool_summary_capture_failed",
+                    {"error": str(exc)},
+                )
         return summaries
 
     def _build_group_chat_seed_conversation(self, session_id: str) -> list[Message]:
