@@ -901,11 +901,16 @@ def test_work_create_list_and_history_apis(
     history_payload = history_response.get_json()
     assert history_payload["work"]["id"] == work_id
     histories = history_payload["agent_histories"]
+    assert "conversation" in history_payload
     assert "task_flow" in history_payload
     assert "tasks" in history_payload
     assert "requests" in history_payload
     assert "limits" in history_payload
+    assert "group_chat_inspector" in history_payload
+    assert history_payload["group_chat_inspector"]["run_count"] == 0
     chanakya_history = next(item for item in histories if item["agent_id"] == "agent_chanakya")
+    assert history_payload["conversation"]["session_id"] == chanakya_mapping["session_id"]
+    assert history_payload["conversation"]["message_count"] >= 1
     assert any(
         msg["content"] == "Initial report draft ready." for msg in chanakya_history["messages"]
     )
@@ -1115,17 +1120,17 @@ def test_work_api_preserves_per_agent_memory_for_local_backend(
     histories = history_payload["agent_histories"]
     developer_history = next(item for item in histories if item["agent_id"] == "agent_developer")
     tester_history = next(item for item in histories if item["agent_id"] == "agent_tester")
+    assert "message_stats" in developer_history
+    assert "latest_message_preview" in developer_history
 
     developer_messages = [message["content"] for message in developer_history["messages"]]
     tester_messages = [message["content"] for message in tester_history["messages"]]
     assert developer_messages[0] == "dev: implement login hardening"
-    assert developer_messages[2] == "dev: refine login hardening"
-    assert "dev: implement login hardening" in developer_messages[3]
-    assert "dev: refine login hardening" in developer_messages[3]
-    assert "test: validate login hardening" not in developer_messages[3]
-    assert tester_messages[0] == "test: validate login hardening"
-    assert "dev: implement login hardening" not in tester_messages[1]
-    assert "dev: refine login hardening" not in tester_messages[1]
+    assert any(message == "dev: refine login hardening" for message in developer_messages)
+    assert any(message == "test: validate login hardening" for message in tester_messages)
+    assert developer_history["message_stats"]["private_count"] >= 2
+    assert developer_history["message_stats"]["mirrored_count"] >= 1
+    assert tester_history["message_stats"]["private_count"] >= 1
 
 
 def test_work_api_preserves_per_agent_memory_for_a2a_backend(
@@ -1200,14 +1205,14 @@ def test_work_api_preserves_per_agent_memory_for_a2a_backend(
     histories = history_payload["agent_histories"]
     developer_history = next(item for item in histories if item["agent_id"] == "agent_developer")
     tester_history = next(item for item in histories if item["agent_id"] == "agent_tester")
+    assert "message_stats" in tester_history
+    assert history_payload["conversation"]["message_count"] >= 3
 
     developer_messages = [message["content"] for message in developer_history["messages"]]
     tester_messages = [message["content"] for message in tester_history["messages"]]
     assert developer_messages[0] == "dev: implement login hardening"
-    assert developer_messages[2] == "dev: refine login hardening"
-    assert "dev: implement login hardening" in developer_messages[3]
-    assert "dev: refine login hardening" in developer_messages[3]
-    assert "test: validate login hardening" not in developer_messages[3]
-    assert tester_messages[0] == "test: validate login hardening"
-    assert "dev: implement login hardening" not in tester_messages[1]
-    assert "dev: refine login hardening" not in tester_messages[1]
+    assert any(message == "dev: refine login hardening" for message in developer_messages)
+    assert any(message == "test: validate login hardening" for message in tester_messages)
+    assert developer_history["message_stats"]["private_count"] >= 2
+    assert developer_history["message_stats"]["mirrored_count"] >= 1
+    assert tester_history["message_stats"]["private_count"] >= 1

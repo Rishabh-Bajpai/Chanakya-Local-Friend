@@ -955,6 +955,8 @@ def create_app() -> Flask:
         mapped_session_ids: list[str] = []
         agent_name_by_id: dict[str, str] = {}
         agent_role_by_id: dict[str, str] = {}
+        chanakya_session_id = ""
+        conversation_messages: list[dict[str, Any]] = []
         for mapping in mappings:
             session_id = str(mapping.get("session_id") or "")
             messages = store.list_messages(session_id)
@@ -968,6 +970,30 @@ def create_app() -> Flask:
                     agent_name_by_id[agent_id] = agent_name
                 if isinstance(agent_role, str) and agent_role.strip():
                     agent_role_by_id[agent_id] = agent_role
+            mirrored_count = 0
+            visible_count = 0
+            private_count = 0
+            assistant_count = 0
+            user_count = 0
+            latest_preview = ""
+            latest_created_at = None
+            for message in messages:
+                metadata = dict(message.get("metadata") or {})
+                if message.get("role") == "assistant":
+                    assistant_count += 1
+                elif message.get("role") == "user":
+                    user_count += 1
+                if metadata.get("mirrored_from_work_session"):
+                    mirrored_count += 1
+                elif metadata.get("visible_agent_name") or metadata.get("group_chat_visible"):
+                    visible_count += 1
+                else:
+                    private_count += 1
+                latest_preview = str(message.get("content") or "").replace("\n", " ").strip()[:180]
+                latest_created_at = message.get("created_at")
+            if agent_id == "agent_chanakya":
+                chanakya_session_id = session_id
+                conversation_messages = messages
             grouped.append(
                 {
                     "agent_id": mapping.get("agent_id"),
@@ -975,6 +1001,15 @@ def create_app() -> Flask:
                     "agent_role": mapping.get("agent_role"),
                     "session_id": session_id,
                     "message_count": len(messages),
+                    "message_stats": {
+                        "user_count": user_count,
+                        "assistant_count": assistant_count,
+                        "mirrored_count": mirrored_count,
+                        "visible_count": visible_count,
+                        "private_count": private_count,
+                    },
+                    "latest_message_preview": latest_preview,
+                    "latest_created_at": latest_created_at,
                     "messages": messages,
                 }
             )
@@ -1053,6 +1088,106 @@ def create_app() -> Flask:
                 str(item.get("id") or ""),
             ),
         )
+        tasks_by_request_id: dict[str, list[dict[str, Any]]] = {}
+        for task in task_records:
+            request_id = str(task.get("request_id") or "")
+            if not request_id:
+                continue
+            tasks_by_request_id.setdefault(request_id, []).append(task)
+
+        group_chat_runs: list[dict[str, Any]] = []
+        if not hasattr(manager, "_group_chat_participant_profiles") or not hasattr(
+            manager, "build_group_chat_execution_trace"
+        ):
+            participant_profiles = []
+        else:
+            try:
+                participant_profiles = manager._group_chat_participant_profiles()
+            except KeyError:
+                participant_profiles = []
+        for request_record in request_records:
+            request_id = str(request_record.get("id") or "")
+            request_message = str(request_record.get("user_message") or "")
+            request_created_at = str(request_record.get("created_at") or "")
+            request_tasks = tasks_by_request_id.get(request_id, [])
+            manager_task = next(
+                (
+                    item
+                    for item in request_tasks
+                    if str(item.get("task_type") or "") == "manager_group_chat_orchestration"
+                ),
+                None,
+            )
+            if manager_task is None:
+                continue
+            manager_result = manager_task.get("result")
+            if not isinstance(manager_result, dict):
+                manager_result = {}
+            execution_trace = manager_result.get("execution_trace")
+            if not isinstance(execution_trace, dict):
+                visible_messages = manager_result.get("visible_messages")
+                if not isinstance(visible_messages, list):
+                    visible_messages = []
+                completion_payload = manager_result.get("completion")
+                if not isinstance(completion_payload, dict):
+                    completion_payload = {
+                        "status": str(manager_task.get("status") or "unknown").lower(),
+                        "summary": str(manager_result.get("summary") or "").strip(),
+                    }
+                prior_messages = [
+                    item
+                    for item in conversation_messages
+                    if str(item.get("created_at") or "") < request_created_at
+                ]
+                seeded_conversation = manager.build_group_chat_seed_conversation_from_records(
+                    prior_messages
+                )
+                if participant_profiles:
+                    execution_trace = manager.build_group_chat_execution_trace(
+                        request_message=request_message,
+                        participant_profiles=participant_profiles,
+                        seeded_conversation=seeded_conversation,
+                        visible_messages=visible_messages,
+                        completion_payload=completion_payload,
+                        work_id=work_record.id,
+                    )
+                else:
+                    execution_trace = {
+                        "workflow_type": "work_group_chat",
+                        "request_message": request_message,
+                        "seeded_context": [
+                            {
+                                "role": str(item.role or "assistant"),
+                                "author_name": str(item.author_name or "").strip() or None,
+                                "text": str(item.text or ""),
+                            }
+                            for item in seeded_conversation
+                        ],
+                        "orchestrator": None,
+                        "participants": [],
+                        "call_sequence": [],
+                        "completion": completion_payload,
+                        "prompt_refs": {},
+                    }
+            group_chat_runs.append(
+                {
+                    "request_id": request_id,
+                    "created_at": request_record.get("created_at"),
+                    "status": manager_task.get("status"),
+                    "route": request_record.get("route"),
+                    "user_message": request_message,
+                    "root_task_id": request_record.get("root_task_id"),
+                    "manager_task_id": manager_task.get("id"),
+                    "child_task_ids": manager_result.get("child_task_ids") if isinstance(manager_result, dict) else [],
+                    "execution_trace": execution_trace,
+                }
+            )
+        conversation_assistant_count = sum(
+            1 for item in conversation_messages if str(item.get("role") or "") == "assistant"
+        )
+        conversation_user_count = sum(
+            1 for item in conversation_messages if str(item.get("role") or "") == "user"
+        )
         return jsonify(
             {
                 "work": {
@@ -1063,7 +1198,19 @@ def create_app() -> Flask:
                     "created_at": work_record.created_at,
                     "updated_at": work_record.updated_at,
                 },
+                "conversation": {
+                    "session_id": chanakya_session_id or None,
+                    "message_count": len(conversation_messages),
+                    "assistant_count": conversation_assistant_count,
+                    "user_count": conversation_user_count,
+                    "messages": conversation_messages,
+                },
                 "agent_histories": grouped,
+                "group_chat_inspector": {
+                    "workflow_type": "work_group_chat",
+                    "run_count": len(group_chat_runs),
+                    "runs": group_chat_runs,
+                },
                 "task_flow": task_flow,
                 "tasks": task_records,
                 "requests": request_records,

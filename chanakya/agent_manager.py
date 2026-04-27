@@ -439,6 +439,14 @@ class AgentManager:
                 conversation_slice=conversation_slice,
                 participant_profiles=participant_profiles,
             )
+            execution_trace = self.build_group_chat_execution_trace(
+                request_message=message,
+                participant_profiles=participant_profiles,
+                seeded_conversation=seeded_conversation,
+                visible_messages=visible_messages,
+                completion_payload=completion_payload,
+                work_id=_ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get(),
+            )
             turn_task_ids = self._record_group_chat_visible_turns(
                 session_id=session_id,
                 request_id=request_id,
@@ -451,6 +459,7 @@ class AgentManager:
                 "participants": participant_meta,
                 "visible_messages": visible_messages,
                 "completion": completion_payload,
+                "execution_trace": execution_trace,
                 "child_task_ids": child_task_ids,
             }
             if completion_payload.get("status") == "needs_user_input":
@@ -614,9 +623,15 @@ class AgentManager:
         return summaries.get(profile.role, f"Specialist role: {profile.role}.")
 
     def _build_group_chat_seed_conversation(self, session_id: str) -> list[Message]:
-        records = self.store.list_messages(session_id)[-12:]
+        records = self.store.list_messages(session_id)
+        return self.build_group_chat_seed_conversation_from_records(records)
+
+    def build_group_chat_seed_conversation_from_records(
+        self,
+        records: list[dict[str, Any]],
+    ) -> list[Message]:
         seeded: list[Message] = []
-        for record in records:
+        for record in records[-12:]:
             role = str(record.get("role") or "assistant")
             content = self._bounded_text(str(record.get("content") or "").strip(), limit=1200)
             if not content:
@@ -667,11 +682,7 @@ class AgentManager:
         *,
         message: str,
     ) -> Agent:
-        prompt_addendum = self._build_active_workspace_prompt_addendum(profile)
-        group_chat_addendum = self._build_group_chat_participant_addendum(profile)
-        combined_addendum = "\n\n".join(
-            part for part in [group_chat_addendum, prompt_addendum] if part
-        )
+        combined_addendum = self._build_group_chat_participant_prompt_addendum(profile)
         agent, _ = build_profile_agent(
             profile,
             self.session_factory,
@@ -696,36 +707,33 @@ class AgentManager:
             f"Your role-specific capability summary: {self._group_chat_capability_summary(profile)}"
         )
 
+    def _build_group_chat_participant_prompt_addendum(
+        self,
+        profile: AgentProfileModel,
+        *,
+        work_id: str | None = None,
+    ) -> str:
+        prompt_addendum = (
+            self._build_active_workspace_prompt_addendum(profile)
+            if work_id is None
+            else self._build_workspace_prompt_addendum_for_work_id(profile, work_id)
+        )
+        group_chat_addendum = self._build_group_chat_participant_addendum(profile)
+        return "\n\n".join(part for part in [group_chat_addendum, prompt_addendum] if part)
+
     def _build_group_chat_orchestrator_agent(
         self,
         *,
         participant_profiles: list[AgentProfileModel],
         message: str,
     ) -> Agent:
-        capability_lines = [
-            f"- {profile.name} ({profile.id} / role={profile.role}): {self._group_chat_capability_summary(profile)}"
-            for profile in participant_profiles
-        ]
+        prompt_addendum = self._build_group_chat_orchestrator_addendum(
+            participant_profiles=participant_profiles
+        )
         config = build_profile_agent_config_for_usage(
             self.manager_profile,
             usage_text=message,
-            prompt_addendum=(
-                "You are not the user-facing speaker in this workflow. "
-                "You are the internal group-chat orchestrator for /work. "
-                "Your only job is to choose the best next visible speaker or terminate the conversation. "
-                "The human only talks to Chanakya. When user clarification is needed, terminate the group chat with a JSON string in final_message indicating status='needs_user_input'.\n\n"
-                "Participant roster and capabilities:\n"
-                + "\n".join(capability_lines)
-                + "\n\nSelection rules:\n"
-                "1. Prefer the smallest number of turns needed for a correct result.\n"
-                "2. Pick agents whose capabilities match the current unresolved need.\n"
-                "3. Do not force hierarchical chains; any participant may speak next.\n"
-                "4. If a participant says NEEDS_USER_INPUT:, terminate with final_message as a compact JSON string with keys status, question, reason, requesting_agent_id, requesting_agent_name.\n"
-                "5. When the work is complete, terminate with final_message as a compact JSON string with keys status='completed' and summary.\n"
-                "6. If you are not terminating, you must always provide next_speaker using one of the exact participant names. Never leave next_speaker empty when terminate=false.\n"
-                "7. After the user answers a clarification, usually send the next turn back to the agent best positioned to use that answer.\n"
-                "8. If the conversation is stuck, terminate with status='failed' and a short reason."
-            ),
+            prompt_addendum=prompt_addendum,
         )
         return Agent(
             client=self._resolve_client(),
@@ -733,6 +741,191 @@ class AgentManager:
             description="Coordinates the /work multi-agent group chat.",
             instructions=config.system_prompt,
         )
+
+    def _build_group_chat_orchestrator_addendum(
+        self,
+        *,
+        participant_profiles: list[AgentProfileModel],
+    ) -> str:
+        capability_lines = [
+            f"- {profile.name} ({profile.id} / role={profile.role}): {self._group_chat_capability_summary(profile)}"
+            for profile in participant_profiles
+        ]
+        return (
+            "You are not the user-facing speaker in this workflow. "
+            "You are the internal group-chat orchestrator for /work. "
+            "Your only job is to choose the best next visible speaker or terminate the conversation. "
+            "The human only talks to Chanakya. When user clarification is needed, terminate the group chat with a JSON string in final_message indicating status='needs_user_input'.\n\n"
+            "Participant roster and capabilities:\n"
+            + "\n".join(capability_lines)
+            + "\n\nSelection rules:\n"
+            "1. Prefer the smallest number of turns needed for a correct result.\n"
+            "2. Pick agents whose capabilities match the current unresolved need.\n"
+            "3. Do not force hierarchical chains; any participant may speak next.\n"
+            "4. If a participant says NEEDS_USER_INPUT:, terminate with final_message as a compact JSON string with keys status, question, reason, requesting_agent_id, requesting_agent_name.\n"
+            "5. When the work is complete, terminate with final_message as a compact JSON string with keys status='completed' and summary.\n"
+            "6. If you are not terminating, you must always provide next_speaker using one of the exact participant names. Never leave next_speaker empty when terminate=false.\n"
+            "7. After the user answers a clarification, usually send the next turn back to the agent best positioned to use that answer.\n"
+            "8. If the conversation is stuck, terminate with status='failed' and a short reason."
+        )
+
+    def build_group_chat_participant_prompt_snapshot(
+        self,
+        profile: AgentProfileModel,
+        *,
+        message: str,
+        work_id: str | None = None,
+    ) -> dict[str, Any]:
+        config = build_profile_agent_config_for_usage(
+            profile,
+            usage_text=message,
+            prompt_addendum=self._build_group_chat_participant_prompt_addendum(
+                profile,
+                work_id=work_id,
+            ),
+        )
+        return {
+            "agent_id": profile.id,
+            "agent_name": profile.name,
+            "agent_role": profile.role,
+            "tool_ids": list(profile.tool_ids_json or []),
+            "system_prompt": config.system_prompt,
+        }
+
+    def build_group_chat_orchestrator_prompt_snapshot(
+        self,
+        *,
+        participant_profiles: list[AgentProfileModel],
+        message: str,
+    ) -> dict[str, Any]:
+        config = build_profile_agent_config_for_usage(
+            self.manager_profile,
+            usage_text=message,
+            prompt_addendum=self._build_group_chat_orchestrator_addendum(
+                participant_profiles=participant_profiles
+            ),
+        )
+        return {
+            "agent_id": self.manager_profile.id,
+            "agent_name": self.manager_profile.name,
+            "agent_role": self.manager_profile.role,
+            "tool_ids": list(self.manager_profile.tool_ids_json or []),
+            "system_prompt": config.system_prompt,
+        }
+
+    def build_group_chat_execution_trace(
+        self,
+        *,
+        request_message: str,
+        participant_profiles: list[AgentProfileModel],
+        seeded_conversation: list[Message],
+        visible_messages: list[dict[str, Any]],
+        completion_payload: dict[str, Any],
+        work_id: str | None = None,
+    ) -> dict[str, Any]:
+        participant_snapshots = [
+            self.build_group_chat_participant_prompt_snapshot(
+                profile,
+                message=request_message,
+                work_id=work_id,
+            )
+            for profile in participant_profiles
+        ]
+        participant_snapshot_by_id = {
+            str(item.get("agent_id") or ""): item for item in participant_snapshots
+        }
+        orchestrator_snapshot = self.build_group_chat_orchestrator_prompt_snapshot(
+            participant_profiles=participant_profiles,
+            message=request_message,
+        )
+        seeded_context = [
+            {
+                "role": str(item.role or "assistant"),
+                "author_name": str(item.author_name or "").strip() or None,
+                "text": str(item.text or ""),
+            }
+            for item in seeded_conversation
+        ]
+        shared_context = [dict(item) for item in seeded_context]
+        call_sequence: list[dict[str, Any]] = []
+        for item in visible_messages:
+            agent_id = str(item.get("agent_id") or "").strip()
+            agent_name = str(item.get("agent_name") or "Agent").strip() or "Agent"
+            agent_role = str(item.get("agent_role") or "").strip() or None
+            prompt_ref = f"participant:{agent_id}" if agent_id else None
+            shared_before_turn = [dict(entry) for entry in shared_context]
+            call_sequence.append(
+                {
+                    "step": len(call_sequence) + 1,
+                    "kind": "manager_decision",
+                    "prompt_ref": "orchestrator",
+                    "agent_id": orchestrator_snapshot["agent_id"],
+                    "agent_name": orchestrator_snapshot["agent_name"],
+                    "agent_role": orchestrator_snapshot["agent_role"],
+                    "shared_context_before": shared_before_turn,
+                    "decision": {
+                        "action": "select_next_speaker",
+                        "selected_agent_id": agent_id or None,
+                        "selected_agent_name": agent_name,
+                        "selected_agent_role": agent_role,
+                        "source": "derived_from_visible_turn_order",
+                    },
+                }
+            )
+            call_sequence.append(
+                {
+                    "step": len(call_sequence) + 1,
+                    "kind": "participant_turn",
+                    "prompt_ref": prompt_ref,
+                    "agent_id": agent_id or None,
+                    "agent_name": agent_name,
+                    "agent_role": agent_role,
+                    "request_message": request_message,
+                    "shared_context_before": shared_before_turn,
+                    "visible_output": str(item.get("text") or ""),
+                    "turn_index": item.get("turn_index"),
+                }
+            )
+            shared_context.append(
+                {
+                    "role": "assistant",
+                    "author_name": agent_name,
+                    "text": str(item.get("text") or ""),
+                }
+            )
+        call_sequence.append(
+            {
+                "step": len(call_sequence) + 1,
+                "kind": "manager_decision",
+                "prompt_ref": "orchestrator",
+                "agent_id": orchestrator_snapshot["agent_id"],
+                "agent_name": orchestrator_snapshot["agent_name"],
+                "agent_role": orchestrator_snapshot["agent_role"],
+                "shared_context_before": [dict(entry) for entry in shared_context],
+                "decision": {
+                    "action": "terminate",
+                    "source": "workflow_completion_payload",
+                    **dict(completion_payload or {}),
+                },
+            }
+        )
+        return {
+            "workflow_type": WORKFLOW_GROUP_CHAT,
+            "request_message": request_message,
+            "seeded_context": seeded_context,
+            "orchestrator": orchestrator_snapshot,
+            "participants": participant_snapshots,
+            "call_sequence": call_sequence,
+            "completion": dict(completion_payload or {}),
+            "prompt_refs": {
+                "orchestrator": orchestrator_snapshot,
+                **{
+                    f"participant:{agent_id}": snapshot
+                    for agent_id, snapshot in participant_snapshot_by_id.items()
+                    if agent_id
+                },
+            },
+        }
 
     def _extract_group_chat_conversation(self, result: Any) -> list[Message]:
         outputs = []
@@ -4135,11 +4328,25 @@ class AgentManager:
     ) -> str | None:
         if not (_ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get()):
             return None
+        work_id = _ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get()
+        return self._build_workspace_prompt_addendum_for_work_id(profile, work_id)
+
+    def _build_workspace_prompt_addendum_for_work_id(
+        self,
+        profile: AgentProfileModel,
+        work_id: str | None,
+    ) -> str | None:
         tool_ids = set(profile.tool_ids_json or [])
         if not ({"mcp_filesystem", "mcp_code_execution"} & tool_ids):
             return None
-        sandbox_work_id = self._resolve_current_sandbox_work_id()
-        sandbox_workspace = self._resolve_current_shared_workspace()
+        try:
+            sandbox_work_id = normalize_work_id(work_id)
+        except ValueError:
+            sandbox_work_id = "temp"
+        try:
+            sandbox_workspace = str(resolve_shared_workspace(sandbox_work_id, create=False))
+        except (ValueError, PermissionError):
+            sandbox_workspace = str(resolve_shared_workspace("temp", create=False))
         lines = [
             f"Active work context: use work_id='{sandbox_work_id}'.",
             f"Shared workspace host path: {sandbox_workspace}",

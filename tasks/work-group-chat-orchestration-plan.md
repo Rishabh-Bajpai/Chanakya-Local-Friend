@@ -42,6 +42,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - Hardened the new group-chat path against transient AIR/provider `502` failures with automatic retry.
 - Bounded seeded visible work-history context for follow-up group-chat turns to reduce prompt blow-up risk.
 - Replaced the builder-default zero-retry agent-based orchestrator construction with a manual MAF workflow build that gives the manager-orchestrator explicit retry attempts for malformed `next_speaker` outputs.
+- Refactored `/api/works/<work_id>/history` to expose a first-class shared conversation payload plus richer per-agent session stats for the Agent Histories UI.
 
 ## Implementation Strategy
 

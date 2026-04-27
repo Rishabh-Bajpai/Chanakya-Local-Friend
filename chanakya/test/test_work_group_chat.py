@@ -179,6 +179,18 @@ def test_work_group_chat_persists_visible_agent_turns_and_mirrors_history() -> N
 
     assert reply.root_task_status == TASK_STATUS_DONE
     assert [item.get("agent_name") for item in reply.messages] == ["Researcher", "Writer"]
+    manager_task = next(
+        task
+        for task in store.list_tasks(session_id=work_session_id, limit=20)
+        if task.get("task_type") == "manager_group_chat_orchestration"
+    )
+    execution_trace = manager_task.get("result", {}).get("execution_trace")
+    assert execution_trace["request_message"] == "Summarize the market"
+    assert execution_trace["call_sequence"][0]["kind"] == "manager_decision"
+    assert execution_trace["call_sequence"][1]["kind"] == "participant_turn"
+    assert execution_trace["call_sequence"][1]["agent_name"] == "Researcher"
+    assert execution_trace["prompt_refs"]["orchestrator"]["agent_name"] == "Agent Manager"
+    assert execution_trace["prompt_refs"]["participant:agent_researcher"]["agent_name"] == "Researcher"
     chanakya_messages = store.list_messages(work_session_id)
     assistant_messages = [item for item in chanakya_messages if item.get("role") == "assistant"]
     assert [item.get("metadata", {}).get("visible_agent_name") for item in assistant_messages] == [
