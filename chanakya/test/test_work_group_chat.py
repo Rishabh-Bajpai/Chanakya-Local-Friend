@@ -191,6 +191,12 @@ def test_work_group_chat_persists_visible_agent_turns_and_mirrors_history() -> N
     assert execution_trace["call_sequence"][1]["agent_name"] == "Researcher"
     assert execution_trace["prompt_refs"]["orchestrator"]["agent_name"] == "Agent Manager"
     assert execution_trace["prompt_refs"]["participant:agent_researcher"]["agent_name"] == "Researcher"
+    assert manager_task.get("input", {}).get("group_chat_state", {}).get("manager_termination_state", {}).get("status") == "completed"
+    root_task = next(task for task in store.list_tasks(session_id=work_session_id, root_only=True) if task["is_root"])
+    assert root_task.get("input", {}).get("work_group_chat_state", {}).get("manager_termination_state", {}).get("status") == "completed"
+    event_types = [item.get("event_type") for item in store.list_task_events(session_id=work_session_id)]
+    assert "group_chat_speaker_selected" in event_types
+    assert "group_chat_termination_decided" in event_types
     chanakya_messages = store.list_messages(work_session_id)
     assistant_messages = [item for item in chanakya_messages if item.get("role") == "assistant"]
     assert [item.get("metadata", {}).get("visible_agent_name") for item in assistant_messages] == [
@@ -261,6 +267,7 @@ def test_work_group_chat_waiting_input_resumes_same_request() -> None:
         first.input_prompt
         == "I need one detail before I can continue: Should we use Flask or FastAPI?"
     )
+    assert all("NEEDS_USER_INPUT:" not in str(item.get("text") or "") for item in first.messages)
 
     resumed = service.submit_task_input(first.waiting_task_id, "Use Flask")
 
@@ -270,6 +277,9 @@ def test_work_group_chat_waiting_input_resumes_same_request() -> None:
     pending_state = dict(root_task["input"]).get("work_pending_interaction")
     assert isinstance(pending_state, dict)
     assert pending_state["active"] is False
+    group_chat_state = dict(root_task["input"]).get("work_group_chat_state")
+    assert isinstance(group_chat_state, dict)
+    assert group_chat_state["manager_termination_state"]["status"] == "completed"
     chanakya_messages = store.list_messages(work_session_id)
     assert any(item.get("content") == "Use Flask" for item in chanakya_messages)
     assert any(item.get("content") == "Implemented with Flask." for item in chanakya_messages)
@@ -326,6 +336,9 @@ def test_work_chat_autoresume_prefers_explicit_active_pending_interaction() -> N
     assert isinstance(pending_state, dict)
     assert pending_state["active"] is True
     assert pending_state["waiting_task_id"] == first.waiting_task_id
+    group_chat_state = dict(root_task["input"]).get("work_group_chat_state")
+    assert isinstance(group_chat_state, dict)
+    assert group_chat_state["pending_clarification_owner"]["agent_name"] == "Developer"
 
     store.create_task(
         task_id="task_stale_waiting",

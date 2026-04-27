@@ -45,6 +45,9 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - Refactored `/api/works/<work_id>/history` to expose a first-class shared conversation payload plus richer per-agent session stats for the Agent Histories UI.
 - Added a group-chat-first inspector trace that captures manager decisions, per-call prompt/input packets, and participant tool-call traces for new `/work` runs.
 - Replaced `/work` auto-resume's implicit single-waiting-task scan with an explicit root-task pending-interaction marker so the active clarification can be resumed reliably even if stale waiting tasks remain in session history.
+- Added persisted group-chat runtime state on root/manager tasks covering active speaker, pending clarification owner, manager termination state, and latest synchronized conversation cursor.
+- Added explicit manager speaker-selection and termination task events for `/work` group chat.
+- Tightened participant/orchestrator prompts with explicit role boundaries and removed raw `NEEDS_USER_INPUT:` scaffolding from visible `/work` transcript turns.
 
 ## Implementation Strategy
 
@@ -55,10 +58,10 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [x] Add a per-work execution lock to prevent concurrent `/work` messages from racing in the same work session/workspace.
 - [x] Replace the current `find_waiting_input_task()` single-task assumption with explicit pending-interaction state for the active work conversation.
 - [ ] Define the minimal persisted state required for resumable group chat turns:
-  - [ ] active speaker
-  - [ ] pending clarification owner
-  - [ ] manager termination state
-  - [ ] latest synchronized conversation cursor
+  - [x] active speaker
+  - [x] pending clarification owner
+  - [x] manager termination state
+  - [x] latest synchronized conversation cursor
 
 ### Phase 2: Introduce Group Chat Orchestration Runtime
 
@@ -67,11 +70,11 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [x] Implement a manager-controlled speaker selector instead of round robin.
 - [x] Define a termination condition for `/work` group chat that is manager-safe and bounded.
 - [ ] Ensure the manager can end the conversation when:
-  - [ ] the user request has been satisfied
-  - [ ] clarification is required
-  - [ ] a failure/blocker must be surfaced
+  - [x] the user request has been satisfied
+  - [x] clarification is required
+  - [x] a failure/blocker must be surfaced
   - [ ] max rounds are reached
-- [ ] Add cleanup/normalization so group-chat orchestration scaffolding is not leaked into visible user-facing messages.
+- [x] Add cleanup/normalization so group-chat orchestration scaffolding is not leaked into visible user-facing messages.
 
 ### Phase 3: Flatten Agent Topology
 
@@ -79,12 +82,12 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [x] Refactor participant construction so `CTO`, `Informer`, `Developer`, `Researcher`, `Writer`, and `Tester` are all direct participants in the same work conversation.
 - [x] Keep `Agent Manager` as orchestrator only, not a hidden worker chain runner.
 - [ ] Decide and encode participant role boundaries explicitly:
-  - [ ] `CTO` gives software direction/review, but does not own a hidden subworkflow
-  - [ ] `Informer` gives research/writing direction/review, but does not own a hidden subworkflow
-  - [ ] `Developer` implements
-  - [ ] `Researcher` gathers facts
-  - [ ] `Writer` drafts/polishes
-  - [ ] `Tester` validates
+  - [x] `CTO` gives software direction/review, but does not own a hidden subworkflow
+  - [x] `Informer` gives research/writing direction/review, but does not own a hidden subworkflow
+  - [x] `Developer` implements
+  - [x] `Researcher` gathers facts
+  - [x] `Writer` drafts/polishes
+  - [x] `Tester` validates
 - [ ] Preserve the ability for the manager to pick only the participants needed for a turn instead of forcing all agents to speak.
 
 ### Phase 4: Rework Prompting Model
@@ -92,15 +95,15 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [x] Rewrite manager prompt for orchestrator behavior instead of route-then-delegate behavior.
 - [x] Remove prompt language that assumes strict two-stage pipelines like researcher->writer or developer->tester.
 - [ ] Rewrite participant prompts so each agent understands:
-  - [ ] it is in a shared group chat
-  - [ ] all participants may see prior messages
-  - [ ] it should only speak when selected
-  - [ ] it must stay in role and avoid re-explaining orchestration
-  - [ ] it must not ask the user directly
+  - [x] it is in a shared group chat
+  - [x] all participants may see prior messages
+  - [x] it should only speak when selected
+  - [x] it must stay in role and avoid re-explaining orchestration
+  - [x] it must not ask the user directly
 - [ ] Add explicit manager rules for clarification:
-  - [ ] if a selected agent needs user input, it tells the manager
-  - [ ] the manager causes Chanakya to ask the user
-  - [ ] the follow-up user answer is reinjected into the same work conversation
+  - [x] if a selected agent needs user input, it tells the manager
+  - [x] the manager causes Chanakya to ask the user
+  - [x] the follow-up user answer is reinjected into the same work conversation
 - [ ] Reduce repeated sandbox/file policy boilerplate by centralizing reusable prompt addenda.
 - [ ] Introduce shorter structured response contracts for specialist/worker turns to improve quality and latency.
 
@@ -134,11 +137,11 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
   - [ ] one root task plus participant turn tasks
   - [ ] one root task plus higher-level contribution tasks
 - [ ] Update task events to capture:
-  - [ ] selected speaker
+  - [x] selected speaker
   - [ ] manager selection reason
   - [ ] clarification requested
-  - [ ] visible message emitted
-  - [ ] conversation terminated
+  - [x] visible message emitted
+  - [x] conversation terminated
 - [ ] Preserve notifications and work completion semantics at the root task level.
 
 ### Phase 8: Artifact and Workspace Safety

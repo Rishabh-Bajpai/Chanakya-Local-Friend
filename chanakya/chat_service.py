@@ -79,6 +79,7 @@ _WAITING_INPUT_CANCEL_MARKERS = (
     "ignore it",
 )
 _WORK_PENDING_INTERACTION_KEY = "work_pending_interaction"
+_WORK_GROUP_CHAT_STATE_KEY = "work_group_chat_state"
 
 _CODE_ARTIFACT_SUFFIXES = {
     ".py",
@@ -1230,6 +1231,14 @@ class ChatService:
         root_input[_WORK_PENDING_INTERACTION_KEY] = pending
         self.store.update_task(root_task_id, input_json=root_input)
 
+    def _set_root_group_chat_state(self, root_task_id: str, state: dict[str, Any] | None) -> None:
+        if not isinstance(state, dict):
+            return
+        root_task = self.store.get_task(root_task_id)
+        root_input = dict(root_task.input_json or {})
+        root_input[_WORK_GROUP_CHAT_STATE_KEY] = dict(state)
+        self.store.update_task(root_task_id, input_json=root_input)
+
     @staticmethod
     def _format_chanakya_input_prompt(question: str) -> str:
         cleaned = " ".join(question.strip().split())
@@ -1695,6 +1704,8 @@ class ChatService:
         if artifacts:
             result_json = {**result_json, "artifacts": artifacts}
         if task_status == TASK_STATUS_WAITING_INPUT and input_prompt:
+            group_chat_state = result_json.get("group_chat_state") if isinstance(result_json, dict) else None
+            self._set_root_group_chat_state(root_task_id, group_chat_state)
             pending_request_id = None
             requesting_agent_id = None
             requesting_agent_name = None
@@ -1802,6 +1813,8 @@ class ChatService:
             response_messages = [*response_messages, {"text": input_prompt, "delay_ms": 0, "agent_name": "Chanakya"}]
         elif task_status != TASK_STATUS_WAITING_INPUT:
             self._clear_root_pending_interaction(root_task_id)
+            group_chat_state = result_json.get("group_chat_state") if isinstance(result_json, dict) else None
+            self._set_root_group_chat_state(root_task_id, group_chat_state)
             actual_runtime_meta = (
                 runtime_meta
                 if manager_result is None
@@ -2258,6 +2271,8 @@ class ChatService:
         finished_at = None if result.task_status == TASK_STATUS_WAITING_INPUT else now_iso()
         visible_messages = list(result.visible_messages or [])
         if result.task_status == TASK_STATUS_WAITING_INPUT and result.input_prompt:
+            group_chat_state = result.result_json.get("group_chat_state") if isinstance(result.result_json, dict) else None
+            self._set_root_group_chat_state(root_task_id, group_chat_state)
             pending_request_id = None
             requesting_agent_id = None
             requesting_agent_name = None
@@ -2357,6 +2372,8 @@ class ChatService:
             )
         elif result.task_status != TASK_STATUS_WAITING_INPUT:
             self._clear_root_pending_interaction(root_task_id)
+            group_chat_state = result.result_json.get("group_chat_state") if isinstance(result.result_json, dict) else None
+            self._set_root_group_chat_state(root_task_id, group_chat_state)
             base_metadata = {
                 "runtime": "maf_agent",
                 "core_agent_backend": str(runtime_meta.get("backend") or "local"),

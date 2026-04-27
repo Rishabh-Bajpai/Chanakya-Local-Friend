@@ -632,6 +632,12 @@ class AgentManager:
                 work_id=_ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get(),
                 runtime_trace=getattr(workflow, "_chanakya_group_chat_trace", None),
             )
+            self._record_group_chat_manager_events(
+                session_id=session_id,
+                request_id=request_id,
+                manager_task_id=manager_task_id,
+                execution_trace=execution_trace,
+            )
             turn_task_ids = self._record_group_chat_visible_turns(
                 session_id=session_id,
                 request_id=request_id,
@@ -649,11 +655,22 @@ class AgentManager:
             }
             if completion_payload.get("status") == "needs_user_input":
                 pending_request_id = make_id("pending")
+                group_chat_state = self._derive_group_chat_state(
+                    execution_trace=execution_trace,
+                    completion_payload=completion_payload,
+                    visible_messages=visible_messages,
+                    manager_task_id=manager_task_id,
+                    pending_request_id=pending_request_id,
+                )
                 waiting_payload = {
                     **result_json,
                     "waiting_task_id": manager_task_id,
                     "input_prompt": str(completion_payload.get("question") or "").strip(),
                     "pending_request_id": pending_request_id,
+                    "reason": str(completion_payload.get("reason") or "").strip() or None,
+                    "requesting_agent_id": completion_payload.get("requesting_agent_id"),
+                    "requesting_agent_name": completion_payload.get("requesting_agent_name"),
+                    "group_chat_state": group_chat_state,
                 }
                 manager_input = dict(self.store.get_task(manager_task_id).input_json or {})
                 manager_input.update(
@@ -667,6 +684,7 @@ class AgentManager:
                         "requesting_agent_name": completion_payload.get("requesting_agent_name"),
                     }
                 )
+                manager_input["group_chat_state"] = group_chat_state
                 self.store.update_task(manager_task_id, input_json=manager_input)
                 self._transition_task(
                     session_id=session_id,
@@ -699,10 +717,18 @@ class AgentManager:
                 visible_messages=visible_messages,
                 completion_payload=completion_payload,
             )
+            group_chat_state = self._derive_group_chat_state(
+                execution_trace=execution_trace,
+                completion_payload=completion_payload,
+                visible_messages=visible_messages,
+                manager_task_id=manager_task_id,
+            )
             completed_payload = {
                 **result_json,
                 "summary": final_summary,
+                "group_chat_state": group_chat_state,
             }
+            self._update_group_chat_manager_state(manager_task_id, state=group_chat_state)
             self._transition_task(
                 session_id=session_id,
                 request_id=request_id,
@@ -738,6 +764,25 @@ class AgentManager:
         except Exception as exc:
             error_text = self._describe_exception(exc)
             finished_at = now_iso()
+            failed_group_chat_state = {
+                "workflow_type": WORKFLOW_GROUP_CHAT,
+                "manager_task_id": manager_task_id,
+                "visible_turn_count": 0,
+                "latest_visible_turn_index": -1,
+                "latest_synchronized_conversation_cursor": 0,
+                "active_speaker": None,
+                "last_selected_speaker": None,
+                "pending_clarification_owner": None,
+                "manager_termination_state": {
+                    "status": "failed",
+                    "reason": error_text,
+                    "summary": None,
+                    "requesting_agent_id": None,
+                    "requesting_agent_name": None,
+                    "updated_at": finished_at,
+                },
+            }
+            self._update_group_chat_manager_state(manager_task_id, state=failed_group_chat_state)
             self._transition_task(
                 session_id=session_id,
                 request_id=request_id,
@@ -749,6 +794,7 @@ class AgentManager:
                 result_json={
                     "workflow_type": WORKFLOW_GROUP_CHAT,
                     "error": error_text,
+                    "group_chat_state": failed_group_chat_state,
                     "child_task_ids": child_task_ids,
                 },
                 event_type="workflow_failed",
@@ -922,16 +968,30 @@ class AgentManager:
         return agent, prompt_snapshot, list(config.cached_tools or [])
 
     def _build_group_chat_participant_addendum(self, profile: AgentProfileModel) -> str:
+        role_boundary = self._group_chat_role_boundary(profile)
         return (
             "You are participating in a manager-led multi-agent work group chat. "
             "Speak only when selected by the Agent Manager. "
             "Assume every visible chat turn is shared context for the whole team. "
             "Stay strictly within your role and contribute only what moves the work forward. "
             "Do not address the human user directly and do not ask the user questions yourself. "
+            "Do not explain the orchestration itself, do not narrate hidden steps, and do not restate other agents unless needed for your contribution. "
             "If you are blocked on a missing user decision or fact, output a concise message that starts with 'NEEDS_USER_INPUT:' followed by the exact missing decision and a short reason. "
-            "If you can proceed safely, do so and make assumptions explicit. "
+            "If you can proceed safely, do so and make assumptions explicit. Keep your turn compact and role-specific rather than trying to solve the whole job alone. "
+            f"Role boundary: {role_boundary} "
             f"Your role-specific capability summary: {self._group_chat_capability_summary(profile)}"
         )
+
+    def _group_chat_role_boundary(self, profile: AgentProfileModel) -> str:
+        boundaries = {
+            "cto": "Provide software direction, architecture judgment, implementation review, and risk framing. Do not write the full implementation unless explicitly asked to review a tiny patch.",
+            "informer": "Provide research/writing direction, synthesis framing, and quality review. Do not act like the final writer unless the manager explicitly selects you for a direct content contribution.",
+            "developer": "Implement software changes, concrete code plans, and engineering details. Do not claim validation you did not perform.",
+            "researcher": "Gather facts, sources, and uncertainties. Do not turn research into a polished final user-facing draft unless asked.",
+            "writer": "Draft or polish the user-facing answer from available facts. Do not invent unsupported claims or implementation details.",
+            "tester": "Validate work, run checks, surface defects, and state residual risks. Do not invent implementation work you did not verify.",
+        }
+        return boundaries.get(profile.role, f"Stay within the {profile.role} specialty only.")
 
     def _build_group_chat_participant_prompt_addendum(
         self,
@@ -996,12 +1056,14 @@ class AgentManager:
             + "\n\nSelection rules:\n"
             "1. Prefer the smallest number of turns needed for a correct result.\n"
             "2. Pick agents whose capabilities match the current unresolved need.\n"
-            "3. Do not force hierarchical chains; any participant may speak next.\n"
+            "3. Do not force hierarchical chains; any participant may speak next. Do not make everyone speak unless their contribution materially improves correctness.\n"
             "4. If a participant says NEEDS_USER_INPUT:, terminate with final_message as a compact JSON string with keys status, question, reason, requesting_agent_id, requesting_agent_name.\n"
             "5. When the work is complete, terminate with final_message as a compact JSON string with keys status='completed' and summary.\n"
             "6. If you are not terminating, you must always provide next_speaker using one of the exact participant names. Never leave next_speaker empty when terminate=false.\n"
             "7. After the user answers a clarification, usually send the next turn back to the agent best positioned to use that answer.\n"
-            "8. If the conversation is stuck, terminate with status='failed' and a short reason."
+            "8. If the conversation is stuck, terminate with status='failed' and a short reason.\n"
+            "9. Treat termination as valid in four cases only: the user request is satisfied, clarification is required, a blocker or failure must be surfaced, or max rounds were effectively reached.\n"
+            "10. The manager is not a visible worker. Select participants or terminate; do not produce user-facing content directly."
         )
 
     def build_group_chat_participant_prompt_snapshot(
@@ -1241,6 +1303,115 @@ class AgentManager:
             },
         }
 
+    def _derive_group_chat_state(
+        self,
+        *,
+        execution_trace: dict[str, Any],
+        completion_payload: dict[str, Any],
+        visible_messages: list[dict[str, Any]],
+        manager_task_id: str,
+        pending_request_id: str | None = None,
+    ) -> dict[str, Any]:
+        seeded_context = list(execution_trace.get("seeded_context") or [])
+        manager_decisions = list(execution_trace.get("manager_decisions") or [])
+        last_selected_speaker = None
+        for decision in reversed(manager_decisions):
+            payload = dict(decision.get("decision") or {})
+            next_speaker = str(payload.get("next_speaker") or "").strip()
+            if next_speaker:
+                last_selected_speaker = next_speaker
+                break
+        latest_turn_index = max((int(item.get("turn_index") or 0) for item in visible_messages), default=-1)
+        status = str(completion_payload.get("status") or "completed").strip() or "completed"
+        requesting_agent_id = str(completion_payload.get("requesting_agent_id") or "").strip() or None
+        requesting_agent_name = str(completion_payload.get("requesting_agent_name") or "").strip() or None
+        return {
+            "workflow_type": WORKFLOW_GROUP_CHAT,
+            "manager_task_id": manager_task_id,
+            "visible_turn_count": len(visible_messages),
+            "latest_visible_turn_index": latest_turn_index,
+            "latest_synchronized_conversation_cursor": len(seeded_context) + len(visible_messages),
+            "active_speaker": requesting_agent_name if status == "needs_user_input" else None,
+            "last_selected_speaker": last_selected_speaker,
+            "pending_clarification_owner": {
+                "agent_id": requesting_agent_id,
+                "agent_name": requesting_agent_name,
+                "pending_request_id": pending_request_id,
+                "question": str(completion_payload.get("question") or "").strip() or None,
+                "reason": str(completion_payload.get("reason") or "").strip() or None,
+            }
+            if status == "needs_user_input"
+            else None,
+            "manager_termination_state": {
+                "status": status,
+                "reason": str(completion_payload.get("reason") or "").strip() or None,
+                "summary": str(completion_payload.get("summary") or "").strip() or None,
+                "requesting_agent_id": requesting_agent_id,
+                "requesting_agent_name": requesting_agent_name,
+                "updated_at": now_iso(),
+            },
+        }
+
+    def _update_group_chat_manager_state(
+        self,
+        manager_task_id: str,
+        *,
+        state: dict[str, Any],
+    ) -> None:
+        manager_task = self.store.get_task(manager_task_id)
+        manager_input = dict(manager_task.input_json or {})
+        manager_input["group_chat_state"] = state
+        self.store.update_task(manager_task_id, input_json=manager_input)
+
+    def _record_group_chat_manager_events(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        manager_task_id: str,
+        execution_trace: dict[str, Any],
+    ) -> None:
+        decisions = list(execution_trace.get("manager_decisions") or [])
+        if not decisions:
+            decisions = [
+                {
+                    "round_index": item.get("step"),
+                    "decision": dict(item.get("decision") or {}),
+                }
+                for item in list(execution_trace.get("call_sequence") or [])
+                if item.get("kind") == "manager_decision"
+            ]
+        for decision in decisions:
+            payload = dict(decision.get("decision") or {})
+            if payload.get("terminate") or payload.get("action") == "terminate":
+                self.store.create_task_event(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=manager_task_id,
+                    event_type="group_chat_termination_decided",
+                    payload={
+                        "workflow_type": WORKFLOW_GROUP_CHAT,
+                        "status": payload.get("status") or ("completed" if payload.get("final_message") or payload.get("summary") else "failed"),
+                        "reason": payload.get("reason"),
+                        "summary": payload.get("summary"),
+                        "requesting_agent_id": payload.get("requesting_agent_id"),
+                        "requesting_agent_name": payload.get("requesting_agent_name"),
+                    },
+                )
+            else:
+                self.store.create_task_event(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=manager_task_id,
+                    event_type="group_chat_speaker_selected",
+                    payload={
+                        "workflow_type": WORKFLOW_GROUP_CHAT,
+                        "round_index": decision.get("round_index"),
+                        "selected_speaker": payload.get("next_speaker") or payload.get("selected_agent_name"),
+                        "selection_reason": payload.get("reason"),
+                    },
+                )
+
     def _extract_group_chat_conversation(self, result: Any) -> list[Message]:
         outputs = []
         get_outputs = getattr(result, "get_outputs", None)
@@ -1278,6 +1449,8 @@ class AgentManager:
         for index, item in enumerate(conversation_slice):
             text = (item.text or "").strip()
             if not text:
+                continue
+            if text.startswith("NEEDS_USER_INPUT:"):
                 continue
             profile = participant_by_name.get(str(item.author_name or "").strip())
             visible_messages.append(
