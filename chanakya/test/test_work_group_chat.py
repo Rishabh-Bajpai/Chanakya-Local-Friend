@@ -9,7 +9,7 @@ from chanakya.agent.runtime import MAFRuntime
 from chanakya.agent_manager import AgentManager, RuntimeGroupChatTrace
 from chanakya.chat_service import ChatService
 from chanakya.db import build_engine, build_session_factory, init_database
-from chanakya.domain import TASK_STATUS_DONE, TASK_STATUS_WAITING_INPUT
+from chanakya.domain import TASK_STATUS_DONE, TASK_STATUS_FAILED, TASK_STATUS_WAITING_INPUT
 from chanakya.model import AgentProfileModel
 from chanakya.store import ChanakyaStore
 
@@ -197,6 +197,17 @@ def test_work_group_chat_persists_visible_agent_turns_and_mirrors_history() -> N
     event_types = [item.get("event_type") for item in store.list_task_events(session_id=work_session_id)]
     assert "group_chat_speaker_selected" in event_types
     assert "group_chat_termination_decided" in event_types
+    speaker_event = next(
+        item for item in store.list_task_events(session_id=work_session_id)
+        if item.get("event_type") == "group_chat_speaker_selected"
+    )
+    termination_event = next(
+        item for item in store.list_task_events(session_id=work_session_id)
+        if item.get("event_type") == "group_chat_termination_decided"
+    )
+    assert speaker_event["payload"]["selected_speaker"] == "Researcher"
+    assert speaker_event["payload"]["selected_agent_id"] == "agent_researcher"
+    assert termination_event["payload"]["termination_case"] == "user_request_satisfied"
     chanakya_messages = store.list_messages(work_session_id)
     assistant_messages = [item for item in chanakya_messages if item.get("role") == "assistant"]
     assert [item.get("metadata", {}).get("visible_agent_name") for item in assistant_messages] == [
@@ -356,6 +367,47 @@ def test_work_chat_autoresume_prefers_explicit_active_pending_interaction() -> N
 
     assert resumed.root_task_status == TASK_STATUS_DONE
     assert resumed.messages[-1]["text"] == "Implemented with Flask."
+
+
+def test_group_chat_max_rounds_is_normalized_into_bounded_failure() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_round_limit")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(role="assistant", text="Developer is still iterating.", author_name="Developer"),
+            Message(
+                role="assistant",
+                text="The group chat has reached the maximum number of rounds.",
+                author_name="Agent Manager",
+            ),
+        ]
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(work_session_id, "Keep iterating until done", work_id="work_round_limit")
+
+    assert reply.root_task_status == TASK_STATUS_FAILED
+    root_task = next(task for task in store.list_tasks(session_id=work_session_id, root_only=True) if task["is_root"])
+    group_chat_state = root_task.get("input", {}).get("work_group_chat_state", {})
+    assert group_chat_state["manager_termination_state"]["termination_case"] == "max_rounds_reached"
+    manager_task = next(
+        task
+        for task in store.list_tasks(session_id=work_session_id, limit=20)
+        if task.get("task_type") == "manager_group_chat_orchestration"
+    )
+    completion = manager_task.get("result", {}).get("completion", {})
+    assert completion["termination_case"] == "max_rounds_reached"
+    termination_event = next(
+        item for item in store.list_task_events(session_id=work_session_id)
+        if item.get("event_type") == "group_chat_termination_decided"
+    )
+    assert termination_event["payload"]["termination_case"] == "max_rounds_reached"
 
 
 def test_work_group_chat_retries_transient_502() -> None:

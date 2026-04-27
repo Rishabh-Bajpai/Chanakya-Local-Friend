@@ -71,6 +71,8 @@ WORKFLOW_INFORMATION = "information_delivery"
 WORKFLOW_MANAGER_DIRECT = "manager_direct_fallback"
 WORKFLOW_GROUP_CHAT = "work_group_chat"
 MAX_UNTRUSTED_ARTIFACT_CHARS = 12000
+GROUP_CHAT_MAX_ROUNDS_MESSAGE = "The group chat has reached the maximum number of rounds."
+GROUP_CHAT_TERMINATION_CONDITION_MESSAGE = "The group chat has reached its termination condition."
 
 _ACTIVE_WORK_ID: ContextVar[str | None] = ContextVar("active_work_id", default=None)
 _ACTIVE_REQUEST_ID: ContextVar[str | None] = ContextVar("active_request_id", default=None)
@@ -623,6 +625,7 @@ class AgentManager:
                 conversation_slice=conversation_slice,
                 participant_profiles=participant_profiles,
             )
+            completion_payload = self._normalize_group_chat_completion_payload(completion_payload)
             execution_trace = self.build_group_chat_execution_trace(
                 request_message=message,
                 participant_profiles=participant_profiles,
@@ -637,6 +640,7 @@ class AgentManager:
                 request_id=request_id,
                 manager_task_id=manager_task_id,
                 execution_trace=execution_trace,
+                participant_profiles=participant_profiles,
             )
             turn_task_ids = self._record_group_chat_visible_turns(
                 session_id=session_id,
@@ -729,16 +733,28 @@ class AgentManager:
                 "group_chat_state": group_chat_state,
             }
             self._update_group_chat_manager_state(manager_task_id, state=group_chat_state)
+            task_status = (
+                TASK_STATUS_DONE
+                if completion_payload.get("status") == "completed"
+                else TASK_STATUS_FAILED
+            )
             self._transition_task(
                 session_id=session_id,
                 request_id=request_id,
                 task_id=manager_task_id,
                 from_status=TASK_STATUS_IN_PROGRESS,
-                to_status=TASK_STATUS_DONE,
+                to_status=task_status,
                 finished_at=finished_at,
                 result_json=completed_payload,
-                event_type="workflow_completed",
-                event_payload={"workflow_type": WORKFLOW_GROUP_CHAT},
+                event_type=(
+                    "workflow_completed"
+                    if task_status == TASK_STATUS_DONE
+                    else "workflow_failed"
+                ),
+                event_payload={
+                    "workflow_type": WORKFLOW_GROUP_CHAT,
+                    "termination_case": completion_payload.get("termination_case"),
+                },
             )
             self.store.create_task_event(
                 session_id=session_id,
@@ -746,8 +762,9 @@ class AgentManager:
                 task_id=manager_task_id,
                 event_type="manager_summary_completed",
                 payload={
-                    "task_status": TASK_STATUS_DONE,
+                    "task_status": task_status,
                     "workflow_type": WORKFLOW_GROUP_CHAT,
+                    "termination_case": completion_payload.get("termination_case"),
                     "finished_at": finished_at,
                 },
             )
@@ -757,7 +774,7 @@ class AgentManager:
                 child_task_ids=child_task_ids,
                 manager_agent_id=self.manager_profile.id,
                 worker_agent_ids=[profile.id for profile in participant_profiles],
-                task_status=TASK_STATUS_DONE,
+                task_status=task_status,
                 result_json=completed_payload,
                 visible_messages=visible_messages,
             )
@@ -1303,6 +1320,38 @@ class AgentManager:
             },
         }
 
+    def _normalize_group_chat_completion_payload(
+        self,
+        completion_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        normalized = dict(completion_payload or {})
+        status = str(normalized.get("status") or "completed").strip() or "completed"
+        reason = str(normalized.get("reason") or "").strip()
+        summary = str(normalized.get("summary") or "").strip()
+        question = str(normalized.get("question") or "").strip()
+        if reason == GROUP_CHAT_MAX_ROUNDS_MESSAGE:
+            status = "failed"
+            normalized["termination_case"] = "max_rounds_reached"
+            normalized["reason"] = "Maximum group-chat rounds reached before the work could be completed."
+        elif reason == GROUP_CHAT_TERMINATION_CONDITION_MESSAGE:
+            status = "failed"
+            normalized["termination_case"] = "termination_condition_met"
+            normalized["reason"] = "The group chat termination condition was met before a normal completion summary was produced."
+        elif status == "needs_user_input":
+            normalized["termination_case"] = "clarification_required"
+            if question and not normalized.get("summary"):
+                normalized["summary"] = f"Clarification required: {question}"
+        elif status == "completed":
+            normalized["termination_case"] = "user_request_satisfied"
+        else:
+            normalized["termination_case"] = "blocker_or_failure"
+        normalized["status"] = status
+        if not normalized.get("reason") and reason:
+            normalized["reason"] = reason
+        if not normalized.get("summary") and summary:
+            normalized["summary"] = summary
+        return normalized
+
     def _derive_group_chat_state(
         self,
         *,
@@ -1333,6 +1382,7 @@ class AgentManager:
             "latest_synchronized_conversation_cursor": len(seeded_context) + len(visible_messages),
             "active_speaker": requesting_agent_name if status == "needs_user_input" else None,
             "last_selected_speaker": last_selected_speaker,
+            "termination_case": completion_payload.get("termination_case"),
             "pending_clarification_owner": {
                 "agent_id": requesting_agent_id,
                 "agent_name": requesting_agent_name,
@@ -1344,6 +1394,7 @@ class AgentManager:
             else None,
             "manager_termination_state": {
                 "status": status,
+                "termination_case": completion_payload.get("termination_case"),
                 "reason": str(completion_payload.get("reason") or "").strip() or None,
                 "summary": str(completion_payload.get("summary") or "").strip() or None,
                 "requesting_agent_id": requesting_agent_id,
@@ -1370,7 +1421,9 @@ class AgentManager:
         request_id: str,
         manager_task_id: str,
         execution_trace: dict[str, Any],
+        participant_profiles: list[AgentProfileModel],
     ) -> None:
+        participant_by_name = {profile.name: profile for profile in participant_profiles}
         decisions = list(execution_trace.get("manager_decisions") or [])
         if not decisions:
             decisions = [
@@ -1383,6 +1436,15 @@ class AgentManager:
             ]
         for decision in decisions:
             payload = dict(decision.get("decision") or {})
+            termination_case = payload.get("termination_case")
+            if not termination_case:
+                status = str(payload.get("status") or "").strip()
+                if status == "needs_user_input":
+                    termination_case = "clarification_required"
+                elif status == "completed" or payload.get("summary"):
+                    termination_case = "user_request_satisfied"
+                else:
+                    termination_case = "blocker_or_failure"
             if payload.get("terminate") or payload.get("action") == "terminate":
                 self.store.create_task_event(
                     session_id=session_id,
@@ -1392,6 +1454,7 @@ class AgentManager:
                     payload={
                         "workflow_type": WORKFLOW_GROUP_CHAT,
                         "status": payload.get("status") or ("completed" if payload.get("final_message") or payload.get("summary") else "failed"),
+                        "termination_case": termination_case,
                         "reason": payload.get("reason"),
                         "summary": payload.get("summary"),
                         "requesting_agent_id": payload.get("requesting_agent_id"),
@@ -1399,6 +1462,8 @@ class AgentManager:
                     },
                 )
             else:
+                selected_name = payload.get("next_speaker") or payload.get("selected_agent_name")
+                selected_profile = participant_by_name.get(str(selected_name or "").strip())
                 self.store.create_task_event(
                     session_id=session_id,
                     request_id=request_id,
@@ -1407,7 +1472,9 @@ class AgentManager:
                     payload={
                         "workflow_type": WORKFLOW_GROUP_CHAT,
                         "round_index": decision.get("round_index"),
-                        "selected_speaker": payload.get("next_speaker") or payload.get("selected_agent_name"),
+                        "selected_speaker": selected_name,
+                        "selected_agent_id": None if selected_profile is None else selected_profile.id,
+                        "selected_agent_role": None if selected_profile is None else selected_profile.role,
                         "selection_reason": payload.get("reason"),
                     },
                 )

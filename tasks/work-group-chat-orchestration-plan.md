@@ -48,6 +48,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - Added persisted group-chat runtime state on root/manager tasks covering active speaker, pending clarification owner, manager termination state, and latest synchronized conversation cursor.
 - Added explicit manager speaker-selection and termination task events for `/work` group chat.
 - Tightened participant/orchestrator prompts with explicit role boundaries and removed raw `NEEDS_USER_INPUT:` scaffolding from visible `/work` transcript turns.
+- Normalized bounded round-limit termination into explicit persisted failure state and richer termination metadata for `/work` group chat.
 
 ## Implementation Strategy
 
@@ -73,7 +74,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
   - [x] the user request has been satisfied
   - [x] clarification is required
   - [x] a failure/blocker must be surfaced
-  - [ ] max rounds are reached
+  - [x] max rounds are reached
 - [x] Add cleanup/normalization so group-chat orchestration scaffolding is not leaked into visible user-facing messages.
 
 ### Phase 3: Flatten Agent Topology
@@ -138,7 +139,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
   - [ ] one root task plus higher-level contribution tasks
 - [ ] Update task events to capture:
   - [x] selected speaker
-  - [ ] manager selection reason
+  - [x] manager selection reason
   - [ ] clarification requested
   - [x] visible message emitted
   - [x] conversation terminated
