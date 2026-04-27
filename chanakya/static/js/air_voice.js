@@ -232,6 +232,7 @@
       const llmModel = selectedValue(llmModelSelect);
       startAssistantSpeechQueue();
       voiceTurnActive = true;
+      setStatus("Thinking...");
       try {
         console.debug("[air-voice] submitTranscript: calling submitText...");
         const replyText = await submitText(transcript, {
@@ -239,7 +240,9 @@
           voiceMode: true,
           metadata,
           onAssistantMessage: async (assistantMessage) => {
+            setStatus("Speaking...");
             await speakAssistantMessageAndWait(assistantMessage);
+            setStatus(continuousMode ? "Listening for your next turn..." : "");
           },
         });
         console.debug("[air-voice] submitTranscript: submitText complete");
@@ -250,6 +253,9 @@
         return latestAssistantText;
       } finally {
         voiceTurnActive = false;
+        if (statusNode && (statusNode.textContent === "Thinking..." || statusNode.textContent === "Speaking...")) {
+          setStatus("");
+        }
       }
     }
 

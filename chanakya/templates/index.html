@@ -5189,6 +5189,7 @@
       if (voiceMode) {
         resetVoiceQueueState();
       }
+      setConversationQueueStatus("");
       beginAssistantTurn();
       renderInlineProgressStatus('Chanakya is processing the request', { requestId: activeInlineProgressRequestId || 'pending' });
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
