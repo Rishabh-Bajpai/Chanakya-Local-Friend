@@ -77,8 +77,10 @@ WORKFLOW_GROUP_CHAT = "work_group_chat"
 MAX_UNTRUSTED_ARTIFACT_CHARS = 12000
 GROUP_CHAT_MAX_ROUNDS_MESSAGE = "The group chat has reached the maximum number of rounds."
 GROUP_CHAT_TERMINATION_CONDITION_MESSAGE = "The group chat has reached its termination condition."
-GROUP_CHAT_SEEDED_HISTORY_LIMIT = 12
-GROUP_CHAT_CONTEXT_POLICY = "recent_visible_transcript_window"
+GROUP_CHAT_SEEDED_HISTORY_LIMIT = 8
+GROUP_CHAT_CONTEXT_SUMMARY_TRIGGER = 12
+GROUP_CHAT_SUMMARY_CHAR_LIMIT = 1200
+GROUP_CHAT_CONTEXT_POLICY = "compact_summary_plus_recent_visible_turns"
 
 _ACTIVE_WORK_ID: ContextVar[str | None] = ContextVar("active_work_id", default=None)
 _ACTIVE_REQUEST_ID: ContextVar[str | None] = ContextVar("active_request_id", default=None)
@@ -143,6 +145,13 @@ def _serialize_tool_trace(trace: ToolExecutionTrace) -> dict[str, Any]:
     }
 
 
+def _safe_response_messages(response: Any) -> list[Message]:
+    messages = getattr(response, "messages", None)
+    if isinstance(messages, list):
+        return [item for item in messages if isinstance(item, Message)]
+    return []
+
+
 class TracedAgentExecutor(AgentExecutor):
     def __init__(
         self,
@@ -191,7 +200,7 @@ class TracedAgentExecutor(AgentExecutor):
                     "error": str(exc),
                 },
             )
-        response_messages = [_serialize_trace_message(item) for item in list(response.messages or [])]
+        response_messages = [_serialize_trace_message(item) for item in _safe_response_messages(response)]
         self._trace_store.participant_calls.append(
             {
                 "call_index": len(self._trace_store.participant_calls),
@@ -283,7 +292,8 @@ class TracedGroupChatOrchestrator(AgentBasedGroupChatOrchestrator):
                             "final_message": str(decision.final_message or "").strip() or None,
                         },
                         "response_messages": [
-                            _serialize_trace_message(item) for item in list(agent_response.messages or [])
+                            _serialize_trace_message(item)
+                            for item in _safe_response_messages(agent_response)
                         ],
                         "raw_response_text": str(getattr(agent_response, "text", "") or ""),
                     }
@@ -921,6 +931,41 @@ class AgentManager:
                 )
         return summaries
 
+    def _build_group_chat_context_summary(self, records: list[dict[str, Any]]) -> str | None:
+        summary_lines: list[str] = []
+        current_user_request: str | None = None
+        agent_updates: list[str] = []
+        for record in records:
+            role = str(record.get("role") or "assistant")
+            content = self._bounded_text(str(record.get("content") or "").strip(), limit=220)
+            if not content:
+                continue
+            metadata = dict(record.get("metadata") or {})
+            if role == "user":
+                if current_user_request and agent_updates:
+                    summary_lines.append(
+                        f"User asked: {current_user_request} | Team progress: {' ; '.join(agent_updates[:3])}"
+                    )
+                current_user_request = content
+                agent_updates = []
+                continue
+            agent_name = (
+                str(metadata.get("visible_agent_name") or "").strip()
+                or str(metadata.get("group_chat_agent_name") or "").strip()
+                or "Chanakya"
+            )
+            agent_updates.append(f"{agent_name}: {content}")
+        if current_user_request and agent_updates:
+            summary_lines.append(
+                f"User asked: {current_user_request} | Team progress: {' ; '.join(agent_updates[:3])}"
+            )
+        if not summary_lines:
+            return None
+        return self._bounded_text(
+            "Earlier shared context summary:\n" + "\n".join(f"- {line}" for line in summary_lines[-4:]),
+            limit=GROUP_CHAT_SUMMARY_CHAR_LIMIT,
+        )
+
     def _build_group_chat_seed_conversation(self, session_id: str) -> list[Message]:
         records = self.store.list_messages(session_id)
         return self.build_group_chat_seed_conversation_from_records(records)
@@ -929,8 +974,22 @@ class AgentManager:
         self,
         records: list[dict[str, Any]],
     ) -> list[Message]:
+        compact_summary = None
+        visible_records = list(records)
+        if len(visible_records) > GROUP_CHAT_CONTEXT_SUMMARY_TRIGGER:
+            summary_source = visible_records[:-GROUP_CHAT_SEEDED_HISTORY_LIMIT]
+            compact_summary = self._build_group_chat_context_summary(summary_source)
+            visible_records = visible_records[-GROUP_CHAT_SEEDED_HISTORY_LIMIT:]
         seeded: list[Message] = []
-        for record in records[-GROUP_CHAT_SEEDED_HISTORY_LIMIT:]:
+        if compact_summary:
+            seeded.append(
+                Message(
+                    role="assistant",
+                    text=compact_summary,
+                    author_name="Chanakya",
+                )
+            )
+        for record in visible_records:
             role = str(record.get("role") or "assistant")
             content = self._bounded_text(str(record.get("content") or "").strip(), limit=1200)
             if not content:
@@ -1343,8 +1402,9 @@ class AgentManager:
             "context_policy": {
                 "strategy": GROUP_CHAT_CONTEXT_POLICY,
                 "seeded_history_limit": GROUP_CHAT_SEEDED_HISTORY_LIMIT,
+                "summary_trigger": GROUP_CHAT_CONTEXT_SUMMARY_TRIGGER,
                 "include_agent_local_history": False,
-                "shared_context_source": "visible_transcript_only",
+                "shared_context_source": "compact_summary_plus_visible_transcript",
             },
             "request_message": request_message,
             "seeded_context": seeded_context,
@@ -1425,8 +1485,9 @@ class AgentManager:
             "context_policy": {
                 "strategy": GROUP_CHAT_CONTEXT_POLICY,
                 "seeded_history_limit": GROUP_CHAT_SEEDED_HISTORY_LIMIT,
+                "summary_trigger": GROUP_CHAT_CONTEXT_SUMMARY_TRIGGER,
                 "include_agent_local_history": False,
-                "shared_context_source": "visible_transcript_only",
+                "shared_context_source": "compact_summary_plus_visible_transcript",
             },
             "visible_turn_count": len(visible_messages),
             "latest_visible_turn_index": latest_turn_index,

@@ -51,6 +51,8 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - Normalized bounded round-limit termination into explicit persisted failure state and richer termination metadata for `/work` group chat.
 - Added explicit clarification-request and visible-message task events plus a persisted transcript-context policy marker for group-chat runs.
 - Added work-history `active_runtime` state and explicit artifact lineage metadata so reload state and request-vs-latest artifact attribution are first-class in the `/work` APIs.
+- Replaced the old recent-transcript-only seeding with a compact shared-context summary plus recent visible turns to reduce prompt growth without dropping work continuity.
+- Hardened group-chat trace capture further so malformed response-message metadata does not fail live `/work` execution.
 
 ## Implementation Strategy
 
@@ -117,7 +119,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [ ] Ensure each participant receives the correct work-scoped transcript, not just its isolated agent-local memory.
 - [ ] Decide how much history is injected each turn:
   - [x] full visible transcript window
-  - [ ] compact manager summary + recent turns
+  - [x] compact manager summary + recent turns
   - [ ] agent-local session history + synchronized group conversation excerpt
 - [ ] Refactor `/api/works/<work_id>/history` expectations so the visible work conversation and internal agent sessions remain understandable together.
 - [x] Refactor `/api/works/<work_id>/history` expectations so the visible work conversation and internal agent sessions remain understandable together.
@@ -189,7 +191,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [x] Remove or redesign the current “exactly one waiting task” assumption.
 - [x] Prevent overlapping `/work` messages from corrupting shared session/workspace state.
 - [x] Eliminate developer-only clarification resume behavior.
-- [ ] Reduce history-loss risk from over-compressed work session context.
+- [x] Reduce history-loss risk from over-compressed work session context.
 - [ ] Remove prompt bloat and repetitive workflow boilerplate that hurts inference speed.
 
 ## Suggested Delivery Order

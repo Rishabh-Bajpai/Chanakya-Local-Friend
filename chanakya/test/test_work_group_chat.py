@@ -213,7 +213,7 @@ def test_work_group_chat_persists_visible_agent_turns_and_mirrors_history() -> N
     assert speaker_event["payload"]["selected_agent_id"] == "agent_researcher"
     assert termination_event["payload"]["termination_case"] == "user_request_satisfied"
     assert len(visible_message_events) == 2
-    assert execution_trace["context_policy"]["strategy"] == "recent_visible_transcript_window"
+    assert execution_trace["context_policy"]["strategy"] == "compact_summary_plus_recent_visible_turns"
     chanakya_messages = store.list_messages(work_session_id)
     assistant_messages = [item for item in chanakya_messages if item.get("role") == "assistant"]
     assert [item.get("metadata", {}).get("visible_agent_name") for item in assistant_messages] == [
@@ -288,7 +288,7 @@ def test_work_group_chat_waiting_input_resumes_same_request() -> None:
     root_task = next(task for task in store.list_tasks(session_id=work_session_id, root_only=True) if task["is_root"])
     group_chat_state = dict(root_task["input"]).get("work_group_chat_state")
     assert isinstance(group_chat_state, dict)
-    assert group_chat_state["context_policy"]["strategy"] == "recent_visible_transcript_window"
+    assert group_chat_state["context_policy"]["strategy"] == "compact_summary_plus_recent_visible_turns"
     clarification_event = next(
         item for item in store.list_task_events(session_id=work_session_id)
         if item.get("event_type") == "group_chat_clarification_requested"
@@ -310,6 +310,39 @@ def test_work_group_chat_waiting_input_resumes_same_request() -> None:
     chanakya_messages = store.list_messages(work_session_id)
     assert any(item.get("content") == "Use Flask" for item in chanakya_messages)
     assert any(item.get("content") == "Implemented with Flask." for item in chanakya_messages)
+
+
+def test_group_chat_seed_conversation_compacts_older_visible_history() -> None:
+    store = _build_store()
+    _chanakya, manager_profile = _seed_full_hierarchy(store)
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    records: list[dict[str, Any]] = []
+    for index in range(14):
+        if index % 2 == 0:
+            records.append(
+                {
+                    "role": "user",
+                    "content": f"User request {index // 2}",
+                    "metadata": {},
+                }
+            )
+        else:
+            records.append(
+                {
+                    "role": "assistant",
+                    "content": f"Agent update {index // 2}",
+                    "metadata": {"visible_agent_name": "Developer"},
+                }
+            )
+
+    seeded = manager.build_group_chat_seed_conversation_from_records(records)
+
+    assert seeded[0].author_name == "Chanakya"
+    assert seeded[0].text.startswith("Earlier shared context summary:")
+    assert "User request 0" in seeded[0].text
+    assert len(seeded) == 9
+    assert seeded[-1].text == "Agent update 6"
 
 
 def test_work_chat_autoresume_prefers_explicit_active_pending_interaction() -> None:
@@ -477,7 +510,8 @@ def test_group_chat_seeded_history_is_bounded() -> None:
 
     seeded = manager._build_group_chat_seed_conversation(session_id)
 
-    assert len(seeded) == 12
+    assert len(seeded) == 9
+    assert seeded[0].text.startswith("Earlier shared context summary:")
     assert all(len(item.text or "") <= 1215 for item in seeded)
 
 
