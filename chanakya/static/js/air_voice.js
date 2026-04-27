@@ -247,7 +247,9 @@
           voiceMode: true,
           metadata,
           onAssistantMessage: async (assistantMessage) => {
-            setStatus("Speaking...");
+            if (continuousMode) {
+              setStatus("Speaking...");
+            }
             await speakAssistantMessageAndWait(assistantMessage);
             setStatus(continuousMode ? "Listening for your next turn..." : "");
           },
@@ -386,7 +388,7 @@
       pendingInterruptionSubmission = interruptionTriggered;
       await startRecordingMonitor(stream);
       recordButton.dataset.state = "recording";
-      setButtonLabel(recordButton, "Stop Mic");
+      setButtonLabel(recordButton, "Stop Recording");
       setStatus(interruptionTriggered ? "Recording interruption..." : (continuousMode ? "Listening for your next turn..." : "Recording..."));
     }
 
@@ -430,7 +432,7 @@
     }
 
     async function waitForInterruptionWindow() {
-      if (!voiceTurnActive || stopRequested) {
+      if (!continuousMode || !voiceTurnActive || stopRequested) {
         return { interrupted: false };
       }
       if (!selectedValue(sttModelSelect)) {
@@ -651,7 +653,9 @@
         return;
       }
       stopPlayback();
-      setStatus("Generating speech...");
+      if (continuousMode) {
+        setStatus("Generating speech...");
+      }
       const placeholder = { url: null, status: "pending" };
       audioQueue = [placeholder];
       await Promise.allSettled([synthesizeSpeechChunk(cleaned, placeholder)]);
@@ -873,6 +877,9 @@
       fetchModels,
       startVoiceMode,
       stopVoiceMode,
+      isContinuousModeEnabled() {
+        return continuousMode;
+      },
       isVoiceModeEnabled() {
         return continuousMode || voiceTurnActive;
       },
