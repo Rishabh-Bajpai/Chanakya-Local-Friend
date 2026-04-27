@@ -6,7 +6,7 @@ from typing import Any, cast
 from agent_framework import Message
 
 from chanakya.agent.runtime import MAFRuntime
-from chanakya.agent_manager import AgentManager
+from chanakya.agent_manager import AgentManager, RuntimeGroupChatTrace
 from chanakya.chat_service import ChatService
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.domain import TASK_STATUS_DONE, TASK_STATUS_WAITING_INPUT
@@ -340,3 +340,112 @@ def test_group_chat_orchestrator_is_built_with_retry_attempts() -> None:
     orchestrator = workflow.executors.get(workflow.start_executor_id)
     assert orchestrator is not None
     assert getattr(orchestrator, "_retry_attempts", None) == 2
+
+
+def test_group_chat_execution_trace_includes_runtime_decisions_and_tool_calls() -> None:
+    store = _build_store()
+    _, manager_profile = _seed_full_hierarchy(store)
+    manager = AgentManager(store, store.Session, manager_profile)
+    participant_profiles = manager._group_chat_participant_profiles()
+    trace = RuntimeGroupChatTrace(
+        manager_decisions=[
+            {
+                "call_input": {
+                    "input_messages": [
+                        {"role": "user", "author_name": "User", "text": "Build a demo API", "content_types": []},
+                        {"role": "user", "author_name": None, "text": "orchestrator instruction", "content_types": []},
+                    ],
+                    "available_tools": [],
+                    "model": "test-model",
+                    "backend": "local",
+                    "endpoint": "http://test",
+                    "response_format": "AgentOrchestrationOutput",
+                },
+                "decision": {
+                    "terminate": False,
+                    "reason": "Developer should implement first.",
+                    "next_speaker": "Developer",
+                    "final_message": None,
+                },
+                "response_messages": [],
+                "raw_response_text": '{"terminate":false}',
+            },
+            {
+                "call_input": {
+                    "input_messages": [
+                        {"role": "user", "author_name": "User", "text": "Build a demo API", "content_types": []},
+                        {"role": "assistant", "author_name": "Developer", "text": "Implemented the API.", "content_types": []},
+                        {"role": "user", "author_name": None, "text": "orchestrator instruction", "content_types": []},
+                    ],
+                    "available_tools": [],
+                    "model": "test-model",
+                    "backend": "local",
+                    "endpoint": "http://test",
+                    "response_format": "AgentOrchestrationOutput",
+                },
+                "decision": {
+                    "terminate": True,
+                    "reason": "Work is complete.",
+                    "next_speaker": None,
+                    "final_message": '{"status":"completed","summary":"Implemented the API."}',
+                },
+                "response_messages": [],
+                "raw_response_text": '{"terminate":true}',
+            },
+        ],
+        participant_calls=[
+            {
+                "agent_id": "agent_developer",
+                "agent_name": "Developer",
+                "agent_role": "developer",
+                "prompt_ref": "participant:agent_developer",
+                "call_input": {
+                    "input_messages": [
+                        {"role": "user", "author_name": "User", "text": "Build a demo API", "content_types": []},
+                    ],
+                    "available_tools": [{"tool_id": "mcp_filesystem", "tool_name": "Filesystem", "server_name": "basic"}],
+                    "model": "test-model",
+                    "backend": "local",
+                    "endpoint": "http://test",
+                },
+                "response_messages": [
+                    {"role": "assistant", "author_name": "Developer", "text": "Implemented the API.", "content_types": []},
+                ],
+                "tool_traces": [
+                    {
+                        "tool_id": "mcp_filesystem",
+                        "tool_name": "Filesystem",
+                        "server_name": "basic",
+                        "status": "succeeded",
+                        "input_payload": '{"path":"/workspace/app.py"}',
+                        "output_text": '"ok"',
+                        "error_text": None,
+                    }
+                ],
+            }
+        ],
+    )
+
+    execution_trace = manager.build_group_chat_execution_trace(
+        request_message="Build a demo API",
+        participant_profiles=participant_profiles,
+        seeded_conversation=[Message(role="user", text="Build a demo API", author_name="User")],
+        visible_messages=[
+            {
+                "text": "Implemented the API.",
+                "agent_id": "agent_developer",
+                "agent_name": "Developer",
+                "agent_role": "developer",
+                "turn_index": 0,
+            }
+        ],
+        completion_payload={"status": "completed", "summary": "Implemented the API."},
+        runtime_trace=trace,
+    )
+
+    assert execution_trace["capture_mode"] == "runtime_traced"
+    assert execution_trace["manager_decisions"][0]["decision"]["next_speaker"] == "Developer"
+    assert execution_trace["participant_calls"][0]["agent_name"] == "Developer"
+    assert execution_trace["call_sequence"][1]["participant_call_input"]["backend"] == "local"
+    assert execution_trace["call_sequence"][1]["tool_traces"][0]["tool_id"] == "mcp_filesystem"
+    assert execution_trace["tool_calls"][0]["tool_traces"][0]["status"] == "succeeded"

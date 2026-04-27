@@ -13,6 +13,7 @@ from agent_framework import Agent, Message
 from agent_framework.openai import OpenAIChatClient
 from agent_framework.orchestrations import SequentialBuilder
 from agent_framework_orchestrations._group_chat import (
+    AgentOrchestrationOutput,
     AgentBasedGroupChatOrchestrator,
     AgentExecutor,
     ParticipantRegistry,
@@ -47,6 +48,7 @@ from chanakya.domain import (
     now_iso,
 )
 from chanakya.maf_workflows import ManagerWorkflowRuntime
+from chanakya.mcp_runtime import ToolExecutionTrace, extract_tool_execution_traces
 from chanakya.model import AgentProfileModel
 from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.services.mcp_sandbox_exec_server import execute_python
@@ -97,6 +99,188 @@ class ManagerRunResult:
     waiting_task_id: str | None = None
     input_prompt: str | None = None
     visible_messages: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class RuntimeGroupChatTrace:
+    manager_decisions: list[dict[str, Any]] = field(default_factory=list)
+    participant_calls: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _serialize_trace_message(message: Message) -> dict[str, Any]:
+    contents = getattr(message, "contents", None)
+    content_types: list[str] = []
+    if isinstance(contents, list):
+        for item in contents:
+            content_type = getattr(item, "type", None)
+            if content_type is not None:
+                content_types.append(str(content_type))
+    return {
+        "role": str(getattr(message, "role", "assistant") or "assistant"),
+        "author_name": str(getattr(message, "author_name", "") or "").strip() or None,
+        "text": str(getattr(message, "text", "") or ""),
+        "content_types": content_types,
+    }
+
+
+def _serialize_tool_trace(trace: ToolExecutionTrace) -> dict[str, Any]:
+    return {
+        "tool_id": trace.tool_id,
+        "tool_name": trace.tool_name,
+        "server_name": trace.server_name,
+        "status": trace.status,
+        "input_payload": trace.input_payload,
+        "output_text": trace.output_text,
+        "error_text": trace.error_text,
+    }
+
+
+class TracedAgentExecutor(AgentExecutor):
+    def __init__(
+        self,
+        agent: Agent,
+        *,
+        profile: AgentProfileModel,
+        prompt_snapshot: dict[str, Any],
+        runtime_metadata: dict[str, Any],
+        tool_specs: list[Any],
+        trace_store: RuntimeGroupChatTrace,
+    ) -> None:
+        super().__init__(agent)
+        self._profile = profile
+        self._prompt_snapshot = dict(prompt_snapshot)
+        self._runtime_metadata = dict(runtime_metadata)
+        self._tool_specs = list(tool_specs)
+        self._trace_store = trace_store
+
+    async def _run_agent(self, ctx: Any) -> Any:
+        input_messages = [_serialize_trace_message(item) for item in self._cache]
+        response = await super()._run_agent(ctx)
+        self._record_trace(input_messages=input_messages, response=response)
+        return response
+
+    async def _run_agent_streaming(self, ctx: Any) -> Any:
+        input_messages = [_serialize_trace_message(item) for item in self._cache]
+        response = await super()._run_agent_streaming(ctx)
+        self._record_trace(input_messages=input_messages, response=response)
+        return response
+
+    def _record_trace(self, *, input_messages: list[dict[str, Any]], response: Any) -> None:
+        if response is None:
+            return
+        tool_traces = [
+            _serialize_tool_trace(item)
+            for item in extract_tool_execution_traces(response, self._tool_specs)
+        ]
+        response_messages = [_serialize_trace_message(item) for item in list(response.messages or [])]
+        self._trace_store.participant_calls.append(
+            {
+                "call_index": len(self._trace_store.participant_calls),
+                "agent_id": self._profile.id,
+                "agent_name": self._profile.name,
+                "agent_role": self._profile.role,
+                "runtime_metadata": dict(self._runtime_metadata),
+                "prompt_ref": f"participant:{self._profile.id}",
+                "call_input": {
+                    "input_messages": input_messages,
+                    "available_tools": list(self._prompt_snapshot.get("tool_summaries") or []),
+                    "model": self._runtime_metadata.get("model"),
+                    "backend": self._runtime_metadata.get("backend"),
+                    "endpoint": self._runtime_metadata.get("endpoint"),
+                },
+                "response_messages": response_messages,
+                "tool_traces": tool_traces,
+            }
+        )
+
+
+class TracedGroupChatOrchestrator(AgentBasedGroupChatOrchestrator):
+    def __init__(
+        self,
+        *args: Any,
+        prompt_snapshot: dict[str, Any],
+        runtime_metadata: dict[str, Any],
+        trace_store: RuntimeGroupChatTrace,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._prompt_snapshot = dict(prompt_snapshot)
+        self._runtime_metadata = dict(runtime_metadata)
+        self._trace_store = trace_store
+
+    async def _invoke_agent(self) -> AgentOrchestrationOutput:
+        async def _invoke_agent_helper(conversation: list[Message]) -> tuple[AgentOrchestrationOutput, Any]:
+            agent_response = await self._agent.run(
+                messages=conversation,
+                session=self._session,
+                options={"response_format": AgentOrchestrationOutput},
+            )
+            agent_orchestration_output = self._parse_agent_output(agent_response)
+            if not agent_orchestration_output.terminate and not agent_orchestration_output.next_speaker:
+                raise ValueError("next_speaker must be provided if not terminating the conversation.")
+            return agent_orchestration_output, agent_response
+
+        current_conversation = self._cache.copy()
+        self._cache.clear()
+        instruction = (
+            "Decide what to do next. Respond with a JSON object of the following format:\n"
+            "{\n"
+            '  "terminate": <true|false>,\n'
+            '  "reason": "<explanation for the decision>",\n'
+            '  "next_speaker": "<name of the next participant to speak (if not terminating)>",\n'
+            '  "final_message": "<optional final message if terminating>"\n'
+            "}\n"
+            "If not terminating, here are the valid participant names (case-sensitive) and their descriptions:\n"
+            + "\n".join([
+                f"{name}: {description}" for name, description in self._participant_registry.participants.items()
+            ])
+        )
+        manager_call_messages = [_serialize_trace_message(item) for item in current_conversation]
+        manager_call_messages.append(_serialize_trace_message(Message(role="user", text=instruction)))
+        current_conversation.append(Message(role="user", text=instruction))
+
+        retry_attempts = self._retry_attempts
+        while True:
+            try:
+                decision, agent_response = await _invoke_agent_helper(current_conversation)
+                self._trace_store.manager_decisions.append(
+                    {
+                        "decision_index": len(self._trace_store.manager_decisions),
+                        "round_index": getattr(self, "_round_index", 0),
+                        "prompt_ref": "orchestrator",
+                        "runtime_metadata": dict(self._runtime_metadata),
+                        "call_input": {
+                            "input_messages": manager_call_messages,
+                            "available_tools": list(self._prompt_snapshot.get("tool_summaries") or []),
+                            "model": self._runtime_metadata.get("model"),
+                            "backend": self._runtime_metadata.get("backend"),
+                            "endpoint": self._runtime_metadata.get("endpoint"),
+                            "response_format": "AgentOrchestrationOutput",
+                        },
+                        "decision": {
+                            "terminate": bool(decision.terminate),
+                            "reason": str(decision.reason or ""),
+                            "next_speaker": str(decision.next_speaker or "").strip() or None,
+                            "final_message": str(decision.final_message or "").strip() or None,
+                        },
+                        "response_messages": [
+                            _serialize_trace_message(item) for item in list(agent_response.messages or [])
+                        ],
+                        "raw_response_text": str(getattr(agent_response, "text", "") or ""),
+                    }
+                )
+                return decision
+            except Exception as ex:
+                if retry_attempts is None or retry_attempts <= 0:
+                    raise
+                retry_attempts -= 1
+                current_conversation = [
+                    Message(
+                        role="user",
+                        text=f"Your input could not be parsed due to an error: {ex}. Please try again.",
+                    )
+                ]
+                manager_call_messages = [_serialize_trace_message(item) for item in current_conversation]
 
 
 @dataclass(slots=True)
@@ -446,6 +630,7 @@ class AgentManager:
                 visible_messages=visible_messages,
                 completion_payload=completion_payload,
                 work_id=_ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get(),
+                runtime_trace=getattr(workflow, "_chanakya_group_chat_trace", None),
             )
             turn_task_ids = self._record_group_chat_visible_turns(
                 session_id=session_id,
@@ -622,6 +807,18 @@ class AgentManager:
         }
         return summaries.get(profile.role, f"Specialist role: {profile.role}.")
 
+    def _serialize_tool_summaries(self, tool_specs: list[Any] | None) -> list[dict[str, Any]]:
+        summaries: list[dict[str, Any]] = []
+        for spec in list(tool_specs or []):
+            summaries.append(
+                {
+                    "tool_id": getattr(spec, "id", None),
+                    "tool_name": getattr(spec, "name", None),
+                    "server_name": getattr(spec, "server_name", None),
+                }
+            )
+        return summaries
+
     def _build_group_chat_seed_conversation(self, session_id: str) -> list[Message]:
         records = self.store.list_messages(session_id)
         return self.build_group_chat_seed_conversation_from_records(records)
@@ -655,35 +852,55 @@ class AgentManager:
         message: str,
         participant_profiles: list[AgentProfileModel],
     ):
-        participant_agents = [
-            self._build_group_chat_participant_agent(profile, message=message)
-            for profile in participant_profiles
-        ]
-        participant_executors = [AgentExecutor(agent) for agent in participant_agents]
-        orchestrator_agent = self._build_group_chat_orchestrator_agent(
+        runtime_metadata = self._active_runtime_metadata()
+        trace_store = RuntimeGroupChatTrace()
+        participant_executors: list[TracedAgentExecutor] = []
+        for profile in participant_profiles:
+            agent, prompt_snapshot, tool_specs = self._build_group_chat_participant_agent(
+                profile,
+                message=message,
+                runtime_metadata=runtime_metadata,
+            )
+            participant_executors.append(
+                TracedAgentExecutor(
+                    agent,
+                    profile=profile,
+                    prompt_snapshot=prompt_snapshot,
+                    runtime_metadata=runtime_metadata,
+                    tool_specs=tool_specs,
+                    trace_store=trace_store,
+                )
+            )
+        orchestrator_agent, orchestrator_snapshot = self._build_group_chat_orchestrator_agent(
             participant_profiles=participant_profiles,
             message=message,
         )
-        orchestrator = AgentBasedGroupChatOrchestrator(
+        orchestrator = TracedGroupChatOrchestrator(
             agent=orchestrator_agent,
             participant_registry=ParticipantRegistry(participant_executors),
             max_rounds=10,
             retry_attempts=2,
+            prompt_snapshot=orchestrator_snapshot,
+            runtime_metadata=runtime_metadata,
+            trace_store=trace_store,
         )
         workflow_builder = WorkflowBuilder(start_executor=orchestrator, output_executors=[orchestrator])
         for participant in participant_executors:
             workflow_builder = workflow_builder.add_edge(orchestrator, participant)
             workflow_builder = workflow_builder.add_edge(participant, orchestrator)
-        return workflow_builder.build()
+        workflow = workflow_builder.build()
+        setattr(workflow, "_chanakya_group_chat_trace", trace_store)
+        return workflow
 
     def _build_group_chat_participant_agent(
         self,
         profile: AgentProfileModel,
         *,
         message: str,
-    ) -> Agent:
+        runtime_metadata: dict[str, Any],
+    ) -> tuple[Agent, dict[str, Any], list[Any]]:
         combined_addendum = self._build_group_chat_participant_prompt_addendum(profile)
-        agent, _ = build_profile_agent(
+        agent, config = build_profile_agent(
             profile,
             self.session_factory,
             client=self._resolve_client(),
@@ -693,7 +910,16 @@ class AgentManager:
             usage_text=message,
             prompt_addendum=combined_addendum,
         )
-        return agent
+        prompt_snapshot = {
+            "agent_id": profile.id,
+            "agent_name": profile.name,
+            "agent_role": profile.role,
+            "tool_ids": list(profile.tool_ids_json or []),
+            "tool_summaries": self._serialize_tool_summaries(config.cached_tools),
+            "runtime_metadata": dict(runtime_metadata),
+            "system_prompt": config.system_prompt,
+        }
+        return agent, prompt_snapshot, list(config.cached_tools or [])
 
     def _build_group_chat_participant_addendum(self, profile: AgentProfileModel) -> str:
         return (
@@ -726,7 +952,7 @@ class AgentManager:
         *,
         participant_profiles: list[AgentProfileModel],
         message: str,
-    ) -> Agent:
+    ) -> tuple[Agent, dict[str, Any]]:
         prompt_addendum = self._build_group_chat_orchestrator_addendum(
             participant_profiles=participant_profiles
         )
@@ -735,12 +961,21 @@ class AgentManager:
             usage_text=message,
             prompt_addendum=prompt_addendum,
         )
+        prompt_snapshot = {
+            "agent_id": self.manager_profile.id,
+            "agent_name": self.manager_profile.name,
+            "agent_role": self.manager_profile.role,
+            "tool_ids": list(self.manager_profile.tool_ids_json or []),
+            "tool_summaries": self._serialize_tool_summaries(config.cached_tools),
+            "runtime_metadata": self._active_runtime_metadata(),
+            "system_prompt": config.system_prompt,
+        }
         return Agent(
             client=self._resolve_client(),
             name="Agent Manager",
             description="Coordinates the /work multi-agent group chat.",
             instructions=config.system_prompt,
-        )
+        ), prompt_snapshot
 
     def _build_group_chat_orchestrator_addendum(
         self,
@@ -789,6 +1024,8 @@ class AgentManager:
             "agent_name": profile.name,
             "agent_role": profile.role,
             "tool_ids": list(profile.tool_ids_json or []),
+            "tool_summaries": self._serialize_tool_summaries(config.cached_tools),
+            "runtime_metadata": self._active_runtime_metadata(),
             "system_prompt": config.system_prompt,
         }
 
@@ -810,6 +1047,8 @@ class AgentManager:
             "agent_name": self.manager_profile.name,
             "agent_role": self.manager_profile.role,
             "tool_ids": list(self.manager_profile.tool_ids_json or []),
+            "tool_summaries": self._serialize_tool_summaries(config.cached_tools),
+            "runtime_metadata": self._active_runtime_metadata(),
             "system_prompt": config.system_prompt,
         }
 
@@ -822,6 +1061,7 @@ class AgentManager:
         visible_messages: list[dict[str, Any]],
         completion_payload: dict[str, Any],
         work_id: str | None = None,
+        runtime_trace: RuntimeGroupChatTrace | None = None,
     ) -> dict[str, Any]:
         participant_snapshots = [
             self.build_group_chat_participant_prompt_snapshot(
@@ -846,14 +1086,123 @@ class AgentManager:
             }
             for item in seeded_conversation
         ]
-        shared_context = [dict(item) for item in seeded_context]
+        manager_decisions = list(runtime_trace.manager_decisions) if runtime_trace else []
+        participant_calls = list(runtime_trace.participant_calls) if runtime_trace else []
         call_sequence: list[dict[str, Any]] = []
-        for item in visible_messages:
-            agent_id = str(item.get("agent_id") or "").strip()
-            agent_name = str(item.get("agent_name") or "Agent").strip() or "Agent"
-            agent_role = str(item.get("agent_role") or "").strip() or None
-            prompt_ref = f"participant:{agent_id}" if agent_id else None
-            shared_before_turn = [dict(entry) for entry in shared_context]
+        tool_calls: list[dict[str, Any]] = []
+        if manager_decisions:
+            for index, decision in enumerate(manager_decisions):
+                payload = dict(decision.get("decision") or {})
+                call_sequence.append(
+                    {
+                        "step": len(call_sequence) + 1,
+                        "kind": "manager_decision",
+                        "prompt_ref": decision.get("prompt_ref") or "orchestrator",
+                        "agent_id": orchestrator_snapshot["agent_id"],
+                        "agent_name": orchestrator_snapshot["agent_name"],
+                        "agent_role": orchestrator_snapshot["agent_role"],
+                        "shared_context_before": [
+                            dict(item)
+                            for item in (
+                                ((decision.get("call_input") or {}).get("input_messages") or [])[:-1]
+                                if isinstance((decision.get("call_input") or {}).get("input_messages"), list)
+                                else []
+                            )
+                        ],
+                        "manager_call_input": dict(decision.get("call_input") or {}),
+                        "decision": {
+                            "action": "terminate" if payload.get("terminate") else "select_next_speaker",
+                            "source": "runtime_traced",
+                            **payload,
+                        },
+                        "response_messages": list(decision.get("response_messages") or []),
+                        "raw_response_text": decision.get("raw_response_text"),
+                    }
+                )
+                if payload.get("terminate"):
+                    continue
+                if index >= len(participant_calls):
+                    continue
+                participant_call = participant_calls[index]
+                visible_item = visible_messages[index] if index < len(visible_messages) else {}
+                tool_trace_items = list(participant_call.get("tool_traces") or [])
+                call_sequence.append(
+                    {
+                        "step": len(call_sequence) + 1,
+                        "kind": "participant_turn",
+                        "prompt_ref": participant_call.get("prompt_ref"),
+                        "agent_id": participant_call.get("agent_id"),
+                        "agent_name": participant_call.get("agent_name"),
+                        "agent_role": participant_call.get("agent_role"),
+                        "request_message": request_message,
+                        "participant_call_input": dict(participant_call.get("call_input") or {}),
+                        "shared_context_before": list(
+                            ((participant_call.get("call_input") or {}).get("input_messages") or [])
+                        ),
+                        "response_messages": list(participant_call.get("response_messages") or []),
+                        "visible_output": str(visible_item.get("text") or ""),
+                        "turn_index": visible_item.get("turn_index"),
+                        "tool_traces": tool_trace_items,
+                    }
+                )
+                if tool_trace_items:
+                    tool_calls.append(
+                        {
+                            "agent_id": participant_call.get("agent_id"),
+                            "agent_name": participant_call.get("agent_name"),
+                            "agent_role": participant_call.get("agent_role"),
+                            "turn_index": visible_item.get("turn_index"),
+                            "tool_traces": tool_trace_items,
+                        }
+                    )
+        else:
+            shared_context = [dict(item) for item in seeded_context]
+            for item in visible_messages:
+                agent_id = str(item.get("agent_id") or "").strip()
+                agent_name = str(item.get("agent_name") or "Agent").strip() or "Agent"
+                agent_role = str(item.get("agent_role") or "").strip() or None
+                prompt_ref = f"participant:{agent_id}" if agent_id else None
+                shared_before_turn = [dict(entry) for entry in shared_context]
+                call_sequence.append(
+                    {
+                        "step": len(call_sequence) + 1,
+                        "kind": "manager_decision",
+                        "prompt_ref": "orchestrator",
+                        "agent_id": orchestrator_snapshot["agent_id"],
+                        "agent_name": orchestrator_snapshot["agent_name"],
+                        "agent_role": orchestrator_snapshot["agent_role"],
+                        "shared_context_before": shared_before_turn,
+                        "decision": {
+                            "action": "select_next_speaker",
+                            "selected_agent_id": agent_id or None,
+                            "selected_agent_name": agent_name,
+                            "selected_agent_role": agent_role,
+                            "source": "derived_from_visible_turn_order",
+                        },
+                    }
+                )
+                call_sequence.append(
+                    {
+                        "step": len(call_sequence) + 1,
+                        "kind": "participant_turn",
+                        "prompt_ref": prompt_ref,
+                        "agent_id": agent_id or None,
+                        "agent_name": agent_name,
+                        "agent_role": agent_role,
+                        "request_message": request_message,
+                        "shared_context_before": shared_before_turn,
+                        "visible_output": str(item.get("text") or ""),
+                        "turn_index": item.get("turn_index"),
+                        "tool_traces": [],
+                    }
+                )
+                shared_context.append(
+                    {
+                        "role": "assistant",
+                        "author_name": agent_name,
+                        "text": str(item.get("text") or ""),
+                    }
+                )
             call_sequence.append(
                 {
                     "step": len(call_sequence) + 1,
@@ -862,60 +1211,25 @@ class AgentManager:
                     "agent_id": orchestrator_snapshot["agent_id"],
                     "agent_name": orchestrator_snapshot["agent_name"],
                     "agent_role": orchestrator_snapshot["agent_role"],
-                    "shared_context_before": shared_before_turn,
+                    "shared_context_before": [dict(entry) for entry in shared_context],
                     "decision": {
-                        "action": "select_next_speaker",
-                        "selected_agent_id": agent_id or None,
-                        "selected_agent_name": agent_name,
-                        "selected_agent_role": agent_role,
-                        "source": "derived_from_visible_turn_order",
+                        "action": "terminate",
+                        "source": "workflow_completion_payload",
+                        **dict(completion_payload or {}),
                     },
                 }
             )
-            call_sequence.append(
-                {
-                    "step": len(call_sequence) + 1,
-                    "kind": "participant_turn",
-                    "prompt_ref": prompt_ref,
-                    "agent_id": agent_id or None,
-                    "agent_name": agent_name,
-                    "agent_role": agent_role,
-                    "request_message": request_message,
-                    "shared_context_before": shared_before_turn,
-                    "visible_output": str(item.get("text") or ""),
-                    "turn_index": item.get("turn_index"),
-                }
-            )
-            shared_context.append(
-                {
-                    "role": "assistant",
-                    "author_name": agent_name,
-                    "text": str(item.get("text") or ""),
-                }
-            )
-        call_sequence.append(
-            {
-                "step": len(call_sequence) + 1,
-                "kind": "manager_decision",
-                "prompt_ref": "orchestrator",
-                "agent_id": orchestrator_snapshot["agent_id"],
-                "agent_name": orchestrator_snapshot["agent_name"],
-                "agent_role": orchestrator_snapshot["agent_role"],
-                "shared_context_before": [dict(entry) for entry in shared_context],
-                "decision": {
-                    "action": "terminate",
-                    "source": "workflow_completion_payload",
-                    **dict(completion_payload or {}),
-                },
-            }
-        )
         return {
             "workflow_type": WORKFLOW_GROUP_CHAT,
+            "capture_mode": "runtime_traced" if manager_decisions else "reconstructed",
             "request_message": request_message,
             "seeded_context": seeded_context,
             "orchestrator": orchestrator_snapshot,
             "participants": participant_snapshots,
+            "manager_decisions": manager_decisions,
+            "participant_calls": participant_calls,
             "call_sequence": call_sequence,
+            "tool_calls": tool_calls,
             "completion": dict(completion_payload or {}),
             "prompt_refs": {
                 "orchestrator": orchestrator_snapshot,

@@ -3556,13 +3556,38 @@
           <div><strong>Agent:</strong> ${snapshot?.agent_name || "Unknown"}</div>
           <div><strong>Role:</strong> ${snapshot?.agent_role || "unknown"}</div>
           <div><strong>Tools:</strong> ${Array.isArray(snapshot?.tool_ids) && snapshot.tool_ids.length ? snapshot.tool_ids.join(", ") : "none"}</div>
+          <div><strong>Backend:</strong> ${snapshot?.runtime_metadata?.backend || "unknown"}</div>
+          <div><strong>Model:</strong> ${snapshot?.runtime_metadata?.model || "default"}</div>
         `;
         body.appendChild(meta);
+        if (Array.isArray(snapshot?.tool_summaries) && snapshot.tool_summaries.length) {
+          const toolSummary = document.createElement("pre");
+          toolSummary.textContent = `available_tools:\n${JSON.stringify(snapshot.tool_summaries, null, 2)}`;
+          body.appendChild(toolSummary);
+        }
         const prompt = document.createElement("pre");
         prompt.textContent = snapshot?.system_prompt || "No prompt captured.";
         body.appendChild(prompt);
         card.appendChild(body);
         return card;
+      }
+
+      function renderToolTraceCard(agentName, toolTrace) {
+        const block = document.createElement("div");
+        block.className = `agent-msg ${toolTrace?.status === "failed" ? "user" : "assistant"}`;
+        const meta = document.createElement("div");
+        meta.className = "flow-meta";
+        meta.textContent = buildHistorySummaryLine([
+          agentName || "Unknown",
+          toolTrace?.tool_name || toolTrace?.tool_id || "tool",
+          toolTrace?.server_name || "unknown-server",
+          toolTrace?.status || "unknown-status",
+        ]);
+        block.appendChild(meta);
+        const payload = document.createElement("pre");
+        payload.textContent = JSON.stringify(toolTrace || {}, null, 2);
+        block.appendChild(payload);
+        return block;
       }
 
       function renderGroupChatRun(run, index) {
@@ -3587,6 +3612,7 @@
         overview.className = "agent-history-summary";
         overview.innerHTML = `
           <strong>User Request</strong>
+          <span>trace=${trace?.capture_mode || "unknown"}</span>
           <span>route=${run?.route || "unknown"}</span>
           <span>manager_task=${run?.manager_task_id || "unknown"}</span>
           <span>root_task=${run?.root_task_id || "unknown"}</span>
@@ -3659,14 +3685,15 @@
               ]);
             }
             stepCard.appendChild(stepMeta);
-            if (step.request_message) {
-              const requestMeta = document.createElement("div");
-              requestMeta.className = "flow-meta";
-              requestMeta.textContent = "Request visible to this call";
-              const requestPre = document.createElement("pre");
-              requestPre.textContent = step.request_message;
-              stepCard.append(requestMeta, requestPre);
-            }
+            const callInput = step.kind === "participant_turn"
+              ? (step.participant_call_input && typeof step.participant_call_input === "object" ? step.participant_call_input : {})
+              : (step.manager_call_input && typeof step.manager_call_input === "object" ? step.manager_call_input : {});
+            const callInputMeta = document.createElement("div");
+            callInputMeta.className = "flow-meta";
+            callInputMeta.textContent = `Exact call packet (${Array.isArray(callInput.input_messages) ? callInput.input_messages.length : 0} messages)`;
+            const callInputPre = document.createElement("pre");
+            callInputPre.textContent = JSON.stringify(callInput, null, 2);
+            stepCard.append(callInputMeta, callInputPre);
             const sharedMeta = document.createElement("div");
             sharedMeta.className = "flow-meta";
             sharedMeta.textContent = `Shared context before step (${Array.isArray(step.shared_context_before) ? step.shared_context_before.length : 0} messages)`;
@@ -3680,10 +3707,35 @@
               const outputPre = document.createElement("pre");
               outputPre.textContent = step.visible_output || "";
               stepCard.append(outputMeta, outputPre);
+              if (Array.isArray(step.response_messages) && step.response_messages.length) {
+                const responseMeta = document.createElement("div");
+                responseMeta.className = "flow-meta";
+                responseMeta.textContent = "Raw agent response messages";
+                const responsePre = document.createElement("pre");
+                responsePre.textContent = JSON.stringify(step.response_messages, null, 2);
+                stepCard.append(responseMeta, responsePre);
+              }
+              if (Array.isArray(step.tool_traces) && step.tool_traces.length) {
+                const toolMeta = document.createElement("div");
+                toolMeta.className = "flow-meta";
+                toolMeta.textContent = `Tool calls in this turn (${step.tool_traces.length})`;
+                stepCard.appendChild(toolMeta);
+                step.tool_traces.forEach((toolTrace) => {
+                  stepCard.appendChild(renderToolTraceCard(step.agent_name, toolTrace));
+                });
+              }
             } else {
               const decisionPre = document.createElement("pre");
               decisionPre.textContent = JSON.stringify(step.decision || {}, null, 2);
               stepCard.appendChild(decisionPre);
+              if (Array.isArray(step.response_messages) && step.response_messages.length) {
+                const responseMeta = document.createElement("div");
+                responseMeta.className = "flow-meta";
+                responseMeta.textContent = "Raw manager response messages";
+                const responsePre = document.createElement("pre");
+                responsePre.textContent = JSON.stringify(step.response_messages, null, 2);
+                stepCard.append(responseMeta, responsePre);
+              }
             }
             sequenceBody.appendChild(stepCard);
           });
@@ -3715,6 +3767,38 @@
         }
         prompts.appendChild(promptsBody);
         body.appendChild(prompts);
+
+        const toolCallsSection = document.createElement("details");
+        toolCallsSection.className = "agent-card";
+        const toolCalls = Array.isArray(trace.tool_calls) ? trace.tool_calls : [];
+        const toolCallsSummary = document.createElement("summary");
+        toolCallsSummary.textContent = `Tool Calls (${toolCalls.reduce((count, item) => count + (Array.isArray(item.tool_traces) ? item.tool_traces.length : 0), 0)})`;
+        toolCallsSection.appendChild(toolCallsSummary);
+        const toolCallsBody = document.createElement("div");
+        if (toolCalls.length) {
+          toolCalls.forEach((item) => {
+            const header = document.createElement("div");
+            header.className = "flow-meta";
+            header.textContent = buildHistorySummaryLine([
+              item.agent_name || "Unknown",
+              item.agent_role || "unknown-role",
+              `turn=${item.turn_index ?? "unknown"}`,
+            ]);
+            toolCallsBody.appendChild(header);
+            (item.tool_traces || []).forEach((toolTrace) => {
+              toolCallsBody.appendChild(renderToolTraceCard(item.agent_name, toolTrace));
+            });
+          });
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = trace.capture_mode === "runtime_traced"
+            ? "No tool calls were captured for this run."
+            : "Tool-call traces are only available for runs captured after trace instrumentation was added.";
+          toolCallsBody.appendChild(empty);
+        }
+        toolCallsSection.appendChild(toolCallsBody);
+        body.appendChild(toolCallsSection);
 
         details.appendChild(body);
         return details;

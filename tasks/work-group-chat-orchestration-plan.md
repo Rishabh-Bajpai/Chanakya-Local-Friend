@@ -43,6 +43,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - Bounded seeded visible work-history context for follow-up group-chat turns to reduce prompt blow-up risk.
 - Replaced the builder-default zero-retry agent-based orchestrator construction with a manual MAF workflow build that gives the manager-orchestrator explicit retry attempts for malformed `next_speaker` outputs.
 - Refactored `/api/works/<work_id>/history` to expose a first-class shared conversation payload plus richer per-agent session stats for the Agent Histories UI.
+- Added a group-chat-first inspector trace that captures manager decisions, per-call prompt/input packets, and participant tool-call traces for new `/work` runs.
 
 ## Implementation Strategy
 
@@ -154,7 +155,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [x] Update `/work` frontend assumptions from “single assistant reply with internal workflow” to “multi-agent visible transcript”.
 - [x] Ensure speaker identity is displayed cleanly for each visible agent turn.
 - [ ] Add UI-safe handling for manager-selected pauses, waiting-for-input, and terminated group-chat rounds.
-- [ ] Ensure the existing work history popup still renders the new group-chat model intelligibly.
+- [x] Ensure the existing work history popup still renders the new group-chat model intelligibly.
 - [ ] Keep all current `/work` affordances that should remain intact:
   - [ ] work creation
   - [ ] stable work id
