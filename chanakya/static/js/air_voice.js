@@ -41,6 +41,7 @@
     let interruptionSource = null;
     let interruptionListenTimer = null;
     let interruptionMonitorTimer = null;
+    let interruptionSpeechRecognition = null;
     let interruptionResolve = null;
     let interruptionWindowActive = false;
     let interruptionTriggerInFlight = false;
@@ -157,6 +158,12 @@
 
     async function teardownInterruptionWindow(keepStream = false) {
       stopInterruptionMonitorTimers();
+      if (interruptionSpeechRecognition) {
+        try {
+          interruptionSpeechRecognition.stop();
+        } catch (e) {}
+        interruptionSpeechRecognition = null;
+      }
       const stream = interruptionStream;
       const context = interruptionAudioContext;
       interruptionStream = null;
@@ -450,11 +457,6 @@
       interruptionWindowActive = true;
       interruptionTriggerInFlight = false;
       interruptionConsecutiveVoiceFrames = 0;
-      interruptionAudioContext = new AudioContext();
-      interruptionSource = interruptionAudioContext.createMediaStreamSource(stream);
-      interruptionAnalyser = interruptionAudioContext.createAnalyser();
-      interruptionAnalyser.fftSize = 2048;
-      interruptionSource.connect(interruptionAnalyser);
       setStatus("Listening for interruption...");
       return new Promise((resolve) => {
         interruptionResolve = resolve;
@@ -462,20 +464,54 @@
           interruptionListenTimer = null;
           void finishInterruptionWindow({ interrupted: false });
         }, interruptionListeningWindowMs);
-        interruptionMonitorTimer = window.setInterval(() => {
-          if (token !== interruptionWindowToken || interruptionTriggerInFlight) {
-            return;
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          try {
+            interruptionSpeechRecognition = new SpeechRecognition();
+            interruptionSpeechRecognition.continuous = true;
+            interruptionSpeechRecognition.interimResults = true;
+            interruptionSpeechRecognition.onresult = (event) => {
+              if (token !== interruptionWindowToken || interruptionTriggerInFlight) {
+                return;
+              }
+              for (let i = event.resultIndex; i < event.results.length; i++) {
+                if (event.results[i][0].transcript.trim().length > 0) {
+                  void triggerInterruptionRecording(token);
+                  break;
+                }
+              }
+            };
+            interruptionSpeechRecognition.start();
+          } catch (e) {
+            console.debug("[air-voice] Failed to start Web Speech API for interruption, falling back to RMS", e);
+            startRmsMonitor(token);
           }
-          const rms = getInterruptionRms();
-          if (rms >= interruptionVoiceThreshold) {
-            interruptionConsecutiveVoiceFrames += 1;
-            if (interruptionConsecutiveVoiceFrames >= interruptionVoiceFrames) {
-              void triggerInterruptionRecording(token);
+        } else {
+          startRmsMonitor(token);
+        }
+
+        function startRmsMonitor(currentToken) {
+          interruptionAudioContext = new AudioContext();
+          interruptionSource = interruptionAudioContext.createMediaStreamSource(stream);
+          interruptionAnalyser = interruptionAudioContext.createAnalyser();
+          interruptionAnalyser.fftSize = 2048;
+          interruptionSource.connect(interruptionAnalyser);
+          interruptionMonitorTimer = window.setInterval(() => {
+            if (currentToken !== interruptionWindowToken || interruptionTriggerInFlight) {
+              return;
             }
-            return;
-          }
-          interruptionConsecutiveVoiceFrames = 0;
-        }, 80);
+            const rms = getInterruptionRms();
+            if (rms >= interruptionVoiceThreshold) {
+              interruptionConsecutiveVoiceFrames += 1;
+              if (interruptionConsecutiveVoiceFrames >= interruptionVoiceFrames) {
+                void triggerInterruptionRecording(currentToken);
+              }
+              return;
+            }
+            interruptionConsecutiveVoiceFrames = 0;
+          }, 80);
+        }
       });
     }
 
