@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 from contextvars import ContextVar, Token
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -12,6 +12,12 @@ from typing import Any
 from agent_framework import Agent, Message
 from agent_framework.openai import OpenAIChatClient
 from agent_framework.orchestrations import SequentialBuilder
+from agent_framework_orchestrations._group_chat import (
+    AgentBasedGroupChatOrchestrator,
+    AgentExecutor,
+    ParticipantRegistry,
+    WorkflowBuilder,
+)
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.agent.profile_files import load_agent_prompt
@@ -61,6 +67,7 @@ from chanakya.subagents import (
 WORKFLOW_SOFTWARE = "software_delivery"
 WORKFLOW_INFORMATION = "information_delivery"
 WORKFLOW_MANAGER_DIRECT = "manager_direct_fallback"
+WORKFLOW_GROUP_CHAT = "work_group_chat"
 MAX_UNTRUSTED_ARTIFACT_CHARS = 12000
 
 _ACTIVE_WORK_ID: ContextVar[str | None] = ContextVar("active_work_id", default=None)
@@ -89,6 +96,7 @@ class ManagerRunResult:
     result_json: dict[str, Any]
     waiting_task_id: str | None = None
     input_prompt: str | None = None
+    visible_messages: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -269,13 +277,28 @@ class AgentManager:
         root_task_id: str,
         message: str,
     ) -> ManagerRunResult:
+        return self._execute_group_chat_work(
+            session_id=session_id,
+            request_id=request_id,
+            root_task_id=root_task_id,
+            message=message,
+        )
+
+    def _execute_group_chat_work(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        root_task_id: str,
+        message: str,
+    ) -> ManagerRunResult:
         manager_task_id = self._create_child_task(
             request_id=request_id,
             parent_task_id=root_task_id,
             owner_profile=self.manager_profile,
-            title="Agent Manager Orchestration",
-            summary="Route the request to the correct top-level specialist and aggregate the result.",
-            task_type="manager_orchestration",
+            title="Agent Manager Group Chat Orchestration",
+            summary="Coordinate a visible multi-agent work conversation and decide the next speaker.",
+            task_type="manager_group_chat_orchestration",
             session_id=session_id,
             started=True,
             input_json={"message": message},
@@ -291,158 +314,16 @@ class AgentManager:
                 "manager_agent_id": self.manager_profile.id,
                 "manager_task_id": manager_task_id,
                 "message": message,
+                "workflow_type": WORKFLOW_GROUP_CHAT,
             },
         )
-
-        route = self._select_route(
-            message,
+        return self._run_manager_group_chat(
             session_id=session_id,
             request_id=request_id,
-        )
-        coverage_issue = self._get_route_coverage_issue(route)
-        if coverage_issue is not None:
-            return self._execute_manager_direct_fallback(
-                session_id=session_id,
-                request_id=request_id,
-                root_task_id=root_task_id,
-                manager_task_id=manager_task_id,
-                message=message,
-                route=route,
-                coverage_issue=coverage_issue,
-            )
-        specialist_profile = self.store.get_agent_profile(route.selected_agent_id)
-        specialist_task_id = self._create_child_task(
-            request_id=request_id,
-            parent_task_id=manager_task_id,
-            owner_profile=specialist_profile,
-            title=f"{specialist_profile.name} Supervision",
-            summary=route.reason,
-            task_type=f"{specialist_profile.role}_supervision",
-            session_id=session_id,
-            started=True,
-            input_json={
-                "message": message,
-                "route_reason": route.reason,
-                "execution_mode": route.execution_mode,
-                "route_source": route.source,
-            },
-        )
-        child_task_ids.append(specialist_task_id)
-
-        self.store.create_task_event(
-            session_id=session_id,
-            request_id=request_id,
-            task_id=manager_task_id,
-            event_type="manager_route_selected",
-            payload={
-                "selected_agent_id": route.selected_agent_id,
-                "selected_role": route.selected_role,
-                "reason": route.reason,
-                "execution_mode": route.execution_mode,
-                "source": route.source,
-                "specialist_task_id": specialist_task_id,
-            },
-        )
-
-        if route.selected_agent_id == "agent_cto":
-            specialist_result = self._execute_software_workflow(
-                session_id=session_id,
-                request_id=request_id,
-                message=message,
-                specialist_profile=specialist_profile,
-                specialist_task_id=specialist_task_id,
-            )
-        else:
-            specialist_result = self._execute_information_workflow(
-                session_id=session_id,
-                request_id=request_id,
-                message=message,
-                specialist_profile=specialist_profile,
-                specialist_task_id=specialist_task_id,
-            )
-
-        child_task_ids.extend(specialist_result.child_task_ids)
-        if specialist_result.task_status == TASK_STATUS_WAITING_INPUT:
-            final_summary = specialist_result.text
-            finished_at = None
-            event_type = "workflow_waiting_input"
-        else:
-            final_summary = self._finalize_manager_response(
-                root_message=message,
-                route=route,
-                specialist_profile=specialist_profile,
-                specialist_result=specialist_result,
-            )
-            finished_at = now_iso()
-            event_type = (
-                "workflow_completed"
-                if specialist_result.task_status == TASK_STATUS_DONE
-                else "workflow_failed"
-            )
-        self._transition_task(
-            session_id=session_id,
-            request_id=request_id,
-            task_id=manager_task_id,
-            from_status=TASK_STATUS_IN_PROGRESS,
-            to_status=specialist_result.task_status,
-            finished_at=finished_at,
-            result_json={
-                "route": {
-                    "selected_agent_id": route.selected_agent_id,
-                    "selected_role": route.selected_role,
-                    "reason": route.reason,
-                    "execution_mode": route.execution_mode,
-                    "source": route.source,
-                },
-                "specialist_task_id": specialist_task_id,
-                "specialist_summary": specialist_result.text,
-                "final_summary": final_summary,
-            },
-            event_type=event_type,
-            event_payload={
-                "workflow_type": route.execution_mode,
-                "specialist_task_id": specialist_task_id,
-            },
-        )
-        self.store.create_task_event(
-            session_id=session_id,
-            request_id=request_id,
-            task_id=manager_task_id,
-            event_type=(
-                "manager_waiting_input"
-                if specialist_result.task_status == TASK_STATUS_WAITING_INPUT
-                else "manager_summary_completed"
-            ),
-            payload={
-                "task_status": specialist_result.task_status,
-                "workflow_type": route.execution_mode,
-                "finished_at": finished_at,
-            },
-        )
-        return ManagerRunResult(
-            text=final_summary,
-            workflow_type=route.execution_mode,
+            root_task_id=root_task_id,
+            manager_task_id=manager_task_id,
+            message=message,
             child_task_ids=child_task_ids,
-            manager_agent_id=self.manager_profile.id,
-            worker_agent_ids=[specialist_profile.id, *specialist_result.worker_agent_ids],
-            task_status=specialist_result.task_status,
-            result_json={
-                "workflow_type": route.execution_mode,
-                "route": {
-                    "selected_agent_id": route.selected_agent_id,
-                    "selected_role": route.selected_role,
-                    "reason": route.reason,
-                    "execution_mode": route.execution_mode,
-                    "source": route.source,
-                },
-                "child_task_ids": child_task_ids,
-                "worker_agent_ids": [specialist_profile.id, *specialist_result.worker_agent_ids],
-                "specialist_task_id": specialist_task_id,
-                "specialist_summary": specialist_result.text,
-                "summary": final_summary,
-            },
-            waiting_task_id=specialist_result.result_json.get("waiting_task_id"),
-            input_prompt=specialist_result.result_json.get("input_prompt"),
         )
 
     def execute_targeted_writer_followup(
@@ -506,6 +387,471 @@ class AgentManager:
             },
         )
 
+    def _run_manager_group_chat(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        root_task_id: str,
+        manager_task_id: str,
+        message: str,
+        child_task_ids: list[str],
+    ) -> ManagerRunResult:
+        participant_profiles = self._group_chat_participant_profiles()
+        participant_meta = self._group_chat_participant_metadata(participant_profiles)
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=manager_task_id,
+            event_type="group_chat_initialized",
+            payload={
+                "workflow_type": WORKFLOW_GROUP_CHAT,
+                "participants": participant_meta,
+            },
+        )
+        try:
+            seeded_conversation = self._build_group_chat_seed_conversation(session_id)
+            debug_log(
+                "work_group_chat_seeded_conversation",
+                {
+                    "session_id": session_id,
+                    "request_id": request_id,
+                    "message_count": len(seeded_conversation),
+                    "total_chars": sum(len(message.text or "") for message in seeded_conversation),
+                },
+            )
+            workflow = self._build_work_group_chat_workflow(
+                message=message,
+                participant_profiles=participant_profiles,
+            )
+            workflow_result = run_in_maf_loop(
+                with_transient_retry(
+                    lambda: asyncio.wait_for(
+                        workflow.run(message=seeded_conversation, include_status_events=True),
+                        timeout=get_long_running_agent_request_timeout_seconds(),
+                    ),
+                    label="work_group_chat",
+                )
+            )
+            final_conversation = self._extract_group_chat_conversation(workflow_result)
+            conversation_slice = final_conversation[len(seeded_conversation) :]
+            completion_payload, visible_messages = self._split_group_chat_completion(
+                conversation_slice=conversation_slice,
+                participant_profiles=participant_profiles,
+            )
+            turn_task_ids = self._record_group_chat_visible_turns(
+                session_id=session_id,
+                request_id=request_id,
+                parent_task_id=manager_task_id,
+                visible_messages=visible_messages,
+            )
+            child_task_ids.extend(turn_task_ids)
+            result_json = {
+                "workflow_type": WORKFLOW_GROUP_CHAT,
+                "participants": participant_meta,
+                "visible_messages": visible_messages,
+                "completion": completion_payload,
+                "child_task_ids": child_task_ids,
+            }
+            if completion_payload.get("status") == "needs_user_input":
+                pending_request_id = make_id("pending")
+                waiting_payload = {
+                    **result_json,
+                    "waiting_task_id": manager_task_id,
+                    "input_prompt": str(completion_payload.get("question") or "").strip(),
+                    "pending_request_id": pending_request_id,
+                }
+                manager_input = dict(self.store.get_task(manager_task_id).input_json or {})
+                manager_input.update(
+                    {
+                        "message": message,
+                        "workflow_type": WORKFLOW_GROUP_CHAT,
+                        "maf_pending_request_id": pending_request_id,
+                        "maf_pending_prompt": str(completion_payload.get("question") or "").strip(),
+                        "maf_pending_reason": str(completion_payload.get("reason") or "").strip() or None,
+                        "requesting_agent_id": completion_payload.get("requesting_agent_id"),
+                        "requesting_agent_name": completion_payload.get("requesting_agent_name"),
+                    }
+                )
+                self.store.update_task(manager_task_id, input_json=manager_input)
+                self._transition_task(
+                    session_id=session_id,
+                    request_id=request_id,
+                    task_id=manager_task_id,
+                    from_status=TASK_STATUS_IN_PROGRESS,
+                    to_status=TASK_STATUS_WAITING_INPUT,
+                    result_json=waiting_payload,
+                    event_type="manager_waiting_input",
+                    event_payload={
+                        "workflow_type": WORKFLOW_GROUP_CHAT,
+                        "requesting_agent_id": completion_payload.get("requesting_agent_id"),
+                    },
+                )
+                return ManagerRunResult(
+                    text=str(completion_payload.get("question") or "").strip(),
+                    workflow_type=WORKFLOW_GROUP_CHAT,
+                    child_task_ids=child_task_ids,
+                    manager_agent_id=self.manager_profile.id,
+                    worker_agent_ids=[profile.id for profile in participant_profiles],
+                    task_status=TASK_STATUS_WAITING_INPUT,
+                    result_json=waiting_payload,
+                    waiting_task_id=manager_task_id,
+                    input_prompt=str(completion_payload.get("question") or "").strip(),
+                    visible_messages=visible_messages,
+                )
+
+            finished_at = now_iso()
+            final_summary = self._group_chat_final_summary(
+                visible_messages=visible_messages,
+                completion_payload=completion_payload,
+            )
+            completed_payload = {
+                **result_json,
+                "summary": final_summary,
+            }
+            self._transition_task(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=manager_task_id,
+                from_status=TASK_STATUS_IN_PROGRESS,
+                to_status=TASK_STATUS_DONE,
+                finished_at=finished_at,
+                result_json=completed_payload,
+                event_type="workflow_completed",
+                event_payload={"workflow_type": WORKFLOW_GROUP_CHAT},
+            )
+            self.store.create_task_event(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=manager_task_id,
+                event_type="manager_summary_completed",
+                payload={
+                    "task_status": TASK_STATUS_DONE,
+                    "workflow_type": WORKFLOW_GROUP_CHAT,
+                    "finished_at": finished_at,
+                },
+            )
+            return ManagerRunResult(
+                text=final_summary,
+                workflow_type=WORKFLOW_GROUP_CHAT,
+                child_task_ids=child_task_ids,
+                manager_agent_id=self.manager_profile.id,
+                worker_agent_ids=[profile.id for profile in participant_profiles],
+                task_status=TASK_STATUS_DONE,
+                result_json=completed_payload,
+                visible_messages=visible_messages,
+            )
+        except Exception as exc:
+            error_text = self._describe_exception(exc)
+            finished_at = now_iso()
+            self._transition_task(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=manager_task_id,
+                from_status=TASK_STATUS_IN_PROGRESS,
+                to_status=TASK_STATUS_FAILED,
+                finished_at=finished_at,
+                error_text=error_text,
+                result_json={
+                    "workflow_type": WORKFLOW_GROUP_CHAT,
+                    "error": error_text,
+                    "child_task_ids": child_task_ids,
+                },
+                event_type="workflow_failed",
+                event_payload={"workflow_type": WORKFLOW_GROUP_CHAT},
+            )
+            return ManagerRunResult(
+                text=f"Work group chat failed: {error_text}",
+                workflow_type=WORKFLOW_GROUP_CHAT,
+                child_task_ids=child_task_ids,
+                manager_agent_id=self.manager_profile.id,
+                worker_agent_ids=[profile.id for profile in participant_profiles],
+                task_status=TASK_STATUS_FAILED,
+                result_json={
+                    "workflow_type": WORKFLOW_GROUP_CHAT,
+                    "error": error_text,
+                    "child_task_ids": child_task_ids,
+                },
+            )
+
+    def _group_chat_participant_profiles(self) -> list[AgentProfileModel]:
+        ordered_ids = [
+            "agent_cto",
+            "agent_informer",
+            "agent_developer",
+            "agent_researcher",
+            "agent_writer",
+            "agent_tester",
+        ]
+        profiles: list[AgentProfileModel] = []
+        for agent_id in ordered_ids:
+            profiles.append(self.store.get_agent_profile(agent_id))
+        return profiles
+
+    def _group_chat_participant_metadata(
+        self, participant_profiles: list[AgentProfileModel]
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "agent_id": profile.id,
+                "agent_name": profile.name,
+                "agent_role": profile.role,
+                "capabilities": self._group_chat_capability_summary(profile),
+                "tool_ids": list(profile.tool_ids_json or []),
+            }
+            for profile in participant_profiles
+        ]
+
+    def _group_chat_capability_summary(self, profile: AgentProfileModel) -> str:
+        summaries = {
+            "cto": "Software supervisor who evaluates architecture, implementation direction, risks, and final delivery quality.",
+            "informer": "Information supervisor who evaluates research quality, grounding, structure, and final non-software delivery quality.",
+            "developer": "Implements software changes, writes code, uses workspace tools, and reports concrete delivered artifacts.",
+            "researcher": "Collects grounded facts, sources, and uncertainties for information work.",
+            "writer": "Transforms research or prior drafts into polished user-facing content.",
+            "tester": "Validates implementation quality, runs checks, and reports defects or residual risks.",
+        }
+        return summaries.get(profile.role, f"Specialist role: {profile.role}.")
+
+    def _build_group_chat_seed_conversation(self, session_id: str) -> list[Message]:
+        records = self.store.list_messages(session_id)[-12:]
+        seeded: list[Message] = []
+        for record in records:
+            role = str(record.get("role") or "assistant")
+            content = self._bounded_text(str(record.get("content") or "").strip(), limit=1200)
+            if not content:
+                continue
+            metadata = dict(record.get("metadata") or {})
+            author_name = None
+            if role == "user":
+                author_name = "User"
+            else:
+                author_name = (
+                    str(metadata.get("visible_agent_name") or "").strip()
+                    or str(metadata.get("group_chat_agent_name") or "").strip()
+                    or "Chanakya"
+                )
+            seeded.append(Message(role=role, text=content, author_name=author_name or None))
+        return seeded
+
+    def _build_work_group_chat_workflow(
+        self,
+        *,
+        message: str,
+        participant_profiles: list[AgentProfileModel],
+    ):
+        participant_agents = [
+            self._build_group_chat_participant_agent(profile, message=message)
+            for profile in participant_profiles
+        ]
+        participant_executors = [AgentExecutor(agent) for agent in participant_agents]
+        orchestrator_agent = self._build_group_chat_orchestrator_agent(
+            participant_profiles=participant_profiles,
+            message=message,
+        )
+        orchestrator = AgentBasedGroupChatOrchestrator(
+            agent=orchestrator_agent,
+            participant_registry=ParticipantRegistry(participant_executors),
+            max_rounds=10,
+            retry_attempts=2,
+        )
+        workflow_builder = WorkflowBuilder(start_executor=orchestrator, output_executors=[orchestrator])
+        for participant in participant_executors:
+            workflow_builder = workflow_builder.add_edge(orchestrator, participant)
+            workflow_builder = workflow_builder.add_edge(participant, orchestrator)
+        return workflow_builder.build()
+
+    def _build_group_chat_participant_agent(
+        self,
+        profile: AgentProfileModel,
+        *,
+        message: str,
+    ) -> Agent:
+        prompt_addendum = self._build_active_workspace_prompt_addendum(profile)
+        group_chat_addendum = self._build_group_chat_participant_addendum(profile)
+        combined_addendum = "\n\n".join(
+            part for part in [group_chat_addendum, prompt_addendum] if part
+        )
+        agent, _ = build_profile_agent(
+            profile,
+            self.session_factory,
+            client=self._resolve_client(),
+            include_history=False,
+            store_inputs=False,
+            store_outputs=False,
+            usage_text=message,
+            prompt_addendum=combined_addendum,
+        )
+        return agent
+
+    def _build_group_chat_participant_addendum(self, profile: AgentProfileModel) -> str:
+        return (
+            "You are participating in a manager-led multi-agent work group chat. "
+            "Speak only when selected by the Agent Manager. "
+            "Assume every visible chat turn is shared context for the whole team. "
+            "Stay strictly within your role and contribute only what moves the work forward. "
+            "Do not address the human user directly and do not ask the user questions yourself. "
+            "If you are blocked on a missing user decision or fact, output a concise message that starts with 'NEEDS_USER_INPUT:' followed by the exact missing decision and a short reason. "
+            "If you can proceed safely, do so and make assumptions explicit. "
+            f"Your role-specific capability summary: {self._group_chat_capability_summary(profile)}"
+        )
+
+    def _build_group_chat_orchestrator_agent(
+        self,
+        *,
+        participant_profiles: list[AgentProfileModel],
+        message: str,
+    ) -> Agent:
+        capability_lines = [
+            f"- {profile.name} ({profile.id} / role={profile.role}): {self._group_chat_capability_summary(profile)}"
+            for profile in participant_profiles
+        ]
+        config = build_profile_agent_config_for_usage(
+            self.manager_profile,
+            usage_text=message,
+            prompt_addendum=(
+                "You are not the user-facing speaker in this workflow. "
+                "You are the internal group-chat orchestrator for /work. "
+                "Your only job is to choose the best next visible speaker or terminate the conversation. "
+                "The human only talks to Chanakya. When user clarification is needed, terminate the group chat with a JSON string in final_message indicating status='needs_user_input'.\n\n"
+                "Participant roster and capabilities:\n"
+                + "\n".join(capability_lines)
+                + "\n\nSelection rules:\n"
+                "1. Prefer the smallest number of turns needed for a correct result.\n"
+                "2. Pick agents whose capabilities match the current unresolved need.\n"
+                "3. Do not force hierarchical chains; any participant may speak next.\n"
+                "4. If a participant says NEEDS_USER_INPUT:, terminate with final_message as a compact JSON string with keys status, question, reason, requesting_agent_id, requesting_agent_name.\n"
+                "5. When the work is complete, terminate with final_message as a compact JSON string with keys status='completed' and summary.\n"
+                "6. If you are not terminating, you must always provide next_speaker using one of the exact participant names. Never leave next_speaker empty when terminate=false.\n"
+                "7. After the user answers a clarification, usually send the next turn back to the agent best positioned to use that answer.\n"
+                "8. If the conversation is stuck, terminate with status='failed' and a short reason."
+            ),
+        )
+        return Agent(
+            client=self._resolve_client(),
+            name="Agent Manager",
+            description="Coordinates the /work multi-agent group chat.",
+            instructions=config.system_prompt,
+        )
+
+    def _extract_group_chat_conversation(self, result: Any) -> list[Message]:
+        outputs = []
+        get_outputs = getattr(result, "get_outputs", None)
+        if callable(get_outputs):
+            outputs = list(get_outputs())
+        for output in reversed(outputs):
+            if isinstance(output, list) and all(isinstance(item, Message) for item in output):
+                return list(output)
+        return []
+
+    def _split_group_chat_completion(
+        self,
+        *,
+        conversation_slice: list[Message],
+        participant_profiles: list[AgentProfileModel],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        participant_by_name = {profile.name: profile for profile in participant_profiles}
+        completion_payload = {"status": "completed", "summary": ""}
+        visible_messages: list[dict[str, Any]] = []
+        pending_completion_text = None
+        if conversation_slice:
+            last = conversation_slice[-1]
+            if (last.author_name or "") == "Agent Manager":
+                pending_completion_text = (last.text or "").strip()
+                conversation_slice = conversation_slice[:-1]
+        if pending_completion_text:
+            parsed = self._parse_json_object_relaxed(pending_completion_text)
+            if isinstance(parsed, dict):
+                completion_payload.update(parsed)
+            else:
+                completion_payload = {
+                    "status": "failed",
+                    "reason": pending_completion_text,
+                }
+        for index, item in enumerate(conversation_slice):
+            text = (item.text or "").strip()
+            if not text:
+                continue
+            profile = participant_by_name.get(str(item.author_name or "").strip())
+            visible_messages.append(
+                {
+                    "text": text,
+                    "delay_ms": 0,
+                    "agent_id": profile.id if profile is not None else None,
+                    "agent_name": str(item.author_name or "Agent"),
+                    "agent_role": profile.role if profile is not None else None,
+                    "turn_index": index,
+                }
+            )
+        return completion_payload, visible_messages
+
+    def _record_group_chat_visible_turns(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        parent_task_id: str,
+        visible_messages: list[dict[str, Any]],
+    ) -> list[str]:
+        task_ids: list[str] = []
+        for item in visible_messages:
+            agent_id = str(item.get("agent_id") or "").strip()
+            if not agent_id:
+                continue
+            try:
+                profile = self.store.get_agent_profile(agent_id)
+            except KeyError:
+                continue
+            task_id = self._create_child_task(
+                request_id=request_id,
+                parent_task_id=parent_task_id,
+                owner_profile=profile,
+                title=f"{profile.name} Group Chat Turn",
+                summary=str(item.get("text") or "")[:160],
+                task_type="group_chat_turn",
+                session_id=session_id,
+                started=True,
+                input_json={
+                    "workflow_type": WORKFLOW_GROUP_CHAT,
+                    "turn_index": item.get("turn_index"),
+                },
+            )
+            self._transition_task(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=task_id,
+                from_status=TASK_STATUS_IN_PROGRESS,
+                to_status=TASK_STATUS_DONE,
+                finished_at=now_iso(),
+                result_json={
+                    "workflow_type": WORKFLOW_GROUP_CHAT,
+                    "text": str(item.get("text") or ""),
+                    "turn_index": item.get("turn_index"),
+                },
+                event_type="group_chat_turn_completed",
+                event_payload={
+                    "workflow_type": WORKFLOW_GROUP_CHAT,
+                    "agent_id": profile.id,
+                    "agent_name": profile.name,
+                },
+            )
+            task_ids.append(task_id)
+        return task_ids
+
+    def _group_chat_final_summary(
+        self,
+        *,
+        visible_messages: list[dict[str, Any]],
+        completion_payload: dict[str, Any],
+    ) -> str:
+        summary = str(completion_payload.get("summary") or "").strip()
+        if summary:
+            return summary
+        for item in reversed(visible_messages):
+            text = str(item.get("text") or "").strip()
+            if text:
+                return text
+        return "The work conversation completed."
         self.store.create_task_event(
             session_id=session_id,
             request_id=request_id,
@@ -824,6 +1170,12 @@ class AgentManager:
         message: str,
     ) -> ManagerRunResult:
         developer_task = self.store.get_task(task_id)
+        if developer_task.task_type == "manager_group_chat_orchestration":
+            return self._resume_group_chat_waiting_input(
+                session_id=session_id,
+                task_id=task_id,
+                message=message,
+            )
         if developer_task.status != TASK_STATUS_WAITING_INPUT:
             raise ValueError("Task is not currently waiting for input")
         if developer_task.task_type != "developer_execution":
@@ -1081,6 +1433,55 @@ class AgentManager:
         checkpoint_id = str(task_input.get("maf_checkpoint_id") or "").strip()
         if checkpoint_id:
             self.workflow_runtime.cancel_waiting_workflow(checkpoint_id=checkpoint_id)
+
+    def _resume_group_chat_waiting_input(
+        self,
+        *,
+        session_id: str,
+        task_id: str,
+        message: str,
+    ) -> ManagerRunResult:
+        manager_task = self.store.get_task(task_id)
+        if manager_task.status != TASK_STATUS_WAITING_INPUT:
+            raise ValueError("Task is not currently waiting for input")
+        request = self.store.get_request(manager_task.request_id)
+        resumed_at = now_iso()
+        manager_input = dict(manager_task.input_json or {})
+        manager_input.update(
+            {
+                "maf_pending_request_id": None,
+                "maf_pending_prompt": None,
+                "maf_pending_reason": None,
+                "latest_clarification_answer": message.strip(),
+            }
+        )
+        self.store.update_task(task_id, input_json=manager_input)
+        self._transition_task(
+            session_id=session_id,
+            request_id=request.id,
+            task_id=task_id,
+            from_status=TASK_STATUS_WAITING_INPUT,
+            to_status=TASK_STATUS_IN_PROGRESS,
+            started_at=resumed_at,
+            event_type="task_resumed",
+            event_payload={"workflow_type": WORKFLOW_GROUP_CHAT},
+        )
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request.id,
+            task_id=task_id,
+            event_type="user_input_submitted",
+            payload={"message": message, "workflow_type": WORKFLOW_GROUP_CHAT},
+        )
+        child_task_ids = [task_id]
+        return self._run_manager_group_chat(
+            session_id=session_id,
+            request_id=request.id,
+            root_task_id=request.root_task_id or task_id,
+            manager_task_id=task_id,
+            message=request.user_message,
+            child_task_ids=child_task_ids,
+        )
 
     def retry_task(self, task_id: str) -> dict[str, str]:
         task = self.store.get_task(task_id)

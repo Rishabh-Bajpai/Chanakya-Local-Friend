@@ -29,13 +29,27 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - The manager instead orchestrates a visible collaborative group chat and decides the next speaker until termination.
 - Waiting-for-input, request/task tracking, notifications, artifacts, and per-work histories remain intact.
 
+## Progress Notes
+
+- Implemented a new manager-led `/work` group chat execution path using `GroupChatBuilder`.
+- Switched `/work` manager execution away from the strict hidden sequential specialist pipeline.
+- Added per-work execution locking in `ChatService` to reduce same-work race conditions.
+- Added visible multi-agent transcript persistence into the Chanakya work session.
+- Added mirrored transcript persistence into dedicated per-agent work sessions for continuity.
+- Added group-chat-native waiting-input handling through the manager task instead of developer-only resume.
+- Updated `/work` transcript rendering to show visible speaker labels for agent turns.
+- Added focused regression tests for visible agent turns and waiting-input resume.
+- Hardened the new group-chat path against transient AIR/provider `502` failures with automatic retry.
+- Bounded seeded visible work-history context for follow-up group-chat turns to reduce prompt blow-up risk.
+- Replaced the builder-default zero-retry agent-based orchestrator construction with a manual MAF workflow build that gives the manager-orchestrator explicit retry attempts for malformed `next_speaker` outputs.
+
 ## Implementation Strategy
 
 ### Phase 1: Stabilize Current Work State Model
 
-- [ ] Add an explicit per-work orchestration mode field or equivalent runtime constant for `/work` so group chat becomes the only active mode after the DB reset.
-- [ ] Audit all current `/work` assumptions in `chat_service.py`, `agent_manager.py`, `maf_workflows.py`, and `app.py` that depend on sequential child-task trees.
-- [ ] Add a per-work execution lock to prevent concurrent `/work` messages from racing in the same work session/workspace.
+- [x] Add an explicit per-work orchestration mode field or equivalent runtime constant for `/work` so group chat becomes the only active mode after the DB reset.
+- [x] Audit all current `/work` assumptions in `chat_service.py`, `agent_manager.py`, `maf_workflows.py`, and `app.py` that depend on sequential child-task trees.
+- [x] Add a per-work execution lock to prevent concurrent `/work` messages from racing in the same work session/workspace.
 - [ ] Replace the current `find_waiting_input_task()` single-task assumption with explicit pending-interaction state for the active work conversation.
 - [ ] Define the minimal persisted state required for resumable group chat turns:
   - [ ] active speaker
@@ -45,10 +59,10 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 
 ### Phase 2: Introduce Group Chat Orchestration Runtime
 
-- [ ] Add a new manager-owned group chat orchestration path using `agent_framework.orchestrations.GroupChatBuilder`.
-- [ ] Reuse the local group-chat pattern already present in `chanakya/subagents.py` as the starting implementation reference.
-- [ ] Implement a manager-controlled speaker selector instead of round robin.
-- [ ] Define a termination condition for `/work` group chat that is manager-safe and bounded.
+- [x] Add a new manager-owned group chat orchestration path using `agent_framework.orchestrations.GroupChatBuilder`.
+- [x] Reuse the local group-chat pattern already present in `chanakya/subagents.py` as the starting implementation reference.
+- [x] Implement a manager-controlled speaker selector instead of round robin.
+- [x] Define a termination condition for `/work` group chat that is manager-safe and bounded.
 - [ ] Ensure the manager can end the conversation when:
   - [ ] the user request has been satisfied
   - [ ] clarification is required
@@ -58,9 +72,9 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 
 ### Phase 3: Flatten Agent Topology
 
-- [ ] Remove the current hidden hierarchy assumption where the manager routes to a specialist and that specialist internally drives workers.
-- [ ] Refactor participant construction so `CTO`, `Informer`, `Developer`, `Researcher`, `Writer`, and `Tester` are all direct participants in the same work conversation.
-- [ ] Keep `Agent Manager` as orchestrator only, not a hidden worker chain runner.
+- [x] Remove the current hidden hierarchy assumption where the manager routes to a specialist and that specialist internally drives workers.
+- [x] Refactor participant construction so `CTO`, `Informer`, `Developer`, `Researcher`, `Writer`, and `Tester` are all direct participants in the same work conversation.
+- [x] Keep `Agent Manager` as orchestrator only, not a hidden worker chain runner.
 - [ ] Decide and encode participant role boundaries explicitly:
   - [ ] `CTO` gives software direction/review, but does not own a hidden subworkflow
   - [ ] `Informer` gives research/writing direction/review, but does not own a hidden subworkflow
@@ -72,8 +86,8 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 
 ### Phase 4: Rework Prompting Model
 
-- [ ] Rewrite manager prompt for orchestrator behavior instead of route-then-delegate behavior.
-- [ ] Remove prompt language that assumes strict two-stage pipelines like researcher->writer or developer->tester.
+- [x] Rewrite manager prompt for orchestrator behavior instead of route-then-delegate behavior.
+- [x] Remove prompt language that assumes strict two-stage pipelines like researcher->writer or developer->tester.
 - [ ] Rewrite participant prompts so each agent understands:
   - [ ] it is in a shared group chat
   - [ ] all participants may see prior messages
@@ -89,8 +103,8 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 
 ### Phase 5: Session and History Synchronization
 
-- [ ] Keep stable per-agent work sessions via `ensure_work_agent_session(work_id, agent_id, ...)`.
-- [ ] Build explicit group-chat history synchronization before each selected turn.
+- [x] Keep stable per-agent work sessions via `ensure_work_agent_session(work_id, agent_id, ...)`.
+- [x] Build explicit group-chat history synchronization before each selected turn.
 - [ ] Ensure each participant receives the correct work-scoped transcript, not just its isolated agent-local memory.
 - [ ] Decide how much history is injected each turn:
   - [ ] full visible transcript window
@@ -101,11 +115,11 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 
 ### Phase 6: Clarification and HITL Flow
 
-- [ ] Replace the current developer-only clarification resume path with group-chat-native pending-input handling.
-- [ ] Allow any participant to trigger a clarification request through the manager.
-- [ ] Persist which agent requested clarification and why.
-- [ ] Ensure Chanakya is the only visible agent that asks the user the question.
-- [ ] On user reply, resume the same work conversation without spawning an unrelated new workflow branch.
+- [x] Replace the current developer-only clarification resume path with group-chat-native pending-input handling.
+- [x] Allow any participant to trigger a clarification request through the manager.
+- [x] Persist which agent requested clarification and why.
+- [x] Ensure Chanakya is the only visible agent that asks the user the question.
+- [x] On user reply, resume the same work conversation without spawning an unrelated new workflow branch.
 - [ ] Keep task/request status transitions accurate for `waiting_input`, `in_progress`, `done`, and `failed`.
 
 ### Phase 7: Task/Event Model Refactor
@@ -136,8 +150,8 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 
 ### Phase 9: `/work` UI and API Alignment
 
-- [ ] Update `/work` frontend assumptions from “single assistant reply with internal workflow” to “multi-agent visible transcript”.
-- [ ] Ensure speaker identity is displayed cleanly for each visible agent turn.
+- [x] Update `/work` frontend assumptions from “single assistant reply with internal workflow” to “multi-agent visible transcript”.
+- [x] Ensure speaker identity is displayed cleanly for each visible agent turn.
 - [ ] Add UI-safe handling for manager-selected pauses, waiting-for-input, and terminated group-chat rounds.
 - [ ] Ensure the existing work history popup still renders the new group-chat model intelligibly.
 - [ ] Keep all current `/work` affordances that should remain intact:
@@ -149,11 +163,11 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 
 ### Phase 10: Verification and Regression Coverage
 
-- [ ] Add tests for manager-selected speaker orchestration in `/work`.
-- [ ] Add tests for persisted per-agent work sessions under the new group-chat model.
-- [ ] Add tests for visible transcript ordering across multiple agent turns.
-- [ ] Add tests for clarification routing through Chanakya only.
-- [ ] Add tests for resume-after-user-input on non-developer participants.
+- [x] Add tests for manager-selected speaker orchestration in `/work`.
+- [x] Add tests for persisted per-agent work sessions under the new group-chat model.
+- [x] Add tests for visible transcript ordering across multiple agent turns.
+- [x] Add tests for clarification routing through Chanakya only.
+- [x] Add tests for resume-after-user-input on non-developer participants.
 - [ ] Add tests for concurrent work-message rejection/serialization.
 - [ ] Add tests for artifact attribution across multiple requests in one work.
 - [ ] Add tests for work history API correctness under group chat.
@@ -161,8 +175,8 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 ## Known Current Bugs / Risks To Address During Refactor
 
 - [ ] Remove or redesign the current “exactly one waiting task” assumption.
-- [ ] Prevent overlapping `/work` messages from corrupting shared session/workspace state.
-- [ ] Eliminate developer-only clarification resume behavior.
+- [x] Prevent overlapping `/work` messages from corrupting shared session/workspace state.
+- [x] Eliminate developer-only clarification resume behavior.
 - [ ] Reduce history-loss risk from over-compressed work session context.
 - [ ] Remove prompt bloat and repetitive workflow boilerplate that hurts inference speed.
 
@@ -176,7 +190,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 
 ## Open Questions To Resolve During Build
 
-- [ ] Should `Chanakya` be a true speaking participant inside the group chat runtime, or remain an external user-facing bridge that mirrors manager decisions into the visible work transcript?
+- [x] Should `Chanakya` be a true speaking participant inside the group chat runtime, or remain an external user-facing bridge that mirrors manager decisions into the visible work transcript?
 - [ ] Should the manager ever emit visible content directly, or only select other agents unless summarization/termination is needed?
 - [ ] What exact termination policy should end a work conversation without cutting off useful peer review too early?
 - [ ] How much prior transcript should be synchronized into each turn to balance correctness against token cost?

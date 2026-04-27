@@ -414,6 +414,14 @@
         overflow-wrap: anywhere;
         word-break: break-word;
       }
+      .msg-agent-name {
+        margin: 0 0 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(165, 223, 255, 0.88);
+      }
       .rendered-markdown {
         display: grid;
         gap: 10px;
@@ -2248,9 +2256,15 @@
       }
 
       function appendChatMessage(role, content, options = {}) {
-        const { shouldScroll = true } = options;
+        const { shouldScroll = true, agentName = "" } = options;
         const node = document.createElement("div");
         node.className = `msg ${role}`;
+        if (role === "assistant" && agentName) {
+          const label = document.createElement("div");
+          label.className = "msg-agent-name";
+          label.textContent = agentName;
+          node.appendChild(label);
+        }
         const body = document.createElement("div");
         body.className = "msg-body";
         body.appendChild(renderMarkdownContent(content));
@@ -2387,11 +2401,11 @@
       }
 
       async function deliverAssistantText(text, options = {}) {
-        const { onAssistantMessage } = options;
+        const { onAssistantMessage, agentName = "" } = options;
         if (!text) {
           return;
         }
-        appendChatMessage("assistant", text);
+        appendChatMessage("assistant", text, { agentName });
         if (isVoiceDeliveryMode() && airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
           await airVoiceController.speakAssistantMessageAndWait(text);
           return;
@@ -2783,7 +2797,7 @@
           if (!text) {
             continue;
           }
-          await deliverAssistantText(text, { onAssistantMessage });
+          await deliverAssistantText(text, { onAssistantMessage, agentName: item.agent_name || "" });
         }
         if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
           const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
@@ -3542,7 +3556,17 @@
           return;
         }
         messages.forEach((message) => {
-          appendChatMessage(message.role === "user" ? "user" : "assistant", message.content || "", { shouldScroll: false });
+          const metadata = message && typeof message.metadata === "object" ? message.metadata : {};
+          appendChatMessage(
+            message.role === "user" ? "user" : "assistant",
+            message.content || "",
+            {
+              shouldScroll: false,
+              agentName: message.role === "assistant"
+                ? (metadata.visible_agent_name || metadata.group_chat_agent_name || "")
+                : "",
+            }
+          );
         });
         if (preserveScroll) {
           const heightDelta = chatLog.scrollHeight - previousScrollHeight;
