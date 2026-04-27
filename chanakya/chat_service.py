@@ -78,6 +78,7 @@ _WAITING_INPUT_CANCEL_MARKERS = (
     "leave it",
     "ignore it",
 )
+_WORK_PENDING_INTERACTION_KEY = "work_pending_interaction"
 
 _CODE_ARTIFACT_SUFFIXES = {
     ".py",
@@ -1096,8 +1097,11 @@ class ChatService:
         message_metadata: dict[str, Any] | None = None,
     ) -> ChatReply:
 
-        # Check for a task waiting on user input in this session (work mode).
-        resumable_task = self.store.find_waiting_input_task(session_id)
+        # In /work, resume from the explicit active pending interaction marker rather than
+        # guessing from all historical waiting tasks in the session.
+        resumable_task = self._find_active_work_pending_task(session_id, work_id=work_id)
+        if resumable_task is None and work_id is None:
+            resumable_task = self.store.find_waiting_input_task(session_id)
         if resumable_task is not None:
             if self._is_waiting_input_cancel_intent(message):
                 return self._cancel_waiting_task_via_chat(
@@ -1106,7 +1110,20 @@ class ChatService:
                     user_message=message,
                     work_id=work_id,
                 )
-            return self.submit_task_input(str(resumable_task["id"]), message)
+            task = self.store.get_task(str(resumable_task["id"]))
+            request = self.store.get_request(task.request_id)
+            resumed_work_id = work_id or self.store.find_work_id_by_session(
+                agent_id=self.runtime.profile.id,
+                session_id=session_id,
+            )
+            return self._submit_task_input_locked(
+                str(resumable_task["id"]),
+                message,
+                task,
+                request,
+                session_id,
+                resumed_work_id,
+            )
 
         # Classic chat (work_id is None) never delegates; work mode delegates.
         return self._chat_internal(
@@ -1124,6 +1141,94 @@ class ChatService:
             tts_instruction=tts_instruction,
             message_metadata=message_metadata,
         )
+
+    def _find_active_work_pending_task(
+        self,
+        session_id: str,
+        *,
+        work_id: str | None,
+    ) -> dict[str, Any] | None:
+        if work_id is None:
+            return None
+        root_tasks = self.store.list_tasks(session_id=session_id, root_only=True, limit=200)
+        for root_task in reversed(root_tasks):
+            if not root_task.get("is_root"):
+                continue
+            if root_task.get("status") != TASK_STATUS_WAITING_INPUT:
+                continue
+            pending = self._pending_interaction_from_root_task(root_task)
+            if not pending:
+                continue
+            waiting_task_id = str(pending.get("waiting_task_id") or "").strip()
+            if not waiting_task_id:
+                continue
+            try:
+                waiting_task = self.store.get_task(waiting_task_id)
+            except KeyError:
+                continue
+            if waiting_task.status != TASK_STATUS_WAITING_INPUT:
+                continue
+            if not (waiting_task.input_json or {}).get("maf_pending_request_id"):
+                continue
+            return {
+                "id": waiting_task.id,
+                "request_id": waiting_task.request_id,
+                "root_task_id": root_task.get("id"),
+                "pending_interaction": pending,
+            }
+        return None
+
+    @staticmethod
+    def _pending_interaction_from_root_task(root_task: Any) -> dict[str, Any] | None:
+        task_input = {}
+        if isinstance(root_task, dict):
+            task_input = dict(root_task.get("input") or {})
+        else:
+            task_input = dict(getattr(root_task, "input_json", None) or {})
+        pending = task_input.get(_WORK_PENDING_INTERACTION_KEY)
+        if not isinstance(pending, dict) or not pending.get("active"):
+            return None
+        return pending
+
+    def _set_root_pending_interaction(
+        self,
+        root_task_id: str,
+        *,
+        waiting_task_id: str | None,
+        workflow_type: str | None,
+        input_prompt: str | None,
+        pending_request_id: str | None,
+        requesting_agent_id: str | None = None,
+        requesting_agent_name: str | None = None,
+        pending_reason: str | None = None,
+    ) -> None:
+        root_task = self.store.get_task(root_task_id)
+        root_input = dict(root_task.input_json or {})
+        root_input[_WORK_PENDING_INTERACTION_KEY] = {
+            "active": True,
+            "waiting_task_id": waiting_task_id,
+            "workflow_type": workflow_type,
+            "input_prompt": input_prompt,
+            "pending_request_id": pending_request_id,
+            "requesting_agent_id": requesting_agent_id,
+            "requesting_agent_name": requesting_agent_name,
+            "pending_reason": pending_reason,
+            "updated_at": now_iso(),
+        }
+        self.store.update_task(root_task_id, input_json=root_input)
+
+    def _clear_root_pending_interaction(self, root_task_id: str) -> None:
+        root_task = self.store.get_task(root_task_id)
+        root_input = dict(root_task.input_json or {})
+        pending = dict(root_input.get(_WORK_PENDING_INTERACTION_KEY) or {})
+        if not pending:
+            return
+        pending.update({
+            "active": False,
+            "updated_at": now_iso(),
+        })
+        root_input[_WORK_PENDING_INTERACTION_KEY] = pending
+        self.store.update_task(root_task_id, input_json=root_input)
 
     @staticmethod
     def _format_chanakya_input_prompt(question: str) -> str:
@@ -1590,6 +1695,25 @@ class ChatService:
         if artifacts:
             result_json = {**result_json, "artifacts": artifacts}
         if task_status == TASK_STATUS_WAITING_INPUT and input_prompt:
+            pending_request_id = None
+            requesting_agent_id = None
+            requesting_agent_name = None
+            pending_reason = None
+            if isinstance(result_json, dict):
+                pending_request_id = str(result_json.get("pending_request_id") or "").strip() or None
+                requesting_agent_id = str(result_json.get("requesting_agent_id") or "").strip() or None
+                requesting_agent_name = str(result_json.get("requesting_agent_name") or "").strip() or None
+                pending_reason = str(result_json.get("reason") or "").strip() or None
+            self._set_root_pending_interaction(
+                root_task_id,
+                waiting_task_id=waiting_task_id,
+                workflow_type=manager_result.workflow_type if manager_result is not None else None,
+                input_prompt=input_prompt,
+                pending_request_id=pending_request_id,
+                requesting_agent_id=requesting_agent_id,
+                requesting_agent_name=requesting_agent_name,
+                pending_reason=pending_reason,
+            )
             if manager_visible_messages:
                 visible_metadata = {
                     "runtime": "maf_agent",
@@ -1677,6 +1801,7 @@ class ChatService:
             )
             response_messages = [*response_messages, {"text": input_prompt, "delay_ms": 0, "agent_name": "Chanakya"}]
         elif task_status != TASK_STATUS_WAITING_INPUT:
+            self._clear_root_pending_interaction(root_task_id)
             actual_runtime_meta = (
                 runtime_meta
                 if manager_result is None
@@ -2069,6 +2194,7 @@ class ChatService:
         )
         if root_task.status == TASK_STATUS_WAITING_INPUT:
             resumed_at = now_iso()
+            self._clear_root_pending_interaction(root_task_id)
             self.store.update_task(root_task_id, status=TASK_STATUS_IN_PROGRESS, finished_at=None)
             self.store.update_request(request.id, status=REQUEST_STATUS_IN_PROGRESS)
             self.store.create_task_event(
@@ -2132,6 +2258,25 @@ class ChatService:
         finished_at = None if result.task_status == TASK_STATUS_WAITING_INPUT else now_iso()
         visible_messages = list(result.visible_messages or [])
         if result.task_status == TASK_STATUS_WAITING_INPUT and result.input_prompt:
+            pending_request_id = None
+            requesting_agent_id = None
+            requesting_agent_name = None
+            pending_reason = None
+            if isinstance(result.result_json, dict):
+                pending_request_id = str(result.result_json.get("pending_request_id") or "").strip() or None
+                requesting_agent_id = str(result.result_json.get("requesting_agent_id") or "").strip() or None
+                requesting_agent_name = str(result.result_json.get("requesting_agent_name") or "").strip() or None
+                pending_reason = str(result.result_json.get("reason") or "").strip() or None
+            self._set_root_pending_interaction(
+                root_task_id,
+                waiting_task_id=result.waiting_task_id,
+                workflow_type=result.workflow_type,
+                input_prompt=result.input_prompt,
+                pending_request_id=pending_request_id,
+                requesting_agent_id=requesting_agent_id,
+                requesting_agent_name=requesting_agent_name,
+                pending_reason=pending_reason,
+            )
             if visible_messages:
                 base_metadata = {
                     "runtime": "maf_agent",
@@ -2211,6 +2356,7 @@ class ChatService:
                 },
             )
         elif result.task_status != TASK_STATUS_WAITING_INPUT:
+            self._clear_root_pending_interaction(root_task_id)
             base_metadata = {
                 "runtime": "maf_agent",
                 "core_agent_backend": str(runtime_meta.get("backend") or "local"),
@@ -2402,6 +2548,8 @@ class ChatService:
                 },
             )
         self.store.update_request(request.id, status=REQUEST_STATUS_CANCELLED)
+        if request.root_task_id:
+            self._clear_root_pending_interaction(request.root_task_id)
         if self.manager is not None:
             self.manager.cancel_waiting_task(task_id)
         return {"task_id": task_id, "status": TASK_STATUS_CANCELLED}

@@ -44,6 +44,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - Replaced the builder-default zero-retry agent-based orchestrator construction with a manual MAF workflow build that gives the manager-orchestrator explicit retry attempts for malformed `next_speaker` outputs.
 - Refactored `/api/works/<work_id>/history` to expose a first-class shared conversation payload plus richer per-agent session stats for the Agent Histories UI.
 - Added a group-chat-first inspector trace that captures manager decisions, per-call prompt/input packets, and participant tool-call traces for new `/work` runs.
+- Replaced `/work` auto-resume's implicit single-waiting-task scan with an explicit root-task pending-interaction marker so the active clarification can be resumed reliably even if stale waiting tasks remain in session history.
 
 ## Implementation Strategy
 
@@ -52,7 +53,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [x] Add an explicit per-work orchestration mode field or equivalent runtime constant for `/work` so group chat becomes the only active mode after the DB reset.
 - [x] Audit all current `/work` assumptions in `chat_service.py`, `agent_manager.py`, `maf_workflows.py`, and `app.py` that depend on sequential child-task trees.
 - [x] Add a per-work execution lock to prevent concurrent `/work` messages from racing in the same work session/workspace.
-- [ ] Replace the current `find_waiting_input_task()` single-task assumption with explicit pending-interaction state for the active work conversation.
+- [x] Replace the current `find_waiting_input_task()` single-task assumption with explicit pending-interaction state for the active work conversation.
 - [ ] Define the minimal persisted state required for resumable group chat turns:
   - [ ] active speaker
   - [ ] pending clarification owner
@@ -176,7 +177,7 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 
 ## Known Current Bugs / Risks To Address During Refactor
 
-- [ ] Remove or redesign the current “exactly one waiting task” assumption.
+- [x] Remove or redesign the current “exactly one waiting task” assumption.
 - [x] Prevent overlapping `/work` messages from corrupting shared session/workspace state.
 - [x] Eliminate developer-only clarification resume behavior.
 - [ ] Reduce history-loss risk from over-compressed work session context.

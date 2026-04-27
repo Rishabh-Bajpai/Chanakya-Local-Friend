@@ -266,9 +266,83 @@ def test_work_group_chat_waiting_input_resumes_same_request() -> None:
 
     assert resumed.root_task_status == TASK_STATUS_DONE
     assert resumed.messages[-1]["text"] == "Implemented with Flask."
+    root_task = next(task for task in store.list_tasks(session_id=work_session_id, root_only=True) if task["is_root"])
+    pending_state = dict(root_task["input"]).get("work_pending_interaction")
+    assert isinstance(pending_state, dict)
+    assert pending_state["active"] is False
     chanakya_messages = store.list_messages(work_session_id)
     assert any(item.get("content") == "Use Flask" for item in chanakya_messages)
     assert any(item.get("content") == "Implemented with Flask." for item in chanakya_messages)
+
+
+def test_work_chat_autoresume_prefers_explicit_active_pending_interaction() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_pending_marker")
+    manager = AgentManager(store, store.Session, manager_profile)
+    call_count = {"count": 0}
+
+    def _fake_builder(**kwargs):
+        def _conversation(seeded):
+            call_count["count"] += 1
+            if call_count["count"] == 1:
+                return [
+                    *seeded,
+                    Message(
+                        role="assistant",
+                        text="NEEDS_USER_INPUT: Need a framework choice before implementation can continue.",
+                        author_name="Developer",
+                    ),
+                    Message(
+                        role="assistant",
+                        text=(
+                            '{"status":"needs_user_input","question":"Should we use Flask or FastAPI?",'
+                            '"reason":"Framework not chosen.","requesting_agent_id":"agent_developer",'
+                            '"requesting_agent_name":"Developer"}'
+                        ),
+                        author_name="Agent Manager",
+                    ),
+                ]
+            return [
+                *seeded,
+                Message(role="assistant", text="Implemented with Flask.", author_name="Developer"),
+                Message(
+                    role="assistant",
+                    text='{"status":"completed","summary":"Implemented with Flask."}',
+                    author_name="Agent Manager",
+                ),
+            ]
+
+        return _FakeWorkflow(_conversation)
+
+    manager._build_work_group_chat_workflow = _fake_builder  # type: ignore[method-assign]
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    first = service.chat(work_session_id, "Build the API", work_id="work_pending_marker")
+    assert first.root_task_status == TASK_STATUS_WAITING_INPUT
+    root_task = next(task for task in store.list_tasks(session_id=work_session_id, root_only=True) if task["is_root"])
+    pending_state = dict(root_task["input"]).get("work_pending_interaction")
+    assert isinstance(pending_state, dict)
+    assert pending_state["active"] is True
+    assert pending_state["waiting_task_id"] == first.waiting_task_id
+
+    store.create_task(
+        task_id="task_stale_waiting",
+        request_id=root_task["request_id"],
+        parent_task_id=None,
+        title="Stale waiting",
+        summary="Stale waiting",
+        status=TASK_STATUS_WAITING_INPUT,
+        owner_agent_id="agent_developer",
+        task_type="developer_execution",
+        input_json={"maf_pending_request_id": "pending_stale"},
+    )
+
+    resumed = service.chat(work_session_id, "Use Flask", work_id="work_pending_marker")
+
+    assert resumed.root_task_status == TASK_STATUS_DONE
+    assert resumed.messages[-1]["text"] == "Implemented with Flask."
 
 
 def test_work_group_chat_retries_transient_502() -> None:
