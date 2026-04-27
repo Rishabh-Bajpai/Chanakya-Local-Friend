@@ -79,11 +79,16 @@ class MAFOrchestrationAgent:
         instructions: str,
         payload: dict[str, Any],
         model_id: str | None,
+        request_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         prompt = self._build_prompt(
             task=task, instructions=instructions, payload=payload
         )
-        raw_text = self._run(prompt, model_override=model_id)
+        raw_text = self._run(
+            prompt,
+            model_override=model_id,
+            request_headers=request_headers,
+        )
         return self._parse_result(raw_text)
 
     async def plan_async(
@@ -108,13 +113,19 @@ class MAFOrchestrationAgent:
             )
         return result
 
-    def _run(self, prompt: str, *, model_override: str | None = None) -> str:
+    def _run(
+        self,
+        prompt: str,
+        *,
+        model_override: str | None = None,
+        request_headers: dict[str, str] | None = None,
+    ) -> str:
         if self.runner is not None:
             result = self.runner(prompt)
         elif self.backend == "a2a":
             result = asyncio.run(self._run_a2a(prompt, model_override=model_override))
         else:
-            agent = self._agent_for_model(model_override)
+            agent = self._agent_for_model(model_override, request_headers=request_headers)
             result = asyncio.run(agent.run(prompt))
         return self._coerce_result_to_text(result)
 
@@ -158,16 +169,34 @@ class MAFOrchestrationAgent:
             f"Payload:\n{json.dumps(payload, ensure_ascii=True)}"
         )
 
-    def _agent_for_model(self, model_override: str | None) -> Agent:
+    def _agent_for_model(
+        self,
+        model_override: str | None,
+        request_headers: dict[str, str] | None = None,
+    ) -> Agent:
         model_id = str(model_override or "").strip()
         if not model_id or model_id == self.model:
+            if request_headers:
+                client = self._build_openai_chat_client(
+                    self.model, default_headers=request_headers
+                )
+                return Agent(
+                    client=client,
+                    name=f"ConversationLayerPlanner[{self.model}]",
+                    description="Structured orchestration planner for the conversation layer.",
+                    instructions=(
+                        "You are a planning agent for a conversation orchestration layer. "
+                        "Return only valid JSON that matches the requested schema. "
+                        "Do not include markdown fences or prose outside the JSON object."
+                    ),
+                )
             if self._agent is None:
                 raise OrchestrationAgentError("Orchestration agent is not initialized")
             return self._agent
         cached = self._agent_by_model.get(model_id)
         if cached is not None:
             return cached
-        client = self._build_openai_chat_client(model_id)
+        client = self._build_openai_chat_client(model_id, default_headers=request_headers)
         created = Agent(
             client=client,
             name=f"ConversationLayerPlanner[{model_id}]",
@@ -211,11 +240,16 @@ class MAFOrchestrationAgent:
             return prompt
         return f"[[opencode-options:{';'.join(header_parts)}]]\n{prompt}"
 
-    def _build_openai_chat_client(self, model_id: str) -> OpenAIChatClient:
+    def _build_openai_chat_client(
+        self,
+        model_id: str,
+        default_headers: dict[str, str] | None = None,
+    ) -> OpenAIChatClient:
         async_client = AsyncOpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
             max_retries=0,
+            default_headers=default_headers,
         )
         return OpenAIChatClient(
             model_id=model_id,

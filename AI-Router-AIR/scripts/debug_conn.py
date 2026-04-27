@@ -10,7 +10,7 @@ async def test_connection(url, name, api_key):
     headers = {"Content-Type": "application/json"}
     if api_key and api_key != "na":
         headers["Authorization"] = f"Bearer {api_key}"
-    
+
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             response = await client.get(f"{url.rstrip('/')}/models", headers=headers)
@@ -27,7 +27,8 @@ async def main():
     i = 1
     while True:
         url = os.getenv(f"LLM_BASE_URL_{i}")
-        if not url: break
+        if not url:
+            break
         api_key = os.getenv(f"LLM_API_KEY_{i}", "na")
         await test_connection(url, f"LLM_{i}", api_key)
         i += 1

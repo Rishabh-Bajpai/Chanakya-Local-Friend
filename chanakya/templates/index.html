@@ -2195,6 +2195,18 @@
       transform: none;
     }
 
+    .composer-mic-proxy[data-state="recording"] {
+      background: rgba(220, 60, 40, 0.28);
+      border-color: rgba(255, 120, 100, 0.5);
+      color: #ff9b8a;
+      animation: mic-pulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes mic-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(220, 60, 40, 0.35); }
+      50% { box-shadow: 0 0 0 6px rgba(220, 60, 40, 0); }
+    }
+
     .composer-more-button {
       display: inline-flex;
     }
@@ -3666,8 +3678,8 @@
     function isCallModeActive() {
       return Boolean(
         airVoiceController
-        && typeof airVoiceController.isVoiceModeEnabled === "function"
-        && airVoiceController.isVoiceModeEnabled()
+        && typeof airVoiceController.isContinuousModeEnabled === "function"
+        && airVoiceController.isContinuousModeEnabled()
       );
     }
 
@@ -5189,6 +5201,7 @@
       if (voiceMode) {
         resetVoiceQueueState();
       }
+      setConversationQueueStatus("");
       beginAssistantTurn();
       renderInlineProgressStatus('Chanakya is processing the request', { requestId: activeInlineProgressRequestId || 'pending' });
       const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
@@ -6414,6 +6427,30 @@
 
     window.addEventListener("air-voice-status", syncHeroState);
 
+    const composerMicProxy = document.querySelector(".composer-mic-proxy");
+    const micSvgIdle = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2.5 2.5 0 0 0-2.5 2.5v5a2.5 2.5 0 1 0 5 0v-5A2.5 2.5 0 0 0 12 4Z" /><path d="M7 11.5a5 5 0 0 0 10 0" /><path d="M12 16.5V20" /><path d="M9 20h6" /></svg>';
+    const micSvgRecording = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" /></svg>';
+    function syncMicProxyState() {
+      if (!composerMicProxy) return;
+      const state = airMicButton.dataset.state || "idle";
+      composerMicProxy.dataset.state = state;
+      if (state === "recording") {
+        composerMicProxy.innerHTML = micSvgRecording;
+        composerMicProxy.setAttribute("title", "Stop recording");
+        composerMicProxy.setAttribute("aria-label", "Stop recording");
+      } else {
+        composerMicProxy.innerHTML = micSvgIdle;
+        composerMicProxy.setAttribute("title", "Send voice message");
+        composerMicProxy.setAttribute("aria-label", "Send voice message");
+      }
+    }
+    if (airMicButton) {
+      new MutationObserver(syncMicProxyState).observe(airMicButton, {
+        attributes: true,
+        attributeFilter: ["data-state"],
+      });
+    }
+
     setChatExpanded(false);
     setMainMode("chat");
     syncHeroState();
@@ -6578,6 +6615,23 @@
         await pauseConversationReplies();
       } catch (error) {
         setConversationQueueStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    });
+    window.addEventListener("air-voice-interruption-empty", async () => {
+      resetVoiceQueueState();
+      setConversationQueueStatus("Interruption had no speech. Resuming delivery...");
+      if (sessionId) {
+        try {
+          await pollNextConversationMessages(sessionId, {
+            onAssistantMessage: async (content) => {
+              if (airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
+                await airVoiceController.speakAssistantMessageAndWait(content);
+              }
+            },
+          });
+        } catch (error) {
+          setConversationQueueStatus(error instanceof Error ? error.message : String(error), true);
+        }
       }
     });
     airVoiceController.fetchModels()

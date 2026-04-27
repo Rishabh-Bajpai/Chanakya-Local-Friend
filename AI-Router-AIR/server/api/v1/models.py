@@ -1,3 +1,5 @@
+"""Models API route listing all available models across providers."""
+
 from fastapi import APIRouter
 from server.services.provider_manager import provider_manager
 
@@ -5,6 +7,7 @@ router = APIRouter(tags=["Models"])
 
 @router.get("/")
 async def list_models(refresh: bool = False):
+    """List all available models, optionally refreshing the cache."""
     if refresh:
         models = await provider_manager.refresh_models()
     else:
@@ -12,5 +15,5 @@ async def list_models(refresh: bool = False):
         # If cache is empty, we might want to refresh anyway or just return empty
         if not models:
              models = await provider_manager.refresh_models()
-             
+
     return {"object": "list", "data": models}

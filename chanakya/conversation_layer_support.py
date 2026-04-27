@@ -122,6 +122,7 @@ class ConversationLayerSupport:
         session_id: str,
         user_message: str,
         assistant_message: str,
+        request_id: str | None = None,
         model_id: str | None = None,
         backend: str | None = None,
         a2a_url: str | None = None,
@@ -159,6 +160,7 @@ class ConversationLayerSupport:
                 session_id=session_id,
                 message=user_message,
                 metadata={
+                    **({"request_id": request_id} if request_id else {}),
                     "conversation_orchestration_model_id": model_id or a2a_model_id,
                     "conversation_preferences": {
                         "tone": "warm, natural, human",

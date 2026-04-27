@@ -25,7 +25,7 @@ AI Router (AIR) is a powerful proxy and routing system designed to unify various
 
 The project is built on a highly modular API Gateway architecture using **FastAPI**, emphasizing Separation of Concerns.
 
-1.  **AIR Server (`server/`)**: 
+1.  **AIR Server (`server/`)**:
     *   Acts as the central reverse-proxy router for AI requests.
     *   **API Layer (`server/api/`)**: Defines OpenAI-compatible `/v1` routes (chat, audio, models) and admin configuration endpoints.
     *   **Core Infrastructure (`server/core/`)**: Handles dynamic dependency injection, secure `.env` management, and the `httpx` streaming proxy engine.
@@ -39,13 +39,23 @@ The project is built on a highly modular API Gateway architecture using **FastAP
 
 ### Prerequisites
 *   Python 3.11+
+*   [Conda](https://docs.conda.io/en/latest/) (Miniconda or Anaconda)
 *   `pip` (Python Package Manager)
 
-### 1. Clone & Install Dependencies
+### 1. Clone & Set Up Environment
 ```bash
 git clone <this-repo-url>
 cd AI-Router-AIR
+
+# Create and activate a conda environment
+conda create -n air python=3.11 -y
+conda activate air
+
+# Install the project with all dependencies
 pip install -e .
+
+# (Optional) Install dev dependencies for running tests
+pip install -e ".[dev]"
 ```
 
 ### 2. Configuration
@@ -126,6 +136,32 @@ server/
 └── templates/              # Jinja2 HTML templates for Dashboard
 pyproject.toml              # Unified dependency management
 run.py                      # Multi-service runner script
+```
+
+## 🔧 Pre-commit Hooks
+
+This project uses [pre-commit](https://pre-commit.com/) to enforce code quality checks before each commit.
+
+### Setup
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+### What's Included
+| Hook | Purpose |
+|---|---|
+| `trailing-whitespace` | Removes trailing whitespace |
+| `check-merge-conflict` | Prevents committing unresolved merge conflicts |
+| `end-of-file-fixer` | Ensures files end with a newline |
+| `ruff` | Python linting with auto-fix |
+| `codespell` | Catches common spelling mistakes |
+| `interrogate` | Enforces ≥80% docstring coverage |
+
+### Usage
+Hooks run automatically on `git commit`. To run manually on all files:
+```bash
+pre-commit run --all-files
 ```
 
 ## 🤝 Contributing
