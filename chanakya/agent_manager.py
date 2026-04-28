@@ -648,12 +648,15 @@ class AgentManager:
         message: str,
         child_task_ids: list[str],
     ) -> ManagerRunResult:
-        participant_profiles = self._group_chat_participant_profiles()
-        participant_meta = self._group_chat_participant_metadata(participant_profiles)
         context_memo = self._build_group_chat_work_context_memo(
             session_id=session_id,
             current_message=message,
         )
+        participant_profiles = self._group_chat_participant_profiles(
+            message=message,
+            context_memo=context_memo,
+        )
+        participant_meta = self._group_chat_participant_metadata(participant_profiles)
         seeded_conversation: list[Message] = []
         workflow = None
         self.store.create_task_event(
@@ -742,6 +745,7 @@ class AgentManager:
                 request_id=request_id,
                 manager_task_id=manager_task_id,
                 execution_trace=execution_trace,
+                completion_payload=completion_payload,
                 participant_profiles=participant_profiles,
             )
             turn_task_ids = self._record_group_chat_visible_turns(
@@ -985,15 +989,129 @@ class AgentManager:
                 },
             )
 
-    def _group_chat_participant_profiles(self) -> list[AgentProfileModel]:
-        ordered_ids = [
-            "agent_cto",
-            "agent_informer",
-            "agent_developer",
-            "agent_researcher",
-            "agent_writer",
-            "agent_tester",
-        ]
+    @staticmethod
+    def _looks_like_writer_only_request(message: str) -> bool:
+        lowered = message.strip().lower()
+        if not lowered:
+            return False
+        writer_markers = (
+            "rewrite",
+            "rephrase",
+            "polish",
+            "tone",
+            "grammar",
+            "revise",
+            "edit this",
+            "make it shorter",
+            "make it longer",
+        )
+        referential_markers = ("it", "this", "that", "above", "draft", "response", "report")
+        return any(marker in lowered for marker in writer_markers) and any(
+            marker in lowered for marker in referential_markers
+        )
+
+    @staticmethod
+    def _message_has_software_signals(message: str) -> bool:
+        lowered = message.strip().lower()
+        markers = (
+            "code",
+            "app",
+            "api",
+            "endpoint",
+            "function",
+            "class",
+            "flask",
+            "fastapi",
+            "react",
+            "javascript",
+            "typescript",
+            "python",
+            "bug",
+            "refactor",
+            "database",
+            "schema",
+            "graph",
+            "chart",
+            ".py",
+            ".js",
+            ".ts",
+            ".tsx",
+            ".html",
+            ".css",
+        )
+        return any(marker in lowered for marker in markers)
+
+    @staticmethod
+    def _context_implies_software(context_memo: str | None) -> bool:
+        if not context_memo:
+            return False
+        lowered = context_memo.lower()
+        markers = (
+            "developer:",
+            "/workspace/",
+            ".py",
+            ".js",
+            ".ts",
+            ".tsx",
+            ".html",
+            ".css",
+            "requirements.txt",
+            "implemented",
+            "files created",
+        )
+        return any(marker in lowered for marker in markers)
+
+    @staticmethod
+    def _context_implies_information(context_memo: str | None) -> bool:
+        if not context_memo:
+            return False
+        lowered = context_memo.lower()
+        markers = (
+            "researcher:",
+            "writer:",
+            "summary",
+            "report",
+            ".md",
+            ".txt",
+            "word count",
+        )
+        return any(marker in lowered for marker in markers)
+
+    def _group_chat_participant_profiles(
+        self,
+        message: str | None = None,
+        context_memo: str | None = None,
+    ) -> list[AgentProfileModel]:
+        if message is None:
+            ordered_ids = [
+                "agent_cto",
+                "agent_informer",
+                "agent_developer",
+                "agent_researcher",
+                "agent_writer",
+                "agent_tester",
+            ]
+        else:
+            requirements = self._group_chat_completion_requirements(message)
+            software_signals = self._message_has_software_signals(message)
+            software_context = self._context_implies_software(context_memo)
+            information_context = self._context_implies_information(context_memo)
+            if self._looks_like_writer_only_request(message):
+                ordered_ids = ["agent_writer"]
+            elif software_signals or software_context:
+                ordered_ids = ["agent_developer"]
+                if requirements.require_tester_validation:
+                    ordered_ids.append("agent_tester")
+            elif information_context:
+                ordered_ids = ["agent_researcher", "agent_writer"]
+            else:
+                workflow_type = self.select_workflow(message)
+                if workflow_type == WORKFLOW_SOFTWARE:
+                    ordered_ids = ["agent_developer"]
+                    if requirements.require_tester_validation:
+                        ordered_ids.append("agent_tester")
+                else:
+                    ordered_ids = ["agent_researcher", "agent_writer"]
         profiles: list[AgentProfileModel] = []
         for agent_id in ordered_ids:
             profiles.append(self.store.get_agent_profile(agent_id))
@@ -2023,6 +2141,7 @@ class AgentManager:
         request_id: str,
         manager_task_id: str,
         execution_trace: dict[str, Any],
+        completion_payload: dict[str, Any],
         participant_profiles: list[AgentProfileModel],
     ) -> None:
         participant_by_name = {profile.name: profile for profile in participant_profiles}
@@ -2038,32 +2157,7 @@ class AgentManager:
             ]
         for decision in decisions:
             payload = dict(decision.get("decision") or {})
-            termination_case = payload.get("termination_case")
-            if not termination_case:
-                status = str(payload.get("status") or "").strip()
-                if status == "needs_user_input":
-                    termination_case = "clarification_required"
-                elif status == "completed" or payload.get("summary"):
-                    termination_case = "user_request_satisfied"
-                else:
-                    termination_case = "blocker_or_failure"
-            if payload.get("terminate") or payload.get("action") == "terminate":
-                self.store.create_task_event(
-                    session_id=session_id,
-                    request_id=request_id,
-                    task_id=manager_task_id,
-                    event_type="group_chat_termination_decided",
-                    payload={
-                        "workflow_type": WORKFLOW_GROUP_CHAT,
-                        "status": payload.get("status") or ("completed" if payload.get("final_message") or payload.get("summary") else "failed"),
-                        "termination_case": termination_case,
-                        "reason": payload.get("reason"),
-                        "summary": payload.get("summary"),
-                        "requesting_agent_id": payload.get("requesting_agent_id"),
-                        "requesting_agent_name": payload.get("requesting_agent_name"),
-                    },
-                )
-            else:
+            if not (payload.get("terminate") or payload.get("action") == "terminate"):
                 selected_name = payload.get("next_speaker") or payload.get("selected_agent_name")
                 selected_profile = participant_by_name.get(str(selected_name or "").strip())
                 self.store.create_task_event(
@@ -2080,6 +2174,32 @@ class AgentManager:
                         "selection_reason": payload.get("reason"),
                     },
                 )
+        status = str(completion_payload.get("status") or "").strip()
+        if not status:
+            status = "completed" if completion_payload.get("summary") else "failed"
+        termination_case = str(completion_payload.get("termination_case") or "").strip()
+        if not termination_case:
+            if status == "needs_user_input":
+                termination_case = "clarification_required"
+            elif status == "completed":
+                termination_case = "user_request_satisfied"
+            else:
+                termination_case = "blocker_or_failure"
+        self.store.create_task_event(
+            session_id=session_id,
+            request_id=request_id,
+            task_id=manager_task_id,
+            event_type="group_chat_termination_decided",
+            payload={
+                "workflow_type": WORKFLOW_GROUP_CHAT,
+                "status": status,
+                "termination_case": termination_case,
+                "reason": completion_payload.get("reason"),
+                "summary": completion_payload.get("summary"),
+                "requesting_agent_id": completion_payload.get("requesting_agent_id"),
+                "requesting_agent_name": completion_payload.get("requesting_agent_name"),
+            },
+        )
 
     def _extract_group_chat_conversation(self, result: Any) -> list[Message]:
         outputs = []
@@ -2122,13 +2242,27 @@ class AgentManager:
             if text.startswith("NEEDS_USER_INPUT:"):
                 continue
             profile = participant_by_name.get(str(item.author_name or "").strip())
+            agent_id = profile.id if profile is not None else None
+            agent_name = str(item.author_name or "Agent")
+            agent_role = profile.role if profile is not None else None
+            if visible_messages:
+                previous = visible_messages[-1]
+                if (
+                    previous.get("agent_id") == agent_id
+                    and previous.get("agent_name") == agent_name
+                    and previous.get("agent_role") == agent_role
+                ):
+                    previous_text = str(previous.get("text") or "").strip()
+                    previous["text"] = f"{previous_text}\n\n{text}" if previous_text else text
+                    previous["turn_index"] = index
+                    continue
             visible_messages.append(
                 {
                     "text": text,
                     "delay_ms": 0,
-                    "agent_id": profile.id if profile is not None else None,
-                    "agent_name": str(item.author_name or "Agent"),
-                    "agent_role": profile.role if profile is not None else None,
+                    "agent_id": agent_id,
+                    "agent_name": agent_name,
+                    "agent_role": agent_role,
                     "turn_index": index,
                 }
             )

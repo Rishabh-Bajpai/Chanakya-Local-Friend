@@ -1012,6 +1012,39 @@ class ChatService:
                 },
             )
 
+    def _set_active_work_binding(
+        self,
+        *,
+        visible_session_id: str,
+        work_id: str | None,
+        root_request_id: str | None,
+        workflow_type: str | None,
+    ) -> None:
+        if work_id is None:
+            return
+        work = self.store.get_work(work_id)
+        work_session_id = self.store.ensure_work_agent_session(
+            work_id=work_id,
+            agent_id=self.runtime.profile.id,
+            session_id=make_id("session"),
+            session_title=f"{work.title} - {self.runtime.profile.name}",
+        )
+        if visible_session_id == work_session_id:
+            return
+        existing = self.store.get_active_classic_work(visible_session_id)
+        self.store.set_active_classic_work(
+            chat_session_id=visible_session_id,
+            work_id=work_id,
+            work_session_id=work_session_id,
+            root_request_id=root_request_id,
+            title=work.title,
+            summary=work.description,
+            workflow_type=(
+                workflow_type
+                or (None if existing is None else str(existing.get("workflow_type") or "").strip() or None)
+            ),
+        )
+
     def _mirror_work_conversation_to_agent_sessions(
         self,
         *,
@@ -1492,6 +1525,12 @@ class ChatService:
             owner_agent_id=self.runtime.profile.id,
             task_type="chat_request",
             input_json={"message": message, "runtime_config": runtime_snapshot},
+        )
+        self._set_active_work_binding(
+            visible_session_id=session_id,
+            work_id=work_id,
+            root_request_id=request_id,
+            workflow_type=None,
         )
 
         debug_log(
@@ -2066,6 +2105,12 @@ class ChatService:
             status=task_status,
             result_json=result_json,
             finished_at=finished_at,
+        )
+        self._set_active_work_binding(
+            visible_session_id=session_id,
+            work_id=resolved_work_id,
+            root_request_id=request_id,
+            workflow_type=response_mode if resolved_work_id is not None else None,
         )
         if task_status != TASK_STATUS_WAITING_INPUT:
             self.store.create_task_event(

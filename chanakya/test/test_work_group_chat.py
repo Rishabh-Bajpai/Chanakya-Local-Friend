@@ -256,6 +256,136 @@ def test_work_group_chat_persists_visible_agent_turns_and_mirrors_history() -> N
     assert any(item.get("content") == "Here is the polished answer." for item in mirrored)
 
 
+def test_work_group_chat_termination_event_uses_final_completion_payload() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_trace_reconcile")
+    manager = _TrackingManager(store, store.Session, manager_profile)
+    trace = RuntimeGroupChatTrace(
+        manager_decisions=[
+            {
+                "round_index": 0,
+                "decision": {
+                    "terminate": False,
+                    "reason": "Developer should implement first.",
+                    "next_speaker": "Developer",
+                },
+            },
+            {
+                "round_index": 1,
+                "decision": {
+                    "terminate": True,
+                    "reason": "The conversation is stalled.",
+                    "final_message": "Implementation is complete.",
+                },
+            },
+        ]
+    )
+    manager._build_work_group_chat_workflow = lambda **kwargs: _TracedFakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(role="assistant", text="Implemented the Flask app.", author_name="Developer"),
+            Message(
+                role="assistant",
+                text='{"status":"completed","summary":"Implemented the Flask app."}',
+                author_name="Agent Manager",
+            ),
+        ],
+        trace,
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(work_session_id, "Build the Flask app", work_id="work_trace_reconcile")
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    termination_event = next(
+        item
+        for item in store.list_task_events(session_id=work_session_id)
+        if item.get("event_type") == "group_chat_termination_decided"
+    )
+    assert termination_event["payload"]["status"] == "completed"
+    assert termination_event["payload"]["termination_case"] == "user_request_satisfied"
+
+
+def test_group_chat_participant_profiles_are_minimized_by_request_type() -> None:
+    store = _build_store()
+    _, manager_profile = _seed_full_hierarchy(store)
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    assert [item.id for item in manager._group_chat_participant_profiles(message="implement a flask api")] == [
+        "agent_developer"
+    ]
+    assert [
+        item.id
+        for item in manager._group_chat_participant_profiles(
+            message="implement and test a flask api"
+        )
+    ] == ["agent_developer", "agent_tester"]
+    assert [item.id for item in manager._group_chat_participant_profiles(message="summarize this market report")] == [
+        "agent_researcher",
+        "agent_writer",
+    ]
+    assert [item.id for item in manager._group_chat_participant_profiles(message="rewrite it in a friendlier tone")] == [
+        "agent_writer"
+    ]
+
+
+def test_group_chat_split_collapses_consecutive_messages_from_same_agent() -> None:
+    store = _build_store()
+    _, manager_profile = _seed_full_hierarchy(store)
+    manager = AgentManager(store, store.Session, manager_profile)
+    participant_profiles = manager._group_chat_participant_profiles()
+
+    completion, visible_messages = manager._split_group_chat_completion(
+        conversation_slice=[
+            Message(role="assistant", text="First update.", author_name="Developer"),
+            Message(role="assistant", text="Second update.", author_name="Developer"),
+            Message(role="assistant", text='{"status":"completed","summary":"Done."}', author_name="Agent Manager"),
+        ],
+        participant_profiles=participant_profiles,
+    )
+
+    assert completion["status"] == "completed"
+    assert len(visible_messages) == 1
+    assert visible_messages[0]["agent_name"] == "Developer"
+    assert visible_messages[0]["text"] == "First update.\n\nSecond update."
+
+
+def test_work_chat_binds_classic_session_to_active_work() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_binding")
+    manager = _TrackingManager(store, store.Session, manager_profile)
+    manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(role="assistant", text="Here is the work update.", author_name="Researcher"),
+            Message(
+                role="assistant",
+                text='{"status":"completed","summary":"Here is the work update."}',
+                author_name="Agent Manager",
+            ),
+        ]
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    classic_session_id = "session_classic_binding"
+    store.ensure_session(classic_session_id, title="Classic Chat")
+    reply = service.chat(classic_session_id, "Continue this work", work_id="work_binding")
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    active_work = store.get_active_classic_work(classic_session_id)
+    assert active_work is not None
+    assert active_work["work_id"] == "work_binding"
+    assert active_work["work_session_id"] == work_session_id
+    assert active_work["root_request_id"] == reply.request_id
+    assert active_work["workflow_type"] == "work_group_chat"
+
+
 def test_work_group_chat_waiting_input_resumes_same_request() -> None:
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)
@@ -509,7 +639,41 @@ def test_group_chat_software_completion_allows_developer_only_when_validation_no
     reply = service.chat(work_session_id, "Implement the hello world update", work_id="work_developer_only")
 
     assert reply.root_task_status == TASK_STATUS_DONE
-    assert reply.messages[-1]["text"] == "Implemented `/workspace/hello_world.py` with the requested output."
+
+
+def test_group_chat_participant_profiles_narrow_for_software_requests() -> None:
+    store = _build_store()
+    _, manager_profile = _seed_full_hierarchy(store)
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    software_profiles = manager._group_chat_participant_profiles("Implement the hello world update")
+    validated_profiles = manager._group_chat_participant_profiles("Implement and test the hello world update")
+    default_profiles = manager._group_chat_participant_profiles()
+
+    assert [profile.role for profile in software_profiles] == ["developer"]
+    assert [profile.role for profile in validated_profiles] == ["developer", "tester"]
+    assert len(default_profiles) > len(validated_profiles)
+
+
+def test_group_chat_split_completion_collapses_consecutive_messages_from_same_agent() -> None:
+    store = _build_store()
+    _, manager_profile = _seed_full_hierarchy(store)
+    manager = AgentManager(store, store.Session, manager_profile)
+    participant_profiles = manager._group_chat_participant_profiles()
+
+    completion, visible_messages = manager._split_group_chat_completion(
+        conversation_slice=[
+            Message(role="assistant", text="First implementation update.", author_name="Developer"),
+            Message(role="assistant", text="Second implementation update.", author_name="Developer"),
+            Message(role="assistant", text='{"status":"completed","summary":"Done."}', author_name="Agent Manager"),
+        ],
+        participant_profiles=participant_profiles,
+    )
+
+    assert completion["status"] == "completed"
+    assert len(visible_messages) == 1
+    assert visible_messages[0]["agent_name"] == "Developer"
+    assert visible_messages[0]["text"] == "First implementation update.\n\nSecond implementation update."
 
 
 def test_group_chat_recovers_false_negative_failure_when_developer_evidence_exists() -> None:
