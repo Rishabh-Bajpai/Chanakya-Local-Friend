@@ -1158,6 +1158,162 @@
       margin-bottom: 8px;
     }
 
+    .mcp-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .mcp-panel-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(79, 215, 255, 0.06), rgba(255, 255, 255, 0.02));
+    }
+
+    .mcp-panel-kicker {
+      margin: 0 0 4px;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #9adfff;
+    }
+
+    .mcp-panel-copy {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+
+    .mcp-panel-path {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: #d6d1ca;
+      word-break: break-word;
+    }
+
+    .mcp-config-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .mcp-editor-card,
+    .mcp-preview-card {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .mcp-section-title {
+      margin: 0;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #d5d0ca;
+    }
+
+    .mcp-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .mcp-editor-card textarea {
+      min-height: 320px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .mcp-preview-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .mcp-server-card {
+      display: grid;
+      gap: 6px;
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(7, 12, 22, 0.34);
+    }
+
+    .mcp-server-topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .mcp-server-id {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      word-break: break-word;
+    }
+
+    .mcp-server-transport {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #9adfff;
+      white-space: nowrap;
+    }
+
+    .mcp-server-command,
+    .mcp-server-meta {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--muted);
+      word-break: break-word;
+    }
+
+    .mcp-server-functions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .mcp-server-function {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(79, 215, 255, 0.08);
+      color: #c8f1ff;
+      font-size: 11px;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .mcp-preview-empty {
+      padding: 18px 10px;
+      border: 1px dashed rgba(255, 255, 255, 0.10);
+      border-radius: 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
     .form-actions {
       display: flex;
       gap: 10px;
@@ -1264,6 +1420,22 @@
 
       .agent-editor-grid {
         grid-template-columns: 1fr;
+      }
+
+      .mcp-config-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .mcp-panel-header {
+        flex-direction: column;
+      }
+
+      .mcp-actions {
+        width: 100%;
+      }
+
+      .mcp-actions button {
+        flex: 1 1 160px;
       }
     }
 
@@ -3180,6 +3352,50 @@
         </div>
       </div>
 
+      <div class="sidebar-panel collapsed" data-sidebar-panel="mcps">
+        <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
+          <div class="sidebar-panel-title">
+            <span class="panel-icon">🧩</span>
+            MCPs
+          </div>
+          <svg class="sidebar-panel-chevron" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/></svg>
+        </div>
+        <div class="sidebar-panel-body">
+          <div class="mcp-panel">
+            <div class="mcp-panel-header">
+              <div>
+                <p class="mcp-panel-kicker">Unified MCP Registry</p>
+                <p class="mcp-panel-copy">Add or edit MCP server definitions here, save the config, then reload to make them assignable to workers.</p>
+                <p id="mcpConfigPath" class="mcp-panel-path"></p>
+              </div>
+              <div class="mcp-actions">
+                <button id="mcpConfigSaveButton" type="button" class="air-button">Save Config</button>
+                <button id="mcpConfigSaveReloadButton" type="button" class="button-secondary">Save + Reload</button>
+                <button id="mcpConfigReloadButton" type="button" class="button-secondary">Reload Only</button>
+              </div>
+            </div>
+            <div class="mcp-config-grid">
+              <div class="mcp-editor-card">
+                <p class="mcp-section-title">Config JSON</p>
+                <textarea id="mcpConfigEditor" spellcheck="false" placeholder='{
+  "mcpServers": {
+    "example": {
+      "command": "uvx",
+      "args": ["example-mcp-server"]
+    }
+  }
+}'></textarea>
+                <span id="mcpConfigStatus" class="status-text"></span>
+              </div>
+              <div class="mcp-preview-card">
+                <p class="mcp-section-title">Configured Servers</p>
+                <div id="mcpServerPreview" class="mcp-preview-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Notifications Panel -->
       <div class="sidebar-panel collapsed" data-sidebar-panel="notifications">
         <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
@@ -3408,6 +3624,13 @@
     const agentSaveButton = document.getElementById("agentSaveButton");
     const agentResetButton = document.getElementById("agentResetButton");
     const agentFormStatus = document.getElementById("agentFormStatus");
+    const mcpConfigPath = document.getElementById("mcpConfigPath");
+    const mcpConfigEditor = document.getElementById("mcpConfigEditor");
+    const mcpConfigStatus = document.getElementById("mcpConfigStatus");
+    const mcpServerPreview = document.getElementById("mcpServerPreview");
+    const mcpConfigSaveButton = document.getElementById("mcpConfigSaveButton");
+    const mcpConfigSaveReloadButton = document.getElementById("mcpConfigSaveReloadButton");
+    const mcpConfigReloadButton = document.getElementById("mcpConfigReloadButton");
     const chatShell = document.getElementById("chatShell");
     const heroChatToggle = document.getElementById("heroChatToggle");
     const heroAvatarStage = document.getElementById("heroAvatarStage");
@@ -3436,6 +3659,7 @@
     let airVoiceController = null;
     const CALL_MODE_VIEW_KEY = "chanakya-call-mode-view";
     let preferredCallModeView = false;
+    let mcpConfigDirty = false;
 
     function loadStoredCallModeView() {
       try {
@@ -5479,6 +5703,151 @@
       notificationStatus.style.color = isError ? "var(--red)" : "var(--muted)";
     }
 
+    function setMcpConfigStatus(text, isError = false) {
+      if (!mcpConfigStatus) {
+        return;
+      }
+      mcpConfigStatus.textContent = text || "";
+      mcpConfigStatus.style.color = isError ? "var(--red)" : "var(--muted)";
+    }
+
+    function collectMcpServerPreview(rawText) {
+      try {
+        const parsed = JSON.parse(rawText || "{}");
+        const servers = parsed && typeof parsed === "object" && parsed.mcpServers && typeof parsed.mcpServers === "object"
+          ? parsed.mcpServers
+          : {};
+        return Object.entries(servers)
+          .filter(([serverId, details]) => typeof serverId === "string" && serverId.trim() && details && typeof details === "object")
+          .map(([serverId, details]) => ({
+            serverId,
+            command: typeof details.command === "string" ? details.command : "",
+            args: Array.isArray(details.args) ? details.args.filter((item) => typeof item === "string") : [],
+            transport: typeof details.transport === "string" && details.transport.trim() ? details.transport.trim() : "stdio",
+            envKeys: details.env && typeof details.env === "object" ? Object.keys(details.env) : [],
+          }));
+      } catch {
+        return null;
+      }
+    }
+
+    function renderMcpServerPreview(rawText) {
+      if (!mcpServerPreview) {
+        return;
+      }
+      const preview = collectMcpServerPreview(rawText);
+      if (preview === null) {
+        mcpServerPreview.innerHTML = '<div class="mcp-preview-empty">Fix the JSON syntax to preview configured servers.</div>';
+        return;
+      }
+      if (!preview.length) {
+        mcpServerPreview.innerHTML = '<div class="mcp-preview-empty">No MCP servers configured yet.</div>';
+        return;
+      }
+      const nodes = preview.map((server) => {
+        const card = document.createElement("div");
+        card.className = "mcp-server-card";
+
+        const topline = document.createElement("div");
+        topline.className = "mcp-server-topline";
+        const serverId = document.createElement("div");
+        serverId.className = "mcp-server-id";
+        serverId.textContent = server.serverId;
+        const transport = document.createElement("div");
+        transport.className = "mcp-server-transport";
+        transport.textContent = server.transport;
+        topline.appendChild(serverId);
+        topline.appendChild(transport);
+        card.appendChild(topline);
+
+        const command = document.createElement("div");
+        command.className = "mcp-server-command";
+        command.textContent = server.command ? `${server.command}${server.args.length ? ` ${server.args.join(" ")}` : ""}` : "No command configured";
+        card.appendChild(command);
+
+        const meta = document.createElement("div");
+        meta.className = "mcp-server-meta";
+        meta.textContent = server.envKeys.length
+          ? `Env keys: ${server.envKeys.join(", ")}`
+          : "No explicit env keys";
+        card.appendChild(meta);
+
+        const matchingTool = Array.isArray(availableTools)
+          ? availableTools.find((item) => item && item.tool_id === server.serverId)
+          : null;
+        if (matchingTool && Array.isArray(matchingTool.functions) && matchingTool.functions.length) {
+          const functions = document.createElement("div");
+          functions.className = "mcp-server-functions";
+          matchingTool.functions.slice(0, 8).forEach((item) => {
+            const pill = document.createElement("span");
+            pill.className = "mcp-server-function";
+            pill.textContent = item.name;
+            functions.appendChild(pill);
+          });
+          card.appendChild(functions);
+        }
+        return card;
+      });
+      replaceChildren(mcpServerPreview, nodes);
+    }
+
+    async function loadMcpConfig() {
+      if (!mcpConfigEditor) {
+        return;
+      }
+      try {
+        const response = await fetch("/api/tools/config");
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to load MCP config");
+        }
+        mcpConfigEditor.value = data.raw_text || '{\n  "mcpServers": {}\n}\n';
+        if (mcpConfigPath) {
+          mcpConfigPath.textContent = data.config_path || "";
+        }
+        mcpConfigDirty = false;
+        renderMcpServerPreview(mcpConfigEditor.value);
+        setMcpConfigStatus(`Loaded ${data.server_count || 0} configured MCP${Number(data.server_count || 0) === 1 ? "" : "s"}.`);
+      } catch (error) {
+        setMcpConfigStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    }
+
+    async function saveMcpConfig({ reload = false } = {}) {
+      if (!mcpConfigEditor) {
+        return;
+      }
+      setMcpConfigStatus(reload ? "Saving MCP config and reloading tools..." : "Saving MCP config...");
+      try {
+        const response = await fetch("/api/tools/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ raw_text: mcpConfigEditor.value, reload }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to save MCP config");
+        }
+        mcpConfigEditor.value = data.raw_text || mcpConfigEditor.value;
+        if (mcpConfigPath) {
+          mcpConfigPath.textContent = data.config_path || "";
+        }
+        mcpConfigDirty = false;
+        if (Array.isArray(data.tools)) {
+          availableTools = data.tools;
+          renderToolOptions();
+        }
+        renderMcpServerPreview(mcpConfigEditor.value);
+        setMcpConfigStatus(
+          reload
+            ? `Saved config and loaded ${data.available_count || 0}/${data.tool_count || 0} MCPs.`
+            : `Saved config with ${data.server_count || 0} MCP entries.`
+        );
+      } catch (error) {
+        setMcpConfigStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    }
+
     function generateTopic() {
       const bytes = new Uint8Array(12);
       window.crypto.getRandomValues(bytes);
@@ -5978,6 +6347,9 @@
         availableTools = [];
       }
       renderToolOptions();
+      if (mcpConfigEditor) {
+        renderMcpServerPreview(mcpConfigEditor.value);
+      }
     }
 
     async function reloadTools() {
@@ -5990,6 +6362,9 @@
         }
         availableTools = data.tools || [];
         renderToolOptions();
+        if (mcpConfigEditor) {
+          renderMcpServerPreview(mcpConfigEditor.value);
+        }
         setAgentFormStatus(`Reloaded ${data.available_count || 0}/${data.tool_count || availableTools.length} MCPs.`);
       } catch (error) {
         setAgentFormStatus(error instanceof Error ? error.message : String(error), true);
@@ -6510,7 +6885,7 @@
       });
     });
 
-    ["settings", "voice", "agents", "notifications"].forEach((panelId) => {
+    ["settings", "voice", "agents", "mcps", "notifications"].forEach((panelId) => {
       const panel = document.querySelector(`.sidebar-panel[data-sidebar-panel="${panelId}"]`);
       if (panel && configShellBody) {
         configShellBody.appendChild(panel);
@@ -6597,6 +6972,37 @@
     reloadToolsButton.addEventListener("click", async () => {
       await reloadTools();
     });
+
+    if (mcpConfigEditor) {
+      mcpConfigEditor.addEventListener("input", () => {
+        mcpConfigDirty = true;
+        renderMcpServerPreview(mcpConfigEditor.value);
+        setMcpConfigStatus("Unsaved MCP config changes.");
+      });
+    }
+
+    if (mcpConfigSaveButton) {
+      mcpConfigSaveButton.addEventListener("click", async () => {
+        await saveMcpConfig({ reload: false });
+      });
+    }
+
+    if (mcpConfigSaveReloadButton) {
+      mcpConfigSaveReloadButton.addEventListener("click", async () => {
+        await saveMcpConfig({ reload: true });
+      });
+    }
+
+    if (mcpConfigReloadButton) {
+      mcpConfigReloadButton.addEventListener("click", async () => {
+        await reloadTools();
+        if (mcpConfigDirty) {
+          setMcpConfigStatus("Reloaded current MCP tools. Save your JSON changes to apply them.");
+        } else {
+          setMcpConfigStatus("Reloaded current MCP tools.");
+        }
+      });
+    }
 
     notificationForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -6737,6 +7143,9 @@
       });
     loadNotificationSettings().catch((error) => {
       setNotificationStatus(error instanceof Error ? error.message : String(error), true);
+    });
+    loadMcpConfig().catch((error) => {
+      setMcpConfigStatus(error instanceof Error ? error.message : String(error), true);
     });
     loadSessionHistory();
 
