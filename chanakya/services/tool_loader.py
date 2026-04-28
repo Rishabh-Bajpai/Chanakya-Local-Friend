@@ -151,7 +151,9 @@ async def _reload_tools_async() -> None:
             debug_log("mcp_tool_config_invalid", {"server": server_id, "error": str(exc)})
             continue
 
-        transport = str(cast(dict[str, Any], details).get("transport") or "stdio").strip() or "stdio"
+        transport = (
+            str(cast(dict[str, Any], details).get("transport") or "stdio").strip() or "stdio"
+        )
         if transport != "stdio":
             message = f"Unsupported MCP transport: {transport}. Only stdio is currently supported."
             entry = _build_catalog_entry(
@@ -166,7 +168,10 @@ async def _reload_tools_async() -> None:
             )
             _tools_availability.append(dict(entry))
             _tools_catalog.append(entry)
-            debug_log("mcp_tool_transport_unsupported", {"server": server_id, "transport": transport})
+            debug_log(
+                "mcp_tool_transport_unsupported",
+                {"server": server_id, "transport": transport},
+            )
             continue
 
         merged_env = merge_env_with_os(env)

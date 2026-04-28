@@ -62,7 +62,10 @@ def normalize_tool_spec_summary(spec: Any) -> dict[str, Any]:
         "server_name": _tool_spec_server_name(spec),
         "functions": functions,
         "function_count": len(functions),
-        "description": " ".join(item["description"] for item in functions if item.get("description")).strip() or None,
+        "description": (
+            " ".join(item["description"] for item in functions if item.get("description")).strip()
+            or None
+        ),
     }
 
 

@@ -54,7 +54,11 @@ from chanakya.services.sandbox_workspace import (
     get_artifact_storage_root,
     get_shared_workspace_root,
 )
-from chanakya.services.tool_loader import get_tools_availability, reload_all_tools
+from chanakya.services.tool_loader import (
+    get_configured_tool_ids,
+    get_tools_availability,
+    reload_all_tools,
+)
 from chanakya.store import ChanakyaStore
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -1748,11 +1752,7 @@ def sync_default_agent_tools(store: ChanakyaStore) -> None:
 
 
 def _validate_agent_tool_ids(tool_ids: list[str]) -> None:
-    configured_tool_ids = {
-        str(item.get("tool_id") or "").strip()
-        for item in get_tools_availability()
-        if str(item.get("tool_id") or "").strip()
-    }
+    configured_tool_ids = get_configured_tool_ids()
     if not configured_tool_ids:
         return
     unknown = [tool_id for tool_id in tool_ids if tool_id not in configured_tool_ids]

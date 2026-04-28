@@ -102,6 +102,7 @@ def _build_test_app(
             }
         ],
     )
+    monkeypatch.setattr(app_module, "get_configured_tool_ids", lambda: {"mcp_fetch"})
     monkeypatch.setattr(
         app_module,
         "reload_all_tools",
