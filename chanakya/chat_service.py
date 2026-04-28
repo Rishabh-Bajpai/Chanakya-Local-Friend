@@ -32,6 +32,7 @@ from chanakya.domain import (
 )
 from chanakya.services.ntfy import NtfyNotificationDispatcher, summarize_notification_text
 from chanakya.services.sandbox_workspace import (
+    CLASSIC_ARTIFACT_WORKSPACE_ID,
     get_artifact_storage_root,
     get_shared_workspace_root,
     resolve_shared_workspace,
@@ -393,7 +394,9 @@ class ChatService:
 
     @staticmethod
     def _artifact_workspace_scope_id(*, request_id: str, work_id: str | None) -> str:
-        return work_id or request_id
+        if work_id:
+            return work_id
+        return f"{CLASSIC_ARTIFACT_WORKSPACE_ID}-{request_id}"
 
     def _snapshot_workspace_files(
         self,
@@ -757,7 +760,7 @@ class ChatService:
         else:
             context_prompt = (
                 f" Current execution context: session_id='{session_id}', request_id='{request_id}', "
-                f"artifact_root='{artifact_root}'."
+                f"artifact_root='{artifact_root}', classic_workspace='{artifact_root}', default_work_id='{CLASSIC_ARTIFACT_WORKSPACE_ID}'."
             )
         artifact_prompt = ""
         if has_artifact_tools:
@@ -776,9 +779,13 @@ class ChatService:
                 )
         if has_filesystem:
             artifact_prompt += (
-                " Use `mcp_filesystem_*` for scratch workspace operations and supporting files, but prefer "
+                " Use `mcp_filesystem_*` for scratch workspace operations, supporting files, and folder management, but prefer "
                 "artifact tools for user-visible saved deliverables."
             )
+            if work_id is None:
+                artifact_prompt += (
+                    f" In classic chat, if you use filesystem tools, always pass work_id='{CLASSIC_ARTIFACT_WORKSPACE_ID}' so files go into the shared artifacts workspace."
+                )
         return base_prompt + context_prompt + artifact_prompt
 
     def _notify_root_task_outcome(

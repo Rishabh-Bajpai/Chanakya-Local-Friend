@@ -15,6 +15,13 @@ class OrchestrationAgentError(RuntimeError):
     pass
 
 
+_PLANNER_INSTRUCTIONS = (
+    "You are a planning agent for a conversation orchestration layer. "
+    "Return only valid JSON that matches the requested schema. "
+    "Do not include markdown fences or prose outside the JSON object."
+)
+
+
 @dataclass(slots=True)
 class MAFOrchestrationAgent:
     model: str
@@ -29,39 +36,22 @@ class MAFOrchestrationAgent:
     default_model_provider: str | None = None
     default_model_id: str | None = None
     a2a_agent_factory: Any | None = None
-    _agent: Agent | None = field(init=False, default=None, repr=False)
-    _agent_by_model: dict[str, Agent] = field(
-        init=False, default_factory=dict, repr=False
-    )
     _a2a_agent: Any | None = field(init=False, default=None, repr=False)
     _a2a_sessions: dict[str, Any] = field(
         init=False, default_factory=dict, repr=False
     )
 
     def __post_init__(self) -> None:
-        if self.runner is None:
-            if self.backend == "a2a":
-                if self.a2a_agent_factory is None:
-                    from agent_framework_a2a import A2AAgent
+        if self.runner is None and self.backend == "a2a":
+            if self.a2a_agent_factory is None:
+                from agent_framework_a2a import A2AAgent
 
-                    self.a2a_agent_factory = A2AAgent
-                self._a2a_agent = self.a2a_agent_factory(
-                    name="ConversationLayerPlanner",
-                    description="Structured orchestration planner for the conversation layer.",
-                    url=self.remote_agent_url,
-                )
-            else:
-                client = self._build_openai_chat_client(self.model)
-                self._agent = Agent(
-                    client=client,
-                    name="ConversationLayerPlanner",
-                    description="Structured orchestration planner for the conversation layer.",
-                    instructions=(
-                        "You are a planning agent for a conversation orchestration layer. "
-                        "Return only valid JSON that matches the requested schema. "
-                        "Do not include markdown fences or prose outside the JSON object."
-                    ),
-                )
+                self.a2a_agent_factory = A2AAgent
+            self._a2a_agent = self.a2a_agent_factory(
+                name="ConversationLayerPlanner",
+                description="Structured orchestration planner for the conversation layer.",
+                url=self.remote_agent_url,
+            )
 
     def plan(
         self, *, task: str, instructions: str, payload: dict[str, Any]
@@ -135,7 +125,12 @@ class MAFOrchestrationAgent:
         elif self.backend == "a2a":
             result = await self._run_a2a(prompt)
         else:
-            result = await self._agent.run(prompt)
+            agent = self._create_planner_agent(
+                model_id=self.model,
+                default_headers=None,
+                name=f"ConversationLayerPlanner[{self.model}]",
+            )
+            result = await agent.run(prompt)
 
         return self._coerce_result_to_text(result)
 
@@ -176,39 +171,31 @@ class MAFOrchestrationAgent:
     ) -> Agent:
         model_id = str(model_override or "").strip()
         if not model_id or model_id == self.model:
-            if request_headers:
-                client = self._build_openai_chat_client(
-                    self.model, default_headers=request_headers
-                )
-                return Agent(
-                    client=client,
-                    name=f"ConversationLayerPlanner[{self.model}]",
-                    description="Structured orchestration planner for the conversation layer.",
-                    instructions=(
-                        "You are a planning agent for a conversation orchestration layer. "
-                        "Return only valid JSON that matches the requested schema. "
-                        "Do not include markdown fences or prose outside the JSON object."
-                    ),
-                )
-            if self._agent is None:
-                raise OrchestrationAgentError("Orchestration agent is not initialized")
-            return self._agent
-        cached = self._agent_by_model.get(model_id)
-        if cached is not None:
-            return cached
-        client = self._build_openai_chat_client(model_id, default_headers=request_headers)
-        created = Agent(
-            client=client,
+            return self._create_planner_agent(
+                model_id=self.model,
+                default_headers=request_headers,
+                name=f"ConversationLayerPlanner[{self.model}]",
+            )
+        return self._create_planner_agent(
+            model_id=model_id,
+            default_headers=request_headers,
             name=f"ConversationLayerPlanner[{model_id}]",
-            description="Structured orchestration planner for the conversation layer.",
-            instructions=(
-                "You are a planning agent for a conversation orchestration layer. "
-                "Return only valid JSON that matches the requested schema. "
-                "Do not include markdown fences or prose outside the JSON object."
-            ),
         )
-        self._agent_by_model[model_id] = created
-        return created
+
+    def _create_planner_agent(
+        self,
+        *,
+        model_id: str,
+        default_headers: dict[str, str] | None,
+        name: str,
+    ) -> Agent:
+        client = self._build_openai_chat_client(model_id, default_headers=default_headers)
+        return Agent(
+            client=client,
+            name=name,
+            description="Structured orchestration planner for the conversation layer.",
+            instructions=_PLANNER_INSTRUCTIONS,
+        )
 
     def _a2a_session_for_model(self, model_override: str | None):
         model_id = str(model_override or "").strip() or str(

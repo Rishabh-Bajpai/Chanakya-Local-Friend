@@ -7,7 +7,7 @@ import pytest
 import chanakya.services.sandbox_workspace as sandbox_workspace
 
 
-def test_resolve_shared_workspace_uses_temp_for_empty_work_id(
+def test_resolve_shared_workspace_uses_artifacts_for_empty_work_id(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -15,7 +15,7 @@ def test_resolve_shared_workspace_uses_temp_for_empty_work_id(
 
     workspace = sandbox_workspace.resolve_shared_workspace(None)
 
-    assert workspace == (tmp_path / "shared_workspace" / "temp")
+    assert workspace == (tmp_path / "shared_workspace" / "artifacts")
     assert workspace.exists()
     assert oct(workspace.stat().st_mode & 0o777) == "0o775"
 

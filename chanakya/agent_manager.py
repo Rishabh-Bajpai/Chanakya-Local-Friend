@@ -56,7 +56,7 @@ from chanakya.mcp_runtime import (
 from chanakya.model import AgentProfileModel
 from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.services.mcp_sandbox_exec_server import execute_python
-from chanakya.services.sandbox_workspace import normalize_work_id, resolve_shared_workspace
+from chanakya.services.sandbox_workspace import CLASSIC_ARTIFACT_WORKSPACE_ID, normalize_work_id, resolve_shared_workspace
 from chanakya.store import ChanakyaStore
 from chanakya.subagents import (
     TemporaryAgentPlan,
@@ -520,6 +520,13 @@ class AgentManager:
     def select_workflow(self, message: str) -> str:
         return self._fallback_route(message).execution_mode
 
+    def _refresh_manager_profile(self) -> AgentProfileModel:
+        try:
+            self.manager_profile = self.store.get_agent_profile(self.manager_profile.id)
+        except KeyError:
+            pass
+        return self.manager_profile
+
     def execute(
         self,
         *,
@@ -528,6 +535,7 @@ class AgentManager:
         root_task_id: str,
         message: str,
     ) -> ManagerRunResult:
+        self._refresh_manager_profile()
         return self._execute_group_chat_work(
             session_id=session_id,
             request_id=request_id,
@@ -4314,9 +4322,9 @@ class AgentManager:
     ) -> str:
         return (
             f"Use work_id='{sandbox_work_id}' for sandbox and filesystem tool calls.\n"
-            f"Sandbox workspace (host path reference): {sandbox_workspace}\n"
-            "Inside sandbox tools, /workspace is already the root for this same work session.\n"
-            "All agents working on this request must share this sandbox by using the same work_id.\n"
+            f"This work uses a shared persistent Docker container with the host work folder mounted from {sandbox_workspace}.\n"
+            "Inside that container, the current working directory (cwd) is /workspace and it is the project root for this work session.\n"
+            "All agents working on this request share the same container and the same /workspace state by using the same work_id.\n"
             "Do not create or write under /workspace/<work_id>/... and do not prepend the work_id to sandbox paths.\n"
             "Write files directly under /workspace/... (for example /workspace/output.txt).\n\n"
         )
@@ -4336,7 +4344,7 @@ class AgentManager:
             "If execution is needed, run code only via the sandbox code-execution tool and never on the host system."
         )
         sections.append(
-            "Sandbox filesystem policy: /workspace is writable. Host files are readable only through read-only mounts and must not be modified in place. If you hit a permission error, copy files into /workspace and retry there."
+            "Sandbox filesystem policy: all development work happens inside the shared Docker container. /workspace is the writable project directory and host access is not available outside that mounted work folder."
         )
         if require_exact_paths:
             sections.append(
@@ -4380,14 +4388,14 @@ class AgentManager:
         try:
             return str(resolve_shared_workspace(work_id, create=False))
         except (ValueError, PermissionError):
-            return str(resolve_shared_workspace("temp", create=False))
+            return str(resolve_shared_workspace(CLASSIC_ARTIFACT_WORKSPACE_ID, create=False))
 
     def _resolve_current_sandbox_work_id(self) -> str:
         work_id = _ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get()
         try:
             return normalize_work_id(work_id)
         except ValueError:
-            return "temp"
+            return CLASSIC_ARTIFACT_WORKSPACE_ID
 
     def _build_worker_subagent_plan_prompt(
         self,
@@ -5682,11 +5690,11 @@ class AgentManager:
         try:
             sandbox_work_id = normalize_work_id(work_id)
         except ValueError:
-            sandbox_work_id = "temp"
+            sandbox_work_id = CLASSIC_ARTIFACT_WORKSPACE_ID
         try:
             sandbox_workspace = str(resolve_shared_workspace(sandbox_work_id, create=False))
         except (ValueError, PermissionError):
-            sandbox_workspace = str(resolve_shared_workspace("temp", create=False))
+            sandbox_workspace = str(resolve_shared_workspace(CLASSIC_ARTIFACT_WORKSPACE_ID, create=False))
         lines = [
             f"Active work context: use work_id='{sandbox_work_id}'.",
             f"Shared workspace host path: {sandbox_workspace}",
@@ -5701,10 +5709,14 @@ class AgentManager:
                     "For filesystem tool calls, always pass the current work_id explicitly.",
                     f"Use mcp_filesystem_write_text_file(path=..., content=..., "
                     f"work_id='{sandbox_work_id}') to save text files for this work.",
+                    f"Use mcp_filesystem_create_directory(path=..., work_id='{sandbox_work_id}') "
+                    "to create folders in the same workspace.",
                     f"Use mcp_filesystem_read_text_file(path=..., work_id='{sandbox_work_id}') "
                     f"and mcp_filesystem_list_directory(path=..., work_id='{sandbox_work_id}') "
                     "to inspect the same workspace.",
-                    "If you omit work_id, files may go to temp instead of the active work.",
+                    f"Use mcp_filesystem_delete_path(path=..., work_id='{sandbox_work_id}') "
+                    "to remove a file or an empty folder, and pass recursive=True for non-empty folders.",
+                    f"If you omit work_id, files may go to {CLASSIC_ARTIFACT_WORKSPACE_ID} instead of the active work.",
                 ]
             )
         if "mcp_code_execution" in tool_ids:

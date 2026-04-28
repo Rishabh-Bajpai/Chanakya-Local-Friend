@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import atexit
 import json
 import queue
 import re
+import signal
 import threading
 from dataclasses import asdict
 from pathlib import Path
@@ -34,6 +36,12 @@ from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
 from chanakya.services.a2a_discovery import discover_a2a_options
+from chanakya.services.mcp_sandbox_exec_server import (
+    prune_stale_work_containers,
+    stop_all_work_containers,
+    stop_container,
+)
+from chanakya.services.config_loader import get_mcp_config_path
 from chanakya.services.mcp_work_tools_server import _create_work
 from chanakya.services.ntfy import (
     NtfyClient,
@@ -45,12 +53,54 @@ from chanakya.services.sandbox_workspace import (
     delete_shared_workspace,
     get_artifact_storage_root,
     get_shared_workspace_root,
-    resolve_shared_workspace,
 )
-from chanakya.services.tool_loader import get_tools_availability
+from chanakya.services.tool_loader import (
+    get_configured_tool_ids,
+    get_tools_availability,
+    reload_all_tools,
+)
 from chanakya.store import ChanakyaStore
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+_SANDBOX_SHUTDOWN_REGISTERED = False
+_SANDBOX_SIGNAL_HANDLERS_REGISTERED = False
+_PREVIOUS_SIGNAL_HANDLERS: dict[int, Any] = {}
+
+
+def _cleanup_all_sandbox_containers() -> dict[str, Any]:
+    result = stop_all_work_containers()
+    debug_log("sandbox_container_shutdown_cleanup", result)
+    return result
+
+
+def _handle_shutdown_signal(signum: int, frame: Any) -> None:
+    _cleanup_all_sandbox_containers()
+    previous = _PREVIOUS_SIGNAL_HANDLERS.get(signum)
+    if callable(previous):
+        previous(signum, frame)
+        return
+    if previous == signal.SIG_IGN:
+        return
+    raise SystemExit(0)
+
+
+def _register_sandbox_shutdown_cleanup() -> None:
+    global _SANDBOX_SHUTDOWN_REGISTERED, _SANDBOX_SIGNAL_HANDLERS_REGISTERED
+    if not _SANDBOX_SHUTDOWN_REGISTERED:
+        atexit.register(_cleanup_all_sandbox_containers)
+        _SANDBOX_SHUTDOWN_REGISTERED = True
+    if _SANDBOX_SIGNAL_HANDLERS_REGISTERED:
+        return
+    if threading.current_thread() is not threading.main_thread():
+        return
+    try:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            _PREVIOUS_SIGNAL_HANDLERS[signum] = signal.getsignal(signum)
+            signal.signal(signum, _handle_shutdown_signal)
+    except ValueError as exc:
+        debug_log("sandbox_signal_registration_skipped", {"reason": str(exc)})
+        return
+    _SANDBOX_SIGNAL_HANDLERS_REGISTERED = True
 
 
 def _execution_trace_has_tool_data(execution_trace: dict[str, Any] | None) -> bool:
@@ -302,6 +352,11 @@ def create_app() -> Flask:
     sync_default_agent_tools(store)
     ensure_heartbeat_files(store, BASE_DIR)
     get_shared_workspace_root()
+    _register_sandbox_shutdown_cleanup()
+    valid_work_ids = {str(item.get("id") or "").strip() for item in store.list_works(limit=1000)}
+    valid_work_ids.discard("")
+    sandbox_prune = prune_stale_work_containers(valid_work_ids, remove_running=False)
+    debug_log("sandbox_container_startup_prune", sandbox_prune)
     debug_log(
         "app_initialized",
         {
@@ -783,6 +838,69 @@ def create_app() -> Flask:
         tools = get_tools_availability()
         return jsonify({"tools": tools})
 
+    @app.post("/api/tools/reload")
+    def api_tools_reload() -> Any:
+        tools = reload_all_tools()
+        available_count = sum(1 for item in tools if str(item.get("status") or "") == "available")
+        return jsonify(
+            {
+                "ok": True,
+                "tools": tools,
+                "tool_count": len(tools),
+                "available_count": available_count,
+            }
+        )
+
+    @app.get("/api/tools/config")
+    def api_tools_config() -> Any:
+        config_path = get_mcp_config_path()
+        if config_path.exists():
+            raw_text = config_path.read_text(encoding="utf-8")
+        else:
+            raw_text = json.dumps({"mcpServers": {}}, indent=2) + "\n"
+        try:
+            parsed = json.loads(raw_text)
+            servers = _extract_mcp_servers(parsed)
+        except ValueError:
+            servers = {}
+        return jsonify(
+            {
+                "config_path": str(config_path),
+                "raw_text": raw_text,
+                "server_ids": sorted(servers.keys()),
+                "server_count": len(servers),
+            }
+        )
+
+    @app.put("/api/tools/config")
+    def api_put_tools_config() -> Any:
+        payload = request.get_json(silent=True) or {}
+        try:
+            config_text = _parse_mcp_config_text(payload)
+            parsed = json.loads(config_text)
+            servers = _extract_mcp_servers(parsed)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        config_path = get_mcp_config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(config_text, encoding="utf-8")
+        should_reload = bool(payload.get("reload", False))
+        tools = reload_all_tools() if should_reload else get_tools_availability()
+        available_count = sum(1 for item in tools if str(item.get("status") or "") == "available")
+        return jsonify(
+            {
+                "ok": True,
+                "config_path": str(config_path),
+                "server_ids": sorted(servers.keys()),
+                "server_count": len(servers),
+                "raw_text": config_text,
+                "reloaded": should_reload,
+                "tools": tools,
+                "tool_count": len(tools),
+                "available_count": available_count,
+            }
+        )
+
     @app.get("/api/notifications/ntfy")
     def api_get_ntfy_settings() -> Any:
         return jsonify(ntfy_dispatcher.get_settings_payload())
@@ -978,12 +1096,14 @@ def create_app() -> Flask:
             return jsonify({"error": message}), 404
         for session_id in deleted_session_ids:
             runtime.clear_session_state(session_id)
+        container_cleanup = stop_container(work_id)
         workspace_cleanup = delete_shared_workspace(work_id)
         store.log_event(
             "work_deleted",
             {
                 "work_id": work_id,
                 "session_count": len(deleted_session_ids),
+                "container_cleanup_ok": bool(container_cleanup.get("ok")),
                 "workspace_cleanup_ok": bool(workspace_cleanup.get("ok")),
             },
         )
@@ -991,9 +1111,41 @@ def create_app() -> Flask:
             "deleted": True,
             "work_id": work_id,
             "session_count": len(deleted_session_ids),
+            "container": container_cleanup,
         }
-        if not workspace_cleanup.get("ok"):
-            response["warning"] = {
+        warning: dict[str, Any] | None = None
+        if not container_cleanup.get("ok") and not workspace_cleanup.get("ok"):
+            warning = {
+                "code": "cleanup_failed",
+                "message": "Work deleted, but sandbox container and workspace cleanup failed.",
+                "container": container_cleanup,
+                "workspace": workspace_cleanup,
+            }
+            store.log_event(
+                "work_cleanup_failed",
+                {
+                    "work_id": work_id,
+                    "session_count": len(deleted_session_ids),
+                    "container": container_cleanup,
+                    "workspace": workspace_cleanup,
+                },
+            )
+        elif not container_cleanup.get("ok"):
+            warning = {
+                "code": "container_cleanup_failed",
+                "message": "Work deleted, but sandbox container cleanup failed.",
+                "container": container_cleanup,
+            }
+            store.log_event(
+                "work_container_cleanup_failed",
+                {
+                    "work_id": work_id,
+                    "session_count": len(deleted_session_ids),
+                    "container": container_cleanup,
+                },
+            )
+        elif not workspace_cleanup.get("ok"):
+            warning = {
                 "code": "workspace_cleanup_failed",
                 "message": "Work deleted, but sandbox workspace cleanup failed.",
                 "workspace": workspace_cleanup,
@@ -1006,6 +1158,8 @@ def create_app() -> Flask:
                     "workspace": workspace_cleanup,
                 },
             )
+        if warning is not None:
+            response["warning"] = warning
         return jsonify(response)
 
     @app.get("/api/a2a/options")
@@ -1400,6 +1554,7 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             agent_data = _parse_agent_payload(payload)
+            _validate_agent_tool_ids(agent_data["tool_ids"])
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -1439,6 +1594,7 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             agent_data = _parse_agent_payload(payload)
+            _validate_agent_tool_ids(agent_data["tool_ids"])
             heartbeat_path = agent_data["heartbeat_file_path"] or default_heartbeat_relative_path(
                 agent_id
             )
@@ -1593,6 +1749,43 @@ def sync_default_agent_tools(store: ChanakyaStore) -> None:
         changed_count += 1
     if changed_count:
         debug_log("agent_tool_sync_completed", {"updated_profiles": changed_count})
+
+
+def _validate_agent_tool_ids(tool_ids: list[str]) -> None:
+    configured_tool_ids = get_configured_tool_ids()
+    if not configured_tool_ids:
+        return
+    unknown = [tool_id for tool_id in tool_ids if tool_id not in configured_tool_ids]
+    if unknown:
+        raise ValueError(
+            "Unknown tool_ids: " + ", ".join(sorted(dict.fromkeys(unknown)))
+        )
+
+
+def _extract_mcp_servers(data: Any) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        raise ValueError("MCP config must be a JSON object")
+    servers = data.get("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise ValueError("MCP config must contain an object field named mcpServers")
+    for server_id, details in servers.items():
+        if not isinstance(server_id, str) or not server_id.strip():
+            raise ValueError("Each MCP server id must be a non-empty string")
+        if not isinstance(details, dict):
+            raise ValueError(f"Invalid MCP config for {server_id}: expected an object")
+    return servers
+
+
+def _parse_mcp_config_text(payload: dict[str, Any]) -> str:
+    raw_text = payload.get("raw_text")
+    if not isinstance(raw_text, str) or not raw_text.strip():
+        raise ValueError("raw_text must be a non-empty JSON string")
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid MCP config JSON: {exc.msg}") from exc
+    _extract_mcp_servers(parsed)
+    return json.dumps(parsed, indent=2, ensure_ascii=True) + "\n"
 
 
 def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:

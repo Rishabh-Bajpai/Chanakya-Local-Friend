@@ -42,3 +42,7 @@ Agent-Framework-Samples/
 
 chanakya-UI
 mobile-opencode-control
+
+# Temporary snapshot/debug artifacts
+mobile-snapshot.md
+worker-mobile-before-open.md

@@ -1411,6 +1411,10 @@
               <h2 id="chatTitle">Select a work</h2>
             </div>
             <div class="chat-title-actions">
+              <button id="headerDeleteWorkButton" type="button" class="header-action-button button-secondary" aria-label="Delete current work">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 12h10l1-12" /><path d="M9 7V4h6v3" /></svg>
+                <span class="header-action-text">Delete</span>
+              </button>
               <button id="classicChatButton" type="button" class="header-action-button button-secondary" aria-label="Open classic chat">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 13.5z" /></svg>
                 <span class="header-action-text">Chat</span>
@@ -1525,6 +1529,7 @@
       const INITIAL_WORK_ID = {{ initial_work_id|tojson }};
       const composerOpenHistoriesButton = document.getElementById("composerOpenHistoriesButton");
       const composerDeleteWorkButton = document.getElementById("composerDeleteWorkButton");
+      const headerDeleteWorkButton = document.getElementById("headerDeleteWorkButton");
       const workWaitingIndicator = document.getElementById("workWaitingIndicator");
       const utilityToggleButton = document.getElementById("utilityToggleButton");
       const classicChatButton = document.getElementById("classicChatButton");
@@ -3107,6 +3112,9 @@
         if (composerDeleteWorkButton) {
           composerDeleteWorkButton.disabled = !activeWorkId;
         }
+        if (headerDeleteWorkButton) {
+          headerDeleteWorkButton.disabled = !activeWorkId;
+        }
       }
 
       function renderWorks() {
@@ -3183,6 +3191,9 @@
         stopLiveRefresh();
         if (composerDeleteWorkButton) {
           composerDeleteWorkButton.disabled = true;
+        }
+        if (headerDeleteWorkButton) {
+          headerDeleteWorkButton.disabled = true;
         }
         try {
           const response = await fetch(`/api/works/${encodeURIComponent(deletingWorkId)}`, {
@@ -4517,6 +4528,12 @@
         composerDeleteWorkButton.addEventListener("click", () => {
           deleteActiveWork();
           setComposerMenuOpen(false);
+        });
+      }
+
+      if (headerDeleteWorkButton) {
+        headerDeleteWorkButton.addEventListener("click", () => {
+          deleteActiveWork();
         });
       }
 

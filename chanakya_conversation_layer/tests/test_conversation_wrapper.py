@@ -45,6 +45,7 @@ class FakePlanner:
         instructions: str,
         payload: dict,
         model_id: str | None,
+        request_headers: dict[str, str] | None = None,
     ) -> dict:
         self.calls.append(
             {
@@ -52,6 +53,7 @@ class FakePlanner:
                 "instructions": instructions,
                 "payload": payload,
                 "model_id": model_id,
+                "request_headers": request_headers,
             }
         )
         return self.responses.pop(0)

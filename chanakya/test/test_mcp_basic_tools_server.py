@@ -66,6 +66,105 @@ def test_list_directory_uses_shared_workspace_entries(
     ]
 
 
+def test_create_directory_creates_nested_folder_in_shared_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+
+    result = server._create_directory("notes/drafts", work_id="work_dirs")
+
+    workspace = sandbox_workspace.resolve_shared_workspace("work_dirs")
+    assert result["ok"] is True
+    assert result["work_id"] == "work_dirs"
+    assert result["path"] == "notes/drafts"
+    assert (workspace / "notes" / "drafts").is_dir()
+
+
+def test_delete_path_removes_file_from_shared_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    workspace = sandbox_workspace.resolve_shared_workspace("work_delete_file")
+    target = workspace / "notes.txt"
+    target.write_text("hello", encoding="utf-8")
+
+    result = server._delete_path("notes.txt", work_id="work_delete_file")
+
+    assert result["ok"] is True
+    assert result["deleted"] is True
+    assert result["path_type"] == "file"
+    assert not target.exists()
+
+
+def test_delete_path_removes_empty_directory_from_shared_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    workspace = sandbox_workspace.resolve_shared_workspace("work_delete_dir")
+    target = workspace / "empty_dir"
+    target.mkdir(parents=True, exist_ok=True)
+
+    result = server._delete_path("empty_dir", work_id="work_delete_dir")
+
+    assert result["ok"] is True
+    assert result["deleted"] is True
+    assert result["path_type"] == "directory"
+    assert not target.exists()
+
+
+def test_delete_path_rejects_non_empty_directory_without_recursive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    workspace = sandbox_workspace.resolve_shared_workspace("work_delete_non_empty")
+    target = workspace / "folder"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "child.txt").write_text("hello", encoding="utf-8")
+
+    with pytest.raises(OSError):
+        server._delete_path("folder", work_id="work_delete_non_empty")
+
+
+def test_delete_path_removes_non_empty_directory_with_recursive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    workspace = sandbox_workspace.resolve_shared_workspace("work_delete_recursive")
+    target = workspace / "folder"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "child.txt").write_text("hello", encoding="utf-8")
+
+    result = server._delete_path("folder", work_id="work_delete_recursive", recursive=True)
+
+    assert result["ok"] is True
+    assert result["deleted"] is True
+    assert result["path_type"] == "directory"
+    assert result["recursive"] is True
+    assert not target.exists()
+
+
+def test_delete_path_rejects_workspace_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    sandbox_workspace.resolve_shared_workspace("work_root_guard")
+
+    with pytest.raises(PermissionError):
+        server._delete_path(".", work_id="work_root_guard")
+
+
 def test_filesystem_tools_reject_unknown_classic_workspaces(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

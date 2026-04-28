@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from conversation_layer.services.orchestration_agent import MAFOrchestrationAgent
 
 
@@ -83,3 +85,55 @@ def test_orchestration_agent_disables_openai_transport_retries() -> None:
 
     assert override_agent.client.client is not None
     assert override_agent.client.client.max_retries == 0
+
+
+def test_orchestration_agent_uses_fresh_openai_agent_per_plan_call(monkeypatch) -> None:
+    created_clients: list[object] = []
+    seen_client_ids: list[int] = []
+
+    class _FakeAgent:
+        def __init__(self, *, client, name: str, description: str, instructions: str) -> None:
+            self.client = client
+
+        async def run(self, prompt: str):
+            seen_client_ids.append(id(self.client))
+            return SimpleNamespace(text='{"messages":[{"text":"planned","delay_ms":0}]}')
+
+    def _fake_build_openai_chat_client(self, model_id: str, default_headers=None):
+        client = SimpleNamespace(client=SimpleNamespace(max_retries=0), model_id=model_id, default_headers=default_headers)
+        created_clients.append(client)
+        return client
+
+    monkeypatch.setattr(
+        "conversation_layer.services.orchestration_agent.Agent",
+        _FakeAgent,
+    )
+    monkeypatch.setattr(
+        MAFOrchestrationAgent,
+        "_build_openai_chat_client",
+        _fake_build_openai_chat_client,
+    )
+
+    planner = MAFOrchestrationAgent(
+        model="qwen-default",
+        base_url="http://127.0.0.1:1234/v1",
+        api_key="test-key",
+        env_file_path=".env",
+    )
+
+    first = planner.plan(
+        task="Working memory routing",
+        instructions="Return JSON",
+        payload={"message": "hello"},
+    )
+    second = planner.plan(
+        task="Conversation delivery planning",
+        instructions="Return JSON",
+        payload={"message": "hello again"},
+    )
+
+    assert first["messages"][0]["text"] == "planned"
+    assert second["messages"][0]["text"] == "planned"
+    assert len(created_clients) >= 3
+    assert len(seen_client_ids) == 2
+    assert seen_client_ids[0] != seen_client_ids[1]
