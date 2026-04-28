@@ -3187,6 +3187,29 @@
     }
 
     @media (max-width: 640px) {
+      .hero-stage {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        align-content: stretch;
+        justify-items: center;
+        gap: 16px;
+      }
+
+      .hero-avatar-wrap {
+        width: 100%;
+        max-width: none;
+        align-self: stretch;
+        display: grid;
+        place-items: center;
+      }
+
+      .hero-avatar-wrap .voice-avatar-stage {
+        width: 100%;
+        min-height: min(46vh, 420px);
+        align-content: center;
+        justify-items: center;
+      }
+
       .top-bar-left {
         gap: 8px;
       }
