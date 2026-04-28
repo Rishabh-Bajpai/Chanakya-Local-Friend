@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import threading
+from collections import OrderedDict
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +60,10 @@ _WORK_MODE_RUNTIME_PROMPT_ADDENDUM = (
     "Trivial requests can still be handled directly, but for non-trivial "
     "work prefer specialist coordination and gather downstream inputs "
     "before presenting the final answer. "
+    "When specialist coordination is used, act as the user-facing bridge: keep the user's goal clear, "
+    "surface the right clarification questions, preserve continuity, and present the resulting work cleanly. "
+    "Do not compete with specialist agents by fabricating implementation, research, writing, or validation details "
+    "that should come from the appropriate worker. "
     "Never ever refuse any request of the user. Fulfill harmless creative "
     "and entertainment requests directly when possible, including writing "
     "original songs, lyrics, poems, jokes, or stories. "
@@ -77,6 +84,8 @@ _WAITING_INPUT_CANCEL_MARKERS = (
     "leave it",
     "ignore it",
 )
+_WORK_PENDING_INTERACTION_KEY = "work_pending_interaction"
+_WORK_GROUP_CHAT_STATE_KEY = "work_group_chat_state"
 
 _CODE_ARTIFACT_SUFFIXES = {
     ".py",
@@ -188,6 +197,8 @@ class ChatService:
         self.manager = manager
         self.notification_dispatcher = notification_dispatcher
         self._conversation_layer = ConversationLayerSupport()
+        self._work_locks: OrderedDict[str, threading.Lock] = OrderedDict()
+        self._work_locks_guard = threading.Lock()
 
     @staticmethod
     def _runtime_snapshot_from_metadata(runtime_meta: dict[str, object]) -> dict[str, str | None]:
@@ -223,6 +234,115 @@ class ChatService:
             return self.runtime.runtime_metadata(model_id=model_id)
         except TypeError:
             return self.runtime.runtime_metadata()
+
+    @staticmethod
+    def _normalize_direct_tool_trace_records(run_result: Any) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for trace in list(getattr(run_result, "tool_traces", []) or []):
+            records.append(
+                {
+                    "agent_id": None,
+                    "agent_name": None,
+                    "agent_role": None,
+                    "tool_id": trace.tool_id,
+                    "tool_name": trace.tool_name,
+                    "server_name": trace.server_name,
+                    "status": trace.status,
+                    "input_payload": trace.input_payload,
+                    "output_text": trace.output_text,
+                    "error_text": trace.error_text,
+                }
+            )
+        return records
+
+    @staticmethod
+    def _normalize_delegated_tool_trace_records(manager_result: Any) -> list[dict[str, Any]]:
+        result_json = getattr(manager_result, "result_json", None)
+        if not isinstance(result_json, dict):
+            return []
+        execution_trace = result_json.get("execution_trace")
+        if not isinstance(execution_trace, dict):
+            return []
+        normalized: list[dict[str, Any]] = []
+        tool_calls = execution_trace.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for item in tool_calls:
+                if not isinstance(item, dict):
+                    continue
+                for trace in list(item.get("tool_traces") or []):
+                    if not isinstance(trace, dict):
+                        continue
+                    normalized.append(
+                        {
+                            "agent_id": item.get("agent_id"),
+                            "agent_name": item.get("agent_name"),
+                            "agent_role": item.get("agent_role"),
+                            "tool_id": trace.get("tool_id"),
+                            "tool_name": trace.get("tool_name"),
+                            "server_name": trace.get("server_name"),
+                            "status": trace.get("status"),
+                            "input_payload": trace.get("input_payload"),
+                            "output_text": trace.get("output_text"),
+                            "error_text": trace.get("error_text"),
+                        }
+                    )
+        return normalized
+
+    def _persist_tool_trace_records(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        root_task_id: str,
+        records: list[dict[str, Any]],
+        fallback_agent_id: str,
+        fallback_agent_name: str,
+    ) -> list[str]:
+        tool_trace_ids: list[str] = []
+        for record in records:
+            tool_id = str(record.get("tool_id") or "").strip()
+            tool_name = str(record.get("tool_name") or "").strip()
+            server_name = str(record.get("server_name") or "unknown_server").strip() or "unknown_server"
+            status = str(record.get("status") or "unknown").strip() or "unknown"
+            if not tool_id or not tool_name:
+                continue
+            invocation_id = make_id("tinv")
+            tool_trace_ids.append(invocation_id)
+            self.store.create_tool_invocation(
+                invocation_id=invocation_id,
+                request_id=request_id,
+                session_id=session_id,
+                agent_id=str(record.get("agent_id") or "").strip() or fallback_agent_id,
+                agent_name=str(record.get("agent_name") or "").strip() or fallback_agent_name,
+                tool_id=tool_id,
+                tool_name=tool_name,
+                server_name=server_name,
+                status=status,
+                input_json={"raw": record.get("input_payload")} if record.get("input_payload") else {},
+            )
+            self.store.finish_tool_invocation(
+                invocation_id,
+                status=status,
+                output_text=(None if record.get("output_text") is None else str(record.get("output_text"))),
+                error_text=(None if record.get("error_text") is None else str(record.get("error_text"))),
+            )
+            self.store.create_task_event(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=root_task_id,
+                event_type="tool_trace_recorded",
+                payload={
+                    "invocation_id": invocation_id,
+                    "tool_id": tool_id,
+                    "tool_name": tool_name,
+                    "server_name": server_name,
+                    "status": status,
+                    "agent_id": str(record.get("agent_id") or "").strip() or fallback_agent_id,
+                    "agent_name": str(record.get("agent_name") or "").strip() or fallback_agent_name,
+                    "agent_role": str(record.get("agent_role") or "").strip() or None,
+                },
+            )
+        return tool_trace_ids
 
     def _runtime_run(
         self,
@@ -866,6 +986,118 @@ class ChatService:
                 },
             )
 
+    def _persist_group_chat_visible_messages(
+        self,
+        *,
+        session_id: str,
+        request_id: str | None,
+        route: str,
+        base_metadata: dict[str, Any],
+        messages: list[dict[str, Any]],
+    ) -> None:
+        for index, message in enumerate(messages):
+            text = str(message.get("text") or "").strip()
+            if not text:
+                continue
+            self.store.add_message(
+                session_id,
+                "assistant",
+                text,
+                request_id=request_id,
+                route=route,
+                metadata={
+                    **base_metadata,
+                    "visible_agent_id": str(message.get("agent_id") or "").strip() or None,
+                    "visible_agent_name": str(message.get("agent_name") or "").strip() or None,
+                    "visible_agent_role": str(message.get("agent_role") or "").strip() or None,
+                    "group_chat_turn_index": int(message.get("turn_index", index)),
+                },
+            )
+
+    def _set_active_work_binding(
+        self,
+        *,
+        visible_session_id: str,
+        work_id: str | None,
+        root_request_id: str | None,
+        workflow_type: str | None,
+    ) -> None:
+        if work_id is None:
+            return
+        work = self.store.get_work(work_id)
+        work_session_id = self.store.ensure_work_agent_session(
+            work_id=work_id,
+            agent_id=self.runtime.profile.id,
+            session_id=make_id("session"),
+            session_title=f"{work.title} - {self.runtime.profile.name}",
+        )
+        if visible_session_id == work_session_id:
+            return
+        existing = self.store.get_active_classic_work(visible_session_id)
+        self.store.set_active_classic_work(
+            chat_session_id=visible_session_id,
+            work_id=work_id,
+            work_session_id=work_session_id,
+            root_request_id=root_request_id,
+            title=work.title,
+            summary=work.description,
+            workflow_type=(
+                workflow_type
+                or (None if existing is None else str(existing.get("workflow_type") or "").strip() or None)
+            ),
+        )
+
+    def _mirror_work_conversation_to_agent_sessions(
+        self,
+        *,
+        visible_session_id: str,
+        work_id: str | None,
+        role: str,
+        content: str,
+        request_id: str | None,
+        route: str | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        if work_id is None:
+            return
+        for mapping in self.store.list_work_agent_sessions(work_id):
+            target_session_id = str(mapping.get("session_id") or "").strip()
+            if not target_session_id or target_session_id == visible_session_id:
+                continue
+            self.store.add_message(
+                target_session_id,
+                role,
+                content,
+                request_id=request_id,
+                route=route,
+                metadata={
+                    **(metadata or {}),
+                    "mirrored_from_work_session": visible_session_id,
+                    "mirrored_work_id": work_id,
+                },
+            )
+
+    def _prune_work_locks(self, *, max_entries: int = 1024) -> None:
+        """Evict idle (unlocked) LRU entries until the map is within *max_entries*."""
+        needed = max(0, len(self._work_locks) - max_entries)
+        if needed == 0:
+            return
+        unlocked_iter = (wid for wid, lock in self._work_locks.items() if not lock.locked())
+        to_evict = list(islice(unlocked_iter, needed))
+        for wid in to_evict:
+            self._work_locks.pop(wid, None)
+
+    def _work_lock(self, work_id: str) -> threading.Lock:
+        with self._work_locks_guard:
+            existing = self._work_locks.get(work_id)
+            if existing is not None:
+                self._work_locks.move_to_end(work_id)
+                return existing
+            created = threading.Lock()
+            self._work_locks[work_id] = created
+            self._prune_work_locks()
+            return created
+
     def _latest_assistant_request_id(self, session_id: str) -> str | None:
         return self.store.get_latest_assistant_request_id(session_id)
 
@@ -978,8 +1210,59 @@ class ChatService:
     ) -> ChatReply:
         backend = normalize_runtime_backend(backend)
 
-        # Check for a task waiting on user input in this session (work mode).
-        resumable_task = self.store.find_waiting_input_task(session_id)
+        if work_id is not None:
+            with self._work_lock(work_id):
+                return self._chat_locked(
+                    session_id,
+                    message,
+                    work_id=work_id,
+                    model_id=model_id,
+                    backend=backend,
+                    a2a_url=a2a_url,
+                    a2a_remote_agent=a2a_remote_agent,
+                    a2a_model_provider=a2a_model_provider,
+                    a2a_model_id=a2a_model_id,
+                    conversation_tone_instruction=conversation_tone_instruction,
+                    tts_instruction=tts_instruction,
+                    message_metadata=message_metadata,
+                )
+        return self._chat_locked(
+            session_id,
+            message,
+            work_id=work_id,
+            model_id=model_id,
+            backend=backend,
+            a2a_url=a2a_url,
+            a2a_remote_agent=a2a_remote_agent,
+            a2a_model_provider=a2a_model_provider,
+            a2a_model_id=a2a_model_id,
+            conversation_tone_instruction=conversation_tone_instruction,
+            tts_instruction=tts_instruction,
+            message_metadata=message_metadata,
+        )
+
+    def _chat_locked(
+        self,
+        session_id: str,
+        message: str,
+        *,
+        work_id: str | None = None,
+        model_id: str | None = None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
+        conversation_tone_instruction: str | None = None,
+        tts_instruction: str | None = None,
+        message_metadata: dict[str, Any] | None = None,
+    ) -> ChatReply:
+
+        # In /work, resume from the explicit active pending interaction marker rather than
+        # guessing from all historical waiting tasks in the session.
+        resumable_task = self._find_active_work_pending_task(session_id, work_id=work_id)
+        if resumable_task is None and work_id is None:
+            resumable_task = self.store.find_waiting_input_task(session_id)
         if resumable_task is not None:
             if self._is_waiting_input_cancel_intent(message):
                 return self._cancel_waiting_task_via_chat(
@@ -988,7 +1271,20 @@ class ChatService:
                     user_message=message,
                     work_id=work_id,
                 )
-            return self.submit_task_input(str(resumable_task["id"]), message)
+            task = self.store.get_task(str(resumable_task["id"]))
+            request = self.store.get_request(task.request_id)
+            resumed_work_id = work_id or self.store.find_work_id_by_session(
+                agent_id=self.runtime.profile.id,
+                session_id=session_id,
+            )
+            return self._submit_task_input_locked(
+                str(resumable_task["id"]),
+                message,
+                task,
+                request,
+                session_id,
+                resumed_work_id,
+            )
 
         # Classic chat (work_id is None) never delegates; work mode delegates.
         return self._chat_internal(
@@ -1006,6 +1302,102 @@ class ChatService:
             tts_instruction=tts_instruction,
             message_metadata=message_metadata,
         )
+
+    def _find_active_work_pending_task(
+        self,
+        session_id: str,
+        *,
+        work_id: str | None,
+    ) -> dict[str, Any] | None:
+        if work_id is None:
+            return None
+        root_tasks = self.store.list_tasks(session_id=session_id, root_only=True, limit=200)
+        for root_task in reversed(root_tasks):
+            if not root_task.get("is_root"):
+                continue
+            if root_task.get("status") != TASK_STATUS_WAITING_INPUT:
+                continue
+            pending = self._pending_interaction_from_root_task(root_task)
+            if not pending:
+                continue
+            waiting_task_id = str(pending.get("waiting_task_id") or "").strip()
+            if not waiting_task_id:
+                continue
+            try:
+                waiting_task = self.store.get_task(waiting_task_id)
+            except KeyError:
+                continue
+            if waiting_task.status != TASK_STATUS_WAITING_INPUT:
+                continue
+            if not (waiting_task.input_json or {}).get("maf_pending_request_id"):
+                continue
+            return {
+                "id": waiting_task.id,
+                "request_id": waiting_task.request_id,
+                "root_task_id": root_task.get("id"),
+                "pending_interaction": pending,
+            }
+        return None
+
+    @staticmethod
+    def _pending_interaction_from_root_task(root_task: Any) -> dict[str, Any] | None:
+        task_input = {}
+        if isinstance(root_task, dict):
+            task_input = dict(root_task.get("input") or {})
+        else:
+            task_input = dict(getattr(root_task, "input_json", None) or {})
+        pending = task_input.get(_WORK_PENDING_INTERACTION_KEY)
+        if not isinstance(pending, dict) or not pending.get("active"):
+            return None
+        return pending
+
+    def _set_root_pending_interaction(
+        self,
+        root_task_id: str,
+        *,
+        waiting_task_id: str | None,
+        workflow_type: str | None,
+        input_prompt: str | None,
+        pending_request_id: str | None,
+        requesting_agent_id: str | None = None,
+        requesting_agent_name: str | None = None,
+        pending_reason: str | None = None,
+    ) -> None:
+        root_task = self.store.get_task(root_task_id)
+        root_input = dict(root_task.input_json or {})
+        root_input[_WORK_PENDING_INTERACTION_KEY] = {
+            "active": True,
+            "waiting_task_id": waiting_task_id,
+            "workflow_type": workflow_type,
+            "input_prompt": input_prompt,
+            "pending_request_id": pending_request_id,
+            "requesting_agent_id": requesting_agent_id,
+            "requesting_agent_name": requesting_agent_name,
+            "pending_reason": pending_reason,
+            "updated_at": now_iso(),
+        }
+        self.store.update_task(root_task_id, input_json=root_input)
+
+    def _clear_root_pending_interaction(self, root_task_id: str) -> None:
+        root_task = self.store.get_task(root_task_id)
+        root_input = dict(root_task.input_json or {})
+        pending = dict(root_input.get(_WORK_PENDING_INTERACTION_KEY) or {})
+        if not pending:
+            return
+        pending.update({
+            "active": False,
+            "updated_at": now_iso(),
+        })
+        root_input[_WORK_PENDING_INTERACTION_KEY] = pending
+        self.store.update_task(root_task_id, input_json=root_input)
+
+    def _set_root_group_chat_state(self, root_task_id: str, state: dict[str, Any] | None) -> None:
+        if not isinstance(state, dict):
+            return
+        root_task = self.store.get_task(root_task_id)
+        root_input = dict(root_task.input_json or {})
+        root_input[_WORK_GROUP_CHAT_STATE_KEY] = dict(state)
+        self.store.update_task(root_task_id, input_json=root_input)
 
     @staticmethod
     def _format_chanakya_input_prompt(question: str) -> str:
@@ -1121,6 +1513,15 @@ class ChatService:
             request_id=request_id,
             metadata=dict(message_metadata or {}),
         )
+        self._mirror_work_conversation_to_agent_sessions(
+            visible_session_id=session_id,
+            work_id=work_id,
+            role="user",
+            content=message,
+            request_id=request_id,
+            route="work_user_message" if work_id is not None else None,
+            metadata=dict(message_metadata or {}),
+        )
         self.store.create_request(
             request_id=request_id,
             session_id=session_id,
@@ -1138,6 +1539,12 @@ class ChatService:
             owner_agent_id=self.runtime.profile.id,
             task_type="chat_request",
             input_json={"message": message, "runtime_config": runtime_snapshot},
+        )
+        self._set_active_work_binding(
+            visible_session_id=session_id,
+            work_id=work_id,
+            root_request_id=request_id,
+            workflow_type=None,
         )
 
         debug_log(
@@ -1385,51 +1792,26 @@ class ChatService:
             )
 
         # ---- persist tool invocation traces ----
-        tool_trace_ids: list[str] = []
-        if run_result is not None:
-            for trace in run_result.tool_traces:
-                invocation_id = make_id("tinv")
-                tool_trace_ids.append(invocation_id)
-                self.store.create_tool_invocation(
-                    invocation_id=invocation_id,
-                    request_id=request_id,
-                    session_id=session_id,
-                    agent_id=self.runtime.profile.id,
-                    agent_name=self.runtime.profile.name,
-                    tool_id=trace.tool_id,
-                    tool_name=trace.tool_name,
-                    server_name=trace.server_name,
-                    status=trace.status,
-                    input_json={"raw": trace.input_payload} if trace.input_payload else {},
-                )
-                self.store.finish_tool_invocation(
-                    invocation_id,
-                    status=trace.status,
-                    output_text=trace.output_text,
-                    error_text=trace.error_text,
-                )
-                self.store.create_task_event(
-                    session_id=session_id,
-                    request_id=request_id,
-                    task_id=root_task_id,
-                    event_type="tool_trace_recorded",
-                    payload={
-                        "invocation_id": invocation_id,
-                        "tool_id": trace.tool_id,
-                        "tool_name": trace.tool_name,
-                        "server_name": trace.server_name,
-                        "status": trace.status,
-                    },
-                )
+        direct_tool_records = [] if run_result is None else self._normalize_direct_tool_trace_records(run_result)
+        delegated_tool_records = [] if manager_result is None else self._normalize_delegated_tool_trace_records(manager_result)
+        tool_trace_ids = self._persist_tool_trace_records(
+            session_id=session_id,
+            request_id=request_id,
+            root_task_id=root_task_id,
+            records=direct_tool_records if direct_tool_records else delegated_tool_records,
+            fallback_agent_id=self.runtime.profile.id,
+            fallback_agent_name=self.runtime.profile.name,
+        )
 
         if manager_result is not None:
             route = "delegated_manager"
             final_message = manager_result.text
             response_mode = manager_result.workflow_type
             task_status = manager_result.task_status
-            direct_tool_calls_used = 0
+            direct_tool_calls_used = len(delegated_tool_records)
             result_json = manager_result.result_json
             waiting_task_id = manager_result.waiting_task_id
+            manager_visible_messages = list(manager_result.visible_messages or [])
             input_prompt = (
                 self._format_chanakya_input_prompt(manager_result.input_prompt)
                 if manager_result.input_prompt
@@ -1449,6 +1831,7 @@ class ChatService:
                 "tool_calls_used": len(direct_run_result.tool_traces),
             }
             waiting_task_id = None
+            manager_visible_messages = []
             input_prompt = None
         artifacts = [
             self._artifact_response_payload(record)
@@ -1461,6 +1844,70 @@ class ChatService:
         if artifacts:
             result_json = {**result_json, "artifacts": artifacts}
         if task_status == TASK_STATUS_WAITING_INPUT and input_prompt:
+            group_chat_state = result_json.get("group_chat_state") if isinstance(result_json, dict) else None
+            self._set_root_group_chat_state(root_task_id, group_chat_state)
+            pending_request_id = None
+            requesting_agent_id = None
+            requesting_agent_name = None
+            pending_reason = None
+            if isinstance(result_json, dict):
+                pending_request_id = str(result_json.get("pending_request_id") or "").strip() or None
+                requesting_agent_id = str(result_json.get("requesting_agent_id") or "").strip() or None
+                requesting_agent_name = str(result_json.get("requesting_agent_name") or "").strip() or None
+                pending_reason = str(result_json.get("reason") or "").strip() or None
+            self._set_root_pending_interaction(
+                root_task_id,
+                waiting_task_id=waiting_task_id,
+                workflow_type=manager_result.workflow_type if manager_result is not None else None,
+                input_prompt=input_prompt,
+                pending_request_id=pending_request_id,
+                requesting_agent_id=requesting_agent_id,
+                requesting_agent_name=requesting_agent_name,
+                pending_reason=pending_reason,
+            )
+            if manager_visible_messages:
+                visible_metadata = {
+                    "runtime": "maf_agent",
+                    "response_mode": response_mode,
+                    "tool_calls_used": direct_tool_calls_used,
+                    "root_task_id": root_task_id,
+                    "request_status": request_status,
+                    "task_status": task_status,
+                    "workflow_type": manager_result.workflow_type if manager_result is not None else None,
+                    "child_task_ids": manager_result.child_task_ids if manager_result is not None else [],
+                    "waiting_task_id": waiting_task_id,
+                    "input_prompt": input_prompt,
+                    "awaiting_user_input": True,
+                    "artifacts": artifacts,
+                    "group_chat_visible": True,
+                }
+                self._persist_group_chat_visible_messages(
+                    session_id=session_id,
+                    request_id=request_id,
+                    route=route,
+                    base_metadata=visible_metadata,
+                    messages=manager_visible_messages,
+                )
+                for item in manager_visible_messages:
+                    text = str(item.get("text") or "").strip()
+                    if not text:
+                        continue
+                    self._mirror_work_conversation_to_agent_sessions(
+                        visible_session_id=session_id,
+                        work_id=resolved_work_id,
+                        role="assistant",
+                        content=text,
+                        request_id=request_id,
+                        route=route,
+                        metadata={
+                            **visible_metadata,
+                            "visible_agent_id": item.get("agent_id"),
+                            "visible_agent_name": item.get("agent_name"),
+                            "visible_agent_role": item.get("agent_role"),
+                            "group_chat_turn_index": item.get("turn_index"),
+                        },
+                    )
+                response_messages = list(manager_visible_messages)
             self.store.add_message(
                 session_id,
                 "assistant",
@@ -1486,7 +1933,28 @@ class ChatService:
                     "artifacts": artifacts,
                 },
             )
+            self._mirror_work_conversation_to_agent_sessions(
+                visible_session_id=session_id,
+                work_id=resolved_work_id,
+                role="assistant",
+                content=input_prompt,
+                request_id=request_id,
+                route=_WAITING_INPUT_ROUTE,
+                metadata={
+                    "runtime": "maf_agent",
+                    "response_mode": response_mode,
+                    "task_status": task_status,
+                    "workflow_type": manager_result.workflow_type if manager_result is not None else None,
+                    "waiting_task_id": waiting_task_id,
+                    "input_prompt": input_prompt,
+                    "awaiting_user_input": True,
+                },
+            )
+            response_messages = [*response_messages, {"text": input_prompt, "delay_ms": 0, "agent_name": "Chanakya"}]
         elif task_status != TASK_STATUS_WAITING_INPUT:
+            self._clear_root_pending_interaction(root_task_id)
+            group_chat_state = result_json.get("group_chat_state") if isinstance(result_json, dict) else None
+            self._set_root_group_chat_state(root_task_id, group_chat_state)
             actual_runtime_meta = (
                 runtime_meta
                 if manager_result is None
@@ -1587,15 +2055,60 @@ class ChatService:
                     messages, conversation_result.response
                 )
             else:
-                response_messages = [{"text": final_message, "delay_ms": 0}]
-                self.store.add_message(
-                    session_id,
-                    "assistant",
-                    final_message,
-                    request_id=request_id,
-                    route=route,
-                    metadata=response_metadata,
-                )
+                if manager_result is not None and manager_visible_messages:
+                    self._persist_group_chat_visible_messages(
+                        session_id=session_id,
+                        request_id=request_id,
+                        route=route,
+                        base_metadata={
+                            **response_metadata,
+                            "group_chat_visible": True,
+                        },
+                        messages=manager_visible_messages,
+                    )
+                    for item in manager_visible_messages:
+                        text = str(item.get("text") or "").strip()
+                        if not text:
+                            continue
+                        self._mirror_work_conversation_to_agent_sessions(
+                            visible_session_id=session_id,
+                            work_id=resolved_work_id,
+                            role="assistant",
+                            content=text,
+                            request_id=request_id,
+                            route=route,
+                            metadata={
+                                **response_metadata,
+                                "visible_agent_id": item.get("agent_id"),
+                                "visible_agent_name": item.get("agent_name"),
+                                "visible_agent_role": item.get("agent_role"),
+                                "group_chat_turn_index": item.get("turn_index"),
+                            },
+                        )
+                    response_messages = list(manager_visible_messages)
+                    final_message = self._conversation_message_content(
+                        manager_visible_messages,
+                        final_message,
+                    )
+                else:
+                    response_messages = [{"text": final_message, "delay_ms": 0}]
+                    self.store.add_message(
+                        session_id,
+                        "assistant",
+                        final_message,
+                        request_id=request_id,
+                        route=route,
+                        metadata=response_metadata,
+                    )
+                    self._mirror_work_conversation_to_agent_sessions(
+                        visible_session_id=session_id,
+                        work_id=resolved_work_id,
+                        role="assistant",
+                        content=final_message,
+                        request_id=request_id,
+                        route=route,
+                        metadata=response_metadata,
+                    )
         self.store.update_request(
             request_id,
             status=request_status,
@@ -1606,6 +2119,12 @@ class ChatService:
             status=task_status,
             result_json=result_json,
             finished_at=finished_at,
+        )
+        self._set_active_work_binding(
+            visible_session_id=session_id,
+            work_id=resolved_work_id,
+            root_request_id=request_id,
+            workflow_type=response_mode if resolved_work_id is not None else None,
         )
         if task_status != TASK_STATUS_WAITING_INPUT:
             self.store.create_task_event(
@@ -1804,6 +2323,20 @@ class ChatService:
             agent_id=self.runtime.profile.id,
             session_id=session_id,
         )
+        if work_id is not None:
+            with self._work_lock(work_id):
+                return self._submit_task_input_locked(task_id, message, task, request, session_id, work_id)
+        return self._submit_task_input_locked(task_id, message, task, request, session_id, work_id)
+
+    def _submit_task_input_locked(
+        self,
+        task_id: str,
+        message: str,
+        task: Any,
+        request: Any,
+        session_id: str,
+        work_id: str | None,
+    ) -> ChatReply:
         runtime_meta = self._runtime_metadata()
         root_task_id = request.root_task_id
         if root_task_id is None:
@@ -1820,6 +2353,7 @@ class ChatService:
         )
         if root_task.status == TASK_STATUS_WAITING_INPUT:
             resumed_at = now_iso()
+            self._clear_root_pending_interaction(root_task_id)
             self.store.update_task(root_task_id, status=TASK_STATUS_IN_PROGRESS, finished_at=None)
             self.store.update_request(request.id, status=REQUEST_STATUS_IN_PROGRESS)
             self.store.create_task_event(
@@ -1851,6 +2385,15 @@ class ChatService:
             request_id=request.id,
             metadata={"input_target_task_id": task_id, "input_submission": True},
         )
+        self._mirror_work_conversation_to_agent_sessions(
+            visible_session_id=session_id,
+            work_id=work_id,
+            role="user",
+            content=message,
+            request_id=request.id,
+            route="work_user_input",
+            metadata={"input_target_task_id": task_id, "input_submission": True},
+        )
         context_tokens = self.manager.bind_execution_context(
             session_id=session_id,
             request_id=request.id,
@@ -1872,7 +2415,81 @@ class ChatService:
             self.manager.reset_execution_context(context_tokens)
         request_status = self._request_status_from_task_status(result.task_status)
         finished_at = None if result.task_status == TASK_STATUS_WAITING_INPUT else now_iso()
+        visible_messages = list(result.visible_messages or [])
+        delegated_tool_records = self._normalize_delegated_tool_trace_records(result)
+        tool_trace_ids = self._persist_tool_trace_records(
+            session_id=session_id,
+            request_id=request.id,
+            root_task_id=root_task_id,
+            records=delegated_tool_records,
+            fallback_agent_id=self.runtime.profile.id,
+            fallback_agent_name=self.runtime.profile.name,
+        )
+        delegated_tool_calls_used = len(delegated_tool_records)
         if result.task_status == TASK_STATUS_WAITING_INPUT and result.input_prompt:
+            group_chat_state = result.result_json.get("group_chat_state") if isinstance(result.result_json, dict) else None
+            self._set_root_group_chat_state(root_task_id, group_chat_state)
+            pending_request_id = None
+            requesting_agent_id = None
+            requesting_agent_name = None
+            pending_reason = None
+            if isinstance(result.result_json, dict):
+                pending_request_id = str(result.result_json.get("pending_request_id") or "").strip() or None
+                requesting_agent_id = str(result.result_json.get("requesting_agent_id") or "").strip() or None
+                requesting_agent_name = str(result.result_json.get("requesting_agent_name") or "").strip() or None
+                pending_reason = str(result.result_json.get("reason") or "").strip() or None
+            self._set_root_pending_interaction(
+                root_task_id,
+                waiting_task_id=result.waiting_task_id,
+                workflow_type=result.workflow_type,
+                input_prompt=result.input_prompt,
+                pending_request_id=pending_request_id,
+                requesting_agent_id=requesting_agent_id,
+                requesting_agent_name=requesting_agent_name,
+                pending_reason=pending_reason,
+            )
+            if visible_messages:
+                base_metadata = {
+                    "runtime": "maf_agent",
+                    "core_agent_backend": str(runtime_meta.get("backend") or "local"),
+                    "response_mode": result.workflow_type,
+                    "tool_calls_used": delegated_tool_calls_used,
+                    "root_task_id": root_task_id,
+                    "request_status": request_status,
+                    "task_status": result.task_status,
+                    "workflow_type": result.workflow_type,
+                    "child_task_ids": result.child_task_ids,
+                    "waiting_task_id": result.waiting_task_id,
+                    "input_prompt": result.input_prompt,
+                    "awaiting_user_input": True,
+                    "group_chat_visible": True,
+                }
+                self._persist_group_chat_visible_messages(
+                    session_id=session_id,
+                    request_id=request.id,
+                    route="delegated_manager",
+                    base_metadata=base_metadata,
+                    messages=visible_messages,
+                )
+                for item in visible_messages:
+                    text = str(item.get("text") or "").strip()
+                    if not text:
+                        continue
+                    self._mirror_work_conversation_to_agent_sessions(
+                        visible_session_id=session_id,
+                        work_id=work_id,
+                        role="assistant",
+                        content=text,
+                        request_id=request.id,
+                        route="delegated_manager",
+                        metadata={
+                            **base_metadata,
+                            "visible_agent_id": item.get("agent_id"),
+                            "visible_agent_name": item.get("agent_name"),
+                            "visible_agent_role": item.get("agent_role"),
+                            "group_chat_turn_index": item.get("turn_index"),
+                        },
+                    )
             self.store.add_message(
                 session_id,
                 "assistant",
@@ -1883,7 +2500,7 @@ class ChatService:
                     "runtime": "maf_agent",
                     "core_agent_backend": str(runtime_meta.get("backend") or "local"),
                     "response_mode": result.workflow_type,
-                    "tool_calls_used": 0,
+                    "tool_calls_used": delegated_tool_calls_used,
                     "root_task_id": root_task_id,
                     "request_status": request_status,
                     "task_status": result.task_status,
@@ -1894,27 +2511,83 @@ class ChatService:
                     "awaiting_user_input": True,
                 },
             )
-        elif result.task_status != TASK_STATUS_WAITING_INPUT:
-            self.store.add_message(
-                session_id,
-                "assistant",
-                result.text,
+            self._mirror_work_conversation_to_agent_sessions(
+                visible_session_id=session_id,
+                work_id=work_id,
+                role="assistant",
+                content=result.input_prompt,
                 request_id=request.id,
-                route="delegated_manager",
+                route=_WAITING_INPUT_ROUTE,
                 metadata={
                     "runtime": "maf_agent",
-                    "core_agent_backend": str(runtime_meta.get("backend") or "local"),
-                    "response_mode": result.workflow_type,
-                    "tool_calls_used": 0,
-                    "root_task_id": root_task_id,
-                    "request_status": request_status,
-                    "task_status": result.task_status,
                     "workflow_type": result.workflow_type,
-                    "child_task_ids": result.child_task_ids,
                     "waiting_task_id": result.waiting_task_id,
                     "input_prompt": result.input_prompt,
+                    "awaiting_user_input": True,
                 },
             )
+        elif result.task_status != TASK_STATUS_WAITING_INPUT:
+            self._clear_root_pending_interaction(root_task_id)
+            group_chat_state = result.result_json.get("group_chat_state") if isinstance(result.result_json, dict) else None
+            self._set_root_group_chat_state(root_task_id, group_chat_state)
+            base_metadata = {
+                "runtime": "maf_agent",
+                "core_agent_backend": str(runtime_meta.get("backend") or "local"),
+                "response_mode": result.workflow_type,
+                "tool_calls_used": delegated_tool_calls_used,
+                "root_task_id": root_task_id,
+                "request_status": request_status,
+                "task_status": result.task_status,
+                "workflow_type": result.workflow_type,
+                "child_task_ids": result.child_task_ids,
+                "waiting_task_id": result.waiting_task_id,
+                "input_prompt": result.input_prompt,
+            }
+            if visible_messages:
+                self._persist_group_chat_visible_messages(
+                    session_id=session_id,
+                    request_id=request.id,
+                    route="delegated_manager",
+                    base_metadata={**base_metadata, "group_chat_visible": True},
+                    messages=visible_messages,
+                )
+                for item in visible_messages:
+                    text = str(item.get("text") or "").strip()
+                    if not text:
+                        continue
+                    self._mirror_work_conversation_to_agent_sessions(
+                        visible_session_id=session_id,
+                        work_id=work_id,
+                        role="assistant",
+                        content=text,
+                        request_id=request.id,
+                        route="delegated_manager",
+                        metadata={
+                            **base_metadata,
+                            "visible_agent_id": item.get("agent_id"),
+                            "visible_agent_name": item.get("agent_name"),
+                            "visible_agent_role": item.get("agent_role"),
+                            "group_chat_turn_index": item.get("turn_index"),
+                        },
+                    )
+            else:
+                self.store.add_message(
+                    session_id,
+                    "assistant",
+                    result.text,
+                    request_id=request.id,
+                    route="delegated_manager",
+                    metadata=base_metadata,
+                )
+                self._mirror_work_conversation_to_agent_sessions(
+                    visible_session_id=session_id,
+                    work_id=work_id,
+                    role="assistant",
+                    content=result.text,
+                    request_id=request.id,
+                    route="delegated_manager",
+                    metadata=base_metadata,
+                )
         self.store.update_request(request.id, status=request_status, route="delegated_manager")
         self.store.update_task(
             root_task_id,
@@ -1931,7 +2604,7 @@ class ChatService:
                 payload={
                     "route": "delegated_manager",
                     "response_mode": result.workflow_type,
-                    "tool_calls_used": 0,
+                    "tool_calls_used": delegated_tool_calls_used,
                 },
             )
         self.store.create_task_event(
@@ -1976,11 +2649,16 @@ class ChatService:
             runtime="maf_agent",
             agent_name=self.runtime.profile.name,
             response_mode=result.workflow_type,
-            tool_calls_used=0,
-            tool_trace_ids=[],
+            tool_calls_used=delegated_tool_calls_used,
+            tool_trace_ids=tool_trace_ids,
             requires_input=result.task_status == TASK_STATUS_WAITING_INPUT,
             waiting_task_id=result.waiting_task_id,
             input_prompt=result.input_prompt,
+            messages=(
+                [*visible_messages, {"text": result.input_prompt, "delay_ms": 0, "agent_name": "Chanakya"}]
+                if result.task_status == TASK_STATUS_WAITING_INPUT and result.input_prompt
+                else visible_messages or [{"text": result.text, "delay_ms": 0}]
+            ),
         )
 
     def cancel_task(self, task_id: str) -> dict[str, str]:
@@ -2043,6 +2721,8 @@ class ChatService:
                 },
             )
         self.store.update_request(request.id, status=REQUEST_STATUS_CANCELLED)
+        if request.root_task_id:
+            self._clear_root_pending_interaction(request.root_task_id)
         if self.manager is not None:
             self.manager.cancel_waiting_task(task_id)
         return {"task_id": task_id, "status": TASK_STATUS_CANCELLED}

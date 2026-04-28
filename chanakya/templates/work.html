@@ -414,6 +414,14 @@
         overflow-wrap: anywhere;
         word-break: break-word;
       }
+      .msg-agent-name {
+        margin: 0 0 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(165, 223, 255, 0.88);
+      }
       .rendered-markdown {
         display: grid;
         gap: 10px;
@@ -865,6 +873,22 @@
         margin-bottom: 8px;
         color: var(--muted);
         font-size: 12px;
+      }
+      .agent-history-summary,
+      .agent-history-overview {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 10px;
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 12px;
+        background: rgba(13, 16, 27, 0.58);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .agent-history-summary strong,
+      .agent-history-overview strong {
+        color: var(--text);
       }
       .agent-msg {
         font-size: 12px;
@@ -1518,7 +1542,6 @@
       let a2aDiscoveryHealthy = false;
       let a2aDiscoveryError = "";
       let works = [];
-      let slideshowTimer = null;
       let workLiveRefreshTimer = null;
       let historiesWindow = null;
       let historyInFlight = false;
@@ -1528,8 +1551,14 @@
       let pendingReplyBaselineAssistantCount = 0;
       let workWaitingMessageIndex = -1;
       let workWaitingMessageTimer = null;
+      let workWaitingQueueActive = false;
+      let workRuntimePhase = "idle";
       let taskUiInteractingUntil = 0;
+      let historyUiInteractingUntil = 0;
       let cachedAgentHistories = [];
+      let cachedActiveRuntime = null;
+      let cachedConversation = { session_id: null, messages: [] };
+      let cachedGroupChatInspector = { workflow_type: "work_group_chat", run_count: 0, runs: [] };
       let cachedTaskFlow = [];
       let cachedTasks = [];
       let cachedRequests = [];
@@ -1543,6 +1572,16 @@
         speedMs: 1800,
         autoplay: false,
         open: true,
+        timer: null,
+      };
+      const popupSlideshowState = {
+        requestId: null,
+        followLatest: true,
+        slideIndexByRequest: {},
+        speedMs: 1800,
+        autoplay: false,
+        open: true,
+        timer: null,
       };
       const WORK_WAITING_MESSAGES = [
         "Working on it.",
@@ -2248,9 +2287,15 @@
       }
 
       function appendChatMessage(role, content, options = {}) {
-        const { shouldScroll = true } = options;
+        const { shouldScroll = true, agentName = "" } = options;
         const node = document.createElement("div");
         node.className = `msg ${role}`;
+        if (role === "assistant" && agentName) {
+          const label = document.createElement("div");
+          label.className = "msg-agent-name";
+          label.textContent = agentName;
+          node.appendChild(label);
+        }
         const body = document.createElement("div");
         body.className = "msg-body";
         body.appendChild(renderMarkdownContent(content));
@@ -2279,7 +2324,7 @@
       }
 
       function getHistoryChatMessageCount(agentHistories) {
-        return extractChanakyaMessages(agentHistories || []).length;
+        return normalizeConversation(null, agentHistories || []).messages.length;
       }
 
       function setConversationQueueStatus(text, isError = false) {
@@ -2301,7 +2346,8 @@
           node.textContent = text || "";
           node.dataset.state = isError ? "error" : "idle";
         });
-        setWorkWaitingIndicatorActive(shouldShowWaiting);
+        workWaitingQueueActive = shouldShowWaiting;
+        applyWorkWaitingIndicatorState();
       }
 
       function rotateWorkWaitingMessage() {
@@ -2322,13 +2368,49 @@
       }
 
       function setWorkWaitingIndicatorActive(isActive) {
+        workWaitingQueueActive = Boolean(isActive);
+        applyWorkWaitingIndicatorState();
+      }
+
+      function applyWorkWaitingIndicatorState() {
         if (!workWaitingIndicator) {
           return;
         }
-        const nextValue = Boolean(isActive);
-        workWaitingIndicator.dataset.state = nextValue ? "waiting" : "idle";
-        workWaitingIndicator.hidden = !nextValue;
-        if (!nextValue) {
+        const shouldRotate = workRuntimePhase === "working" || workWaitingQueueActive;
+        if (workRuntimePhase === "failed") {
+          if (workWaitingMessageTimer) {
+            window.clearInterval(workWaitingMessageTimer);
+            workWaitingMessageTimer = null;
+          }
+          workWaitingIndicator.dataset.state = "failed";
+          workWaitingIndicator.hidden = false;
+          workWaitingIndicator.textContent = "Work hit a snag.";
+          workWaitingMessageIndex = -1;
+          return;
+        }
+        if (workRuntimePhase === "waiting_input") {
+          if (workWaitingMessageTimer) {
+            window.clearInterval(workWaitingMessageTimer);
+            workWaitingMessageTimer = null;
+          }
+          workWaitingIndicator.dataset.state = "waiting_input";
+          workWaitingIndicator.hidden = false;
+          workWaitingIndicator.textContent = "Waiting for your input.";
+          workWaitingMessageIndex = -1;
+          return;
+        }
+        if (workRuntimePhase === "started") {
+          if (workWaitingMessageTimer) {
+            window.clearInterval(workWaitingMessageTimer);
+            workWaitingMessageTimer = null;
+          }
+          workWaitingIndicator.dataset.state = "started";
+          workWaitingIndicator.hidden = false;
+          workWaitingIndicator.textContent = "Work has started.";
+          workWaitingMessageIndex = -1;
+          return;
+        }
+        if (!shouldRotate) {
           if (workWaitingMessageTimer) {
             window.clearInterval(workWaitingMessageTimer);
             workWaitingMessageTimer = null;
@@ -2337,6 +2419,8 @@
           workWaitingMessageIndex = -1;
           return;
         }
+        workWaitingIndicator.dataset.state = "waiting";
+        workWaitingIndicator.hidden = false;
         rotateWorkWaitingMessage();
         if (!workWaitingMessageTimer) {
           workWaitingMessageTimer = window.setInterval(() => {
@@ -2346,17 +2430,30 @@
       }
 
       function showWorkStartedIndicator() {
-        if (!workWaitingIndicator) {
-          return;
+        workRuntimePhase = "started";
+        applyWorkWaitingIndicatorState();
+      }
+
+      function syncWorkRuntimeState(activeRuntime) {
+        cachedActiveRuntime = activeRuntime && typeof activeRuntime === "object" ? activeRuntime : null;
+        const taskStatus = String(cachedActiveRuntime?.task_status || "").trim().toLowerCase();
+        const pendingInteraction = cachedActiveRuntime?.pending_interaction;
+        const groupChatState = cachedActiveRuntime?.group_chat_state || {};
+        const terminationState = groupChatState?.manager_termination_state || {};
+        const terminationStatus = String(terminationState?.status || "").trim().toLowerCase();
+        const waitingForInput = Boolean(pendingInteraction && pendingInteraction.active) || taskStatus === "waiting_input" || terminationStatus === "needs_user_input";
+        if (waitingForInput) {
+          workRuntimePhase = "waiting_input";
+        } else if (taskStatus === "failed" || terminationStatus === "failed") {
+          workRuntimePhase = "failed";
+        } else if (taskStatus === "done" || terminationStatus === "completed") {
+          workRuntimePhase = "completed";
+        } else if (taskStatus === "in_progress") {
+          workRuntimePhase = "working";
+        } else if (!cachedActiveRuntime || !activeWorkId) {
+          workRuntimePhase = "idle";
         }
-        if (workWaitingMessageTimer) {
-          window.clearInterval(workWaitingMessageTimer);
-          workWaitingMessageTimer = null;
-        }
-        workWaitingIndicator.dataset.state = "started";
-        workWaitingIndicator.hidden = false;
-        workWaitingIndicator.textContent = "Work has started.";
-        workWaitingMessageIndex = -1;
+        applyWorkWaitingIndicatorState();
       }
 
       function syncSpeechStatus(text, isError = false) {
@@ -2387,11 +2484,11 @@
       }
 
       async function deliverAssistantText(text, options = {}) {
-        const { onAssistantMessage } = options;
+        const { onAssistantMessage, agentName = "" } = options;
         if (!text) {
           return;
         }
-        appendChatMessage("assistant", text);
+        appendChatMessage("assistant", text, { agentName });
         if (isVoiceDeliveryMode() && airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
           await airVoiceController.speakAssistantMessageAndWait(text);
           return;
@@ -2467,13 +2564,29 @@
         return error instanceof TypeError || /networkerror|failed to fetch|load failed/i.test(message);
       }
 
-      function extractChanakyaMessages(agentHistories) {
+      function normalizeConversation(conversation, agentHistories) {
+        if (conversation && Array.isArray(conversation.messages)) {
+          return {
+            session_id: conversation.session_id || null,
+            message_count: Number(conversation.message_count || conversation.messages.length || 0),
+            assistant_count: Number(conversation.assistant_count || 0),
+            user_count: Number(conversation.user_count || 0),
+            messages: conversation.messages,
+          };
+        }
         const chanakyaHistory = (agentHistories || []).find((item) => item.agent_id === "agent_chanakya");
-        return Array.isArray(chanakyaHistory?.messages) ? chanakyaHistory.messages : [];
+        const messages = Array.isArray(chanakyaHistory?.messages) ? chanakyaHistory.messages : [];
+        return {
+          session_id: chanakyaHistory?.session_id || null,
+          message_count: messages.length,
+          assistant_count: messages.filter((message) => String(message?.role || "") === "assistant").length,
+          user_count: messages.filter((message) => String(message?.role || "") === "user").length,
+          messages,
+        };
       }
 
       function getCachedAssistantMessageCount() {
-        return extractChanakyaMessages(cachedAgentHistories || [])
+        return (cachedConversation?.messages || [])
           .filter((message) => String(message?.role || "") === "assistant")
           .length;
       }
@@ -2538,19 +2651,22 @@
             );
             if (response.ok) {
               const data = await response.json();
-              const messages = extractChanakyaMessages(data.agent_histories || []);
+              const conversation = normalizeConversation(data.conversation, data.agent_histories || []);
+              const messages = conversation.messages || [];
               if (messages.length > baselineMessageCount) {
-                renderChatFromHistory(data.agent_histories || []);
+                renderChatFromHistory(conversation);
+                cachedConversation = conversation;
                 cachedAgentHistories = data.agent_histories || [];
+                cachedGroupChatInspector = data.group_chat_inspector || { workflow_type: "work_group_chat", run_count: 0, runs: [] };
                 cachedTaskFlow = data.task_flow || [];
                 cachedTasks = data.tasks || [];
                 cachedRequests = data.requests || [];
-                renderAgentHistories(cachedAgentHistories, cachedTaskFlow, cachedTasks, cachedRequests);
+                renderAgentHistories(cachedConversation, cachedAgentHistories, cachedGroupChatInspector, cachedTaskFlow, cachedTasks, cachedRequests);
                 const assistantMessages = messages.filter((item) => item.role === "assistant");
                 const latestAssistant = assistantMessages[assistantMessages.length - 1];
                 setConversationQueueStatus(assistantMessages.length ? "" : "Request is still being processed...");
                 return {
-                  session_id: data.work?.session_id || null,
+                  session_id: conversation.session_id || null,
                   message: latestAssistant?.content || "",
                   messages: latestAssistant ? [{ text: latestAssistant.content || "", delay_ms: 0 }] : [],
                   metadata: latestAssistant?.metadata || {},
@@ -2783,7 +2899,7 @@
           if (!text) {
             continue;
           }
-          await deliverAssistantText(text, { onAssistantMessage });
+          await deliverAssistantText(text, { onAssistantMessage, agentName: item.agent_name || "" });
         }
         if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
           const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
@@ -3015,10 +3131,16 @@
         chatTitle.textContent = "Select a work";
         chatLog.innerHTML = '<div class="empty">No work selected.</div>';
         historyList.innerHTML = '<div class="empty">No histories yet.</div>';
+        cachedActiveRuntime = null;
+        cachedConversation = { session_id: null, messages: [] };
         cachedAgentHistories = [];
+        cachedGroupChatInspector = { workflow_type: "work_group_chat", run_count: 0, runs: [] };
         cachedTaskFlow = [];
         cachedTasks = [];
         cachedRequests = [];
+        workRuntimePhase = "idle";
+        workWaitingQueueActive = false;
+        applyWorkWaitingIndicatorState();
         sendButton.disabled = true;
         messageInput.disabled = true;
         if (airMicButton) {
@@ -3034,10 +3156,10 @@
         syncMicProxyState();
       }
 
-      function stopSlideshow() {
-        if (slideshowTimer) {
-          window.clearInterval(slideshowTimer);
-          slideshowTimer = null;
+      function stopSlideshow(state = slideshowState) {
+        if (state && state.timer) {
+          window.clearInterval(state.timer);
+          state.timer = null;
         }
       }
 
@@ -3079,6 +3201,40 @@
 
       function markTaskUiInteraction(holdMs = 4500) {
         taskUiInteractingUntil = Date.now() + holdMs;
+      }
+
+      function markHistoryUiInteraction(holdMs = 6000) {
+        historyUiInteractingUntil = Date.now() + holdMs;
+      }
+
+      function isHistoryUiInteracting() {
+        if (Date.now() < historyUiInteractingUntil) {
+          return true;
+        }
+        const activeElement = document.activeElement;
+        if (activeElement instanceof HTMLElement && historyList && historyList.contains(activeElement)) {
+          return true;
+        }
+        if (historiesWindow && !historiesWindow.closed) {
+          try {
+            const popupDoc = historiesWindow.document;
+            const popupActive = popupDoc.activeElement;
+            const popupHasFocus = typeof historiesWindow.document.hasFocus === "function"
+              ? historiesWindow.document.hasFocus()
+              : false;
+            if (popupHasFocus) {
+              return true;
+            }
+            if (popupActive instanceof historiesWindow.HTMLElement) {
+              const contentNode = popupDoc.getElementById("historyWindowContent");
+              if (contentNode && contentNode.contains(popupActive)) {
+                return true;
+              }
+            }
+          } catch {
+          }
+        }
+        return false;
       }
 
       function startLiveRefresh(intervalMs = 2400) {
@@ -3146,15 +3302,20 @@
         return "idle";
       }
 
-      function renderTaskSlideshow(taskFlow, tasks, agentHistories, requests) {
+      function renderTaskSlideshow(taskFlow, tasks, agentHistories, requests, options = {}) {
+        const {
+          state = slideshowState,
+          interactionMarker = markTaskUiInteraction,
+          historyRoot = historyList,
+        } = options;
         const wrap = document.createElement("details");
         wrap.className = "flow-wrap section-toggle";
-        wrap.open = slideshowState.open;
+        wrap.open = state.open;
         wrap.addEventListener("toggle", () => {
-          slideshowState.open = wrap.open;
+          state.open = wrap.open;
         });
         const summary = document.createElement("summary");
-        summary.textContent = "Task Flow Slideshow";
+        summary.textContent = "Task Flow";
         wrap.appendChild(summary);
 
         const body = document.createElement("div");
@@ -3164,19 +3325,19 @@
         const requestRecords = (requests || []).filter((item) => item && item.id);
         const allRequestIds = requestRecords.map((item) => item.id);
         const latestRequestId = allRequestIds.length ? allRequestIds[allRequestIds.length - 1] : null;
-        let selectedRequestId = slideshowState.requestId;
-        if (slideshowState.followLatest || !selectedRequestId || !allRequestIds.includes(selectedRequestId)) {
+        let selectedRequestId = state.requestId;
+        if (state.followLatest || !selectedRequestId || !allRequestIds.includes(selectedRequestId)) {
           selectedRequestId = latestRequestId;
-          slideshowState.requestId = selectedRequestId;
+          state.requestId = selectedRequestId;
         }
         let slides = groupTaskFlow(taskFlow, selectedRequestId);
-        let currentIndex = Number(slideshowState.slideIndexByRequest[selectedRequestId || "none"] || 0);
-        let speedMs = Number(slideshowState.speedMs || 1800);
+        let currentIndex = Number(state.slideIndexByRequest[selectedRequestId || "none"] || 0);
+        let speedMs = Number(state.speedMs || 1800);
 
         const controls = document.createElement("div");
         controls.className = "slideshow-controls";
-        controls.addEventListener("pointerdown", () => markTaskUiInteraction());
-        controls.addEventListener("focusin", () => markTaskUiInteraction());
+        controls.addEventListener("pointerdown", () => interactionMarker());
+        controls.addEventListener("focusin", () => interactionMarker());
 
         const requestSelect = document.createElement("select");
         allRequestIds.forEach((requestId) => {
@@ -3232,9 +3393,9 @@
         slideCard.className = "slide-card";
 
         function openAgentHistory(agentId) {
-          const messageSection = historyList.querySelector("details.section-toggle");
+          const messageSection = historyRoot ? historyRoot.querySelector("#messageFlowHost details.section-toggle, details.section-toggle") : null;
           if (messageSection) messageSection.open = true;
-          const card = historyList.querySelector(`details.agent-toggle[data-agent-id="${agentId}"]`);
+          const card = historyRoot ? historyRoot.querySelector(`details.agent-toggle[data-agent-id="${agentId}"]`) : null;
           if (card) {
             card.open = true;
             card.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -3251,7 +3412,7 @@
           }
           if (currentIndex < 0) currentIndex = 0;
           if (currentIndex >= slides.length) currentIndex = slides.length - 1;
-          slideshowState.slideIndexByRequest[selectedRequestId || "none"] = currentIndex;
+          state.slideIndexByRequest[selectedRequestId || "none"] = currentIndex;
 
           scrubber.max = String(slides.length - 1);
           scrubber.value = String(currentIndex);
@@ -3344,20 +3505,20 @@
         }
 
         function startSlideshow() {
-          stopSlideshow();
-          slideshowTimer = window.setInterval(() => {
+          stopSlideshow(state);
+          state.timer = window.setInterval(() => {
             if (!slides.length) return;
             currentIndex = (currentIndex + 1) % slides.length;
             renderSlide();
           }, speedMs);
-          slideshowState.autoplay = true;
+          state.autoplay = true;
           playButton.textContent = "Pause";
         }
 
         function togglePlay() {
-          if (slideshowTimer) {
-            stopSlideshow();
-            slideshowState.autoplay = false;
+          if (state.timer) {
+            stopSlideshow(state);
+            state.autoplay = false;
             playButton.textContent = "Play";
             return;
           }
@@ -3365,46 +3526,46 @@
         }
 
         prevButton.addEventListener("click", () => {
-          markTaskUiInteraction();
-          stopSlideshow();
-          slideshowState.autoplay = false;
+          interactionMarker();
+          stopSlideshow(state);
+          state.autoplay = false;
           playButton.textContent = "Play";
           currentIndex = Math.max(0, currentIndex - 1);
           renderSlide();
         });
         nextButton.addEventListener("click", () => {
-          markTaskUiInteraction();
-          stopSlideshow();
-          slideshowState.autoplay = false;
+          interactionMarker();
+          stopSlideshow(state);
+          state.autoplay = false;
           playButton.textContent = "Play";
           currentIndex = Math.min(slides.length - 1, currentIndex + 1);
           renderSlide();
         });
         playButton.addEventListener("click", togglePlay);
         speedSelect.addEventListener("change", () => {
-          markTaskUiInteraction();
+          interactionMarker();
           speedMs = Number(speedSelect.value || 1800);
-          slideshowState.speedMs = speedMs;
-          if (slideshowTimer) startSlideshow();
+          state.speedMs = speedMs;
+          if (state.timer) startSlideshow();
         });
         scrubber.addEventListener("input", () => {
-          markTaskUiInteraction();
-          stopSlideshow();
-          slideshowState.autoplay = false;
+          interactionMarker();
+          stopSlideshow(state);
+          state.autoplay = false;
           playButton.textContent = "Play";
           currentIndex = Number(scrubber.value || "0");
           renderSlide();
         });
         requestSelect.addEventListener("change", () => {
-          markTaskUiInteraction();
-          stopSlideshow();
-          slideshowState.autoplay = false;
+          interactionMarker();
+          stopSlideshow(state);
+          state.autoplay = false;
           playButton.textContent = "Play";
           selectedRequestId = requestSelect.value;
-          slideshowState.requestId = selectedRequestId;
-          slideshowState.followLatest = false;
+          state.requestId = selectedRequestId;
+          state.followLatest = false;
           slides = groupTaskFlow(taskFlow, selectedRequestId);
-          currentIndex = Number(slideshowState.slideIndexByRequest[selectedRequestId || "none"] || 0);
+          currentIndex = Number(state.slideIndexByRequest[selectedRequestId || "none"] || 0);
           renderSlide();
         });
 
@@ -3419,7 +3580,7 @@
         shell.appendChild(slideCard);
         renderSlide();
         speedSelect.value = String(speedMs);
-        if (slideshowState.autoplay) {
+        if (state.autoplay) {
           startSlideshow();
         } else {
           playButton.textContent = "Play";
@@ -3446,17 +3607,388 @@
         return { messageHost, taskHost };
       }
 
-      function renderMessageSection(agentHistories) {
+      function buildHistorySummaryLine(parts) {
+        return parts.filter((part) => part !== null && part !== undefined && part !== "").join(" | ");
+      }
+
+      function createHistoryMetric(label, value, tone = "neutral") {
+        const item = document.createElement("div");
+        item.className = `history-metric history-metric-${tone}`;
+        const labelNode = document.createElement("span");
+        labelNode.className = "history-metric-label";
+        labelNode.textContent = label;
+        const valueNode = document.createElement("strong");
+        valueNode.className = "history-metric-value";
+        valueNode.textContent = value;
+        item.append(labelNode, valueNode);
+        return item;
+      }
+
+      function appendSectionLabel(parent, text) {
+        const label = document.createElement("div");
+        label.className = "history-section-label";
+        label.textContent = text;
+        parent.appendChild(label);
+      }
+
+      function classifyTraceTone(mode) {
+        if (mode === "runtime_traced") return "good";
+        if (mode === "reconstructed") return "warn";
+        return "neutral";
+      }
+
+      function renderPromptSnapshotCard(snapshot, label) {
+        const card = document.createElement("details");
+        card.className = "agent-card";
+        const summary = document.createElement("summary");
+        summary.textContent = buildHistorySummaryLine([
+          label,
+          snapshot?.agent_name || "Unknown",
+          snapshot?.agent_role || "unknown-role",
+          `tools=${Array.isArray(snapshot?.tool_ids) ? snapshot.tool_ids.length : 0}`,
+        ]);
+        card.appendChild(summary);
+        const body = document.createElement("div");
+        const meta = document.createElement("div");
+        meta.className = "history-metric-grid";
+        meta.append(
+          createHistoryMetric("Agent", snapshot?.agent_name || "Unknown"),
+          createHistoryMetric("Role", snapshot?.agent_role || "unknown"),
+          createHistoryMetric("Tools", String(Array.isArray(snapshot?.tool_ids) ? snapshot.tool_ids.length : 0)),
+          createHistoryMetric("Backend", snapshot?.runtime_metadata?.backend || "unknown"),
+          createHistoryMetric("Model", snapshot?.runtime_metadata?.model || "default")
+        );
+        body.appendChild(meta);
+        if (Array.isArray(snapshot?.tool_summaries) && snapshot.tool_summaries.length) {
+          appendSectionLabel(body, "Tool availability");
+          const toolSummary = document.createElement("pre");
+          toolSummary.textContent = `available_tools:\n${JSON.stringify(snapshot.tool_summaries, null, 2)}`;
+          body.appendChild(toolSummary);
+        }
+        appendSectionLabel(body, "System prompt packet");
+        const prompt = document.createElement("pre");
+        prompt.textContent = snapshot?.system_prompt || "No prompt captured.";
+        body.appendChild(prompt);
+        card.appendChild(body);
+        return card;
+      }
+
+      function renderToolTraceCard(agentName, toolTrace) {
+        const block = document.createElement("div");
+        block.className = `agent-msg ${toolTrace?.status === "failed" ? "user" : "assistant"}`;
+        const meta = document.createElement("div");
+        meta.className = "flow-meta";
+        meta.textContent = buildHistorySummaryLine([
+          agentName || "Unknown",
+          toolTrace?.tool_name || toolTrace?.tool_id || "tool",
+          toolTrace?.server_name || "unknown-server",
+          toolTrace?.status || "unknown-status",
+        ]);
+        block.appendChild(meta);
+        const payload = document.createElement("pre");
+        payload.textContent = JSON.stringify(toolTrace || {}, null, 2);
+        block.appendChild(payload);
+        return block;
+      }
+
+      function renderGroupChatRun(run, index) {
+        const trace = run && typeof run.execution_trace === "object" ? run.execution_trace : {};
+        const details = document.createElement("details");
+        details.className = "agent-card agent-toggle";
+        details.dataset.agentId = run?.request_id || `run-${index}`;
+        const summary = document.createElement("summary");
+        const callSequence = Array.isArray(trace.call_sequence) ? trace.call_sequence : [];
+        const participantTurns = callSequence.filter((item) => item && item.kind === "participant_turn").length;
+        const toolCallCount = (Array.isArray(trace.tool_calls) ? trace.tool_calls : []).reduce(
+          (count, item) => count + (Array.isArray(item.tool_traces) ? item.tool_traces.length : 0),
+          0
+        );
+        summary.textContent = buildHistorySummaryLine([
+          `Run ${index + 1}`,
+          run?.status || trace?.completion?.status || "unknown",
+          run?.request_id || "no-request",
+          `turns=${participantTurns}`,
+          run?.created_at || "unknown-time",
+        ]);
+        details.appendChild(summary);
+
+        const body = document.createElement("div");
+        const overview = document.createElement("div");
+        overview.className = "agent-history-summary history-hero run-hero";
+        overview.innerHTML = `<strong>Run Overview</strong>`;
+        overview.append(
+          createHistoryMetric("Trace", trace?.capture_mode || "unknown", classifyTraceTone(trace?.capture_mode)),
+          createHistoryMetric("Route", run?.route || "unknown"),
+          createHistoryMetric("Turns", String(participantTurns), "good"),
+          createHistoryMetric("Tool calls", String(toolCallCount), toolCallCount ? "good" : "neutral"),
+          createHistoryMetric("Manager task", run?.manager_task_id || "unknown"),
+          createHistoryMetric("Root task", run?.root_task_id || "unknown")
+        );
+        body.appendChild(overview);
+
+        appendSectionLabel(body, "User request");
+        const requestBlock = document.createElement("pre");
+        requestBlock.textContent = trace.request_message || run?.user_message || "";
+        body.appendChild(requestBlock);
+
+        const seeded = document.createElement("details");
+        seeded.className = "agent-card";
+        const seededSummary = document.createElement("summary");
+        const seededContext = Array.isArray(trace.seeded_context) ? trace.seeded_context : [];
+        seededSummary.textContent = `Shared context before this run (${seededContext.length} messages)`;
+        seeded.appendChild(seededSummary);
+        const seededBody = document.createElement("div");
+        const seededIntro = document.createElement("div");
+        seededIntro.className = "flow-meta section-intro";
+        seededIntro.textContent = "This is the conversation window that was seeded into the runtime before the first manager decision.";
+        seededBody.appendChild(seededIntro);
+        if (seededContext.length) {
+          seededContext.forEach((item) => {
+            const block = document.createElement("div");
+            block.className = `agent-msg ${item.role === "user" ? "user" : "assistant"}`;
+            const meta = document.createElement("div");
+            meta.className = "flow-meta";
+            meta.textContent = buildHistorySummaryLine([
+              item.role || "assistant",
+              item.author_name || "unknown-author",
+            ]);
+            const content = document.createElement("pre");
+            content.textContent = item.text || "";
+            block.append(meta, content);
+            seededBody.appendChild(block);
+          });
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No prior shared context was seeded into this run.";
+          seededBody.appendChild(empty);
+        }
+        seeded.appendChild(seededBody);
+        body.appendChild(seeded);
+
+        const sequence = document.createElement("details");
+        sequence.className = "agent-card";
+        sequence.open = true;
+        const sequenceSummary = document.createElement("summary");
+        sequenceSummary.textContent = `Agent call sequence (${callSequence.length} steps)`;
+        sequence.appendChild(sequenceSummary);
+        const sequenceBody = document.createElement("div");
+        const sequenceTimeline = document.createElement("div");
+        sequenceTimeline.className = "history-timeline";
+        if (callSequence.length) {
+          callSequence.forEach((step) => {
+            const stepCard = document.createElement("div");
+            stepCard.className = `agent-msg history-step ${step.kind === "participant_turn" ? "assistant" : "user"}`;
+            const stepMarker = document.createElement("div");
+            stepMarker.className = "history-step-marker";
+            stepMarker.textContent = String(step.step || "?");
+            stepCard.appendChild(stepMarker);
+            const stepInner = document.createElement("div");
+            stepInner.className = "history-step-inner";
+            const stepMeta = document.createElement("div");
+            stepMeta.className = "flow-meta";
+            if (step.kind === "participant_turn") {
+              stepMeta.textContent = buildHistorySummaryLine([
+                `step ${step.step}`,
+                "participant call",
+                step.agent_name || "Unknown",
+                step.agent_role || "unknown-role",
+                step.prompt_ref || "no-prompt-ref",
+              ]);
+            } else {
+              const decision = step.decision && typeof step.decision === "object" ? step.decision : {};
+              stepMeta.textContent = buildHistorySummaryLine([
+                `step ${step.step}`,
+                "manager decision",
+                decision.action || "unknown-action",
+                decision.selected_agent_name || decision.status || "",
+              ]);
+            }
+            stepInner.appendChild(stepMeta);
+            const callInput = step.kind === "participant_turn"
+              ? (step.participant_call_input && typeof step.participant_call_input === "object" ? step.participant_call_input : {})
+              : (step.manager_call_input && typeof step.manager_call_input === "object" ? step.manager_call_input : {});
+            const callInputMeta = document.createElement("div");
+            callInputMeta.className = "flow-meta";
+            callInputMeta.textContent = `Exact call packet (${Array.isArray(callInput.input_messages) ? callInput.input_messages.length : 0} messages)`;
+            const callInputPre = document.createElement("pre");
+            callInputPre.textContent = JSON.stringify(callInput, null, 2);
+            stepInner.append(callInputMeta, callInputPre);
+            const sharedMeta = document.createElement("div");
+            sharedMeta.className = "flow-meta";
+            sharedMeta.textContent = `Shared context before step (${Array.isArray(step.shared_context_before) ? step.shared_context_before.length : 0} messages)`;
+            const sharedPre = document.createElement("pre");
+            sharedPre.textContent = JSON.stringify(step.shared_context_before || [], null, 2);
+            stepInner.append(sharedMeta, sharedPre);
+            if (step.kind === "participant_turn") {
+              const outputMeta = document.createElement("div");
+              outputMeta.className = "flow-meta";
+              outputMeta.textContent = "Visible output";
+              const outputPre = document.createElement("pre");
+              outputPre.textContent = step.visible_output || "";
+              stepInner.append(outputMeta, outputPre);
+              if (Array.isArray(step.response_messages) && step.response_messages.length) {
+                const responseMeta = document.createElement("div");
+                responseMeta.className = "flow-meta";
+                responseMeta.textContent = "Raw agent response messages";
+                const responsePre = document.createElement("pre");
+                responsePre.textContent = JSON.stringify(step.response_messages, null, 2);
+                stepInner.append(responseMeta, responsePre);
+              }
+              if (Array.isArray(step.tool_traces) && step.tool_traces.length) {
+                const toolMeta = document.createElement("div");
+                toolMeta.className = "flow-meta";
+                toolMeta.textContent = `Tool calls in this turn (${step.tool_traces.length})`;
+                stepInner.appendChild(toolMeta);
+                step.tool_traces.forEach((toolTrace) => {
+                  stepInner.appendChild(renderToolTraceCard(step.agent_name, toolTrace));
+                });
+              }
+            } else {
+              const decisionPre = document.createElement("pre");
+              decisionPre.textContent = JSON.stringify(step.decision || {}, null, 2);
+              stepInner.appendChild(decisionPre);
+              if (Array.isArray(step.response_messages) && step.response_messages.length) {
+                const responseMeta = document.createElement("div");
+                responseMeta.className = "flow-meta";
+                responseMeta.textContent = "Raw manager response messages";
+                const responsePre = document.createElement("pre");
+                responsePre.textContent = JSON.stringify(step.response_messages, null, 2);
+                stepInner.append(responseMeta, responsePre);
+              }
+            }
+            stepCard.appendChild(stepInner);
+            sequenceTimeline.appendChild(stepCard);
+          });
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No group chat sequence captured for this run.";
+          sequenceTimeline.appendChild(empty);
+        }
+        sequenceBody.appendChild(sequenceTimeline);
+        sequence.appendChild(sequenceBody);
+        body.appendChild(sequence);
+
+        const prompts = document.createElement("details");
+        prompts.className = "agent-card";
+        const promptRefs = trace.prompt_refs && typeof trace.prompt_refs === "object" ? trace.prompt_refs : {};
+        const promptKeys = Object.keys(promptRefs);
+        const promptsSummary = document.createElement("summary");
+        promptsSummary.textContent = `LLM prompt packets (${promptKeys.length})`;
+        prompts.appendChild(promptsSummary);
+        const promptsBody = document.createElement("div");
+        const promptGrid = document.createElement("div");
+        promptGrid.className = "history-card-grid";
+        promptKeys.forEach((key) => {
+          promptGrid.appendChild(renderPromptSnapshotCard(promptRefs[key], key));
+        });
+        if (!promptKeys.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No prompt packets captured for this run.";
+          promptGrid.appendChild(empty);
+        }
+        promptsBody.appendChild(promptGrid);
+        prompts.appendChild(promptsBody);
+        body.appendChild(prompts);
+
+        const toolCallsSection = document.createElement("details");
+        toolCallsSection.className = "agent-card";
+        const toolCalls = Array.isArray(trace.tool_calls) ? trace.tool_calls : [];
+        const toolCallsSummary = document.createElement("summary");
+        toolCallsSummary.textContent = `Tool Calls (${toolCalls.reduce((count, item) => count + (Array.isArray(item.tool_traces) ? item.tool_traces.length : 0), 0)})`;
+        toolCallsSection.appendChild(toolCallsSummary);
+        const toolCallsBody = document.createElement("div");
+        const toolGrid = document.createElement("div");
+        toolGrid.className = "history-tool-grid";
+        if (toolCalls.length) {
+          toolCalls.forEach((item) => {
+            const group = document.createElement("div");
+            group.className = "history-tool-group";
+            const header = document.createElement("div");
+            header.className = "flow-meta history-tool-group-title";
+            header.textContent = buildHistorySummaryLine([
+              item.agent_name || "Unknown",
+              item.agent_role || "unknown-role",
+              `turn=${item.turn_index ?? "unknown"}`,
+            ]);
+            group.appendChild(header);
+            (item.tool_traces || []).forEach((toolTrace) => {
+              group.appendChild(renderToolTraceCard(item.agent_name, toolTrace));
+            });
+            toolGrid.appendChild(group);
+          });
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = trace.capture_mode === "runtime_traced"
+            ? "No tool calls were captured for this run."
+            : "Tool-call traces are only available for runs captured after trace instrumentation was added.";
+          toolGrid.appendChild(empty);
+        }
+        toolCallsBody.appendChild(toolGrid);
+        toolCallsSection.appendChild(toolCallsBody);
+        body.appendChild(toolCallsSection);
+
+        details.appendChild(body);
+        return details;
+      }
+
+      function renderLegacySessionHistories(agentHistories) {
+        const host = document.createElement("details");
+        host.className = "section-toggle";
+        const summary = document.createElement("summary");
+        summary.textContent = `Per-agent session mirrors (${agentHistories.length} agents)`;
+        host.appendChild(summary);
+        const body = document.createElement("div");
+        const cards = agentHistories.map((history) => {
+          const card = document.createElement("details");
+          card.className = "agent-card";
+          const title = history.agent_name || history.agent_id;
+          const stats = history.message_stats || {};
+          const header = document.createElement("summary");
+          header.textContent = buildHistorySummaryLine([
+            `${title} (${history.agent_role || "unknown"})`,
+            history.session_id || "no-session",
+            `private=${stats.private_count || 0}`,
+            `mirrored=${stats.mirrored_count || 0}`,
+          ]);
+          card.appendChild(header);
+          const cardBody = document.createElement("div");
+          const preview = document.createElement("div");
+          preview.className = "agent-history-overview";
+          const latestRow = document.createElement("div");
+          const latestLabel = document.createElement("strong");
+          latestLabel.textContent = "Latest:";
+          latestRow.appendChild(latestLabel);
+          latestRow.appendChild(document.createTextNode(` ${history.latest_created_at || "unknown-time"}`));
+          const previewRow = document.createElement("div");
+          const previewLabel = document.createElement("strong");
+          previewLabel.textContent = "Preview:";
+          previewRow.appendChild(previewLabel);
+          previewRow.appendChild(document.createTextNode(` ${history.latest_message_preview || "No messages yet."}`));
+          preview.appendChild(latestRow);
+          preview.appendChild(previewRow);
+          cardBody.appendChild(preview);
+          const metadata = document.createElement("pre");
+          metadata.textContent = JSON.stringify(history.message_stats || {}, null, 2);
+          cardBody.appendChild(metadata);
+          card.appendChild(cardBody);
+          return card;
+        });
+        body.replaceChildren(...cards);
+        host.appendChild(body);
+        return host;
+      }
+
+      function renderMessageSection(conversation, agentHistories, groupChatInspector) {
         const { messageHost } = ensureHistoryHosts();
         const previousSection = messageHost.querySelector("details.section-toggle");
-        const previousOpenAgents = new Set(
-          Array.from(messageHost.querySelectorAll("details.agent-toggle[open]"))
-            .map((node) => node.dataset.agentId)
-            .filter(Boolean)
-        );
         const previousOpen = previousSection ? previousSection.open : false;
+        const runs = Array.isArray(groupChatInspector?.runs) ? groupChatInspector.runs : [];
 
-        if (!agentHistories.length) {
+        if (!agentHistories.length && !runs.length) {
           messageHost.replaceChildren();
           const empty = document.createElement("div");
           empty.className = "empty";
@@ -3465,84 +3997,116 @@
           return;
         }
 
-        const cards = agentHistories.map((history) => {
-          const card = document.createElement("details");
-          card.className = "agent-card agent-toggle";
-          card.dataset.agentId = history.agent_id || "";
-          if (history.agent_id && previousOpenAgents.has(history.agent_id)) {
-            card.open = true;
-          }
-          const summary = document.createElement("summary");
-          const title = history.agent_name || history.agent_id;
-          const messageCount = (history.messages || []).length;
-          summary.textContent = `${title} (${history.agent_role || "unknown"}) | ${history.session_id} | messages=${messageCount}`;
-          card.appendChild(summary);
-          const cardBody = document.createElement("div");
-          const messages = history.messages || [];
-          if (!messages.length) {
-            const empty = document.createElement("div");
-            empty.className = "empty";
-            empty.textContent = "No messages yet.";
-            cardBody.appendChild(empty);
-            card.appendChild(cardBody);
-            return card;
-          }
-          messages.forEach((message) => {
-            const msg = document.createElement("div");
-            const role = message.role === "user" ? "user" : "assistant";
-            msg.className = `agent-msg ${role}`;
-            const meta = document.createElement("div");
-            meta.className = "flow-meta";
-            const createdAt = message.created_at || "unknown-time";
-            const requestId = message.request_id || "no-request";
-            const route = message.route || "no-route";
-            meta.textContent = `${message.role} | ${createdAt} | ${requestId} | ${route}`;
-            const content = document.createElement("pre");
-            content.textContent = formatAsPrettyJSON(message.content || "");
-            msg.appendChild(meta);
-            msg.appendChild(content);
-            if (message.metadata && Object.keys(message.metadata).length > 0) {
-              const metadata = document.createElement("pre");
-              metadata.textContent = `metadata:\n${JSON.stringify(message.metadata, null, 2)}`;
-              msg.appendChild(metadata);
-            }
-            cardBody.appendChild(msg);
-          });
-          card.appendChild(cardBody);
-          return card;
-        });
+        const conversationSummary = document.createElement("div");
+        conversationSummary.className = "agent-history-summary";
+        conversationSummary.innerHTML = `
+          <strong>Shared Conversation</strong>
+          <span>session=${conversation?.session_id || "unknown"}</span>
+          <span>messages=${conversation?.message_count || 0}</span>
+          <span>assistant=${conversation?.assistant_count || 0}</span>
+          <span>user=${conversation?.user_count || 0}</span>
+        `;
 
         const messageSection = document.createElement("details");
         messageSection.className = "section-toggle";
         messageSection.open = previousSection ? previousOpen : false;
         const messageSummary = document.createElement("summary");
-        messageSummary.textContent = `Message Flow (Agent Histories) - ${agentHistories.length} agents`;
+        messageSummary.textContent = `Group Chat Inspector - ${runs.length} runs`;
         messageSection.appendChild(messageSummary);
         const messageBody = document.createElement("div");
-        messageBody.replaceChildren(...cards);
+        const runCards = runs.map((run, index) => renderGroupChatRun(run, index));
+        const children = [conversationSummary, ...runCards];
+        if (agentHistories.length) {
+          children.push(renderLegacySessionHistories(agentHistories));
+        }
+        messageBody.replaceChildren(...children);
         messageSection.appendChild(messageBody);
         messageHost.replaceChildren(messageSection);
       }
 
+      function renderMessageSectionIntoHost(host, conversation, agentHistories, groupChatInspector) {
+        if (!host) {
+          return;
+        }
+        const runs = Array.isArray(groupChatInspector?.runs) ? groupChatInspector.runs : [];
+        if (!agentHistories.length && !runs.length) {
+          host.replaceChildren();
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No agent histories for this work.";
+          host.appendChild(empty);
+          return;
+        }
+        const conversationSummary = document.createElement("div");
+        conversationSummary.className = "agent-history-summary history-hero";
+        conversationSummary.innerHTML = `<strong>Shared Conversation</strong>`;
+        conversationSummary.append(
+          createHistoryMetric("Session", conversation?.session_id || "unknown"),
+          createHistoryMetric("Messages", String(conversation?.message_count || 0), "good"),
+          createHistoryMetric("Assistant", String(conversation?.assistant_count || 0)),
+          createHistoryMetric("User", String(conversation?.user_count || 0))
+        );
+        const messageSection = document.createElement("details");
+        messageSection.className = "section-toggle history-block history-block-primary";
+        messageSection.open = true;
+        const messageSummary = document.createElement("summary");
+        messageSummary.textContent = `Group Chat Inspector - ${runs.length} runs`;
+        messageSection.appendChild(messageSummary);
+        const messageBody = document.createElement("div");
+        const runCards = runs.map((run, index) => renderGroupChatRun(run, index));
+        const children = [conversationSummary, ...runCards];
+        if (agentHistories.length) {
+          children.push(renderLegacySessionHistories(agentHistories));
+        }
+        messageBody.replaceChildren(...children);
+        messageSection.appendChild(messageBody);
+        host.replaceChildren(messageSection);
+      }
+
+      function renderTaskSectionIntoHost(host, taskFlow, tasks, agentHistories, requests) {
+        if (!host) {
+          return;
+        }
+        const slideshow = renderTaskSlideshow(taskFlow, tasks, agentHistories, requests, {
+          state: popupSlideshowState,
+          interactionMarker: markHistoryUiInteraction,
+          historyRoot: host.parentElement || host,
+        });
+        host.replaceChildren(slideshow);
+      }
+
       function renderTaskSection(taskFlow, tasks, agentHistories, requests) {
         const { taskHost } = ensureHistoryHosts();
-        const slideshow = renderTaskSlideshow(taskFlow, tasks, agentHistories, requests);
+        const slideshow = renderTaskSlideshow(taskFlow, tasks, agentHistories, requests, {
+          state: slideshowState,
+          interactionMarker: markTaskUiInteraction,
+          historyRoot: historyList,
+        });
         taskHost.replaceChildren(slideshow);
       }
 
-      function renderChatFromHistory(agentHistories, options = {}) {
+      function renderChatFromHistory(conversation, options = {}) {
         const { preserveScroll = false } = options;
-        const chanakyaHistory = agentHistories.find((item) => item.agent_id === "agent_chanakya");
         const previousScrollTop = chatLog.scrollTop;
         const previousScrollHeight = chatLog.scrollHeight;
         chatLog.replaceChildren();
-        const messages = chanakyaHistory ? chanakyaHistory.messages || [] : [];
+        const messages = conversation && Array.isArray(conversation.messages) ? conversation.messages : [];
         if (!messages.length) {
           chatLog.innerHTML = '<div class="empty">No messages in this work yet.</div>';
           return;
         }
         messages.forEach((message) => {
-          appendChatMessage(message.role === "user" ? "user" : "assistant", message.content || "", { shouldScroll: false });
+          const metadata = message && typeof message.metadata === "object" ? message.metadata : {};
+          appendChatMessage(
+            message.role === "user" ? "user" : "assistant",
+            message.content || "",
+            {
+              shouldScroll: false,
+              agentName: message.role === "assistant"
+                ? (metadata.visible_agent_name || metadata.group_chat_agent_name || "")
+                : "",
+            }
+          );
         });
         if (preserveScroll) {
           const heightDelta = chatLog.scrollHeight - previousScrollHeight;
@@ -3555,19 +4119,37 @@
         }
       }
 
-      function renderAgentHistories(agentHistories, taskFlow, tasks, requests) {
+      function renderAgentHistories(conversation, agentHistories, groupChatInspector, taskFlow, tasks, requests) {
+        cachedConversation = conversation || { session_id: null, messages: [] };
         cachedAgentHistories = agentHistories || [];
+        cachedGroupChatInspector = groupChatInspector || { workflow_type: "work_group_chat", run_count: 0, runs: [] };
         cachedTaskFlow = taskFlow || [];
         cachedTasks = tasks || [];
         cachedRequests = requests || [];
-        renderMessageSection(cachedAgentHistories);
+        renderMessageSection(cachedConversation, cachedAgentHistories, cachedGroupChatInspector);
         renderTaskSection(cachedTaskFlow, cachedTasks, cachedAgentHistories, cachedRequests);
         syncHistoryWindowContent();
       }
 
-      function syncHistoryWindowContent() {
+      if (historyList) {
+        historyList.addEventListener("pointerdown", () => {
+          markHistoryUiInteraction();
+        });
+        historyList.addEventListener("focusin", () => {
+          markHistoryUiInteraction();
+        });
+        historyList.addEventListener("toggle", () => {
+          markHistoryUiInteraction();
+        }, true);
+      }
+
+      function syncHistoryWindowContent(options = {}) {
+        const { force = false } = options;
         if (!historiesWindow || historiesWindow.closed) {
           historiesWindow = null;
+          return;
+        }
+        if (!force && isHistoryUiInteracting()) {
           return;
         }
         const doc = historiesWindow.document;
@@ -3580,15 +4162,36 @@
         const activeWork = works.find((work) => work.id === activeWorkId);
         titleNode.textContent = activeWork ? activeWork.title : "Agent Histories";
         subtitleNode.textContent = activeWork
-          ? `${activeWork.id} | work-scoped agent sessions and task flow`
+          ? `${activeWork.id} | group-chat trace, prompt packets, tools, and task flow`
           : "Select a work to inspect agent histories.";
-        contentNode.innerHTML = historyList ? historyList.innerHTML : '<div class="empty-state">No histories yet.</div>';
+        if (!activeWorkId) {
+          contentNode.innerHTML = '<div class="empty-state">No histories yet.</div>';
+          return;
+        }
+        const popupMessageHost = doc.createElement("div");
+        popupMessageHost.id = "historyWindowMessageHost";
+        const popupTaskHost = doc.createElement("div");
+        popupTaskHost.id = "historyWindowTaskHost";
+        contentNode.replaceChildren(popupMessageHost, popupTaskHost);
+        renderMessageSectionIntoHost(
+          popupMessageHost,
+          cachedConversation,
+          cachedAgentHistories,
+          cachedGroupChatInspector
+        );
+        renderTaskSectionIntoHost(
+          popupTaskHost,
+          cachedTaskFlow,
+          cachedTasks,
+          cachedAgentHistories,
+          cachedRequests
+        );
       }
 
       function openAgentHistoriesWindow() {
         if (historiesWindow && !historiesWindow.closed) {
           historiesWindow.focus();
-          syncHistoryWindowContent();
+          syncHistoryWindowContent({ force: true });
           return;
         }
         historiesWindow = window.open("", "chanakya-work-histories", "width=1200,height=820,scrollbars=yes");
@@ -3604,20 +4207,96 @@
 <meta charset="utf-8"/>
 <title>Chanakya Work Histories</title>
 <style>
-  :root { --bg: #0b0e17; --panel: rgba(17, 21, 34, 0.92); --line: rgba(255,255,255,0.1); --text: #e8eef8; --muted: #9aa8ba; }
+  :root {
+    --bg: #08111f;
+    --bg-accent: radial-gradient(circle at top, rgba(80, 166, 255, 0.18), transparent 36%), radial-gradient(circle at 80% 10%, rgba(158, 112, 255, 0.16), transparent 28%), #08111f;
+    --panel: rgba(10, 18, 34, 0.86);
+    --panel-strong: rgba(16, 26, 46, 0.96);
+    --line: rgba(146, 196, 255, 0.18);
+    --line-strong: rgba(146, 196, 255, 0.32);
+    --text: #edf5ff;
+    --muted: #91a7c5;
+    --accent: #7dd3fc;
+    --accent-strong: #8b5cf6;
+    --success: #8ef0ba;
+    --warning: #fbc97f;
+    --danger: #ff8f9f;
+    --shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: 'Inter','SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color: var(--text); background: var(--bg); }
-  .shell { max-width: 1280px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
-  .header { display: grid; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-  .header h1 { margin: 0; font-size: 24px; }
+  body { margin: 0; font-family: 'IBM Plex Sans','SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color: var(--text); background: var(--bg-accent); }
+  .shell { max-width: 1480px; margin: 0 auto; padding: 24px; display: grid; gap: 18px; }
+  .header { display: grid; gap: 10px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 22px; background: linear-gradient(180deg, rgba(17, 27, 49, 0.96), rgba(9, 15, 28, 0.96)); box-shadow: var(--shadow); }
+  .header h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; }
   .header p { margin: 0; color: var(--muted); font-size: 13px; }
-  .content { display: grid; gap: 16px; }
-  .content details, .content .empty, .content .empty-state { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
-  .content summary { cursor: pointer; padding: 12px 14px; font-weight: 700; }
-  .content details > div { padding: 0 12px 12px; }
-  .content pre { white-space: pre-wrap; word-break: break-word; }
-  .content button { pointer-events: none; opacity: 0.85; }
-  .empty-state { padding: 18px; color: var(--muted); font-style: italic; }
+  .content { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.95fr); align-items: start; }
+  .content > div { min-width: 0; }
+  .content details, .content .empty, .content .empty-state { border: 1px solid var(--line); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
+  .content summary { cursor: pointer; padding: 14px 16px; font-weight: 700; letter-spacing: -0.01em; }
+  .content details > div { padding: 0 14px 14px; }
+  .content pre { white-space: pre-wrap; word-break: break-word; background: rgba(5, 9, 19, 0.72); border: 1px solid rgba(132, 161, 210, 0.16); border-radius: 14px; padding: 12px 13px; color: #dbe8ff; overflow-x: auto; }
+  .content button { appearance: none; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(26, 39, 66, 0.98), rgba(12, 19, 33, 0.98)); color: var(--text); border-radius: 12px; padding: 10px 12px; font: inherit; cursor: pointer; transition: transform 120ms ease, border-color 120ms ease, background 120ms ease; }
+  .content button:hover { transform: translateY(-1px); border-color: var(--line-strong); background: linear-gradient(180deg, rgba(36, 52, 84, 0.98), rgba(14, 23, 40, 0.98)); }
+  .content select, .content input[type="range"] { width: 100%; }
+  .content select { appearance: none; border: 1px solid var(--line); background: rgba(9, 14, 26, 0.94); color: var(--text); border-radius: 12px; padding: 10px 12px; font: inherit; }
+  .content input[type="range"] { accent-color: var(--accent); }
+  .empty-state, .empty { padding: 18px; color: var(--muted); font-style: italic; }
+  .history-block > summary, .flow-wrap > summary { background: linear-gradient(180deg, rgba(28, 41, 69, 0.92), rgba(14, 20, 34, 0.92)); border-radius: 18px; }
+  .history-hero { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(135deg, rgba(16, 29, 58, 0.96), rgba(12, 19, 34, 0.96)); }
+  .history-hero strong { font-size: 14px; margin-right: 4px; }
+  .run-hero { background: linear-gradient(135deg, rgba(18, 31, 60, 0.98), rgba(11, 18, 34, 0.98)); }
+  .history-metric-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+  .history-metric { display: grid; gap: 4px; min-height: 68px; padding: 11px 12px; border-radius: 14px; border: 1px solid rgba(146, 196, 255, 0.16); background: rgba(10, 18, 34, 0.92); }
+  .history-metric-good { border-color: rgba(142, 240, 186, 0.26); }
+  .history-metric-warn { border-color: rgba(251, 201, 127, 0.28); }
+  .history-metric-label { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .history-metric-value { font-size: 13px; line-height: 1.35; }
+  .history-section-label { margin: 4px 0 8px; color: var(--muted); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
+  .agent-card { overflow: hidden; }
+  .agent-card + .agent-card { margin-top: 12px; }
+  .agent-msg { display: grid; gap: 8px; padding: 12px; border: 1px solid rgba(146, 196, 255, 0.12); border-radius: 16px; background: rgba(10, 16, 28, 0.88); }
+  .agent-msg + .agent-msg { margin-top: 10px; }
+  .agent-msg.user { border-color: rgba(251, 201, 127, 0.18); background: rgba(38, 26, 13, 0.38); }
+  .agent-msg.assistant { border-color: rgba(125, 211, 252, 0.15); }
+  .history-step { position: relative; grid-template-columns: 42px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .history-step-marker { display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 999px; border: 1px solid rgba(146, 196, 255, 0.22); background: rgba(8, 14, 26, 0.94); color: var(--accent); font-weight: 700; }
+  .history-step-inner { display: grid; gap: 8px; min-width: 0; }
+  .history-timeline { display: grid; gap: 12px; position: relative; }
+  .history-card-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .history-tool-grid { display: grid; gap: 12px; }
+  .history-tool-group { display: grid; gap: 10px; padding: 12px; border-radius: 14px; border: 1px solid rgba(146, 196, 255, 0.14); background: rgba(9, 14, 26, 0.68); }
+  .history-tool-group-title { padding-bottom: 2px; }
+  .section-intro { margin-bottom: 8px; }
+  .flow-meta { color: var(--muted); font-size: 12px; line-height: 1.45; text-transform: none; }
+  .slideshow-shell { display: grid; gap: 14px; }
+  .slideshow-controls { display: grid; grid-template-columns: repeat(3, minmax(0, auto)) minmax(120px, 140px) minmax(220px, 1fr); gap: 10px; align-items: center; }
+  .slide-progress { min-height: 40px; display: flex; align-items: center; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(11, 18, 33, 0.88); color: var(--muted); font-size: 12px; }
+  .slide-card { display: grid; gap: 14px; padding: 16px; border-radius: 18px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(10, 17, 30, 0.98), rgba(7, 12, 23, 0.98)); }
+  .slide-header { display: grid; gap: 4px; }
+  .slide-title { margin: 0; font-size: 18px; letter-spacing: -0.02em; }
+  .slide-subtitle { color: var(--muted); font-size: 12px; }
+  .agent-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .agent-chip { border-radius: 999px; padding: 8px 12px; }
+  .pixel-stage { display: grid; gap: 10px; padding: 14px; border-radius: 16px; border: 1px solid rgba(146, 196, 255, 0.12); background: rgba(12, 21, 40, 0.76); }
+  .pixel-stage-title { margin: 0; color: var(--muted); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
+  .pixel-agent-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .pixel-agent { display: grid; gap: 6px; justify-items: start; padding: 12px; border-radius: 16px; }
+  .pixel-agent.working { border-color: rgba(125, 211, 252, 0.32); }
+  .pixel-agent.done { border-color: rgba(142, 240, 186, 0.28); }
+  .pixel-agent.failed { border-color: rgba(255, 143, 159, 0.3); }
+  .pixel-agent-avatar { font-size: 24px; }
+  .pixel-agent-name { font-weight: 700; }
+  .pixel-agent-state { font-size: 11px; letter-spacing: 0.12em; color: var(--muted); }
+  .slide-event { display: grid; gap: 8px; padding: 12px; border-radius: 14px; border: 1px solid rgba(146, 196, 255, 0.1); background: rgba(9, 14, 26, 0.78); }
+  .slide-event-meta { color: var(--muted); font-size: 12px; }
+  @media (max-width: 1120px) {
+    .content { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 760px) {
+    .shell { padding: 14px; }
+    .slideshow-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .slide-progress { grid-column: 1 / -1; }
+  }
 </style>
 </head>
 <body>
@@ -3632,9 +4311,16 @@
 </html>`);
         doc.close();
         historiesWindow.addEventListener("beforeunload", () => {
+          stopSlideshow(popupSlideshowState);
           historiesWindow = null;
         });
-        syncHistoryWindowContent();
+        historiesWindow.addEventListener("pointerdown", () => {
+          markHistoryUiInteraction();
+        });
+        historiesWindow.addEventListener("focusin", () => {
+          markHistoryUiInteraction();
+        });
+        syncHistoryWindowContent({ force: true });
       }
 
       async function loadWorks() {
@@ -3672,19 +4358,24 @@
         }
         if (!background) {
           chatTitle.textContent = data.work.title;
-          renderChatFromHistory(data.agent_histories || []);
+          renderChatFromHistory(normalizeConversation(data.conversation, data.agent_histories || []));
         }
+        cachedConversation = normalizeConversation(data.conversation, data.agent_histories || []);
+        cachedActiveRuntime = data.active_runtime || null;
         cachedAgentHistories = data.agent_histories || [];
+        cachedGroupChatInspector = data.group_chat_inspector || { workflow_type: "work_group_chat", run_count: 0, runs: [] };
         cachedTaskFlow = data.task_flow || [];
         cachedTasks = data.tasks || [];
         cachedRequests = data.requests || [];
+        syncWorkRuntimeState(cachedActiveRuntime);
         if (background) {
           const latestAssistantCount = getCachedAssistantMessageCount();
-          const nextChatMessageCount = getHistoryChatMessageCount(cachedAgentHistories);
+          const nextChatMessageCount = Number(cachedConversation.message_count || (cachedConversation.messages || []).length || 0);
           const renderedChatMessageCount = getRenderedChatMessageCount();
           if (nextChatMessageCount !== renderedChatMessageCount || chatLog.querySelector(".empty")) {
-            renderChatFromHistory(cachedAgentHistories, { preserveScroll: true });
+            renderChatFromHistory(cachedConversation, { preserveScroll: true });
           }
+          const historyInteractionHold = isHistoryUiInteracting();
           const activeElement = document.activeElement;
           const taskHost = document.getElementById("taskFlowHost");
           const focusInsideTaskHost = Boolean(
@@ -3693,7 +4384,8 @@
             && taskHost.contains(activeElement)
           );
           const interactionHold = Date.now() < taskUiInteractingUntil;
-          if (!focusInsideTaskHost && !interactionHold) {
+          if (!focusInsideTaskHost && !interactionHold && !historyInteractionHold) {
+            renderMessageSection(cachedConversation, cachedAgentHistories, cachedGroupChatInspector);
             renderTaskSection(cachedTaskFlow, cachedTasks, cachedAgentHistories, cachedRequests);
           }
           if (pendingReplyWorkId === workId && latestAssistantCount > pendingReplyBaselineAssistantCount) {
@@ -3703,7 +4395,9 @@
           }
         } else {
           renderAgentHistories(
+            cachedConversation,
             cachedAgentHistories,
+            cachedGroupChatInspector,
             cachedTaskFlow,
             cachedTasks,
             cachedRequests

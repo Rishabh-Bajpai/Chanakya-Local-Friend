@@ -24,7 +24,7 @@ def debug_log(label: str, payload: dict[str, Any] | None = None) -> None:
 # ---------------------------------------------------------------------------
 
 _TRANSIENT_STATUS_CODES = {502, 503, 429}
-_RETRY_DELAY_SECONDS = 2.0
+_RETRY_DELAYS_SECONDS = (1.5, 3.0, 6.0)
 
 
 def is_transient_api_error(exc: Exception) -> bool:
@@ -37,19 +37,30 @@ def is_transient_api_error(exc: Exception) -> bool:
 
 
 async def with_transient_retry(coro_factory, *, label: str = "agent_call"):
-    """Execute *coro_factory()* with a single automatic retry on transient errors.
+    """Execute *coro_factory()* with bounded retries on transient errors.
 
     ``coro_factory`` must be a zero-arg callable that returns a new awaitable
     each time (we cannot re-await an already-consumed coroutine).
     """
-    try:
-        return await coro_factory()
-    except Exception as first_exc:
-        if not is_transient_api_error(first_exc):
-            raise
-        debug_log(
-            "transient_retry",
-            {"label": label, "error": str(first_exc), "delay": _RETRY_DELAY_SECONDS},
-        )
-        await asyncio.sleep(_RETRY_DELAY_SECONDS)
-        return await coro_factory()
+    max_attempts = len(_RETRY_DELAYS_SECONDS) + 1
+    for attempt in range(max_attempts):
+        if attempt > 0:
+            delay_seconds = _RETRY_DELAYS_SECONDS[attempt - 1]
+            await asyncio.sleep(delay_seconds)
+
+        try:
+            return await coro_factory()
+        except Exception as exc:
+            if not is_transient_api_error(exc):
+                raise
+            if attempt >= len(_RETRY_DELAYS_SECONDS):
+                raise
+            debug_log(
+                "transient_retry",
+                {
+                    "label": label,
+                    "error": str(exc),
+                    "delay": _RETRY_DELAYS_SECONDS[attempt],
+                    "attempt": attempt + 1,
+                },
+            )

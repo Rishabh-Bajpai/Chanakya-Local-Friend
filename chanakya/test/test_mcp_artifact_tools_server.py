@@ -87,6 +87,41 @@ def test_update_artifact_rewrites_content_and_tracks_latest_request(monkeypatch,
     assert artifact_file.read_text(encoding="utf-8") == "beta\n"
 
 
+def test_artifact_preserves_origin_request_when_updated_in_later_request(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
+    store = _build_store()
+    store.ensure_session("session_artifact_tool", title="Artifact Tool")
+
+    created = _create_artifact(
+        store,
+        session_id="session_artifact_tool",
+        request_id="req_origin",
+        work_id="work_artifacts",
+        name="draft.txt",
+        content="alpha\n",
+        kind="text",
+        title="Draft",
+    )
+    artifact_id = str(created["artifact"]["id"])
+
+    updated = _update_artifact(
+        store,
+        artifact_id=artifact_id,
+        content="beta\n",
+        request_id="req_later",
+        work_id="work_artifacts",
+        title="Draft Updated",
+    )
+
+    artifact = updated["artifact"]
+    assert artifact["request_id"] == "req_origin"
+    assert artifact["latest_request_id"] == "req_later"
+    by_origin = store.list_artifacts_for_request("req_origin")
+    by_later = store.list_artifacts_for_request("req_later")
+    assert [item["id"] for item in by_origin] == [artifact_id]
+    assert [item["id"] for item in by_later] == [artifact_id]
+
+
 def test_wrong_artifact_id_returns_constructive_feedback(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(sandbox_workspace, "get_data_dir", lambda: tmp_path)
     store = _build_store()

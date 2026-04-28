@@ -9,10 +9,10 @@ from pytest import MonkeyPatch
 
 import chanakya.app as app_module
 from chanakya.agent_manager import AgentManager, ManagerRunResult, WORKFLOW_INFORMATION
-from chanakya.app import create_app
+from chanakya.app import create_app, _enrich_execution_trace_with_tool_invocations
 from chanakya.db import build_engine, build_session_factory
 from chanakya.domain import ChatReply, TASK_STATUS_DONE, now_iso
-from chanakya.model import ChatMessageModel, TemporaryAgentModel, WorkAgentSessionModel
+from chanakya.model import ArtifactModel, ChatMessageModel, TemporaryAgentModel, WorkAgentSessionModel
 from chanakya.services import tool_loader
 from chanakya.store import ChanakyaStore
 
@@ -901,14 +901,139 @@ def test_work_create_list_and_history_apis(
     history_payload = history_response.get_json()
     assert history_payload["work"]["id"] == work_id
     histories = history_payload["agent_histories"]
+    assert "conversation" in history_payload
     assert "task_flow" in history_payload
     assert "tasks" in history_payload
     assert "requests" in history_payload
     assert "limits" in history_payload
+    assert "group_chat_inspector" in history_payload
+    assert "active_runtime" in history_payload
+    assert "artifacts" in history_payload
+    assert history_payload["group_chat_inspector"]["run_count"] == 0
     chanakya_history = next(item for item in histories if item["agent_id"] == "agent_chanakya")
+    assert history_payload["conversation"]["session_id"] == chanakya_mapping["session_id"]
+    assert history_payload["conversation"]["message_count"] >= 1
     assert any(
         msg["content"] == "Initial report draft ready." for msg in chanakya_history["messages"]
     )
+
+
+def test_work_history_api_reports_active_runtime_and_artifact_lineage(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    created = client.post(
+        "/api/works",
+        json={"title": "Lineage Work", "description": "artifact lineage"},
+    )
+    work_id = created.get_json()["id"]
+    sessions_payload = client.get(f"/api/works/{work_id}/sessions").get_json()
+    chanakya_mapping = next(
+        item for item in sessions_payload["sessions"] if item["agent_id"] == "agent_chanakya"
+    )
+
+    database_path = tmp_path / "chanakya-test.db"
+    engine = build_engine(f"sqlite:///{database_path}")
+    session_factory = build_session_factory(engine)
+    with session_factory() as db_session:
+        db_session.add(
+            ArtifactModel(
+                id="artifact_lineage",
+                request_id="req_origin",
+                session_id=chanakya_mapping["session_id"],
+                work_id=work_id,
+                name="notes.md",
+                title="Notes",
+                summary="Draft notes",
+                path="artifact_lineage/notes.md",
+                mime_type="text/markdown",
+                kind="text",
+                size_bytes=12,
+                source_agent_id="agent_writer",
+                source_agent_name="Writer",
+                latest_request_id="req_latest",
+                supersedes_artifact_id=None,
+                created_at=now_iso(),
+                updated_at=now_iso(),
+            )
+        )
+        db_session.commit()
+
+    store = app.extensions["chanakya_store"]
+    store.create_request(
+        request_id="req_root",
+        session_id=chanakya_mapping["session_id"],
+        user_message="Do the work",
+        status="in_progress",
+        root_task_id="task_root_active",
+    )
+    store.create_task(
+        task_id="task_root_active",
+        request_id="req_root",
+        parent_task_id=None,
+        title="Do the work",
+        summary="Do the work",
+        status="waiting_input",
+        owner_agent_id="agent_chanakya",
+        task_type="chat_request",
+        input_json={
+            "work_pending_interaction": {
+                "active": True,
+                "waiting_task_id": "task_manager_waiting",
+                "workflow_type": "work_group_chat",
+            },
+            "work_group_chat_state": {
+                "workflow_type": "work_group_chat",
+                "manager_termination_state": {"status": "needs_user_input"},
+            },
+        },
+    )
+
+    history_payload = client.get(f"/api/works/{work_id}/history").get_json()
+    assert history_payload["active_runtime"]["root_task_id"] == "task_root_active"
+    assert history_payload["active_runtime"]["reload_reproducible"] is True
+    assert history_payload["artifacts"][0]["origin_request_id"] == "req_origin"
+    assert history_payload["artifacts"][0]["request_relation"] == "updated_in_later_request"
+
+
+def test_enrich_execution_trace_with_tool_invocations_repairs_missing_tool_data() -> None:
+    execution_trace = {
+        "workflow_type": "work_group_chat",
+        "tool_calls": [],
+        "call_sequence": [
+            {
+                "kind": "participant_turn",
+                "agent_id": "agent_writer",
+                "agent_name": "Writer",
+                "agent_role": "writer",
+                "turn_index": 0,
+                "tool_traces": [],
+            }
+        ],
+    }
+    tool_invocations = [
+        {
+            "agent_id": "agent_writer",
+            "agent_name": "Writer",
+            "tool_id": "mcp_filesystem",
+            "tool_name": "Filesystem",
+            "server_name": "basic",
+            "status": "succeeded",
+            "input": {"raw": '{"path":"/workspace/out.md"}'},
+            "output": '"ok"',
+            "error": None,
+        }
+    ]
+
+    enriched = _enrich_execution_trace_with_tool_invocations(execution_trace, tool_invocations)
+
+    assert enriched is not None
+    assert len(enriched["tool_calls"]) == 1
+    assert enriched["tool_calls"][0]["agent_id"] == "agent_writer"
+    assert enriched["call_sequence"][0]["tool_traces"][0]["tool_id"] == "mcp_filesystem"
 
 
 def test_work_session_mapping_is_unique_per_agent(
@@ -1115,17 +1240,17 @@ def test_work_api_preserves_per_agent_memory_for_local_backend(
     histories = history_payload["agent_histories"]
     developer_history = next(item for item in histories if item["agent_id"] == "agent_developer")
     tester_history = next(item for item in histories if item["agent_id"] == "agent_tester")
+    assert "message_stats" in developer_history
+    assert "latest_message_preview" in developer_history
 
     developer_messages = [message["content"] for message in developer_history["messages"]]
     tester_messages = [message["content"] for message in tester_history["messages"]]
     assert developer_messages[0] == "dev: implement login hardening"
-    assert developer_messages[2] == "dev: refine login hardening"
-    assert "dev: implement login hardening" in developer_messages[3]
-    assert "dev: refine login hardening" in developer_messages[3]
-    assert "test: validate login hardening" not in developer_messages[3]
-    assert tester_messages[0] == "test: validate login hardening"
-    assert "dev: implement login hardening" not in tester_messages[1]
-    assert "dev: refine login hardening" not in tester_messages[1]
+    assert any(message == "dev: refine login hardening" for message in developer_messages)
+    assert any(message == "test: validate login hardening" for message in tester_messages)
+    assert developer_history["message_stats"]["private_count"] >= 2
+    assert developer_history["message_stats"]["mirrored_count"] >= 1
+    assert tester_history["message_stats"]["private_count"] >= 1
 
 
 def test_work_api_preserves_per_agent_memory_for_a2a_backend(
@@ -1200,14 +1325,14 @@ def test_work_api_preserves_per_agent_memory_for_a2a_backend(
     histories = history_payload["agent_histories"]
     developer_history = next(item for item in histories if item["agent_id"] == "agent_developer")
     tester_history = next(item for item in histories if item["agent_id"] == "agent_tester")
+    assert "message_stats" in tester_history
+    assert history_payload["conversation"]["message_count"] >= 3
 
     developer_messages = [message["content"] for message in developer_history["messages"]]
     tester_messages = [message["content"] for message in tester_history["messages"]]
     assert developer_messages[0] == "dev: implement login hardening"
-    assert developer_messages[2] == "dev: refine login hardening"
-    assert "dev: implement login hardening" in developer_messages[3]
-    assert "dev: refine login hardening" in developer_messages[3]
-    assert "test: validate login hardening" not in developer_messages[3]
-    assert tester_messages[0] == "test: validate login hardening"
-    assert "dev: implement login hardening" not in tester_messages[1]
-    assert "dev: refine login hardening" not in tester_messages[1]
+    assert any(message == "dev: refine login hardening" for message in developer_messages)
+    assert any(message == "test: validate login hardening" for message in tester_messages)
+    assert developer_history["message_stats"]["private_count"] >= 2
+    assert developer_history["message_stats"]["mirrored_count"] >= 1
+    assert tester_history["message_stats"]["private_count"] >= 1

@@ -53,6 +53,101 @@ from chanakya.store import ChanakyaStore
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 
+def _execution_trace_has_tool_data(execution_trace: dict[str, Any] | None) -> bool:
+    if not isinstance(execution_trace, dict):
+        return False
+    tool_calls = execution_trace.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls:
+        return True
+    for step in list(execution_trace.get("call_sequence") or []):
+        if not isinstance(step, dict):
+            continue
+        tool_traces = step.get("tool_traces")
+        if isinstance(tool_traces, list) and tool_traces:
+            return True
+    return False
+
+
+def _enrich_execution_trace_with_tool_invocations(
+    execution_trace: dict[str, Any] | None,
+    tool_invocations: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not isinstance(execution_trace, dict) or not tool_invocations:
+        return execution_trace
+    if _execution_trace_has_tool_data(execution_trace):
+        return execution_trace
+    enriched = json.loads(json.dumps(execution_trace))
+    grouped: dict[tuple[str | None, str], list[dict[str, Any]]] = {}
+    for item in tool_invocations:
+        if not isinstance(item, dict):
+            continue
+        agent_id = str(item.get("agent_id") or "").strip() or None
+        agent_name = str(item.get("agent_name") or "Agent").strip() or "Agent"
+        grouped.setdefault((agent_id, agent_name), []).append(
+            {
+                "tool_id": str(item.get("tool_id") or "").strip() or "unknown_tool",
+                "tool_name": str(item.get("tool_name") or "").strip() or "unknown_tool",
+                "server_name": str(item.get("server_name") or "unknown_server").strip() or "unknown_server",
+                "status": str(item.get("status") or "unknown").strip() or "unknown",
+                "input_payload": json.dumps(item.get("input"), ensure_ascii=True, default=str)
+                if item.get("input")
+                else None,
+                "output_text": None if item.get("output") is None else str(item.get("output")),
+                "error_text": None if item.get("error") is None else str(item.get("error")),
+            }
+        )
+    call_sequence = list(enriched.get("call_sequence") or [])
+    tool_calls: list[dict[str, Any]] = []
+    for step in call_sequence:
+        if not isinstance(step, dict):
+            continue
+        if str(step.get("kind") or "") != "participant_turn":
+            continue
+        existing = list(step.get("tool_traces") or [])
+        if existing:
+            tool_calls.append(
+                {
+                    "agent_id": step.get("agent_id"),
+                    "agent_name": step.get("agent_name"),
+                    "agent_role": step.get("agent_role"),
+                    "turn_index": step.get("turn_index"),
+                    "tool_traces": existing,
+                }
+            )
+            continue
+        key = (
+            str(step.get("agent_id") or "").strip() or None,
+            str(step.get("agent_name") or "Agent").strip() or "Agent",
+        )
+        traces = grouped.pop(key, [])
+        if traces:
+            step["tool_traces"] = traces
+            tool_calls.append(
+                {
+                    "agent_id": step.get("agent_id"),
+                    "agent_name": step.get("agent_name"),
+                    "agent_role": step.get("agent_role"),
+                    "turn_index": step.get("turn_index"),
+                    "tool_traces": traces,
+                }
+            )
+    for (agent_id, agent_name), traces in grouped.items():
+        if not traces:
+            continue
+        tool_calls.append(
+            {
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "agent_role": None,
+                "turn_index": None,
+                "tool_traces": traces,
+            }
+        )
+    enriched["call_sequence"] = call_sequence
+    enriched["tool_calls"] = tool_calls
+    return enriched
+
+
 def _default_runtime_config() -> dict[str, Any]:
     defaults = get_conversation_preference_defaults()
     return {
@@ -122,8 +217,18 @@ def _parse_runtime_config_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _serialize_artifact_payload(record: dict[str, Any]) -> dict[str, Any]:
+    request_id = str(record.get("request_id") or "").strip() or None
+    latest_request_id = str(record.get("latest_request_id") or "").strip() or None
+    if request_id and latest_request_id and request_id != latest_request_id:
+        request_relation = "updated_in_later_request"
+    elif latest_request_id:
+        request_relation = "created_in_request"
+    else:
+        request_relation = "unknown"
     return {
         **record,
+        "origin_request_id": request_id,
+        "request_relation": request_relation,
         "download_url": f"/api/artifacts/{record['id']}/download",
         "detail_url": f"/api/artifacts/{record['id']}",
     }
@@ -558,10 +663,21 @@ def create_app() -> Flask:
 
     @app.get("/api/requests/<request_id>/artifacts")
     def api_request_artifacts(request_id: str) -> Any:
-        artifacts = [
-            _serialize_artifact_payload(item)
-            for item in store.list_artifacts_for_request(request_id)
-        ]
+        raw_artifacts = store.list_artifacts_for_request(request_id)
+        artifacts = []
+        for item in raw_artifacts:
+            payload = _serialize_artifact_payload(item)
+            origin_request_id = str(item.get("request_id") or "").strip() or None
+            latest_request_id = str(item.get("latest_request_id") or "").strip() or None
+            if origin_request_id == request_id and latest_request_id == request_id:
+                payload["request_relation"] = "created_and_latest_in_request"
+            elif origin_request_id == request_id:
+                payload["request_relation"] = "created_in_request"
+            elif latest_request_id == request_id:
+                payload["request_relation"] = "updated_in_request"
+            else:
+                payload["request_relation"] = "related_via_lineage"
+            artifacts.append(payload)
         return jsonify({"request_id": request_id, "artifacts": artifacts})
 
     @app.get("/api/tasks")
@@ -955,6 +1071,8 @@ def create_app() -> Flask:
         mapped_session_ids: list[str] = []
         agent_name_by_id: dict[str, str] = {}
         agent_role_by_id: dict[str, str] = {}
+        chanakya_session_id = ""
+        conversation_messages: list[dict[str, Any]] = []
         for mapping in mappings:
             session_id = str(mapping.get("session_id") or "")
             messages = store.list_messages(session_id)
@@ -968,6 +1086,30 @@ def create_app() -> Flask:
                     agent_name_by_id[agent_id] = agent_name
                 if isinstance(agent_role, str) and agent_role.strip():
                     agent_role_by_id[agent_id] = agent_role
+            mirrored_count = 0
+            visible_count = 0
+            private_count = 0
+            assistant_count = 0
+            user_count = 0
+            latest_preview = ""
+            latest_created_at = None
+            for message in messages:
+                metadata = dict(message.get("metadata") or {})
+                if message.get("role") == "assistant":
+                    assistant_count += 1
+                elif message.get("role") == "user":
+                    user_count += 1
+                if metadata.get("mirrored_from_work_session"):
+                    mirrored_count += 1
+                elif metadata.get("visible_agent_name") or metadata.get("group_chat_visible"):
+                    visible_count += 1
+                else:
+                    private_count += 1
+                latest_preview = str(message.get("content") or "").replace("\n", " ").strip()[:180]
+                latest_created_at = message.get("created_at")
+            if agent_id == "agent_chanakya":
+                chanakya_session_id = session_id
+                conversation_messages = messages
             grouped.append(
                 {
                     "agent_id": mapping.get("agent_id"),
@@ -975,6 +1117,15 @@ def create_app() -> Flask:
                     "agent_role": mapping.get("agent_role"),
                     "session_id": session_id,
                     "message_count": len(messages),
+                    "message_stats": {
+                        "user_count": user_count,
+                        "assistant_count": assistant_count,
+                        "mirrored_count": mirrored_count,
+                        "visible_count": visible_count,
+                        "private_count": private_count,
+                    },
+                    "latest_message_preview": latest_preview,
+                    "latest_created_at": latest_created_at,
                     "messages": messages,
                 }
             )
@@ -1053,6 +1204,138 @@ def create_app() -> Flask:
                 str(item.get("id") or ""),
             ),
         )
+        tasks_by_request_id: dict[str, list[dict[str, Any]]] = {}
+        for task in task_records:
+            request_id = str(task.get("request_id") or "")
+            if not request_id:
+                continue
+            tasks_by_request_id.setdefault(request_id, []).append(task)
+
+        group_chat_runs: list[dict[str, Any]] = []
+        if not hasattr(manager, "_group_chat_participant_profiles") or not hasattr(
+            manager, "build_group_chat_execution_trace"
+        ):
+            participant_profiles = []
+        else:
+            try:
+                participant_profiles = manager._group_chat_participant_profiles()
+            except KeyError:
+                participant_profiles = []
+        for request_record in request_records:
+            request_id = str(request_record.get("id") or "")
+            request_message = str(request_record.get("user_message") or "")
+            request_created_at = str(request_record.get("created_at") or "")
+            request_tasks = tasks_by_request_id.get(request_id, [])
+            manager_task = next(
+                (
+                    item
+                    for item in request_tasks
+                    if str(item.get("task_type") or "") == "manager_group_chat_orchestration"
+                ),
+                None,
+            )
+            if manager_task is None:
+                continue
+            manager_result = manager_task.get("result")
+            if not isinstance(manager_result, dict):
+                manager_result = {}
+            execution_trace = manager_result.get("execution_trace")
+            request_tool_invocations = store.list_tool_invocations(request_id=request_id, limit=500)
+            if not isinstance(execution_trace, dict):
+                visible_messages = manager_result.get("visible_messages")
+                if not isinstance(visible_messages, list):
+                    visible_messages = []
+                completion_payload = manager_result.get("completion")
+                if not isinstance(completion_payload, dict):
+                    completion_payload = {
+                        "status": str(manager_task.get("status") or "unknown").lower(),
+                        "summary": str(manager_result.get("summary") or "").strip(),
+                    }
+                prior_messages = [
+                    item
+                    for item in conversation_messages
+                    if str(item.get("created_at") or "") < request_created_at
+                ]
+                seeded_conversation = manager.build_group_chat_seed_conversation_from_records(
+                    prior_messages
+                )
+                if participant_profiles:
+                    execution_trace = manager.build_group_chat_execution_trace(
+                        request_message=request_message,
+                        participant_profiles=participant_profiles,
+                        seeded_conversation=seeded_conversation,
+                        visible_messages=visible_messages,
+                        completion_payload=completion_payload,
+                        work_id=work_record.id,
+                    )
+                else:
+                    execution_trace = {
+                        "workflow_type": "work_group_chat",
+                        "request_message": request_message,
+                        "seeded_context": [
+                            {
+                                "role": str(item.role or "assistant"),
+                                "author_name": str(item.author_name or "").strip() or None,
+                                "text": str(item.text or ""),
+                            }
+                            for item in seeded_conversation
+                        ],
+                        "orchestrator": None,
+                        "participants": [],
+                        "call_sequence": [],
+                        "completion": completion_payload,
+                        "prompt_refs": {},
+                    }
+            execution_trace = _enrich_execution_trace_with_tool_invocations(
+                execution_trace,
+                request_tool_invocations,
+            )
+            group_chat_runs.append(
+                {
+                    "request_id": request_id,
+                    "created_at": request_record.get("created_at"),
+                    "status": manager_task.get("status"),
+                    "route": request_record.get("route"),
+                    "user_message": request_message,
+                    "root_task_id": request_record.get("root_task_id"),
+                    "manager_task_id": manager_task.get("id"),
+                    "child_task_ids": manager_result.get("child_task_ids") if isinstance(manager_result, dict) else [],
+                    "execution_trace": execution_trace,
+                }
+            )
+        latest_root_task = next((item for item in reversed(task_records) if item.get("is_root")), None)
+        active_runtime: dict[str, Any] | None = None
+        if latest_root_task is not None:
+            latest_input = dict(latest_root_task.get("input") or {})
+            pending_interaction = latest_input.get("work_pending_interaction")
+            if not isinstance(pending_interaction, dict):
+                pending_interaction = None
+            group_chat_state = latest_input.get("work_group_chat_state")
+            if not isinstance(group_chat_state, dict):
+                group_chat_state = None
+            active_runtime = {
+                "root_task_id": latest_root_task.get("id"),
+                "request_id": latest_root_task.get("request_id"),
+                "task_status": latest_root_task.get("status"),
+                "workflow_type": (
+                    None
+                    if group_chat_state is None
+                    else group_chat_state.get("workflow_type")
+                ),
+                "pending_interaction": pending_interaction,
+                "group_chat_state": group_chat_state,
+                "reload_reproducible": bool(group_chat_state or pending_interaction),
+            }
+        work_artifacts = [
+            _serialize_artifact_payload(item)
+            for item in store.list_artifacts_for_work(work_record.id)
+        ]
+        conversation_assistant_count = sum(
+            1 for item in conversation_messages if str(item.get("role") or "") == "assistant"
+        )
+        conversation_user_count = sum(
+            1 for item in conversation_messages if str(item.get("role") or "") == "user"
+        )
         return jsonify(
             {
                 "work": {
@@ -1063,7 +1346,21 @@ def create_app() -> Flask:
                     "created_at": work_record.created_at,
                     "updated_at": work_record.updated_at,
                 },
+                "conversation": {
+                    "session_id": chanakya_session_id or None,
+                    "message_count": len(conversation_messages),
+                    "assistant_count": conversation_assistant_count,
+                    "user_count": conversation_user_count,
+                    "messages": conversation_messages,
+                },
                 "agent_histories": grouped,
+                "group_chat_inspector": {
+                    "workflow_type": "work_group_chat",
+                    "run_count": len(group_chat_runs),
+                    "runs": group_chat_runs,
+                },
+                "active_runtime": active_runtime,
+                "artifacts": work_artifacts,
                 "task_flow": task_flow,
                 "tasks": task_records,
                 "requests": request_records,
