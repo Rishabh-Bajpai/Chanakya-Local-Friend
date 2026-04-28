@@ -1551,9 +1551,12 @@
       let pendingReplyBaselineAssistantCount = 0;
       let workWaitingMessageIndex = -1;
       let workWaitingMessageTimer = null;
+      let workWaitingQueueActive = false;
+      let workRuntimePhase = "idle";
       let taskUiInteractingUntil = 0;
       let historyUiInteractingUntil = 0;
       let cachedAgentHistories = [];
+      let cachedActiveRuntime = null;
       let cachedConversation = { session_id: null, messages: [] };
       let cachedGroupChatInspector = { workflow_type: "work_group_chat", run_count: 0, runs: [] };
       let cachedTaskFlow = [];
@@ -2343,7 +2346,8 @@
           node.textContent = text || "";
           node.dataset.state = isError ? "error" : "idle";
         });
-        setWorkWaitingIndicatorActive(shouldShowWaiting);
+        workWaitingQueueActive = shouldShowWaiting;
+        applyWorkWaitingIndicatorState();
       }
 
       function rotateWorkWaitingMessage() {
@@ -2364,13 +2368,49 @@
       }
 
       function setWorkWaitingIndicatorActive(isActive) {
+        workWaitingQueueActive = Boolean(isActive);
+        applyWorkWaitingIndicatorState();
+      }
+
+      function applyWorkWaitingIndicatorState() {
         if (!workWaitingIndicator) {
           return;
         }
-        const nextValue = Boolean(isActive);
-        workWaitingIndicator.dataset.state = nextValue ? "waiting" : "idle";
-        workWaitingIndicator.hidden = !nextValue;
-        if (!nextValue) {
+        const shouldRotate = workRuntimePhase === "working" || workWaitingQueueActive;
+        if (workRuntimePhase === "failed") {
+          if (workWaitingMessageTimer) {
+            window.clearInterval(workWaitingMessageTimer);
+            workWaitingMessageTimer = null;
+          }
+          workWaitingIndicator.dataset.state = "failed";
+          workWaitingIndicator.hidden = false;
+          workWaitingIndicator.textContent = "Work hit a snag.";
+          workWaitingMessageIndex = -1;
+          return;
+        }
+        if (workRuntimePhase === "waiting_input") {
+          if (workWaitingMessageTimer) {
+            window.clearInterval(workWaitingMessageTimer);
+            workWaitingMessageTimer = null;
+          }
+          workWaitingIndicator.dataset.state = "waiting_input";
+          workWaitingIndicator.hidden = false;
+          workWaitingIndicator.textContent = "Waiting for your input.";
+          workWaitingMessageIndex = -1;
+          return;
+        }
+        if (workRuntimePhase === "started") {
+          if (workWaitingMessageTimer) {
+            window.clearInterval(workWaitingMessageTimer);
+            workWaitingMessageTimer = null;
+          }
+          workWaitingIndicator.dataset.state = "started";
+          workWaitingIndicator.hidden = false;
+          workWaitingIndicator.textContent = "Work has started.";
+          workWaitingMessageIndex = -1;
+          return;
+        }
+        if (!shouldRotate) {
           if (workWaitingMessageTimer) {
             window.clearInterval(workWaitingMessageTimer);
             workWaitingMessageTimer = null;
@@ -2379,6 +2419,8 @@
           workWaitingMessageIndex = -1;
           return;
         }
+        workWaitingIndicator.dataset.state = "waiting";
+        workWaitingIndicator.hidden = false;
         rotateWorkWaitingMessage();
         if (!workWaitingMessageTimer) {
           workWaitingMessageTimer = window.setInterval(() => {
@@ -2388,17 +2430,30 @@
       }
 
       function showWorkStartedIndicator() {
-        if (!workWaitingIndicator) {
-          return;
+        workRuntimePhase = "started";
+        applyWorkWaitingIndicatorState();
+      }
+
+      function syncWorkRuntimeState(activeRuntime) {
+        cachedActiveRuntime = activeRuntime && typeof activeRuntime === "object" ? activeRuntime : null;
+        const taskStatus = String(cachedActiveRuntime?.task_status || "").trim().toLowerCase();
+        const pendingInteraction = cachedActiveRuntime?.pending_interaction;
+        const groupChatState = cachedActiveRuntime?.group_chat_state || {};
+        const terminationState = groupChatState?.manager_termination_state || {};
+        const terminationStatus = String(terminationState?.status || "").trim().toLowerCase();
+        const waitingForInput = Boolean(pendingInteraction && pendingInteraction.active) || taskStatus === "waiting_input" || terminationStatus === "needs_user_input";
+        if (waitingForInput) {
+          workRuntimePhase = "waiting_input";
+        } else if (taskStatus === "failed" || terminationStatus === "failed") {
+          workRuntimePhase = "failed";
+        } else if (taskStatus === "done" || terminationStatus === "completed") {
+          workRuntimePhase = "completed";
+        } else if (taskStatus === "in_progress") {
+          workRuntimePhase = "working";
+        } else if (!activeWorkId) {
+          workRuntimePhase = "idle";
         }
-        if (workWaitingMessageTimer) {
-          window.clearInterval(workWaitingMessageTimer);
-          workWaitingMessageTimer = null;
-        }
-        workWaitingIndicator.dataset.state = "started";
-        workWaitingIndicator.hidden = false;
-        workWaitingIndicator.textContent = "Work has started.";
-        workWaitingMessageIndex = -1;
+        applyWorkWaitingIndicatorState();
       }
 
       function syncSpeechStatus(text, isError = false) {
@@ -3076,12 +3131,16 @@
         chatTitle.textContent = "Select a work";
         chatLog.innerHTML = '<div class="empty">No work selected.</div>';
         historyList.innerHTML = '<div class="empty">No histories yet.</div>';
+        cachedActiveRuntime = null;
         cachedConversation = { session_id: null, messages: [] };
         cachedAgentHistories = [];
         cachedGroupChatInspector = { workflow_type: "work_group_chat", run_count: 0, runs: [] };
         cachedTaskFlow = [];
         cachedTasks = [];
         cachedRequests = [];
+        workRuntimePhase = "idle";
+        workWaitingQueueActive = false;
+        applyWorkWaitingIndicatorState();
         sendButton.disabled = true;
         messageInput.disabled = true;
         if (airMicButton) {
@@ -4294,11 +4353,13 @@
           renderChatFromHistory(normalizeConversation(data.conversation, data.agent_histories || []));
         }
         cachedConversation = normalizeConversation(data.conversation, data.agent_histories || []);
+        cachedActiveRuntime = data.active_runtime || null;
         cachedAgentHistories = data.agent_histories || [];
         cachedGroupChatInspector = data.group_chat_inspector || { workflow_type: "work_group_chat", run_count: 0, runs: [] };
         cachedTaskFlow = data.task_flow || [];
         cachedTasks = data.tasks || [];
         cachedRequests = data.requests || [];
+        syncWorkRuntimeState(cachedActiveRuntime);
         if (background) {
           const latestAssistantCount = getCachedAssistantMessageCount();
           const nextChatMessageCount = Number(cachedConversation.message_count || (cachedConversation.messages || []).length || 0);

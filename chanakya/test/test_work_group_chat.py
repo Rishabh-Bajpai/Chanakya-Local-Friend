@@ -418,6 +418,140 @@ def test_work_chat_autoresume_prefers_explicit_active_pending_interaction() -> N
     assert resumed.messages[-1]["text"] == "Implemented with Flask."
 
 
+def test_group_chat_software_completion_requires_developer_and_tester_when_validation_requested() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_validation_guard")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(
+                role="assistant",
+                text="I've updated `hello_world.py` with the requested implementation and verified it conceptually.",
+                author_name="Researcher",
+            ),
+            Message(
+                role="assistant",
+                text='{"status":"completed","summary":"Finished the software change."}',
+                author_name="Agent Manager",
+            ),
+        ]
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(work_session_id, "Implement and test the hello world update", work_id="work_validation_guard")
+
+    assert reply.root_task_status == TASK_STATUS_FAILED
+    root_task = next(task for task in store.list_tasks(session_id=work_session_id, root_only=True) if task["is_root"])
+    group_chat_state = dict(root_task["input"]).get("work_group_chat_state") or {}
+    assert group_chat_state["manager_termination_state"]["termination_case"] == "completion_requirements_not_met"
+    manager_task = next(
+        task
+        for task in store.list_tasks(session_id=work_session_id, limit=20)
+        if task.get("task_type") == "manager_group_chat_orchestration"
+    )
+    completion = manager_task.get("result", {}).get("completion", {})
+    assert completion["termination_case"] == "completion_requirements_not_met"
+    assert completion["completion_requirements"]["require_tester_validation"] is True
+    assert completion["completion_requirements"]["developer_implementation_seen"] is False
+
+
+def test_group_chat_software_completion_allows_developer_only_when_validation_not_requested() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_developer_only")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(role="assistant", text="Implemented `/workspace/hello_world.py` with the requested output.", author_name="Developer"),
+            Message(
+                role="assistant",
+                text='{"status":"completed","summary":"Implemented the requested output."}',
+                author_name="Agent Manager",
+            ),
+        ]
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(work_session_id, "Implement the hello world update", work_id="work_developer_only")
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert reply.messages[-1]["text"] == "Implemented `/workspace/hello_world.py` with the requested output."
+
+
+def test_group_chat_recovers_false_negative_failure_when_developer_evidence_exists() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_false_negative")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(
+                role="assistant",
+                text="Script saved to `/workspace/primes_between_74_and_534.py` in the shared workspace.",
+                author_name="Developer",
+            ),
+            Message(
+                role="assistant",
+                text='{"status":"failed","reason":"The conversation has been terminated by the agent."}',
+                author_name="Agent Manager",
+            ),
+        ]
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(
+        work_session_id,
+        "write a Python script for finding the prime number between 74 and 534. then save the code",
+        work_id="work_false_negative",
+    )
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert "primes_between_74_and_534.py" in reply.messages[-1]["text"]
+
+
+def test_group_chat_failed_run_uses_failure_reason_when_no_visible_output() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_reason_surface")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(
+                role="assistant",
+                text='{"status":"failed","reason":"No configured participant/tool path could capture a screenshot for this request."}',
+                author_name="Agent Manager",
+            ),
+        ]
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(
+        work_session_id,
+        "take a screenshot of this website https://example.com",
+        work_id="work_reason_surface",
+    )
+
+    assert reply.root_task_status == TASK_STATUS_FAILED
+    assert reply.message == "No configured participant/tool path could capture a screenshot for this request."
+
+
 def test_group_chat_max_rounds_is_normalized_into_bounded_failure() -> None:
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)
@@ -496,6 +630,31 @@ def test_work_group_chat_retries_transient_502() -> None:
     assert reply.root_task_status == TASK_STATUS_DONE
     assert call_count["count"] == 2
     assert reply.messages[-1]["text"] == "Recovered after retry."
+
+
+def test_group_chat_failure_preserves_runtime_failure_classification() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_retry_fail")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    def _fake_builder(**kwargs):
+        class _AlwaysFailsWorkflow:
+            async def run(self, message=None, include_status_events: bool = False, **more_kwargs):
+                raise RuntimeError("Error code: 502 - {'detail': ''}")
+
+        return _AlwaysFailsWorkflow()
+
+    manager._build_work_group_chat_workflow = _fake_builder  # type: ignore[method-assign]
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(work_session_id, "Retry until it works", work_id="work_retry_fail")
+
+    assert reply.root_task_status == TASK_STATUS_FAILED
+    root_task = next(task for task in store.list_tasks(session_id=work_session_id, root_only=True) if task["is_root"])
+    group_chat_state = dict(root_task["input"]).get("work_group_chat_state") or {}
+    assert group_chat_state["manager_termination_state"]["termination_case"] == "transient_provider_failure"
 
 
 def test_group_chat_seeded_history_is_bounded() -> None:
