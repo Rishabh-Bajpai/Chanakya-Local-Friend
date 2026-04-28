@@ -4314,9 +4314,9 @@ class AgentManager:
     ) -> str:
         return (
             f"Use work_id='{sandbox_work_id}' for sandbox and filesystem tool calls.\n"
-            f"Sandbox workspace (host path reference): {sandbox_workspace}\n"
-            "Inside sandbox tools, /workspace is already the root for this same work session.\n"
-            "All agents working on this request must share this sandbox by using the same work_id.\n"
+            f"This work uses a shared persistent Docker container with the host work folder mounted from {sandbox_workspace}.\n"
+            "Inside that container, the current working directory (cwd) is /workspace and it is the project root for this work session.\n"
+            "All agents working on this request share the same container and the same /workspace state by using the same work_id.\n"
             "Do not create or write under /workspace/<work_id>/... and do not prepend the work_id to sandbox paths.\n"
             "Write files directly under /workspace/... (for example /workspace/output.txt).\n\n"
         )
@@ -4336,7 +4336,7 @@ class AgentManager:
             "If execution is needed, run code only via the sandbox code-execution tool and never on the host system."
         )
         sections.append(
-            "Sandbox filesystem policy: /workspace is writable. Host files are readable only through read-only mounts and must not be modified in place. If you hit a permission error, copy files into /workspace and retry there."
+            "Sandbox filesystem policy: all development work happens inside the shared Docker container. /workspace is the writable project directory and host access is not available outside that mounted work folder."
         )
         if require_exact_paths:
             sections.append(

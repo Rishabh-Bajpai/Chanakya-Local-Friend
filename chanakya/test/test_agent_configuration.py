@@ -8,11 +8,16 @@ from flask import Flask
 from pytest import MonkeyPatch
 
 import chanakya.app as app_module
-from chanakya.agent_manager import AgentManager, ManagerRunResult, WORKFLOW_INFORMATION
-from chanakya.app import create_app, _enrich_execution_trace_with_tool_invocations
+from chanakya.agent_manager import WORKFLOW_INFORMATION, AgentManager, ManagerRunResult
+from chanakya.app import _enrich_execution_trace_with_tool_invocations, create_app
 from chanakya.db import build_engine, build_session_factory
-from chanakya.domain import ChatReply, TASK_STATUS_DONE, now_iso
-from chanakya.model import ArtifactModel, ChatMessageModel, TemporaryAgentModel, WorkAgentSessionModel
+from chanakya.domain import TASK_STATUS_DONE, ChatReply, now_iso
+from chanakya.model import (
+    ArtifactModel,
+    ChatMessageModel,
+    TemporaryAgentModel,
+    WorkAgentSessionModel,
+)
 from chanakya.services import tool_loader
 from chanakya.store import ChanakyaStore
 
@@ -1126,6 +1131,7 @@ def test_work_delete_clears_runtime_session_state(
 
     assert deleted.status_code == 200
     assert len(cleared) == 2
+    assert deleted.get_json()["container"]["ok"] is True
 
 
 def test_work_delete_api_returns_warning_when_workspace_cleanup_fails(
@@ -1151,12 +1157,30 @@ def test_work_delete_api_returns_warning_when_workspace_cleanup_fails(
             "error": "permission denied",
         },
     )
+    monkeypatch.setattr(
+        app_module,
+        "stop_container",
+        lambda current_work_id: {
+            "ok": True,
+            "found": True,
+            "removed": True,
+            "container_name": f"chanakya-sandbox-{current_work_id}",
+            "runtime": "docker",
+        },
+    )
 
     deleted = client.delete(f"/api/works/{work_id}")
 
     assert deleted.status_code == 200
     payload = deleted.get_json()
     assert payload["deleted"] is True
+    assert payload["container"] == {
+        "ok": True,
+        "found": True,
+        "removed": True,
+        "container_name": f"chanakya-sandbox-{work_id}",
+        "runtime": "docker",
+    }
     assert payload["warning"] == {
         "code": "workspace_cleanup_failed",
         "message": "Work deleted, but sandbox workspace cleanup failed.",
@@ -1167,6 +1191,75 @@ def test_work_delete_api_returns_warning_when_workspace_cleanup_fails(
             "error": "permission denied",
         },
     }
+
+
+def test_work_delete_api_returns_warning_when_container_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    created = client.post(
+        "/api/works",
+        json={"title": "Disposable Work", "description": "delete me"},
+    )
+    work_id = created.get_json()["id"]
+
+    monkeypatch.setattr(
+        app_module,
+        "stop_container",
+        lambda current_work_id: {
+            "ok": False,
+            "found": True,
+            "removed": False,
+            "container_name": f"chanakya-sandbox-{current_work_id}",
+            "runtime": "docker",
+            "error": "busy",
+        },
+    )
+
+    deleted = client.delete(f"/api/works/{work_id}")
+
+    assert deleted.status_code == 200
+    payload = deleted.get_json()
+    assert payload["deleted"] is True
+    assert payload["warning"] == {
+        "code": "container_cleanup_failed",
+        "message": "Work deleted, but sandbox container cleanup failed.",
+        "container": {
+            "ok": False,
+            "found": True,
+            "removed": False,
+            "container_name": f"chanakya-sandbox-{work_id}",
+            "runtime": "docker",
+            "error": "busy",
+        },
+    }
+
+
+def test_create_app_prunes_sandbox_containers_on_startup(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        app_module,
+        "prune_stale_work_containers",
+        lambda valid_work_ids, remove_running=False: captured.update(
+            {
+                "valid_work_ids": set(valid_work_ids),
+                "remove_running": remove_running,
+            }
+        )
+        or {"ok": True, "removed": [], "failed": []},
+    )
+
+    _build_test_app(tmp_path, monkeypatch)
+
+    assert captured["valid_work_ids"] == set()
+    assert captured["remove_running"] is True
 
 
 def test_work_api_preserves_per_agent_memory_for_local_backend(
