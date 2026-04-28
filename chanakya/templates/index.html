@@ -1098,8 +1098,7 @@
       flex-wrap: wrap;
     }
 
-    .agent-flags label,
-    .tool-checkboxes label {
+    .agent-flags label {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -1107,9 +1106,56 @@
     }
 
     .tool-checkboxes {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 10px;
-      flex-wrap: wrap;
+    }
+
+    .tool-option {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 12px;
+      border: 1px solid #2f2f2f;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .tool-option-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+    }
+
+    .tool-option input {
+      margin: 0;
+    }
+
+    .tool-option-title {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .tool-option-meta,
+    .tool-option-functions {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+      white-space: normal;
+      word-break: break-word;
+    }
+
+    .tool-option-status-unavailable .tool-option-title {
+      color: #ffb3b3;
+    }
+
+    .tools-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
     }
 
     .form-actions {
@@ -3113,7 +3159,10 @@
                 <input id="agentHeartbeatInterval" type="number" min="1" value="300" />
               </label>
               <div>
-                <div class="status-text">Allowed Tools</div>
+                <div class="tools-header">
+                  <div class="status-text">Allowed Tools</div>
+                  <button id="reloadToolsButton" type="button" class="button-secondary">Reload MCPs</button>
+                </div>
                 <div id="agentToolOptions" class="tool-checkboxes"></div>
               </div>
             </div>
@@ -3355,6 +3404,7 @@
     const agentIsActive = document.getElementById("agentIsActive");
     const agentHeartbeatEnabled = document.getElementById("agentHeartbeatEnabled");
     const agentToolOptions = document.getElementById("agentToolOptions");
+    const reloadToolsButton = document.getElementById("reloadToolsButton");
     const agentSaveButton = document.getElementById("agentSaveButton");
     const agentResetButton = document.getElementById("agentResetButton");
     const agentFormStatus = document.getElementById("agentFormStatus");
@@ -5538,17 +5588,43 @@
         agentToolOptions.innerHTML = '<span class="status-text">No MCP tools available.</span>';
         return;
       }
+      const selectedTools = new Set(getSelectedToolIds());
       const nodes = availableTools.map((tool) => {
+        const card = document.createElement("div");
+        card.className = `tool-option ${tool.status === "available" ? "" : "tool-option-status-unavailable"}`.trim();
         const label = document.createElement("label");
+        label.className = "tool-option-header";
         const input = document.createElement("input");
         input.type = "checkbox";
         input.value = tool.tool_id;
+        input.checked = selectedTools.has(tool.tool_id);
         const text = document.createElement("span");
-        const status = tool.status === "available" ? "" : ` (${tool.status})`;
-        text.textContent = `${tool.tool_id}${status}`;
+        text.className = "tool-option-title";
+        text.textContent = tool.tool_id;
         label.appendChild(input);
         label.appendChild(text);
-        return label;
+        card.appendChild(label);
+
+        const meta = document.createElement("div");
+        meta.className = "tool-option-meta";
+        const metaParts = [
+          tool.status || "unknown",
+          tool.transport || "stdio",
+          tool.server_name || "unknown server",
+        ];
+        if (tool.error) metaParts.push(`error: ${tool.error}`);
+        if (tool.description) metaParts.push(tool.description);
+        meta.textContent = metaParts.join(" | ");
+        card.appendChild(meta);
+
+        if (Array.isArray(tool.functions) && tool.functions.length) {
+          const functions = document.createElement("div");
+          functions.className = "tool-option-functions";
+          functions.textContent = `Functions: ${tool.functions.map((item) => item.name).filter(Boolean).join(", ")}`;
+          card.appendChild(functions);
+        }
+
+        return card;
       });
       replaceChildren(agentToolOptions, nodes);
     }
@@ -5902,6 +5978,22 @@
         availableTools = [];
       }
       renderToolOptions();
+    }
+
+    async function reloadTools() {
+      setAgentFormStatus("Reloading MCP tools...");
+      try {
+        const response = await fetch("/api/tools/reload", { method: "POST" });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "MCP reload failed");
+        }
+        availableTools = data.tools || [];
+        renderToolOptions();
+        setAgentFormStatus(`Reloaded ${data.available_count || 0}/${data.tool_count || availableTools.length} MCPs.`);
+      } catch (error) {
+        setAgentFormStatus(error instanceof Error ? error.message : String(error), true);
+      }
     }
 
     function formatEventTitle(eventType) {
@@ -6500,6 +6592,10 @@
 
     agentResetButton.addEventListener("click", () => {
       resetAgentForm();
+    });
+
+    reloadToolsButton.addEventListener("click", async () => {
+      await reloadTools();
     });
 
     notificationForm.addEventListener("submit", async (event) => {

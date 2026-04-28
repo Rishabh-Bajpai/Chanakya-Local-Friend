@@ -103,6 +103,21 @@ def _build_test_app(
     )
     monkeypatch.setattr(
         app_module,
+        "reload_all_tools",
+        lambda: [
+            {
+                "tool_id": "mcp_fetch",
+                "status": "available",
+                "tool_name": "mcp_fetch",
+                "server_name": "fetch",
+                "transport": "stdio",
+                "functions": [{"name": "mcp_fetch_fetch", "description": "Fetch a URL."}],
+                "description": "Fetch a URL.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        app_module,
         "MAFRuntime",
         runtime_factory or (lambda profile, session_factory: _RuntimeAppStub()),
     )
@@ -803,6 +818,70 @@ def test_tools_availability_api_returns_payload(
 
     assert response.status_code == 200
     assert "tools" in response.get_json()
+
+
+def test_tools_reload_api_returns_catalog_payload(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+    monkeypatch.setattr(
+        app_module,
+        "reload_all_tools",
+        lambda: [
+            {
+                "tool_id": "youtube-transcript",
+                "tool_name": "youtube-transcript",
+                "server_name": "npx -y @kimtaeyoon83/mcp-server-youtube-transcript",
+                "status": "available",
+                "transport": "stdio",
+                "functions": [
+                    {
+                        "name": "youtube-transcript_get_transcript",
+                        "description": "Get a transcript for a YouTube video.",
+                    }
+                ],
+                "description": "Get a transcript for a YouTube video.",
+            }
+        ],
+    )
+
+    response = client.post("/api/tools/reload")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert payload["tool_count"] == 1
+    assert payload["available_count"] == 1
+    assert payload["tools"][0]["tool_id"] == "youtube-transcript"
+
+
+def test_create_agent_rejects_unknown_tool_ids(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/agents",
+        json={
+            "name": "Bad Tool Agent",
+            "role": "researcher",
+            "system_prompt": "You are a researcher.",
+            "personality": "",
+            "tool_ids": ["mcp_unknown"],
+            "workspace": None,
+            "heartbeat_enabled": False,
+            "heartbeat_interval_seconds": 300,
+            "heartbeat_file_path": None,
+            "is_active": True,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "Unknown tool_ids: mcp_unknown"
 
 
 def test_session_pause_api_uses_chat_service_public_method(

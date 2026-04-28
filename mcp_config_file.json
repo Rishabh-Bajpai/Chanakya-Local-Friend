@@ -131,6 +131,23 @@
       ],
       "transport": "stdio",
       "env": {}
+    },
+    "youtube-transcript": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@kimtaeyoon83/mcp-server-youtube-transcript"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "arxiv": {
+      "command": "uvx",
+      "args": [
+        "arxiv-mcp-server"
+      ],
+      "transport": "stdio",
+      "env": {}
     }
   }
 }

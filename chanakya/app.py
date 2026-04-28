@@ -53,7 +53,7 @@ from chanakya.services.sandbox_workspace import (
     get_artifact_storage_root,
     get_shared_workspace_root,
 )
-from chanakya.services.tool_loader import get_tools_availability
+from chanakya.services.tool_loader import get_tools_availability, reload_all_tools
 from chanakya.store import ChanakyaStore
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -833,6 +833,19 @@ def create_app() -> Flask:
         tools = get_tools_availability()
         return jsonify({"tools": tools})
 
+    @app.post("/api/tools/reload")
+    def api_tools_reload() -> Any:
+        tools = reload_all_tools()
+        available_count = sum(1 for item in tools if str(item.get("status") or "") == "available")
+        return jsonify(
+            {
+                "ok": True,
+                "tools": tools,
+                "tool_count": len(tools),
+                "available_count": available_count,
+            }
+        )
+
     @app.get("/api/notifications/ntfy")
     def api_get_ntfy_settings() -> Any:
         return jsonify(ntfy_dispatcher.get_settings_payload())
@@ -1486,6 +1499,7 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             agent_data = _parse_agent_payload(payload)
+            _validate_agent_tool_ids(agent_data["tool_ids"])
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -1525,6 +1539,7 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             agent_data = _parse_agent_payload(payload)
+            _validate_agent_tool_ids(agent_data["tool_ids"])
             heartbeat_path = agent_data["heartbeat_file_path"] or default_heartbeat_relative_path(
                 agent_id
             )
@@ -1679,6 +1694,21 @@ def sync_default_agent_tools(store: ChanakyaStore) -> None:
         changed_count += 1
     if changed_count:
         debug_log("agent_tool_sync_completed", {"updated_profiles": changed_count})
+
+
+def _validate_agent_tool_ids(tool_ids: list[str]) -> None:
+    configured_tool_ids = {
+        str(item.get("tool_id") or "").strip()
+        for item in get_tools_availability()
+        if str(item.get("tool_id") or "").strip()
+    }
+    if not configured_tool_ids:
+        return
+    unknown = [tool_id for tool_id in tool_ids if tool_id not in configured_tool_ids]
+    if unknown:
+        raise ValueError(
+            "Unknown tool_ids: " + ", ".join(sorted(dict.fromkeys(unknown)))
+        )
 
 
 def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:

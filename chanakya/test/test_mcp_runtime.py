@@ -79,8 +79,9 @@ def test_normalize_tool_spec_summary_tolerates_sparse_tool_object() -> None:
 
     summary = normalize_tool_spec_summary(spec)
 
-    assert summary == {
-        "tool_id": "mcp_fetch",
-        "tool_name": "mcp_fetch",
-        "server_name": "unknown_server",
-    }
+    assert summary["tool_id"] == "mcp_fetch"
+    assert summary["tool_name"] == "mcp_fetch"
+    assert summary["server_name"] == "unknown_server"
+    assert summary["functions"] == []
+    assert summary["function_count"] == 0
+    assert summary["description"] is None

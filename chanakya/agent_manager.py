@@ -520,6 +520,13 @@ class AgentManager:
     def select_workflow(self, message: str) -> str:
         return self._fallback_route(message).execution_mode
 
+    def _refresh_manager_profile(self) -> AgentProfileModel:
+        try:
+            self.manager_profile = self.store.get_agent_profile(self.manager_profile.id)
+        except KeyError:
+            pass
+        return self.manager_profile
+
     def execute(
         self,
         *,
@@ -528,6 +535,7 @@ class AgentManager:
         root_task_id: str,
         message: str,
     ) -> ManagerRunResult:
+        self._refresh_manager_profile()
         return self._execute_group_chat_work(
             session_id=session_id,
             request_id=request_id,
