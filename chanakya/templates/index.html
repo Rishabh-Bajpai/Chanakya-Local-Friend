@@ -1058,12 +1058,14 @@
       margin-bottom: 14px;
       padding-bottom: 14px;
       border-bottom: 1px solid var(--line);
+      min-width: 0;
     }
 
     .agent-editor-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
+      min-width: 0;
     }
 
     .agent-editor label {
@@ -1109,6 +1111,226 @@
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 10px;
+    }
+
+    .worker-manager {
+      display: grid;
+      grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+      gap: 14px;
+      min-width: 0;
+      align-items: start;
+    }
+
+    .worker-directory,
+    .worker-editor-shell {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .worker-directory-header,
+    .worker-editor-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .worker-section-kicker {
+      margin: 0 0 4px;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #9adfff;
+    }
+
+    .worker-section-title {
+      margin: 0;
+      font-size: 20px;
+      color: #eef6ff;
+      line-height: 1.15;
+    }
+
+    .worker-section-copy {
+      margin: 4px 0 0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .worker-directory-actions,
+    .worker-editor-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .worker-filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .worker-filter-chip {
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.035);
+      color: #dce6f4;
+      padding: 7px 11px;
+      font: inherit;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+
+    .worker-filter-chip[aria-pressed="true"] {
+      background: rgba(79, 215, 255, 0.12);
+      border-color: rgba(79, 215, 255, 0.24);
+      color: #eef9ff;
+    }
+
+    .worker-directory-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .worker-card {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+      cursor: pointer;
+      min-width: 0;
+      transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+    }
+
+    .worker-card:hover {
+      border-color: rgba(79, 215, 255, 0.22);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025));
+      transform: translateY(-1px);
+    }
+
+    .worker-card.is-selected {
+      border-color: rgba(216, 107, 74, 0.42);
+      box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.24);
+      background: linear-gradient(180deg, rgba(216, 107, 74, 0.09), rgba(255, 255, 255, 0.03));
+    }
+
+    .worker-card-topline {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .worker-card-title-block {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .worker-card-title {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.2;
+      color: #eef6ff;
+      overflow-wrap: anywhere;
+    }
+
+    .worker-card-subtitle {
+      font-size: 12px;
+      color: #9fb6cb;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      overflow-wrap: anywhere;
+    }
+
+    .worker-status-badge {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(255, 255, 255, 0.05);
+      color: #dce6f4;
+    }
+
+    .worker-status-badge.is-inactive {
+      color: #ffb3b3;
+      border-color: rgba(231, 76, 60, 0.22);
+      background: rgba(231, 76, 60, 0.08);
+    }
+
+    .worker-card-summary {
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .worker-card-metrics,
+    .worker-card-tools,
+    .worker-editor-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .worker-metric,
+    .worker-tool-chip,
+    .worker-summary-chip {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      max-width: 100%;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: rgba(79, 215, 255, 0.08);
+      color: #cfefff;
+      font-size: 11px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: normal;
+    }
+
+    .worker-metric {
+      background: rgba(255, 255, 255, 0.05);
+      color: #dce6f4;
+    }
+
+    .worker-directory-empty {
+      padding: 18px 14px;
+      border: 1px dashed rgba(255, 255, 255, 0.10);
+      border-radius: 16px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .worker-editor-summary {
+      padding: 2px 0 4px;
+    }
+
+    .worker-mobile-back {
+      display: none;
+    }
+
+    .worker-prompt-field textarea {
+      min-height: 180px;
     }
 
     .tool-option {
@@ -1455,6 +1677,56 @@
 
       .mcp-actions button {
         flex: 1 1 160px;
+      }
+
+      .worker-manager {
+        grid-template-columns: 1fr;
+      }
+
+      .worker-directory-header,
+      .worker-editor-header,
+      .worker-card-topline {
+        flex-direction: column;
+      }
+
+      .worker-directory-actions,
+      .worker-editor-actions {
+        width: 100%;
+        justify-content: stretch;
+      }
+
+      .worker-directory-actions button,
+      .worker-editor-actions button {
+        flex: 1 1 140px;
+      }
+
+      .worker-mobile-back {
+        display: inline-flex;
+      }
+
+      .worker-manager.mobile-editing .worker-directory {
+        display: none;
+      }
+
+      .worker-manager:not(.mobile-editing) .worker-editor-shell {
+        display: none;
+      }
+
+      .worker-editor-shell {
+        padding: 12px;
+      }
+
+      .worker-directory,
+      .worker-editor-shell {
+        border-radius: 16px;
+      }
+
+      .worker-section-title {
+        font-size: 18px;
+      }
+
+      .worker-prompt-field textarea {
+        min-height: 140px;
       }
     }
 
@@ -3361,59 +3633,87 @@
           <svg class="sidebar-panel-chevron" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/></svg>
         </div>
         <div class="sidebar-panel-body">
-          <form id="agentForm" class="agent-editor">
-            <div class="agent-editor-grid">
-              <label>
-                Name
-                <input id="agentName" type="text" required />
-              </label>
-              <label>
-                Role
-                <input id="agentRole" type="text" required placeholder="builder, tester, researcher..." />
-              </label>
-            </div>
-            <label>
-              System Prompt
-              <textarea id="agentSystemPrompt" required></textarea>
-            </label>
-            <label>
-              Personality
-              <input id="agentPersonality" type="text" placeholder="calm, direct, task-oriented" />
-            </label>
-            <div class="agent-editor-grid">
-              <label>
-                Workspace
-                <input id="agentWorkspace" type="text" placeholder="dev-workspace" />
-              </label>
-              <label>
-                Heartbeat File Path
-                <input id="agentHeartbeatFilePath" type="text" placeholder="chanakya_data/heartbeats/developer.md" />
-              </label>
-            </div>
-            <div class="agent-editor-grid">
-              <label>
-                Heartbeat Interval Seconds
-                <input id="agentHeartbeatInterval" type="number" min="1" value="300" />
-              </label>
-              <div>
-                <div class="tools-header">
-                  <div class="status-text">Allowed Tools</div>
-                  <button id="reloadToolsButton" type="button" class="button-secondary">Reload MCPs</button>
+          <div id="workerManager" class="worker-manager">
+            <section class="worker-directory">
+              <div class="worker-directory-header">
+                <div>
+                  <p class="worker-section-kicker">Worker Directory</p>
+                  <h3 class="worker-section-title">Team roster</h3>
+                  <p class="worker-section-copy">Scan active specialists, inspect their capabilities, and jump into editing with one tap.</p>
                 </div>
-                <div id="agentToolOptions" class="tool-checkboxes"></div>
+                <div class="worker-directory-actions">
+                  <button id="workerCreateButton" type="button" class="air-button">New Worker</button>
+                </div>
               </div>
-            </div>
-            <div class="agent-flags">
-              <label><input id="agentIsActive" type="checkbox" checked /> Active</label>
-              <label><input id="agentHeartbeatEnabled" type="checkbox" /> Heartbeat Enabled</label>
-            </div>
-            <div class="form-actions">
-              <button id="agentSaveButton" type="submit">Create Worker</button>
-              <button id="agentResetButton" type="button" class="button-secondary">New Worker</button>
-              <span id="agentFormStatus" class="status-text"></span>
-            </div>
-          </form>
-          <div id="agentList"></div>
+              <div id="workerFilterRow" class="worker-filter-row" role="toolbar" aria-label="Filter workers"></div>
+              <div id="agentList" class="worker-directory-list"></div>
+            </section>
+            <section class="worker-editor-shell">
+              <div class="worker-editor-header">
+                <div>
+                  <p id="workerEditorKicker" class="worker-section-kicker">Create Worker</p>
+                  <h3 id="workerEditorTitle" class="worker-section-title">Worker details</h3>
+                  <p id="workerEditorCopy" class="worker-section-copy">Set role, tools, and prompt guidance for the selected worker.</p>
+                </div>
+                <div class="worker-editor-actions">
+                  <button id="workerBackButton" type="button" class="button-secondary worker-mobile-back">Back to list</button>
+                </div>
+              </div>
+              <div id="workerEditorSummary" class="worker-editor-summary"></div>
+              <form id="agentForm" class="agent-editor">
+                <div class="agent-editor-grid">
+                  <label>
+                    Name
+                    <input id="agentName" type="text" required />
+                  </label>
+                  <label>
+                    Role
+                    <input id="agentRole" type="text" required placeholder="builder, tester, researcher..." />
+                  </label>
+                </div>
+                <label class="worker-prompt-field">
+                  System Prompt
+                  <textarea id="agentSystemPrompt" required></textarea>
+                </label>
+                <label>
+                  Personality
+                  <input id="agentPersonality" type="text" placeholder="calm, direct, task-oriented" />
+                </label>
+                <div class="agent-editor-grid">
+                  <label>
+                    Workspace
+                    <input id="agentWorkspace" type="text" placeholder="dev-workspace" />
+                  </label>
+                  <label>
+                    Heartbeat File Path
+                    <input id="agentHeartbeatFilePath" type="text" placeholder="chanakya_data/heartbeats/developer.md" />
+                  </label>
+                </div>
+                <div class="agent-editor-grid">
+                  <label>
+                    Heartbeat Interval Seconds
+                    <input id="agentHeartbeatInterval" type="number" min="1" value="300" />
+                  </label>
+                  <div>
+                    <div class="tools-header">
+                      <div id="agentToolsLabel" class="status-text">Allowed Tools</div>
+                      <button id="reloadToolsButton" type="button" class="button-secondary">Reload MCPs</button>
+                    </div>
+                    <div id="agentToolOptions" class="tool-checkboxes"></div>
+                  </div>
+                </div>
+                <div class="agent-flags">
+                  <label><input id="agentIsActive" type="checkbox" checked /> Active</label>
+                  <label><input id="agentHeartbeatEnabled" type="checkbox" /> Heartbeat Enabled</label>
+                </div>
+                <div class="form-actions">
+                  <button id="agentSaveButton" type="submit">Create Worker</button>
+                  <button id="agentResetButton" type="button" class="button-secondary">Clear Editor</button>
+                  <span id="agentFormStatus" class="status-text"></span>
+                </div>
+              </form>
+            </section>
+          </div>
         </div>
       </div>
 
@@ -3674,6 +3974,14 @@
     const notificationQrImage = document.getElementById("notificationQrImage");
     const notificationDeepLink = document.getElementById("notificationDeepLink");
     const agentList = document.getElementById("agentList");
+    const workerManager = document.getElementById("workerManager");
+    const workerFilterRow = document.getElementById("workerFilterRow");
+    const workerCreateButton = document.getElementById("workerCreateButton");
+    const workerBackButton = document.getElementById("workerBackButton");
+    const workerEditorKicker = document.getElementById("workerEditorKicker");
+    const workerEditorTitle = document.getElementById("workerEditorTitle");
+    const workerEditorCopy = document.getElementById("workerEditorCopy");
+    const workerEditorSummary = document.getElementById("workerEditorSummary");
     const agentForm = document.getElementById("agentForm");
     const agentName = document.getElementById("agentName");
     const agentRole = document.getElementById("agentRole");
@@ -3685,6 +3993,7 @@
     const agentIsActive = document.getElementById("agentIsActive");
     const agentHeartbeatEnabled = document.getElementById("agentHeartbeatEnabled");
     const agentToolOptions = document.getElementById("agentToolOptions");
+    const agentToolsLabel = document.getElementById("agentToolsLabel");
     const reloadToolsButton = document.getElementById("reloadToolsButton");
     const agentSaveButton = document.getElementById("agentSaveButton");
     const agentResetButton = document.getElementById("agentResetButton");
@@ -3903,6 +4212,8 @@
     preferredCallModeView = loadStoredCallModeView();
     let sessionId = null;
     let selectedAgentId = null;
+    let agentFilter = "all";
+    let allAgents = [];
     let availableTools = [];
     let a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
     let a2aDiscoveryHealthy = false;
@@ -6020,9 +6331,15 @@
     function renderToolOptions() {
       if (!availableTools.length) {
         agentToolOptions.innerHTML = '<span class="status-text">No MCP tools available.</span>';
+        if (agentToolsLabel) {
+          agentToolsLabel.textContent = "Allowed Tools";
+        }
         return;
       }
       const selectedTools = new Set(getSelectedToolIds());
+      if (agentToolsLabel) {
+        agentToolsLabel.textContent = `Allowed Tools (${selectedTools.size} selected)`;
+      }
       const nodes = availableTools.map((tool) => {
         const card = document.createElement("div");
         card.className = `tool-option ${tool.status === "available" ? "" : "tool-option-status-unavailable"}`.trim();
@@ -6069,11 +6386,13 @@
       agentHeartbeatInterval.value = 300;
       agentIsActive.checked = true;
       agentHeartbeatEnabled.checked = false;
-      agentSaveButton.textContent = "Create Agent";
+      agentSaveButton.textContent = "Create Worker";
       setAgentFormStatus("");
       agentToolOptions.querySelectorAll('input[type="checkbox"]').forEach((input) => {
         input.checked = false;
       });
+      updateWorkerEditorState();
+      renderToolOptions();
     }
 
     function populateAgentForm(agent) {
@@ -6091,8 +6410,13 @@
       agentToolOptions.querySelectorAll('input[type="checkbox"]').forEach((input) => {
         input.checked = selectedTools.has(input.value);
       });
-      agentSaveButton.textContent = "Update Agent";
+      agentSaveButton.textContent = "Update Worker";
       setAgentFormStatus(`Editing ${agent.name}`);
+      updateWorkerEditorState(agent);
+      renderToolOptions();
+      if (isWorkerMobileViewport()) {
+        setWorkerMobileEditing(true);
+      }
     }
 
     function buildAgentPayload() {
@@ -6108,6 +6432,111 @@
         is_active: agentIsActive.checked,
         tool_ids: getSelectedToolIds(),
       };
+    }
+
+    function isWorkerMobileViewport() {
+      return window.innerWidth <= 900;
+    }
+
+    function setWorkerMobileEditing(isEditing) {
+      if (!workerManager) {
+        return;
+      }
+      workerManager.classList.toggle("mobile-editing", Boolean(isEditing) && isWorkerMobileViewport());
+    }
+
+    function updateWorkerEditorState(agent = null) {
+      const currentName = String(agentName?.value || agent?.name || "").trim();
+      const currentRole = String(agentRole?.value || agent?.role || "").trim();
+      const currentWorkspace = String(agentWorkspace?.value || agent?.workspace || "").trim();
+      const currentToolCount = getSelectedToolIds().length || (Array.isArray(agent?.tool_ids) ? agent.tool_ids.length : 0);
+      const currentHeartbeatEnabled = Boolean(agentHeartbeatEnabled?.checked || agent?.heartbeat_enabled);
+      const currentHeartbeatInterval = Number(agentHeartbeatInterval?.value || agent?.heartbeat_interval_seconds || 300);
+      const currentActive = agent ? Boolean(agentIsActive?.checked) : Boolean(agentIsActive?.checked);
+      if (workerEditorKicker) {
+        workerEditorKicker.textContent = agent ? "Editing Worker" : "Create Worker";
+      }
+      if (workerEditorTitle) {
+        workerEditorTitle.textContent = agent ? currentName || "Worker details" : (currentName || "New worker");
+      }
+      if (workerEditorCopy) {
+        workerEditorCopy.textContent = agent
+          ? `Update ${currentName || "this worker"}'s role, prompt guidance, and MCP access.`
+          : "Create a new specialist and give them the exact tools and prompt guidance they need.";
+      }
+      if (workerEditorSummary) {
+        const chips = [];
+        if (agent) {
+          chips.push(currentRole || "worker");
+          chips.push(currentActive ? "active" : "inactive");
+          chips.push(`${currentToolCount} tools`);
+          if (currentWorkspace) {
+            chips.push(`workspace: ${currentWorkspace}`);
+          }
+          if (currentHeartbeatEnabled) {
+            chips.push(`heartbeat ${currentHeartbeatInterval}s`);
+          }
+        } else {
+          chips.push(currentName ? "draft" : "new draft");
+          if (currentRole) {
+            chips.push(currentRole);
+          }
+          chips.push(`${currentToolCount} tools selected`);
+          if (currentWorkspace) {
+            chips.push(`workspace: ${currentWorkspace}`);
+          }
+        }
+        if (!chips.length) {
+          workerEditorSummary.innerHTML = "";
+        } else {
+          const nodes = chips.map((text) => {
+            const chip = document.createElement("span");
+            chip.className = "worker-summary-chip";
+            chip.textContent = text;
+            return chip;
+          });
+          replaceChildren(workerEditorSummary, nodes);
+        }
+      }
+    }
+
+    function matchesAgentFilter(agent) {
+      if (agentFilter === "active") {
+        return Boolean(agent.is_active);
+      }
+      if (agentFilter === "inactive") {
+        return !agent.is_active;
+      }
+      if (agentFilter.startsWith("role:")) {
+        return String(agent.role || "") === agentFilter.slice(5);
+      }
+      return true;
+    }
+
+    function renderWorkerFilters(items) {
+      if (!workerFilterRow) {
+        return;
+      }
+      const roles = Array.from(new Set(items.map((item) => String(item.role || "")).filter(Boolean))).sort();
+      const filters = [
+        { value: "all", label: `All (${items.length})` },
+        { value: "active", label: `Active (${items.filter((item) => item.is_active).length})` },
+        { value: "inactive", label: `Inactive (${items.filter((item) => !item.is_active).length})` },
+        ...roles.map((role) => ({ value: `role:${role}`, label: role })),
+      ];
+      const nodes = filters.map((filter) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "worker-filter-chip";
+        button.textContent = filter.label;
+        button.setAttribute("aria-pressed", agentFilter === filter.value ? "true" : "false");
+        button.addEventListener("click", () => {
+          agentFilter = filter.value;
+          renderAgents(allAgents);
+        });
+        return button;
+      });
+      replaceChildren(workerFilterRow, nodes);
     }
 
     function renderChatHistory(messages) {
@@ -6327,37 +6756,76 @@
     }
 
     function renderAgents(items) {
-      if (!items.length) {
-        agentList.textContent = "No agents loaded.";
+      allAgents = Array.isArray(items) ? items.slice() : [];
+      renderWorkerFilters(allAgents);
+      const filteredItems = allAgents.filter(matchesAgentFilter);
+      if (!filteredItems.length) {
+        agentList.innerHTML = `<div class="worker-directory-empty">No workers match the current filter.</div>`;
         return;
       }
-      const nodes = items.map((agent) => {
+      const selectedAgent = allAgents.find((agent) => agent.id === selectedAgentId) || null;
+      updateWorkerEditorState(selectedAgent);
+      const nodes = filteredItems.map((agent) => {
         const card = document.createElement("div");
-        card.className = `card clickable${selectedAgentId === agent.id ? " selected" : ""}`;
-        const pills = [agent.role];
-        if (agent.tool_ids && agent.tool_ids.length) pills.push(`${agent.tool_ids.length} tools`);
-        if (agent.heartbeat_enabled) pills.push(`heartbeat ${agent.heartbeat_interval_seconds}s`);
+        card.className = `worker-card${selectedAgentId === agent.id ? " is-selected" : ""}`;
+
+        const topline = document.createElement("div");
+        topline.className = "worker-card-topline";
+        const titleBlock = document.createElement("div");
+        titleBlock.className = "worker-card-title-block";
         const heading = document.createElement("h3");
+        heading.className = "worker-card-title";
         heading.textContent = agent.name;
-        card.appendChild(heading);
-        const pillRow = document.createElement("div");
-        pills.forEach((pillText) => {
-          const pill = document.createElement("span");
-          pill.className = "pill";
-          pill.textContent = pillText;
-          pillRow.appendChild(pill);
+        const subtitle = document.createElement("div");
+        subtitle.className = "worker-card-subtitle";
+        subtitle.textContent = agent.role || "worker";
+        titleBlock.appendChild(heading);
+        titleBlock.appendChild(subtitle);
+        topline.appendChild(titleBlock);
+        const status = document.createElement("span");
+        status.className = `worker-status-badge${agent.is_active ? "" : " is-inactive"}`;
+        status.textContent = agent.is_active ? "Active" : "Inactive";
+        topline.appendChild(status);
+        card.appendChild(topline);
+
+        const summary = document.createElement("div");
+        summary.className = "worker-card-summary";
+        summary.textContent = agent.system_prompt || "No system prompt configured.";
+        card.appendChild(summary);
+
+        const metrics = document.createElement("div");
+        metrics.className = "worker-card-metrics";
+        const metricValues = [
+          `${Array.isArray(agent.tool_ids) ? agent.tool_ids.length : 0} tools`,
+          agent.workspace ? `workspace: ${agent.workspace}` : "workspace unset",
+          agent.heartbeat_enabled ? `heartbeat ${agent.heartbeat_interval_seconds || 300}s` : "heartbeat off",
+        ];
+        metricValues.forEach((text) => {
+          const chip = document.createElement("span");
+          chip.className = "worker-metric";
+          chip.textContent = text;
+          metrics.appendChild(chip);
         });
-        card.appendChild(pillRow);
-        const pre = document.createElement("pre");
-        pre.textContent = JSON.stringify({
-          id: agent.id,
-          system_prompt: agent.system_prompt,
-          workspace: agent.workspace,
-          tools: agent.tool_ids,
-          heartbeat_file_path: agent.heartbeat_file_path,
-          heartbeat_preview: agent.heartbeat_preview,
-        }, null, 2);
-        card.appendChild(pre);
+        card.appendChild(metrics);
+
+        if (Array.isArray(agent.tool_ids) && agent.tool_ids.length) {
+          const tools = document.createElement("div");
+          tools.className = "worker-card-tools";
+          agent.tool_ids.slice(0, 6).forEach((toolId) => {
+            const chip = document.createElement("span");
+            chip.className = "worker-tool-chip";
+            chip.textContent = toolId;
+            tools.appendChild(chip);
+          });
+          if (agent.tool_ids.length > 6) {
+            const overflow = document.createElement("span");
+            overflow.className = "worker-metric";
+            overflow.textContent = `+${agent.tool_ids.length - 6} more`;
+            tools.appendChild(overflow);
+          }
+          card.appendChild(tools);
+        }
+
         card.addEventListener("click", () => populateAgentForm(agent));
         return card;
       });
@@ -6936,12 +7404,28 @@
       });
     }
 
+    if (workerCreateButton) {
+      workerCreateButton.addEventListener("click", () => {
+        resetAgentForm();
+        if (isWorkerMobileViewport()) {
+          setWorkerMobileEditing(true);
+        }
+      });
+    }
+
+    if (workerBackButton) {
+      workerBackButton.addEventListener("click", () => {
+        setWorkerMobileEditing(false);
+      });
+    }
+
     window.addEventListener("resize", () => {
       if (window.innerWidth > 1180) {
         setUtilityPanelOpen(false);
       }
       resizeComposerTextarea();
       syncComposerInputState();
+      setWorkerMobileEditing(Boolean(selectedAgentId) && isWorkerMobileViewport() && workerManager?.classList.contains("mobile-editing"));
     });
 
     document.querySelectorAll("[data-voice-proxy]").forEach((button) => {
@@ -7010,7 +7494,7 @@
     agentForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const payload = buildAgentPayload();
-      setAgentFormStatus(selectedAgentId ? "Updating agent..." : "Creating agent...");
+      setAgentFormStatus(selectedAgentId ? "Updating worker..." : "Creating worker...");
       try {
         const response = await fetch(selectedAgentId ? `/api/agents/${selectedAgentId}` : "/api/agents", {
           method: selectedAgentId ? "PUT" : "POST",
@@ -7023,6 +7507,9 @@
         }
         setAgentFormStatus(selectedAgentId ? `Updated ${data.name}` : `Created ${data.name}`);
         resetAgentForm();
+        if (isWorkerMobileViewport()) {
+          setWorkerMobileEditing(false);
+        }
         await refreshSidePanels();
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -7032,10 +7519,28 @@
 
     agentResetButton.addEventListener("click", () => {
       resetAgentForm();
+      if (isWorkerMobileViewport()) {
+        setWorkerMobileEditing(false);
+      }
     });
 
     reloadToolsButton.addEventListener("click", async () => {
       await reloadTools();
+    });
+
+    if (agentToolOptions) {
+      agentToolOptions.addEventListener("change", () => {
+        renderToolOptions();
+        updateWorkerEditorState(allAgents.find((agent) => agent.id === selectedAgentId) || null);
+      });
+    }
+
+    [agentName, agentRole, agentWorkspace, agentHeartbeatInterval, agentHeartbeatEnabled, agentIsActive].forEach((input) => {
+      if (!input) {
+        return;
+      }
+      input.addEventListener("input", () => updateWorkerEditorState(allAgents.find((agent) => agent.id === selectedAgentId) || null));
+      input.addEventListener("change", () => updateWorkerEditorState(allAgents.find((agent) => agent.id === selectedAgentId) || null));
     });
 
     if (mcpConfigEditor) {
