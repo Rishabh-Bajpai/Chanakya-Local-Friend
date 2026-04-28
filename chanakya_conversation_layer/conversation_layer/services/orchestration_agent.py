@@ -36,33 +36,22 @@ class MAFOrchestrationAgent:
     default_model_provider: str | None = None
     default_model_id: str | None = None
     a2a_agent_factory: Any | None = None
-    _agent: Agent | None = field(init=False, default=None, repr=False)
-    _agent_by_model: dict[str, Agent] = field(
-        init=False, default_factory=dict, repr=False
-    )
     _a2a_agent: Any | None = field(init=False, default=None, repr=False)
     _a2a_sessions: dict[str, Any] = field(
         init=False, default_factory=dict, repr=False
     )
 
     def __post_init__(self) -> None:
-        if self.runner is None:
-            if self.backend == "a2a":
-                if self.a2a_agent_factory is None:
-                    from agent_framework_a2a import A2AAgent
+        if self.runner is None and self.backend == "a2a":
+            if self.a2a_agent_factory is None:
+                from agent_framework_a2a import A2AAgent
 
-                    self.a2a_agent_factory = A2AAgent
-                self._a2a_agent = self.a2a_agent_factory(
-                    name="ConversationLayerPlanner",
-                    description="Structured orchestration planner for the conversation layer.",
-                    url=self.remote_agent_url,
-                )
-            else:
-                self._agent = self._create_planner_agent(
-                    model_id=self.model,
-                    default_headers=None,
-                    name="ConversationLayerPlanner",
-                )
+                self.a2a_agent_factory = A2AAgent
+            self._a2a_agent = self.a2a_agent_factory(
+                name="ConversationLayerPlanner",
+                description="Structured orchestration planner for the conversation layer.",
+                url=self.remote_agent_url,
+            )
 
     def plan(
         self, *, task: str, instructions: str, payload: dict[str, Any]

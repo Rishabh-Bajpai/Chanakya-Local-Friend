@@ -355,7 +355,7 @@ def create_app() -> Flask:
     _register_sandbox_shutdown_cleanup()
     valid_work_ids = {str(item.get("id") or "").strip() for item in store.list_works(limit=1000)}
     valid_work_ids.discard("")
-    sandbox_prune = prune_stale_work_containers(valid_work_ids, remove_running=True)
+    sandbox_prune = prune_stale_work_containers(valid_work_ids, remove_running=False)
     debug_log("sandbox_container_startup_prune", sandbox_prune)
     debug_log(
         "app_initialized",

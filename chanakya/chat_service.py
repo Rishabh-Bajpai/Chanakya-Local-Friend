@@ -394,7 +394,9 @@ class ChatService:
 
     @staticmethod
     def _artifact_workspace_scope_id(*, request_id: str, work_id: str | None) -> str:
-        return work_id or CLASSIC_ARTIFACT_WORKSPACE_ID
+        if work_id:
+            return work_id
+        return f"{CLASSIC_ARTIFACT_WORKSPACE_ID}-{request_id}"
 
     def _snapshot_workspace_files(
         self,

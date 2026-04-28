@@ -315,7 +315,33 @@ def prune_stale_work_containers(
         work_id = _work_id_from_container_name(container_name)
         if work_id is None:
             continue
-        if not remove_running and work_id in valid_work_ids:
+        if work_id in valid_work_ids:
+            continue
+        inspect_result = _run_runtime_command(
+            command=[
+                runtime.binary,
+                "inspect",
+                "-f",
+                "{{.State.Running}}",
+                container_name,
+            ],
+            timeout_seconds=30,
+        )
+        inspect_output = "\n".join(
+            part for part in (inspect_result.stdout.strip(), inspect_result.stderr.strip()) if part
+        )
+        inspect_payload = {
+            "container_name": container_name,
+            "work_id": work_id,
+            "output": inspect_output,
+        }
+        if inspect_result.returncode != 0:
+            failed.append(
+                {**inspect_payload, "error": inspect_output or "Failed to inspect container state"}
+            )
+            continue
+        is_running = inspect_result.stdout.strip().lower() == "true"
+        if is_running and not remove_running:
             continue
         result = _run_runtime_command(
             command=[runtime.binary, "rm", "-f", container_name],
