@@ -1310,9 +1310,10 @@
       color: #c8f1ff;
       font-size: 11px;
       max-width: 100%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: normal;
     }
 
     .mcp-panel textarea,
