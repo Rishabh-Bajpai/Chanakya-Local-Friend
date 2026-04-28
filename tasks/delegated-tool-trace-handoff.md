@@ -4,6 +4,8 @@
 
 This handoff covers a misleading delegated-work bug where a participant agent successfully uses a tool and writes a real file, but top-level accounting and `/work` history display incorrectly show zero tool usage.
 
+The user noted that other related fixes may already be in progress. Treat this note as current guidance after re-reading the latest workspace state, but verify the exact current behavior before editing because some adjacent issues may already be partially fixed.
+
 This note was prepared after re-reading the current workspace state, especially:
 
 - `chanakya/chat_service.py`
@@ -54,7 +56,7 @@ If the delegated runtime trace is missing or reconstructed without tool traces, 
 
 In `chanakya/chat_service.py:1632-1668`, direct runtime results persist `run_result.tool_traces` into `tool_invocations` and create `tool_trace_recorded` task events.
 
-In `chanakya/chat_service.py:1685-1696`, direct responses derive `tool_calls_used` from `len(direct_run_result.tool_traces)`.
+In `chanakya/chat_service.py:1684-1696`, direct responses derive `tool_calls_used` from `len(direct_run_result.tool_traces)`.
 
 ### Delegated path drops top-level accounting
 
@@ -71,10 +73,10 @@ One example in the waiting-input path is `chanakya/chat_service.py:1733-1737`, w
 
 `chanakya/agent_manager.py` already records traced participant tool calls.
 
-- `chanakya/agent_manager.py:629-658`
+- `chanakya/agent_manager.py:730-765`
   - builds `execution_trace`
   - stores it in manager `result_json`
-- `chanakya/agent_manager.py:1121-1242`
+- `chanakya/agent_manager.py:1717-1896`
   - `build_group_chat_execution_trace(...)`
   - aggregates `tool_calls`
   - includes per-step `tool_traces`
@@ -88,12 +90,14 @@ The UI in `chanakya/templates/work.html:3635-3873` renders:
 - overall tool count from `trace.tool_calls`
 - per-turn tool activity from `step.tool_traces`
 
-The API in `chanakya/app.py:1126-1183`:
+The API in `chanakya/app.py:1147-1204`:
 
 - prefers `manager_result["execution_trace"]`
 - reconstructs a fallback trace if it is missing
 
 That fallback reconstruction does not inject runtime tool traces, so older or incomplete runs can still display zero tool calls.
+
+For the reproduced climate-report case, the persisted manager task result currently does not appear to expose a usable `execution_trace` through the history path, which is why `/work` falls back to reconstructed trace data and loses the tool-call detail.
 
 ## Recommended Fix Strategy
 
@@ -156,9 +160,11 @@ Before adding any fallback logic, verify that delegated manager task results con
 
 If anything in the current flow is dropping that field before persistence, fix that boundary first.
 
+Do not switch `/work` to primarily trust `tool_invocations`. Keep `execution_trace` as the first-class source of truth and use `tool_invocations` only as repair data for missing or incomplete historical runs.
+
 ### 4. Add fallback enrichment in `app.py` for older/incomplete runs
 
-In `/api/works/<work_id>/history` (`chanakya/app.py:1126-1183`):
+In `/api/works/<work_id>/history` (`chanakya/app.py:1147-1204`):
 
 - when `manager_result["execution_trace"]` is missing, malformed, or reconstructed without tool traces
 - enrich the reconstructed run with tool-call info derived from `tool_invocations`
@@ -252,3 +258,14 @@ When validating the fix locally, re-check the same family of artifacts together:
 - `/api/works/<work_id>/history`
 
 All five should agree after the fix.
+
+## Developer Note
+
+Start by re-reading the current versions of:
+
+- `chanakya/chat_service.py`
+- `chanakya/app.py`
+- `chanakya/agent_manager.py`
+- `chanakya/templates/work.html`
+
+Do that before coding. The user indicated some related fixes may already exist in the current worktree, so the safest implementation is the smallest one that restores consistency across runtime logs, `tool_invocations`, top-level metadata, and `/work` history output.
