@@ -4,6 +4,7 @@ import json
 import mimetypes
 import re
 import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -195,7 +196,7 @@ class ChatService:
         self.manager = manager
         self.notification_dispatcher = notification_dispatcher
         self._conversation_layer = ConversationLayerSupport()
-        self._work_locks: dict[str, threading.Lock] = {}
+        self._work_locks: OrderedDict[str, threading.Lock] = OrderedDict()
         self._work_locks_guard = threading.Lock()
 
     @staticmethod
@@ -1076,25 +1077,23 @@ class ChatService:
             )
 
     def _prune_work_locks(self, *, max_entries: int = 1024) -> None:
-        """Evict idle (unlocked) entries until the map is within *max_entries*."""
-        while len(self._work_locks) > max_entries:
-            evicted = False
-            for stale_work_id, stale_lock in tuple(self._work_locks.items()):
-                if stale_lock.locked():
-                    continue
-                self._work_locks.pop(stale_work_id, None)
-                evicted = True
+        """Evict idle (unlocked) LRU entries until the map is within *max_entries*."""
+        # Single-pass: collect candidates from the oldest end first, then remove them.
+        to_evict = [
+            wid
+            for wid, lock in self._work_locks.items()
+            if not lock.locked()
+        ]
+        for wid in to_evict:
+            if len(self._work_locks) <= max_entries:
                 break
-            if not evicted:
-                break
+            self._work_locks.pop(wid, None)
 
     def _work_lock(self, work_id: str) -> threading.Lock:
         with self._work_locks_guard:
             existing = self._work_locks.get(work_id)
             if existing is not None:
-                # Move to end to maintain LRU order
-                self._work_locks.pop(work_id, None)
-                self._work_locks[work_id] = existing
+                self._work_locks.move_to_end(work_id)
                 return existing
             created = threading.Lock()
             self._work_locks[work_id] = created
