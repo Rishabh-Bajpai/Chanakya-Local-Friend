@@ -552,6 +552,41 @@ def test_group_chat_failed_run_uses_failure_reason_when_no_visible_output() -> N
     assert reply.message == "No configured participant/tool path could capture a screenshot for this request."
 
 
+def test_group_chat_recovers_successful_information_followup_from_bad_failure_payload() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_info_followup")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(
+                role="assistant",
+                text="Here is the extracted and summarized text content from the website.",
+                author_name="Researcher",
+            ),
+            Message(
+                role="assistant",
+                text='{"status":"failed","reason":"The user requested to extract and summarize the text content of the website. The Researcher has already fetched the content and provided a comprehensive summary. No further steps are required."}',
+                author_name="Agent Manager",
+            ),
+        ]
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(
+        work_session_id,
+        "Extract and summarize the text content from this website",
+        work_id="work_info_followup",
+    )
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert reply.messages[-1]["agent_name"] == "Researcher"
+
+
 def test_group_chat_max_rounds_is_normalized_into_bounded_failure() -> None:
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)

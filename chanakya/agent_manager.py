@@ -1163,6 +1163,33 @@ class AgentManager:
         )
         return any(marker in lowered for marker in markers)
 
+    @staticmethod
+    def _group_chat_failure_reason_looks_like_success(reason: str) -> bool:
+        lowered = reason.lower()
+        success_markers = (
+            "has already fetched",
+            "has already provided",
+            "no further steps are required",
+            "request has been completed",
+            "here is the extracted",
+            "here's the extracted",
+            "here is a summary",
+            "here's a summary",
+            "completed the request",
+        )
+        blocker_markers = (
+            "cannot",
+            "unable",
+            "failed",
+            "error",
+            "blocked",
+            "no configured participant",
+            "no available agents",
+        )
+        return any(marker in lowered for marker in success_markers) and not any(
+            marker in lowered for marker in blocker_markers
+        )
+
     def _assess_group_chat_completion(
         self,
         *,
@@ -1242,6 +1269,10 @@ class AgentManager:
                 }
                 if assessment.role_conformance_issues:
                     normalized["role_conformance_issues"] = assessment.role_conformance_issues
+            elif visible_messages and self._group_chat_failure_reason_looks_like_success(reason):
+                normalized["status"] = "completed"
+                normalized["termination_case"] = "user_request_satisfied"
+                normalized["summary"] = str(normalized.get("summary") or "").strip() or reason
             return normalized
         missing_requirements: list[str] = []
         if assessment.requirements.require_developer_implementation and not assessment.developer_implementation_seen:
