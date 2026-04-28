@@ -5709,9 +5709,13 @@ class AgentManager:
                     "For filesystem tool calls, always pass the current work_id explicitly.",
                     f"Use mcp_filesystem_write_text_file(path=..., content=..., "
                     f"work_id='{sandbox_work_id}') to save text files for this work.",
+                    f"Use mcp_filesystem_create_directory(path=..., work_id='{sandbox_work_id}') "
+                    "to create folders in the same workspace.",
                     f"Use mcp_filesystem_read_text_file(path=..., work_id='{sandbox_work_id}') "
                     f"and mcp_filesystem_list_directory(path=..., work_id='{sandbox_work_id}') "
                     "to inspect the same workspace.",
+                    f"Use mcp_filesystem_delete_path(path=..., work_id='{sandbox_work_id}') "
+                    "to remove a file or an empty folder, and pass recursive=True for non-empty folders.",
                     f"If you omit work_id, files may go to {CLASSIC_ARTIFACT_WORKSPACE_ID} instead of the active work.",
                 ]
             )

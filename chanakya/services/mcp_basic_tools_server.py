@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -139,6 +140,54 @@ def _write_text_file(path: str, content: str, work_id: str = CLASSIC_ARTIFACT_WO
         "workspace_root": str(workspace_root),
         "work_id": work_id,
         "bytes_written": len(content.encode("utf-8")),
+    }
+
+
+def _create_directory(
+    path: str,
+    work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID,
+    *,
+    parents: bool = True,
+) -> dict[str, Any]:
+    workspace_root, resolved = _resolve_filesystem_path(path, work_id)
+    resolved.mkdir(parents=parents, exist_ok=True)
+    return {
+        "ok": True,
+        "path": str(resolved.relative_to(workspace_root)),
+        "workspace_root": str(workspace_root),
+        "work_id": work_id,
+        "created": True,
+    }
+
+
+def _delete_path(
+    path: str,
+    work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID,
+    *,
+    recursive: bool = False,
+) -> dict[str, Any]:
+    workspace_root, resolved = _resolve_filesystem_path(path, work_id)
+    if resolved == workspace_root:
+        raise PermissionError("Refusing to delete the workspace root")
+    if not resolved.exists():
+        raise FileNotFoundError(f"Path not found: {path}")
+    if resolved.is_dir():
+        path_type = "directory"
+        if recursive:
+            shutil.rmtree(resolved)
+        else:
+            resolved.rmdir()
+    else:
+        path_type = "file"
+        resolved.unlink()
+    return {
+        "ok": True,
+        "deleted": True,
+        "path": str(resolved.relative_to(workspace_root)),
+        "path_type": path_type,
+        "workspace_root": str(workspace_root),
+        "work_id": work_id,
+        "recursive": recursive,
     }
 
 
@@ -436,6 +485,37 @@ def _build_filesystem_server() -> FastMCP:
         try:
             return _write_text_file(path, content, work_id)
         except (FileNotFoundError, PermissionError, ValueError) as exc:
+            return _filesystem_error_payload(error=exc, path=path, work_id=work_id)
+
+    @mcp.tool()
+    def create_directory(
+        path: str,
+        work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID,
+        parents: bool = True,
+    ) -> dict[str, Any]:
+        """Create a directory inside the shared sandbox workspace for the given work_id."""
+        try:
+            return _create_directory(path, work_id, parents=parents)
+        except (FileNotFoundError, FileExistsError, PermissionError, ValueError) as exc:
+            return _filesystem_error_payload(error=exc, path=path, work_id=work_id)
+
+    @mcp.tool()
+    def delete_path(
+        path: str,
+        work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID,
+        recursive: bool = False,
+    ) -> dict[str, Any]:
+        """Delete a file or directory inside the shared sandbox workspace for the given work_id."""
+        try:
+            return _delete_path(path, work_id, recursive=recursive)
+        except (
+            FileNotFoundError,
+            IsADirectoryError,
+            NotADirectoryError,
+            OSError,
+            PermissionError,
+            ValueError,
+        ) as exc:
             return _filesystem_error_payload(error=exc, path=path, work_id=work_id)
 
     return mcp

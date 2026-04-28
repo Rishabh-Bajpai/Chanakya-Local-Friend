@@ -777,7 +777,7 @@ class ChatService:
                 )
         if has_filesystem:
             artifact_prompt += (
-                " Use `mcp_filesystem_*` for scratch workspace operations and supporting files, but prefer "
+                " Use `mcp_filesystem_*` for scratch workspace operations, supporting files, and folder management, but prefer "
                 "artifact tools for user-visible saved deliverables."
             )
             if work_id is None:
