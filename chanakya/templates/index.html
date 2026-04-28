@@ -1156,11 +1156,13 @@
       justify-content: space-between;
       gap: 10px;
       margin-bottom: 8px;
+      min-width: 0;
     }
 
     .mcp-panel {
       display: grid;
       gap: 12px;
+      min-width: 0;
     }
 
     .mcp-panel-header {
@@ -1168,6 +1170,7 @@
       align-items: flex-start;
       justify-content: space-between;
       gap: 12px;
+      min-width: 0;
       padding: 14px 16px;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 16px;
@@ -1194,6 +1197,7 @@
       font-size: 12px;
       color: #d6d1ca;
       word-break: break-word;
+      overflow-wrap: anywhere;
     }
 
     .mcp-config-grid {
@@ -1201,12 +1205,14 @@
       grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr);
       gap: 12px;
       align-items: start;
+      min-width: 0;
     }
 
     .mcp-editor-card,
     .mcp-preview-card {
       display: grid;
       gap: 10px;
+      min-width: 0;
       padding: 14px;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 16px;
@@ -1243,6 +1249,7 @@
     .mcp-server-card {
       display: grid;
       gap: 6px;
+      min-width: 0;
       padding: 12px;
       border-radius: 14px;
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1254,6 +1261,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 10px;
+      min-width: 0;
     }
 
     .mcp-server-id {
@@ -1261,6 +1269,7 @@
       font-weight: 600;
       color: var(--text);
       word-break: break-word;
+      min-width: 0;
     }
 
     .mcp-server-transport {
@@ -1283,6 +1292,7 @@
       line-height: 1.5;
       color: var(--muted);
       word-break: break-word;
+      overflow-wrap: anywhere;
     }
 
     .mcp-server-functions {
@@ -1303,6 +1313,14 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .mcp-panel textarea,
+    .mcp-panel button,
+    .tool-option,
+    .tool-option-meta,
+    .tool-option-functions {
+      min-width: 0;
     }
 
     .mcp-preview-empty {
@@ -2128,6 +2146,7 @@
     .config-shell {
       display: none;
       min-height: 0;
+      min-width: 0;
       border: 1px solid rgba(255, 255, 255, 0.07);
       border-radius: 30px;
       background:
@@ -2151,6 +2170,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+      min-width: 0;
       padding: 20px 22px 18px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       background:
@@ -2172,6 +2192,7 @@
       margin: 4px 0 0;
       font-size: 13px;
       color: #a7bacd;
+      overflow-wrap: anywhere;
     }
 
     .config-shell-body {
@@ -2179,6 +2200,7 @@
       grid-auto-rows: min-content;
       gap: 16px;
       min-height: 0;
+      min-width: 0;
       max-height: 100%;
       overflow-y: auto;
       overscroll-behavior: contain;
@@ -2206,6 +2228,7 @@
     }
 
     .config-shell .sidebar-panel {
+      min-width: 0;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 24px;
       background:
@@ -2247,6 +2270,7 @@
     .config-shell .agent-editor,
     .config-shell .runtime-pref-card,
     .config-shell .notification-qr {
+      min-width: 0;
       background: rgba(255, 255, 255, 0.03);
       border-color: rgba(255, 255, 255, 0.10);
     }
@@ -2798,6 +2822,46 @@
 
       .main-stage-content {
         padding: 16px;
+      }
+
+      .config-shell {
+        border-radius: 24px;
+      }
+
+      .config-shell-header {
+        padding: 16px 16px 14px;
+      }
+
+      .config-shell-title {
+        font-size: 1.42rem;
+      }
+
+      .config-shell-body {
+        padding: 14px 12px 18px;
+        scrollbar-gutter: auto;
+      }
+
+      .config-shell .sidebar-panel {
+        border-radius: 20px;
+      }
+
+      .config-shell .sidebar-panel-header {
+        padding: 16px;
+      }
+
+      .config-shell .sidebar-panel-body {
+        padding: 0 12px 14px;
+      }
+
+      .mcp-panel-header,
+      .mcp-editor-card,
+      .mcp-preview-card {
+        padding: 12px;
+      }
+
+      .mcp-server-topline {
+        align-items: flex-start;
+        flex-direction: column;
       }
 
       .hero-stage {

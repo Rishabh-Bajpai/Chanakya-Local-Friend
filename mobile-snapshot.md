@@ -1,0 +1,55 @@
+- generic [ref=e2]:
+  - generic [ref=e26]:
+    - generic [ref=e27]: Idle
+    - generic [ref=e28]: Ready to assist
+  - generic [ref=e39]:
+    - generic [ref=e40]:
+      - heading "State Controls" [level=2] [ref=e41]
+      - button "▼" [ref=e42] [cursor=pointer]:
+        - generic [ref=e43]: ▼
+    - generic [ref=e44]:
+      - generic [ref=e45]:
+        - button "Idle" [ref=e46] [cursor=pointer]
+        - button "Listening" [ref=e47] [cursor=pointer]
+        - button "Thinking" [ref=e48] [cursor=pointer]
+        - button "Speaking" [ref=e49] [cursor=pointer]
+      - generic [ref=e50]:
+        - button "Wake" [ref=e51] [cursor=pointer]
+        - button "Sleep" [ref=e52] [cursor=pointer]
+        - button "Error" [ref=e53] [cursor=pointer]
+        - button "Muted" [ref=e54] [cursor=pointer]
+  - generic:
+    - generic: Chanakya
+    - generic: Advanced AI Assistant
+  - generic [ref=e55]:
+    - generic [ref=e56]:
+      - heading "Visual Style" [level=3] [ref=e57]
+      - button "🎨" [ref=e58] [cursor=pointer]
+    - generic:
+      - button "👁️ Eyes-Driven" [ref=e60] [cursor=pointer]:
+        - generic [ref=e61]: 👁️
+        - generic [ref=e62]: Eyes-Driven
+      - button "✨ Holographic" [ref=e63] [cursor=pointer]:
+        - generic [ref=e64]: ✨
+        - generic [ref=e65]: Holographic
+      - button "◇ Minimal Premium" [ref=e66] [cursor=pointer]:
+        - generic [ref=e67]: ◇
+        - generic [ref=e68]: Minimal Premium
+      - button "🕉️ Mythic Indian" [ref=e69] [cursor=pointer]:
+        - generic [ref=e70]: 🕉️
+        - generic [ref=e71]: Mythic Indian
+      - button "⚡ Sci-Fi Command" [ref=e72] [cursor=pointer]:
+        - generic [ref=e73]: ⚡
+        - generic [ref=e74]: Sci-Fi Command
+      - button "🤖 Character" [ref=e75] [cursor=pointer]:
+        - generic [ref=e76]: 🤖
+        - generic [ref=e77]: Character
+      - button "❄️ IceGirl Live2D" [ref=e78] [cursor=pointer]:
+        - generic [ref=e79]: ❄️
+        - generic [ref=e80]: IceGirl Live2D
+      - button "🎀 Komi Live2D" [ref=e81] [cursor=pointer]:
+        - generic [ref=e82]: 🎀
+        - generic [ref=e83]: Komi Live2D
+      - button "💫 Blitty Rework" [ref=e84] [cursor=pointer]:
+        - generic [ref=e85]: 💫
+        - generic [ref=e86]: Blitty Rework
