@@ -5,6 +5,7 @@ import mimetypes
 import re
 import threading
 from collections import OrderedDict
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -1081,8 +1082,9 @@ class ChatService:
         needed = max(0, len(self._work_locks) - max_entries)
         if needed == 0:
             return
-        candidates = [wid for wid, lock in self._work_locks.items() if not lock.locked()]
-        for wid in candidates[:needed]:
+        unlocked_iter = (wid for wid, lock in self._work_locks.items() if not lock.locked())
+        to_evict = list(islice(unlocked_iter, needed))
+        for wid in to_evict:
             self._work_locks.pop(wid, None)
 
     def _work_lock(self, work_id: str) -> threading.Lock:
