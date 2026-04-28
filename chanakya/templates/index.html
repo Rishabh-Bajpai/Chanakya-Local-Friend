@@ -1341,13 +1341,17 @@
       border: 1px solid #2f2f2f;
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.02);
+      overflow: hidden;
     }
 
-    .tool-option-header {
+    .agent-editor .tool-option-header {
       display: flex;
       align-items: center;
+      align-self: start;
+      flex-wrap: wrap;
       gap: 8px;
       color: var(--text);
+      min-width: 0;
     }
 
     .tool-option input {
@@ -1357,6 +1361,9 @@
     .tool-option-title {
       font-size: 13px;
       font-weight: 600;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .tool-option-meta,
@@ -1366,6 +1373,9 @@
       line-height: 1.45;
       white-space: normal;
       word-break: break-word;
+      overflow-wrap: anywhere;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .tool-option-status-unavailable .tool-option-title {
@@ -1727,6 +1737,19 @@
 
       .worker-prompt-field textarea {
         min-height: 140px;
+      }
+
+      .tool-checkboxes {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .tools-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .agent-editor .tool-option-header {
+        align-items: flex-start;
       }
     }
 

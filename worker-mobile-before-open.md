@@ -1,0 +1,28 @@
+- generic [ref=e2]:
+  - generic [ref=e26]:
+    - generic [ref=e27]: Idle
+    - generic [ref=e28]: Ready to assist
+  - generic [ref=e39]:
+    - generic [ref=e40]:
+      - heading "State Controls" [level=2] [ref=e41]
+      - button "▼" [ref=e42] [cursor=pointer]
+    - generic [ref=e44]:
+      - generic [ref=e45]
+      - generic [ref=e50]
+  - generic:
+    - generic: Chanakya
+    - generic: Advanced AI Assistant
+  - generic [ref=e55]:
+    - generic [ref=e56]:
+      - heading "Visual Style" [level=3] [ref=e57]
+      - button "🎨" [ref=e58] [cursor=pointer]
+    - generic:
+      - button "👁️ Eyes-Driven" [ref=e60] [cursor=pointer]
+      - button "✨ Holographic" [ref=e63] [cursor=pointer]
+      - button "◇ Minimal Premium" [ref=e66] [cursor=pointer]
+      - button "🕉️ Mythic Indian" [ref=e69] [cursor=pointer]
+      - button "⚡ Sci-Fi Command" [ref=e72] [cursor=pointer]
+      - button "🤖 Character" [ref=e75] [cursor=pointer]
+      - button "❄️ IceGirl Live2D" [ref=e78] [cursor=pointer]
+      - button "🎀 Komi Live2D" [ref=e81] [cursor=pointer]
+      - button "💫 Blitty Rework" [ref=e84] [cursor=pointer]
