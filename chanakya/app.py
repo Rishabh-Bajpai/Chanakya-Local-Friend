@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import atexit
 import json
 import queue
 import re
+import signal
 import threading
 from dataclasses import asdict
 from pathlib import Path
@@ -34,6 +36,11 @@ from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
 from chanakya.services.a2a_discovery import discover_a2a_options
+from chanakya.services.mcp_sandbox_exec_server import (
+    prune_stale_work_containers,
+    stop_all_work_containers,
+    stop_container,
+)
 from chanakya.services.mcp_work_tools_server import _create_work
 from chanakya.services.ntfy import (
     NtfyClient,
@@ -45,12 +52,44 @@ from chanakya.services.sandbox_workspace import (
     delete_shared_workspace,
     get_artifact_storage_root,
     get_shared_workspace_root,
-    resolve_shared_workspace,
 )
 from chanakya.services.tool_loader import get_tools_availability
 from chanakya.store import ChanakyaStore
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+_SANDBOX_SHUTDOWN_REGISTERED = False
+_SANDBOX_SIGNAL_HANDLERS_REGISTERED = False
+_PREVIOUS_SIGNAL_HANDLERS: dict[int, Any] = {}
+
+
+def _cleanup_all_sandbox_containers() -> dict[str, Any]:
+    result = stop_all_work_containers()
+    debug_log("sandbox_container_shutdown_cleanup", result)
+    return result
+
+
+def _handle_shutdown_signal(signum: int, frame: Any) -> None:
+    _cleanup_all_sandbox_containers()
+    previous = _PREVIOUS_SIGNAL_HANDLERS.get(signum)
+    if callable(previous):
+        previous(signum, frame)
+        return
+    if previous == signal.SIG_IGN:
+        return
+    raise SystemExit(0)
+
+
+def _register_sandbox_shutdown_cleanup() -> None:
+    global _SANDBOX_SHUTDOWN_REGISTERED, _SANDBOX_SIGNAL_HANDLERS_REGISTERED
+    if not _SANDBOX_SHUTDOWN_REGISTERED:
+        atexit.register(_cleanup_all_sandbox_containers)
+        _SANDBOX_SHUTDOWN_REGISTERED = True
+    if _SANDBOX_SIGNAL_HANDLERS_REGISTERED:
+        return
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        _PREVIOUS_SIGNAL_HANDLERS[signum] = signal.getsignal(signum)
+        signal.signal(signum, _handle_shutdown_signal)
+    _SANDBOX_SIGNAL_HANDLERS_REGISTERED = True
 
 
 def _execution_trace_has_tool_data(execution_trace: dict[str, Any] | None) -> bool:
@@ -302,6 +341,11 @@ def create_app() -> Flask:
     sync_default_agent_tools(store)
     ensure_heartbeat_files(store, BASE_DIR)
     get_shared_workspace_root()
+    _register_sandbox_shutdown_cleanup()
+    valid_work_ids = {str(item.get("id") or "").strip() for item in store.list_works(limit=1000)}
+    valid_work_ids.discard("")
+    sandbox_prune = prune_stale_work_containers(valid_work_ids, remove_running=True)
+    debug_log("sandbox_container_startup_prune", sandbox_prune)
     debug_log(
         "app_initialized",
         {
@@ -978,12 +1022,14 @@ def create_app() -> Flask:
             return jsonify({"error": message}), 404
         for session_id in deleted_session_ids:
             runtime.clear_session_state(session_id)
+        container_cleanup = stop_container(work_id)
         workspace_cleanup = delete_shared_workspace(work_id)
         store.log_event(
             "work_deleted",
             {
                 "work_id": work_id,
                 "session_count": len(deleted_session_ids),
+                "container_cleanup_ok": bool(container_cleanup.get("ok")),
                 "workspace_cleanup_ok": bool(workspace_cleanup.get("ok")),
             },
         )
@@ -991,9 +1037,41 @@ def create_app() -> Flask:
             "deleted": True,
             "work_id": work_id,
             "session_count": len(deleted_session_ids),
+            "container": container_cleanup,
         }
-        if not workspace_cleanup.get("ok"):
-            response["warning"] = {
+        warning: dict[str, Any] | None = None
+        if not container_cleanup.get("ok") and not workspace_cleanup.get("ok"):
+            warning = {
+                "code": "cleanup_failed",
+                "message": "Work deleted, but sandbox container and workspace cleanup failed.",
+                "container": container_cleanup,
+                "workspace": workspace_cleanup,
+            }
+            store.log_event(
+                "work_cleanup_failed",
+                {
+                    "work_id": work_id,
+                    "session_count": len(deleted_session_ids),
+                    "container": container_cleanup,
+                    "workspace": workspace_cleanup,
+                },
+            )
+        elif not container_cleanup.get("ok"):
+            warning = {
+                "code": "container_cleanup_failed",
+                "message": "Work deleted, but sandbox container cleanup failed.",
+                "container": container_cleanup,
+            }
+            store.log_event(
+                "work_container_cleanup_failed",
+                {
+                    "work_id": work_id,
+                    "session_count": len(deleted_session_ids),
+                    "container": container_cleanup,
+                },
+            )
+        elif not workspace_cleanup.get("ok"):
+            warning = {
                 "code": "workspace_cleanup_failed",
                 "message": "Work deleted, but sandbox workspace cleanup failed.",
                 "workspace": workspace_cleanup,
@@ -1006,6 +1084,8 @@ def create_app() -> Flask:
                     "workspace": workspace_cleanup,
                 },
             )
+        if warning is not None:
+            response["warning"] = warning
         return jsonify(response)
 
     @app.get("/api/a2a/options")

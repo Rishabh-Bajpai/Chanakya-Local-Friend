@@ -16,6 +16,7 @@ from chanakya.services.sandbox_workspace import normalize_work_id, resolve_share
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 600
 MAX_OUTPUT_CHARS = 20000
+CONTAINER_NAME_PREFIX = "chanakya-sandbox-"
 SANDBOX_IMAGE = (
     os.getenv("CHANAKYA_SANDBOX_IMAGE")
     or os.getenv("CHANAKYA_SANDBOX_SHELL_IMAGE")
@@ -68,7 +69,14 @@ def _annotate_permission_error(text: str, workspace: Path) -> str:
 
 
 def _container_name(work_id: str | None) -> str:
-    return f"chanakya-sandbox-{normalize_work_id(work_id)}"
+    return f"{CONTAINER_NAME_PREFIX}{normalize_work_id(work_id)}"
+
+
+def _work_id_from_container_name(container_name: str) -> str | None:
+    if not container_name.startswith(CONTAINER_NAME_PREFIX):
+        return None
+    suffix = container_name[len(CONTAINER_NAME_PREFIX) :].strip()
+    return suffix or None
 
 
 def _ensure_workspace_writable(workspace: Path) -> None:
@@ -178,6 +186,156 @@ def _remove_container(runtime: RuntimeSelection, container_name: str) -> None:
         command=[runtime.binary, "rm", "-f", container_name],
         timeout_seconds=30,
     )
+
+
+def _list_work_container_names(runtime: RuntimeSelection) -> list[str]:
+    result = _run_runtime_command(
+        command=[runtime.binary, "ps", "-a", "--format", "{{.Names}}"],
+        timeout_seconds=30,
+    )
+    if result.returncode != 0:
+        output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
+        raise RuntimeError(output or "Failed to list sandbox containers")
+    names = []
+    for line in (result.stdout or "").splitlines():
+        name = line.strip()
+        if name.startswith(CONTAINER_NAME_PREFIX):
+            names.append(name)
+    return names
+
+
+def stop_container(work_id: str | None) -> dict[str, object]:
+    container_name = _container_name(work_id)
+    try:
+        runtime = _select_runtime()
+    except RuntimeError:
+        return {
+            "ok": True,
+            "found": False,
+            "removed": False,
+            "container_name": container_name,
+            "runtime": None,
+        }
+    running = _inspect_container_running(runtime, container_name)
+    if running is None:
+        return {
+            "ok": True,
+            "found": False,
+            "removed": False,
+            "container_name": container_name,
+            "runtime": runtime.engine,
+        }
+    result = _run_runtime_command(
+        command=[runtime.binary, "rm", "-f", container_name],
+        timeout_seconds=30,
+    )
+    output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
+    return {
+        "ok": result.returncode == 0,
+        "found": True,
+        "removed": result.returncode == 0,
+        "container_name": container_name,
+        "runtime": runtime.engine,
+        "output": output,
+        "error": None if result.returncode == 0 else (output or "Failed to remove container"),
+    }
+
+
+def stop_all_work_containers() -> dict[str, object]:
+    try:
+        runtime = _select_runtime()
+    except RuntimeError:
+        return {
+            "ok": True,
+            "runtime": None,
+            "stopped": [],
+            "failed": [],
+        }
+    try:
+        names = _list_work_container_names(runtime)
+    except RuntimeError as exc:
+        return {
+            "ok": False,
+            "runtime": runtime.engine,
+            "stopped": [],
+            "failed": [{"container_name": None, "error": str(exc)}],
+        }
+    stopped: list[dict[str, object]] = []
+    failed: list[dict[str, object]] = []
+    for container_name in names:
+        result = _run_runtime_command(
+            command=[runtime.binary, "rm", "-f", container_name],
+            timeout_seconds=30,
+        )
+        output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
+        payload = {
+            "container_name": container_name,
+            "work_id": _work_id_from_container_name(container_name),
+            "output": output,
+        }
+        if result.returncode == 0:
+            stopped.append(payload)
+        else:
+            failed.append({**payload, "error": output or "Failed to remove container"})
+    return {
+        "ok": not failed,
+        "runtime": runtime.engine,
+        "stopped": stopped,
+        "failed": failed,
+    }
+
+
+def prune_stale_work_containers(
+    valid_work_ids: set[str],
+    *,
+    remove_running: bool = False,
+) -> dict[str, object]:
+    try:
+        runtime = _select_runtime()
+    except RuntimeError:
+        return {
+            "ok": True,
+            "runtime": None,
+            "removed": [],
+            "failed": [],
+        }
+    try:
+        names = _list_work_container_names(runtime)
+    except RuntimeError as exc:
+        return {
+            "ok": False,
+            "runtime": runtime.engine,
+            "removed": [],
+            "failed": [{"container_name": None, "error": str(exc)}],
+        }
+    removed: list[dict[str, object]] = []
+    failed: list[dict[str, object]] = []
+    for container_name in names:
+        work_id = _work_id_from_container_name(container_name)
+        if work_id is None:
+            continue
+        if not remove_running and work_id in valid_work_ids:
+            continue
+        result = _run_runtime_command(
+            command=[runtime.binary, "rm", "-f", container_name],
+            timeout_seconds=30,
+        )
+        output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
+        payload = {
+            "container_name": container_name,
+            "work_id": work_id,
+            "output": output,
+        }
+        if result.returncode == 0:
+            removed.append(payload)
+        else:
+            failed.append({**payload, "error": output or "Failed to remove container"})
+    return {
+        "ok": not failed,
+        "runtime": runtime.engine,
+        "removed": removed,
+        "failed": failed,
+    }
 
 
 def _ensure_persistent_container(

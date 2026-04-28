@@ -135,3 +135,44 @@ def test_run_in_sandbox_reports_container_name_and_cwd(monkeypatch, tmp_path: Pa
     assert result["ok"] is True
     assert result["container_name"] == "chanakya-sandbox-temp"
     assert result["cwd"] == "/workspace"
+
+
+def test_stop_container_returns_not_found_when_runtime_missing(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sandbox_exec,
+        "_select_runtime",
+        lambda: (_ for _ in ()).throw(RuntimeError("missing runtime")),
+    )
+
+    result = sandbox_exec.stop_container("temp")
+
+    assert result["ok"] is True
+    assert result["found"] is False
+    assert result["removed"] is False
+
+
+def test_prune_stale_work_containers_removes_untracked_containers(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sandbox_exec,
+        "_select_runtime",
+        lambda: sandbox_exec.RuntimeSelection(binary="docker", engine="docker"),
+    )
+    monkeypatch.setattr(
+        sandbox_exec,
+        "_list_work_container_names",
+        lambda runtime: ["chanakya-sandbox-cwork_live", "chanakya-sandbox-cwork_stale"],
+    )
+
+    removed_commands: list[list[str]] = []
+
+    def fake_run_runtime_command(*, command: list[str], timeout_seconds: int | None = None):
+        removed_commands.append(command)
+        return subprocess.CompletedProcess(args=command, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(sandbox_exec, "_run_runtime_command", fake_run_runtime_command)
+
+    result = sandbox_exec.prune_stale_work_containers({"cwork_live"})
+
+    assert result["ok"] is True
+    assert [item["work_id"] for item in result["removed"]] == ["cwork_stale"]
+    assert removed_commands == [["docker", "rm", "-f", "chanakya-sandbox-cwork_stale"]]
