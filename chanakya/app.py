@@ -53,6 +53,101 @@ from chanakya.store import ChanakyaStore
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 
+def _execution_trace_has_tool_data(execution_trace: dict[str, Any] | None) -> bool:
+    if not isinstance(execution_trace, dict):
+        return False
+    tool_calls = execution_trace.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls:
+        return True
+    for step in list(execution_trace.get("call_sequence") or []):
+        if not isinstance(step, dict):
+            continue
+        tool_traces = step.get("tool_traces")
+        if isinstance(tool_traces, list) and tool_traces:
+            return True
+    return False
+
+
+def _enrich_execution_trace_with_tool_invocations(
+    execution_trace: dict[str, Any] | None,
+    tool_invocations: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not isinstance(execution_trace, dict) or not tool_invocations:
+        return execution_trace
+    if _execution_trace_has_tool_data(execution_trace):
+        return execution_trace
+    enriched = json.loads(json.dumps(execution_trace))
+    grouped: dict[tuple[str | None, str], list[dict[str, Any]]] = {}
+    for item in tool_invocations:
+        if not isinstance(item, dict):
+            continue
+        agent_id = str(item.get("agent_id") or "").strip() or None
+        agent_name = str(item.get("agent_name") or "Agent").strip() or "Agent"
+        grouped.setdefault((agent_id, agent_name), []).append(
+            {
+                "tool_id": str(item.get("tool_id") or "").strip() or "unknown_tool",
+                "tool_name": str(item.get("tool_name") or "").strip() or "unknown_tool",
+                "server_name": str(item.get("server_name") or "unknown_server").strip() or "unknown_server",
+                "status": str(item.get("status") or "unknown").strip() or "unknown",
+                "input_payload": json.dumps(item.get("input"), ensure_ascii=True, default=str)
+                if item.get("input")
+                else None,
+                "output_text": None if item.get("output") is None else str(item.get("output")),
+                "error_text": None if item.get("error") is None else str(item.get("error")),
+            }
+        )
+    call_sequence = list(enriched.get("call_sequence") or [])
+    tool_calls: list[dict[str, Any]] = []
+    for step in call_sequence:
+        if not isinstance(step, dict):
+            continue
+        if str(step.get("kind") or "") != "participant_turn":
+            continue
+        existing = list(step.get("tool_traces") or [])
+        if existing:
+            tool_calls.append(
+                {
+                    "agent_id": step.get("agent_id"),
+                    "agent_name": step.get("agent_name"),
+                    "agent_role": step.get("agent_role"),
+                    "turn_index": step.get("turn_index"),
+                    "tool_traces": existing,
+                }
+            )
+            continue
+        key = (
+            str(step.get("agent_id") or "").strip() or None,
+            str(step.get("agent_name") or "Agent").strip() or "Agent",
+        )
+        traces = grouped.pop(key, [])
+        if traces:
+            step["tool_traces"] = traces
+            tool_calls.append(
+                {
+                    "agent_id": step.get("agent_id"),
+                    "agent_name": step.get("agent_name"),
+                    "agent_role": step.get("agent_role"),
+                    "turn_index": step.get("turn_index"),
+                    "tool_traces": traces,
+                }
+            )
+    for (agent_id, agent_name), traces in grouped.items():
+        if not traces:
+            continue
+        tool_calls.append(
+            {
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "agent_role": None,
+                "turn_index": None,
+                "tool_traces": traces,
+            }
+        )
+    enriched["call_sequence"] = call_sequence
+    enriched["tool_calls"] = tool_calls
+    return enriched
+
+
 def _default_runtime_config() -> dict[str, Any]:
     defaults = get_conversation_preference_defaults()
     return {
@@ -1145,6 +1240,7 @@ def create_app() -> Flask:
             if not isinstance(manager_result, dict):
                 manager_result = {}
             execution_trace = manager_result.get("execution_trace")
+            request_tool_invocations = store.list_tool_invocations(request_id=request_id, limit=500)
             if not isinstance(execution_trace, dict):
                 visible_messages = manager_result.get("visible_messages")
                 if not isinstance(visible_messages, list):
@@ -1190,6 +1286,10 @@ def create_app() -> Flask:
                         "completion": completion_payload,
                         "prompt_refs": {},
                     }
+            execution_trace = _enrich_execution_trace_with_tool_invocations(
+                execution_trace,
+                request_tool_invocations,
+            )
             group_chat_runs.append(
                 {
                     "request_id": request_id,

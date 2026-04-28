@@ -109,6 +109,12 @@ class _FakeWorkflow:
         return _FakeWorkflowResult([self._builder(seeded)])
 
 
+class _TracedFakeWorkflow(_FakeWorkflow):
+    def __init__(self, builder, trace: RuntimeGroupChatTrace) -> None:
+        super().__init__(builder)
+        self._chanakya_group_chat_trace = trace
+
+
 def _build_store() -> ChanakyaStore:
     engine = build_engine("sqlite:///:memory:")
     init_database(engine)
@@ -752,6 +758,88 @@ def test_group_chat_retries_with_sanitized_user_seed_after_missing_user_query_fa
     assert reply.root_task_status == TASK_STATUS_DONE
     assert "/workspace/rishabh_bajpai_merged.txt" in reply.messages[-1]["text"]
     assert call_count["count"] == 2
+
+
+def test_delegated_tool_traces_are_persisted_and_counted() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_tool_trace")
+    manager = _TrackingManager(store, store.Session, manager_profile)
+    trace = RuntimeGroupChatTrace(
+        manager_decisions=[
+            {
+                "round_index": 0,
+                "call_input": {"input_messages": [], "available_tools": []},
+                "decision": {
+                    "terminate": False,
+                    "reason": "Developer should write the file.",
+                    "next_speaker": "Developer",
+                    "final_message": None,
+                },
+                "response_messages": [],
+                "raw_response_text": '{"terminate":false}',
+            },
+            {
+                "round_index": 1,
+                "call_input": {"input_messages": [], "available_tools": []},
+                "decision": {
+                    "terminate": True,
+                    "reason": "Work complete.",
+                    "next_speaker": None,
+                    "final_message": '{"status":"completed","summary":"Saved report."}',
+                },
+                "response_messages": [],
+                "raw_response_text": '{"terminate":true}',
+            },
+        ],
+        participant_calls=[
+            {
+                "agent_id": "agent_developer",
+                "agent_name": "Developer",
+                "agent_role": "developer",
+                "prompt_ref": "participant:agent_developer",
+                "call_input": {"input_messages": [], "available_tools": []},
+                "response_messages": [
+                    {"role": "assistant", "author_name": "Developer", "text": "Saved report to /workspace/report.md", "content_types": []},
+                ],
+                "tool_traces": [
+                    {
+                        "tool_id": "mcp_filesystem",
+                        "tool_name": "Filesystem",
+                        "server_name": "basic",
+                        "status": "succeeded",
+                        "input_payload": '{"path":"/workspace/report.md"}',
+                        "output_text": '"ok"',
+                        "error_text": None,
+                    }
+                ],
+            }
+        ],
+    )
+
+    manager._build_work_group_chat_workflow = lambda **kwargs: _TracedFakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(role="assistant", text="Saved report to /workspace/report.md", author_name="Developer"),
+            Message(role="assistant", text='{"status":"completed","summary":"Saved report."}', author_name="Agent Manager"),
+        ],
+        trace,
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(work_session_id, "Write and save a report", work_id="work_tool_trace")
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert reply.tool_calls_used == 1
+    traces = store.list_tool_invocations(request_id=reply.request_id, limit=20)
+    assert len(traces) == 1
+    assert traces[0]["agent_id"] == "agent_developer"
+    assert traces[0]["agent_name"] == "Developer"
+    events = store.list_task_events(session_id=work_session_id)
+    persisted_event = next(item for item in events if item.get("event_type") == "response_persisted")
+    assert persisted_event["payload"]["tool_calls_used"] == 1
 
 
 def test_group_chat_completed_without_result_is_rejected() -> None:

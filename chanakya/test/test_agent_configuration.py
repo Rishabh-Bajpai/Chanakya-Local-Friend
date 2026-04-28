@@ -9,7 +9,7 @@ from pytest import MonkeyPatch
 
 import chanakya.app as app_module
 from chanakya.agent_manager import AgentManager, ManagerRunResult, WORKFLOW_INFORMATION
-from chanakya.app import create_app
+from chanakya.app import create_app, _enrich_execution_trace_with_tool_invocations
 from chanakya.db import build_engine, build_session_factory
 from chanakya.domain import ChatReply, TASK_STATUS_DONE, now_iso
 from chanakya.model import ArtifactModel, ChatMessageModel, TemporaryAgentModel, WorkAgentSessionModel
@@ -997,6 +997,43 @@ def test_work_history_api_reports_active_runtime_and_artifact_lineage(
     assert history_payload["active_runtime"]["reload_reproducible"] is True
     assert history_payload["artifacts"][0]["origin_request_id"] == "req_origin"
     assert history_payload["artifacts"][0]["request_relation"] == "updated_in_later_request"
+
+
+def test_enrich_execution_trace_with_tool_invocations_repairs_missing_tool_data() -> None:
+    execution_trace = {
+        "workflow_type": "work_group_chat",
+        "tool_calls": [],
+        "call_sequence": [
+            {
+                "kind": "participant_turn",
+                "agent_id": "agent_writer",
+                "agent_name": "Writer",
+                "agent_role": "writer",
+                "turn_index": 0,
+                "tool_traces": [],
+            }
+        ],
+    }
+    tool_invocations = [
+        {
+            "agent_id": "agent_writer",
+            "agent_name": "Writer",
+            "tool_id": "mcp_filesystem",
+            "tool_name": "Filesystem",
+            "server_name": "basic",
+            "status": "succeeded",
+            "input": {"raw": '{"path":"/workspace/out.md"}'},
+            "output": '"ok"',
+            "error": None,
+        }
+    ]
+
+    enriched = _enrich_execution_trace_with_tool_invocations(execution_trace, tool_invocations)
+
+    assert enriched is not None
+    assert len(enriched["tool_calls"]) == 1
+    assert enriched["tool_calls"][0]["agent_id"] == "agent_writer"
+    assert enriched["call_sequence"][0]["tool_traces"][0]["tool_id"] == "mcp_filesystem"
 
 
 def test_work_session_mapping_is_unique_per_agent(

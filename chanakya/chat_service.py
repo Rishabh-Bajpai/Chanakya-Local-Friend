@@ -233,6 +233,115 @@ class ChatService:
         except TypeError:
             return self.runtime.runtime_metadata()
 
+    @staticmethod
+    def _normalize_direct_tool_trace_records(run_result: Any) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for trace in list(getattr(run_result, "tool_traces", []) or []):
+            records.append(
+                {
+                    "agent_id": None,
+                    "agent_name": None,
+                    "agent_role": None,
+                    "tool_id": trace.tool_id,
+                    "tool_name": trace.tool_name,
+                    "server_name": trace.server_name,
+                    "status": trace.status,
+                    "input_payload": trace.input_payload,
+                    "output_text": trace.output_text,
+                    "error_text": trace.error_text,
+                }
+            )
+        return records
+
+    @staticmethod
+    def _normalize_delegated_tool_trace_records(manager_result: Any) -> list[dict[str, Any]]:
+        result_json = getattr(manager_result, "result_json", None)
+        if not isinstance(result_json, dict):
+            return []
+        execution_trace = result_json.get("execution_trace")
+        if not isinstance(execution_trace, dict):
+            return []
+        normalized: list[dict[str, Any]] = []
+        tool_calls = execution_trace.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for item in tool_calls:
+                if not isinstance(item, dict):
+                    continue
+                for trace in list(item.get("tool_traces") or []):
+                    if not isinstance(trace, dict):
+                        continue
+                    normalized.append(
+                        {
+                            "agent_id": item.get("agent_id"),
+                            "agent_name": item.get("agent_name"),
+                            "agent_role": item.get("agent_role"),
+                            "tool_id": trace.get("tool_id"),
+                            "tool_name": trace.get("tool_name"),
+                            "server_name": trace.get("server_name"),
+                            "status": trace.get("status"),
+                            "input_payload": trace.get("input_payload"),
+                            "output_text": trace.get("output_text"),
+                            "error_text": trace.get("error_text"),
+                        }
+                    )
+        return normalized
+
+    def _persist_tool_trace_records(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        root_task_id: str,
+        records: list[dict[str, Any]],
+        fallback_agent_id: str,
+        fallback_agent_name: str,
+    ) -> list[str]:
+        tool_trace_ids: list[str] = []
+        for record in records:
+            tool_id = str(record.get("tool_id") or "").strip()
+            tool_name = str(record.get("tool_name") or "").strip()
+            server_name = str(record.get("server_name") or "unknown_server").strip() or "unknown_server"
+            status = str(record.get("status") or "unknown").strip() or "unknown"
+            if not tool_id or not tool_name:
+                continue
+            invocation_id = make_id("tinv")
+            tool_trace_ids.append(invocation_id)
+            self.store.create_tool_invocation(
+                invocation_id=invocation_id,
+                request_id=request_id,
+                session_id=session_id,
+                agent_id=str(record.get("agent_id") or "").strip() or fallback_agent_id,
+                agent_name=str(record.get("agent_name") or "").strip() or fallback_agent_name,
+                tool_id=tool_id,
+                tool_name=tool_name,
+                server_name=server_name,
+                status=status,
+                input_json={"raw": record.get("input_payload")} if record.get("input_payload") else {},
+            )
+            self.store.finish_tool_invocation(
+                invocation_id,
+                status=status,
+                output_text=(None if record.get("output_text") is None else str(record.get("output_text"))),
+                error_text=(None if record.get("error_text") is None else str(record.get("error_text"))),
+            )
+            self.store.create_task_event(
+                session_id=session_id,
+                request_id=request_id,
+                task_id=root_task_id,
+                event_type="tool_trace_recorded",
+                payload={
+                    "invocation_id": invocation_id,
+                    "tool_id": tool_id,
+                    "tool_name": tool_name,
+                    "server_name": server_name,
+                    "status": status,
+                    "agent_id": str(record.get("agent_id") or "").strip() or fallback_agent_id,
+                    "agent_name": str(record.get("agent_name") or "").strip() or fallback_agent_name,
+                    "agent_role": str(record.get("agent_role") or "").strip() or None,
+                },
+            )
+        return tool_trace_ids
+
     def _runtime_run(
         self,
         session_id: str,
@@ -1630,49 +1739,23 @@ class ChatService:
             )
 
         # ---- persist tool invocation traces ----
-        tool_trace_ids: list[str] = []
-        if run_result is not None:
-            for trace in run_result.tool_traces:
-                invocation_id = make_id("tinv")
-                tool_trace_ids.append(invocation_id)
-                self.store.create_tool_invocation(
-                    invocation_id=invocation_id,
-                    request_id=request_id,
-                    session_id=session_id,
-                    agent_id=self.runtime.profile.id,
-                    agent_name=self.runtime.profile.name,
-                    tool_id=trace.tool_id,
-                    tool_name=trace.tool_name,
-                    server_name=trace.server_name,
-                    status=trace.status,
-                    input_json={"raw": trace.input_payload} if trace.input_payload else {},
-                )
-                self.store.finish_tool_invocation(
-                    invocation_id,
-                    status=trace.status,
-                    output_text=trace.output_text,
-                    error_text=trace.error_text,
-                )
-                self.store.create_task_event(
-                    session_id=session_id,
-                    request_id=request_id,
-                    task_id=root_task_id,
-                    event_type="tool_trace_recorded",
-                    payload={
-                        "invocation_id": invocation_id,
-                        "tool_id": trace.tool_id,
-                        "tool_name": trace.tool_name,
-                        "server_name": trace.server_name,
-                        "status": trace.status,
-                    },
-                )
+        direct_tool_records = [] if run_result is None else self._normalize_direct_tool_trace_records(run_result)
+        delegated_tool_records = [] if manager_result is None else self._normalize_delegated_tool_trace_records(manager_result)
+        tool_trace_ids = self._persist_tool_trace_records(
+            session_id=session_id,
+            request_id=request_id,
+            root_task_id=root_task_id,
+            records=direct_tool_records if direct_tool_records else delegated_tool_records,
+            fallback_agent_id=self.runtime.profile.id,
+            fallback_agent_name=self.runtime.profile.name,
+        )
 
         if manager_result is not None:
             route = "delegated_manager"
             final_message = manager_result.text
             response_mode = manager_result.workflow_type
             task_status = manager_result.task_status
-            direct_tool_calls_used = 0
+            direct_tool_calls_used = len(delegated_tool_records)
             result_json = manager_result.result_json
             waiting_task_id = manager_result.waiting_task_id
             manager_visible_messages = list(manager_result.visible_messages or [])
@@ -1733,7 +1816,7 @@ class ChatService:
                 visible_metadata = {
                     "runtime": "maf_agent",
                     "response_mode": response_mode,
-                    "tool_calls_used": 0,
+                    "tool_calls_used": direct_tool_calls_used,
                     "root_task_id": root_task_id,
                     "request_status": request_status,
                     "task_status": task_status,
@@ -2274,6 +2357,16 @@ class ChatService:
         request_status = self._request_status_from_task_status(result.task_status)
         finished_at = None if result.task_status == TASK_STATUS_WAITING_INPUT else now_iso()
         visible_messages = list(result.visible_messages or [])
+        delegated_tool_records = self._normalize_delegated_tool_trace_records(result)
+        tool_trace_ids = self._persist_tool_trace_records(
+            session_id=session_id,
+            request_id=request.id,
+            root_task_id=root_task_id,
+            records=delegated_tool_records,
+            fallback_agent_id=self.runtime.profile.id,
+            fallback_agent_name=self.runtime.profile.name,
+        )
+        delegated_tool_calls_used = len(delegated_tool_records)
         if result.task_status == TASK_STATUS_WAITING_INPUT and result.input_prompt:
             group_chat_state = result.result_json.get("group_chat_state") if isinstance(result.result_json, dict) else None
             self._set_root_group_chat_state(root_task_id, group_chat_state)
@@ -2301,7 +2394,7 @@ class ChatService:
                     "runtime": "maf_agent",
                     "core_agent_backend": str(runtime_meta.get("backend") or "local"),
                     "response_mode": result.workflow_type,
-                    "tool_calls_used": 0,
+                    "tool_calls_used": delegated_tool_calls_used,
                     "root_task_id": root_task_id,
                     "request_status": request_status,
                     "task_status": result.task_status,
@@ -2348,7 +2441,7 @@ class ChatService:
                     "runtime": "maf_agent",
                     "core_agent_backend": str(runtime_meta.get("backend") or "local"),
                     "response_mode": result.workflow_type,
-                    "tool_calls_used": 0,
+                    "tool_calls_used": delegated_tool_calls_used,
                     "root_task_id": root_task_id,
                     "request_status": request_status,
                     "task_status": result.task_status,
@@ -2382,7 +2475,7 @@ class ChatService:
                 "runtime": "maf_agent",
                 "core_agent_backend": str(runtime_meta.get("backend") or "local"),
                 "response_mode": result.workflow_type,
-                "tool_calls_used": 0,
+                "tool_calls_used": delegated_tool_calls_used,
                 "root_task_id": root_task_id,
                 "request_status": request_status,
                 "task_status": result.task_status,
@@ -2452,7 +2545,7 @@ class ChatService:
                 payload={
                     "route": "delegated_manager",
                     "response_mode": result.workflow_type,
-                    "tool_calls_used": 0,
+                    "tool_calls_used": delegated_tool_calls_used,
                 },
             )
         self.store.create_task_event(
@@ -2497,8 +2590,8 @@ class ChatService:
             runtime="maf_agent",
             agent_name=self.runtime.profile.name,
             response_mode=result.workflow_type,
-            tool_calls_used=0,
-            tool_trace_ids=[],
+            tool_calls_used=delegated_tool_calls_used,
+            tool_trace_ids=tool_trace_ids,
             requires_input=result.task_status == TASK_STATUS_WAITING_INPUT,
             waiting_task_id=result.waiting_task_id,
             input_prompt=result.input_prompt,
