@@ -1058,12 +1058,14 @@
       margin-bottom: 14px;
       padding-bottom: 14px;
       border-bottom: 1px solid var(--line);
+      min-width: 0;
     }
 
     .agent-editor-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
+      min-width: 0;
     }
 
     .agent-editor label {
@@ -1098,8 +1100,7 @@
       flex-wrap: wrap;
     }
 
-    .agent-flags label,
-    .tool-checkboxes label {
+    .agent-flags label {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -1107,9 +1108,461 @@
     }
 
     .tool-checkboxes {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 10px;
+    }
+
+    .worker-manager {
+      display: grid;
+      grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+      gap: 14px;
+      min-width: 0;
+      align-items: start;
+    }
+
+    .worker-directory,
+    .worker-editor-shell {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .worker-directory-header,
+    .worker-editor-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .worker-section-kicker {
+      margin: 0 0 4px;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #9adfff;
+    }
+
+    .worker-section-title {
+      margin: 0;
+      font-size: 20px;
+      color: #eef6ff;
+      line-height: 1.15;
+    }
+
+    .worker-section-copy {
+      margin: 4px 0 0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .worker-directory-actions,
+    .worker-editor-actions {
+      display: flex;
       flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .worker-filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .worker-filter-chip {
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.035);
+      color: #dce6f4;
+      padding: 7px 11px;
+      font: inherit;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+
+    .worker-filter-chip[aria-pressed="true"] {
+      background: rgba(79, 215, 255, 0.12);
+      border-color: rgba(79, 215, 255, 0.24);
+      color: #eef9ff;
+    }
+
+    .worker-directory-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .worker-card {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+      cursor: pointer;
+      min-width: 0;
+      transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+    }
+
+    .worker-card:hover {
+      border-color: rgba(79, 215, 255, 0.22);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025));
+      transform: translateY(-1px);
+    }
+
+    .worker-card.is-selected {
+      border-color: rgba(216, 107, 74, 0.42);
+      box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.24);
+      background: linear-gradient(180deg, rgba(216, 107, 74, 0.09), rgba(255, 255, 255, 0.03));
+    }
+
+    .worker-card-topline {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .worker-card-title-block {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .worker-card-title {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.2;
+      color: #eef6ff;
+      overflow-wrap: anywhere;
+    }
+
+    .worker-card-subtitle {
+      font-size: 12px;
+      color: #9fb6cb;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      overflow-wrap: anywhere;
+    }
+
+    .worker-status-badge {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(255, 255, 255, 0.05);
+      color: #dce6f4;
+    }
+
+    .worker-status-badge.is-inactive {
+      color: #ffb3b3;
+      border-color: rgba(231, 76, 60, 0.22);
+      background: rgba(231, 76, 60, 0.08);
+    }
+
+    .worker-card-summary {
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .worker-card-metrics,
+    .worker-card-tools,
+    .worker-editor-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .worker-metric,
+    .worker-tool-chip,
+    .worker-summary-chip {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      max-width: 100%;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: rgba(79, 215, 255, 0.08);
+      color: #cfefff;
+      font-size: 11px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: normal;
+    }
+
+    .worker-metric {
+      background: rgba(255, 255, 255, 0.05);
+      color: #dce6f4;
+    }
+
+    .worker-directory-empty {
+      padding: 18px 14px;
+      border: 1px dashed rgba(255, 255, 255, 0.10);
+      border-radius: 16px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .worker-editor-summary {
+      padding: 2px 0 4px;
+    }
+
+    .worker-mobile-back {
+      display: none;
+    }
+
+    .worker-prompt-field textarea {
+      min-height: 180px;
+    }
+
+    .tool-option {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 12px;
+      border: 1px solid #2f2f2f;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.02);
+      overflow: hidden;
+    }
+
+    .agent-editor .tool-option-header {
+      display: flex;
+      align-items: center;
+      align-self: start;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--text);
+      min-width: 0;
+    }
+
+    .tool-option input {
+      margin: 0;
+    }
+
+    .tool-option-title {
+      font-size: 13px;
+      font-weight: 600;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .tool-option-meta,
+    .tool-option-functions {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+      white-space: normal;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .tool-option-status-unavailable .tool-option-title {
+      color: #ffb3b3;
+    }
+
+    .tools-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      min-width: 0;
+    }
+
+    .mcp-panel {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .mcp-panel-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+      padding: 14px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(79, 215, 255, 0.06), rgba(255, 255, 255, 0.02));
+    }
+
+    .mcp-panel-kicker {
+      margin: 0 0 4px;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #9adfff;
+    }
+
+    .mcp-panel-copy {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+
+    .mcp-panel-path {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: #d6d1ca;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+
+    .mcp-config-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr);
+      gap: 12px;
+      align-items: start;
+      min-width: 0;
+    }
+
+    .mcp-editor-card,
+    .mcp-preview-card {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .mcp-section-title {
+      margin: 0;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #d5d0ca;
+    }
+
+    .mcp-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .mcp-editor-card textarea {
+      min-height: 320px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .mcp-preview-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .mcp-server-card {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(7, 12, 22, 0.34);
+    }
+
+    .mcp-server-topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .mcp-server-id {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      word-break: break-word;
+      min-width: 0;
+    }
+
+    .mcp-server-transport {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #9adfff;
+      white-space: nowrap;
+    }
+
+    .mcp-server-command,
+    .mcp-server-meta {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--muted);
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+
+    .mcp-server-functions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .mcp-server-function {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(79, 215, 255, 0.08);
+      color: #c8f1ff;
+      font-size: 11px;
+      max-width: 100%;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: normal;
+    }
+
+    .mcp-panel textarea,
+    .mcp-panel button,
+    .tool-option,
+    .tool-option-meta,
+    .tool-option-functions {
+      min-width: 0;
+    }
+
+    .mcp-preview-empty {
+      padding: 18px 10px;
+      border: 1px dashed rgba(255, 255, 255, 0.10);
+      border-radius: 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
     }
 
     .form-actions {
@@ -1218,6 +1671,85 @@
 
       .agent-editor-grid {
         grid-template-columns: 1fr;
+      }
+
+      .mcp-config-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .mcp-panel-header {
+        flex-direction: column;
+      }
+
+      .mcp-actions {
+        width: 100%;
+      }
+
+      .mcp-actions button {
+        flex: 1 1 160px;
+      }
+
+      .worker-manager {
+        grid-template-columns: 1fr;
+      }
+
+      .worker-directory-header,
+      .worker-editor-header,
+      .worker-card-topline {
+        flex-direction: column;
+      }
+
+      .worker-directory-actions,
+      .worker-editor-actions {
+        width: 100%;
+        justify-content: stretch;
+      }
+
+      .worker-directory-actions button,
+      .worker-editor-actions button {
+        flex: 1 1 140px;
+      }
+
+      .worker-mobile-back {
+        display: inline-flex;
+      }
+
+      .worker-manager.mobile-editing .worker-directory {
+        display: none;
+      }
+
+      .worker-manager:not(.mobile-editing) .worker-editor-shell {
+        display: none;
+      }
+
+      .worker-editor-shell {
+        padding: 12px;
+      }
+
+      .worker-directory,
+      .worker-editor-shell {
+        border-radius: 16px;
+      }
+
+      .worker-section-title {
+        font-size: 18px;
+      }
+
+      .worker-prompt-field textarea {
+        min-height: 140px;
+      }
+
+      .tool-checkboxes {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .tools-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .agent-editor .tool-option-header {
+        align-items: flex-start;
       }
     }
 
@@ -1910,6 +2442,7 @@
     .config-shell {
       display: none;
       min-height: 0;
+      min-width: 0;
       border: 1px solid rgba(255, 255, 255, 0.07);
       border-radius: 30px;
       background:
@@ -1933,6 +2466,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+      min-width: 0;
       padding: 20px 22px 18px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       background:
@@ -1954,6 +2488,7 @@
       margin: 4px 0 0;
       font-size: 13px;
       color: #a7bacd;
+      overflow-wrap: anywhere;
     }
 
     .config-shell-body {
@@ -1961,6 +2496,7 @@
       grid-auto-rows: min-content;
       gap: 16px;
       min-height: 0;
+      min-width: 0;
       max-height: 100%;
       overflow-y: auto;
       overscroll-behavior: contain;
@@ -1988,6 +2524,7 @@
     }
 
     .config-shell .sidebar-panel {
+      min-width: 0;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 24px;
       background:
@@ -2029,6 +2566,7 @@
     .config-shell .agent-editor,
     .config-shell .runtime-pref-card,
     .config-shell .notification-qr {
+      min-width: 0;
       background: rgba(255, 255, 255, 0.03);
       border-color: rgba(255, 255, 255, 0.10);
     }
@@ -2582,6 +3120,46 @@
         padding: 16px;
       }
 
+      .config-shell {
+        border-radius: 24px;
+      }
+
+      .config-shell-header {
+        padding: 16px 16px 14px;
+      }
+
+      .config-shell-title {
+        font-size: 1.42rem;
+      }
+
+      .config-shell-body {
+        padding: 14px 12px 18px;
+        scrollbar-gutter: auto;
+      }
+
+      .config-shell .sidebar-panel {
+        border-radius: 20px;
+      }
+
+      .config-shell .sidebar-panel-header {
+        padding: 16px;
+      }
+
+      .config-shell .sidebar-panel-body {
+        padding: 0 12px 14px;
+      }
+
+      .mcp-panel-header,
+      .mcp-editor-card,
+      .mcp-preview-card {
+        padding: 12px;
+      }
+
+      .mcp-server-topline {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
       .hero-stage {
         min-height: 280px;
         padding: 20px 16px 10px;
@@ -3078,56 +3656,131 @@
           <svg class="sidebar-panel-chevron" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/></svg>
         </div>
         <div class="sidebar-panel-body">
-          <form id="agentForm" class="agent-editor">
-            <div class="agent-editor-grid">
-              <label>
-                Name
-                <input id="agentName" type="text" required />
-              </label>
-              <label>
-                Role
-                <input id="agentRole" type="text" required placeholder="builder, tester, researcher..." />
-              </label>
-            </div>
-            <label>
-              System Prompt
-              <textarea id="agentSystemPrompt" required></textarea>
-            </label>
-            <label>
-              Personality
-              <input id="agentPersonality" type="text" placeholder="calm, direct, task-oriented" />
-            </label>
-            <div class="agent-editor-grid">
-              <label>
-                Workspace
-                <input id="agentWorkspace" type="text" placeholder="dev-workspace" />
-              </label>
-              <label>
-                Heartbeat File Path
-                <input id="agentHeartbeatFilePath" type="text" placeholder="chanakya_data/heartbeats/developer.md" />
-              </label>
-            </div>
-            <div class="agent-editor-grid">
-              <label>
-                Heartbeat Interval Seconds
-                <input id="agentHeartbeatInterval" type="number" min="1" value="300" />
-              </label>
+          <div id="workerManager" class="worker-manager">
+            <section class="worker-directory">
+              <div class="worker-directory-header">
+                <div>
+                  <p class="worker-section-kicker">Worker Directory</p>
+                  <h3 class="worker-section-title">Team roster</h3>
+                  <p class="worker-section-copy">Scan active specialists, inspect their capabilities, and jump into editing with one tap.</p>
+                </div>
+                <div class="worker-directory-actions">
+                  <button id="workerCreateButton" type="button" class="air-button">New Worker</button>
+                </div>
+              </div>
+              <div id="workerFilterRow" class="worker-filter-row" role="toolbar" aria-label="Filter workers"></div>
+              <div id="agentList" class="worker-directory-list"></div>
+            </section>
+            <section class="worker-editor-shell">
+              <div class="worker-editor-header">
+                <div>
+                  <p id="workerEditorKicker" class="worker-section-kicker">Create Worker</p>
+                  <h3 id="workerEditorTitle" class="worker-section-title">Worker details</h3>
+                  <p id="workerEditorCopy" class="worker-section-copy">Set role, tools, and prompt guidance for the selected worker.</p>
+                </div>
+                <div class="worker-editor-actions">
+                  <button id="workerBackButton" type="button" class="button-secondary worker-mobile-back">Back to list</button>
+                </div>
+              </div>
+              <div id="workerEditorSummary" class="worker-editor-summary"></div>
+              <form id="agentForm" class="agent-editor">
+                <div class="agent-editor-grid">
+                  <label>
+                    Name
+                    <input id="agentName" type="text" required />
+                  </label>
+                  <label>
+                    Role
+                    <input id="agentRole" type="text" required placeholder="builder, tester, researcher..." />
+                  </label>
+                </div>
+                <label class="worker-prompt-field">
+                  System Prompt
+                  <textarea id="agentSystemPrompt" required></textarea>
+                </label>
+                <label>
+                  Personality
+                  <input id="agentPersonality" type="text" placeholder="calm, direct, task-oriented" />
+                </label>
+                <div class="agent-editor-grid">
+                  <label>
+                    Workspace
+                    <input id="agentWorkspace" type="text" placeholder="dev-workspace" />
+                  </label>
+                  <label>
+                    Heartbeat File Path
+                    <input id="agentHeartbeatFilePath" type="text" placeholder="chanakya_data/heartbeats/developer.md" />
+                  </label>
+                </div>
+                <div class="agent-editor-grid">
+                  <label>
+                    Heartbeat Interval Seconds
+                    <input id="agentHeartbeatInterval" type="number" min="1" value="300" />
+                  </label>
+                  <div>
+                    <div class="tools-header">
+                      <div id="agentToolsLabel" class="status-text">Allowed Tools</div>
+                      <button id="reloadToolsButton" type="button" class="button-secondary">Reload MCPs</button>
+                    </div>
+                    <div id="agentToolOptions" class="tool-checkboxes"></div>
+                  </div>
+                </div>
+                <div class="agent-flags">
+                  <label><input id="agentIsActive" type="checkbox" checked /> Active</label>
+                  <label><input id="agentHeartbeatEnabled" type="checkbox" /> Heartbeat Enabled</label>
+                </div>
+                <div class="form-actions">
+                  <button id="agentSaveButton" type="submit">Create Worker</button>
+                  <button id="agentResetButton" type="button" class="button-secondary">Clear Editor</button>
+                  <span id="agentFormStatus" class="status-text"></span>
+                </div>
+              </form>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-panel collapsed" data-sidebar-panel="mcps">
+        <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
+          <div class="sidebar-panel-title">
+            <span class="panel-icon">🧩</span>
+            MCPs
+          </div>
+          <svg class="sidebar-panel-chevron" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z"/></svg>
+        </div>
+        <div class="sidebar-panel-body">
+          <div class="mcp-panel">
+            <div class="mcp-panel-header">
               <div>
-                <div class="status-text">Allowed Tools</div>
-                <div id="agentToolOptions" class="tool-checkboxes"></div>
+                <p class="mcp-panel-kicker">Unified MCP Registry</p>
+                <p class="mcp-panel-copy">Add or edit MCP server definitions here, save the config, then reload to make them assignable to workers.</p>
+                <p id="mcpConfigPath" class="mcp-panel-path"></p>
+              </div>
+              <div class="mcp-actions">
+                <button id="mcpConfigSaveButton" type="button" class="air-button">Save Config</button>
+                <button id="mcpConfigSaveReloadButton" type="button" class="button-secondary">Save + Reload</button>
+                <button id="mcpConfigReloadButton" type="button" class="button-secondary">Reload Only</button>
               </div>
             </div>
-            <div class="agent-flags">
-              <label><input id="agentIsActive" type="checkbox" checked /> Active</label>
-              <label><input id="agentHeartbeatEnabled" type="checkbox" /> Heartbeat Enabled</label>
+            <div class="mcp-config-grid">
+              <div class="mcp-editor-card">
+                <p class="mcp-section-title">Config JSON</p>
+                <textarea id="mcpConfigEditor" spellcheck="false" placeholder='{
+  "mcpServers": {
+    "example": {
+      "command": "uvx",
+      "args": ["example-mcp-server"]
+    }
+  }
+}'></textarea>
+                <span id="mcpConfigStatus" class="status-text"></span>
+              </div>
+              <div class="mcp-preview-card">
+                <p class="mcp-section-title">Configured Servers</p>
+                <div id="mcpServerPreview" class="mcp-preview-list"></div>
+              </div>
             </div>
-            <div class="form-actions">
-              <button id="agentSaveButton" type="submit">Create Worker</button>
-              <button id="agentResetButton" type="button" class="button-secondary">New Worker</button>
-              <span id="agentFormStatus" class="status-text"></span>
-            </div>
-          </form>
-          <div id="agentList"></div>
+          </div>
         </div>
       </div>
 
@@ -3344,6 +3997,14 @@
     const notificationQrImage = document.getElementById("notificationQrImage");
     const notificationDeepLink = document.getElementById("notificationDeepLink");
     const agentList = document.getElementById("agentList");
+    const workerManager = document.getElementById("workerManager");
+    const workerFilterRow = document.getElementById("workerFilterRow");
+    const workerCreateButton = document.getElementById("workerCreateButton");
+    const workerBackButton = document.getElementById("workerBackButton");
+    const workerEditorKicker = document.getElementById("workerEditorKicker");
+    const workerEditorTitle = document.getElementById("workerEditorTitle");
+    const workerEditorCopy = document.getElementById("workerEditorCopy");
+    const workerEditorSummary = document.getElementById("workerEditorSummary");
     const agentForm = document.getElementById("agentForm");
     const agentName = document.getElementById("agentName");
     const agentRole = document.getElementById("agentRole");
@@ -3355,9 +4016,18 @@
     const agentIsActive = document.getElementById("agentIsActive");
     const agentHeartbeatEnabled = document.getElementById("agentHeartbeatEnabled");
     const agentToolOptions = document.getElementById("agentToolOptions");
+    const agentToolsLabel = document.getElementById("agentToolsLabel");
+    const reloadToolsButton = document.getElementById("reloadToolsButton");
     const agentSaveButton = document.getElementById("agentSaveButton");
     const agentResetButton = document.getElementById("agentResetButton");
     const agentFormStatus = document.getElementById("agentFormStatus");
+    const mcpConfigPath = document.getElementById("mcpConfigPath");
+    const mcpConfigEditor = document.getElementById("mcpConfigEditor");
+    const mcpConfigStatus = document.getElementById("mcpConfigStatus");
+    const mcpServerPreview = document.getElementById("mcpServerPreview");
+    const mcpConfigSaveButton = document.getElementById("mcpConfigSaveButton");
+    const mcpConfigSaveReloadButton = document.getElementById("mcpConfigSaveReloadButton");
+    const mcpConfigReloadButton = document.getElementById("mcpConfigReloadButton");
     const chatShell = document.getElementById("chatShell");
     const heroChatToggle = document.getElementById("heroChatToggle");
     const heroAvatarStage = document.getElementById("heroAvatarStage");
@@ -3386,6 +4056,7 @@
     let airVoiceController = null;
     const CALL_MODE_VIEW_KEY = "chanakya-call-mode-view";
     let preferredCallModeView = false;
+    let mcpConfigDirty = false;
 
     function loadStoredCallModeView() {
       try {
@@ -3564,6 +4235,8 @@
     preferredCallModeView = loadStoredCallModeView();
     let sessionId = null;
     let selectedAgentId = null;
+    let agentFilter = "all";
+    let allAgents = [];
     let availableTools = [];
     let a2aDiscoveredOptions = { remote_agents: [], providers: [], models: [] };
     let a2aDiscoveryHealthy = false;
@@ -5429,6 +6102,151 @@
       notificationStatus.style.color = isError ? "var(--red)" : "var(--muted)";
     }
 
+    function setMcpConfigStatus(text, isError = false) {
+      if (!mcpConfigStatus) {
+        return;
+      }
+      mcpConfigStatus.textContent = text || "";
+      mcpConfigStatus.style.color = isError ? "var(--red)" : "var(--muted)";
+    }
+
+    function collectMcpServerPreview(rawText) {
+      try {
+        const parsed = JSON.parse(rawText || "{}");
+        const servers = parsed && typeof parsed === "object" && parsed.mcpServers && typeof parsed.mcpServers === "object"
+          ? parsed.mcpServers
+          : {};
+        return Object.entries(servers)
+          .filter(([serverId, details]) => typeof serverId === "string" && serverId.trim() && details && typeof details === "object")
+          .map(([serverId, details]) => ({
+            serverId,
+            command: typeof details.command === "string" ? details.command : "",
+            args: Array.isArray(details.args) ? details.args.filter((item) => typeof item === "string") : [],
+            transport: typeof details.transport === "string" && details.transport.trim() ? details.transport.trim() : "stdio",
+            envKeys: details.env && typeof details.env === "object" ? Object.keys(details.env) : [],
+          }));
+      } catch {
+        return null;
+      }
+    }
+
+    function renderMcpServerPreview(rawText) {
+      if (!mcpServerPreview) {
+        return;
+      }
+      const preview = collectMcpServerPreview(rawText);
+      if (preview === null) {
+        mcpServerPreview.innerHTML = '<div class="mcp-preview-empty">Fix the JSON syntax to preview configured servers.</div>';
+        return;
+      }
+      if (!preview.length) {
+        mcpServerPreview.innerHTML = '<div class="mcp-preview-empty">No MCP servers configured yet.</div>';
+        return;
+      }
+      const nodes = preview.map((server) => {
+        const card = document.createElement("div");
+        card.className = "mcp-server-card";
+
+        const topline = document.createElement("div");
+        topline.className = "mcp-server-topline";
+        const serverId = document.createElement("div");
+        serverId.className = "mcp-server-id";
+        serverId.textContent = server.serverId;
+        const transport = document.createElement("div");
+        transport.className = "mcp-server-transport";
+        transport.textContent = server.transport;
+        topline.appendChild(serverId);
+        topline.appendChild(transport);
+        card.appendChild(topline);
+
+        const command = document.createElement("div");
+        command.className = "mcp-server-command";
+        command.textContent = server.command ? `${server.command}${server.args.length ? ` ${server.args.join(" ")}` : ""}` : "No command configured";
+        card.appendChild(command);
+
+        const meta = document.createElement("div");
+        meta.className = "mcp-server-meta";
+        meta.textContent = server.envKeys.length
+          ? `Env keys: ${server.envKeys.join(", ")}`
+          : "No explicit env keys";
+        card.appendChild(meta);
+
+        const matchingTool = Array.isArray(availableTools)
+          ? availableTools.find((item) => item && item.tool_id === server.serverId)
+          : null;
+        if (matchingTool && Array.isArray(matchingTool.functions) && matchingTool.functions.length) {
+          const functions = document.createElement("div");
+          functions.className = "mcp-server-functions";
+          matchingTool.functions.slice(0, 8).forEach((item) => {
+            const pill = document.createElement("span");
+            pill.className = "mcp-server-function";
+            pill.textContent = item.name;
+            functions.appendChild(pill);
+          });
+          card.appendChild(functions);
+        }
+        return card;
+      });
+      replaceChildren(mcpServerPreview, nodes);
+    }
+
+    async function loadMcpConfig() {
+      if (!mcpConfigEditor) {
+        return;
+      }
+      try {
+        const response = await fetch("/api/tools/config");
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to load MCP config");
+        }
+        mcpConfigEditor.value = data.raw_text || '{\n  "mcpServers": {}\n}\n';
+        if (mcpConfigPath) {
+          mcpConfigPath.textContent = data.config_path || "";
+        }
+        mcpConfigDirty = false;
+        renderMcpServerPreview(mcpConfigEditor.value);
+        setMcpConfigStatus(`Loaded ${data.server_count || 0} configured MCP${Number(data.server_count || 0) === 1 ? "" : "s"}.`);
+      } catch (error) {
+        setMcpConfigStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    }
+
+    async function saveMcpConfig({ reload = false } = {}) {
+      if (!mcpConfigEditor) {
+        return;
+      }
+      setMcpConfigStatus(reload ? "Saving MCP config and reloading tools..." : "Saving MCP config...");
+      try {
+        const response = await fetch("/api/tools/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ raw_text: mcpConfigEditor.value, reload }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to save MCP config");
+        }
+        mcpConfigEditor.value = data.raw_text || mcpConfigEditor.value;
+        if (mcpConfigPath) {
+          mcpConfigPath.textContent = data.config_path || "";
+        }
+        mcpConfigDirty = false;
+        if (Array.isArray(data.tools)) {
+          availableTools = data.tools;
+          renderToolOptions();
+        }
+        renderMcpServerPreview(mcpConfigEditor.value);
+        setMcpConfigStatus(
+          reload
+            ? `Saved config and loaded ${data.available_count || 0}/${data.tool_count || 0} MCPs.`
+            : `Saved config with ${data.server_count || 0} MCP entries.`
+        );
+      } catch (error) {
+        setMcpConfigStatus(error instanceof Error ? error.message : String(error), true);
+      }
+    }
+
     function generateTopic() {
       const bytes = new Uint8Array(12);
       window.crypto.getRandomValues(bytes);
@@ -5536,19 +6354,51 @@
     function renderToolOptions() {
       if (!availableTools.length) {
         agentToolOptions.innerHTML = '<span class="status-text">No MCP tools available.</span>';
+        if (agentToolsLabel) {
+          agentToolsLabel.textContent = "Allowed Tools";
+        }
         return;
       }
+      const selectedTools = new Set(getSelectedToolIds());
+      if (agentToolsLabel) {
+        agentToolsLabel.textContent = `Allowed Tools (${selectedTools.size} selected)`;
+      }
       const nodes = availableTools.map((tool) => {
+        const card = document.createElement("div");
+        card.className = `tool-option ${tool.status === "available" ? "" : "tool-option-status-unavailable"}`.trim();
         const label = document.createElement("label");
+        label.className = "tool-option-header";
         const input = document.createElement("input");
         input.type = "checkbox";
         input.value = tool.tool_id;
+        input.checked = selectedTools.has(tool.tool_id);
         const text = document.createElement("span");
-        const status = tool.status === "available" ? "" : ` (${tool.status})`;
-        text.textContent = `${tool.tool_id}${status}`;
+        text.className = "tool-option-title";
+        text.textContent = tool.tool_id;
         label.appendChild(input);
         label.appendChild(text);
-        return label;
+        card.appendChild(label);
+
+        const meta = document.createElement("div");
+        meta.className = "tool-option-meta";
+        const metaParts = [
+          tool.status || "unknown",
+          tool.transport || "stdio",
+          tool.server_name || "unknown server",
+        ];
+        if (tool.error) metaParts.push(`error: ${tool.error}`);
+        if (tool.description) metaParts.push(tool.description);
+        meta.textContent = metaParts.join(" | ");
+        card.appendChild(meta);
+
+        if (Array.isArray(tool.functions) && tool.functions.length) {
+          const functions = document.createElement("div");
+          functions.className = "tool-option-functions";
+          functions.textContent = `Functions: ${tool.functions.map((item) => item.name).filter(Boolean).join(", ")}`;
+          card.appendChild(functions);
+        }
+
+        return card;
       });
       replaceChildren(agentToolOptions, nodes);
     }
@@ -5559,11 +6409,13 @@
       agentHeartbeatInterval.value = 300;
       agentIsActive.checked = true;
       agentHeartbeatEnabled.checked = false;
-      agentSaveButton.textContent = "Create Agent";
+      agentSaveButton.textContent = "Create Worker";
       setAgentFormStatus("");
       agentToolOptions.querySelectorAll('input[type="checkbox"]').forEach((input) => {
         input.checked = false;
       });
+      updateWorkerEditorState();
+      renderToolOptions();
     }
 
     function populateAgentForm(agent) {
@@ -5581,8 +6433,13 @@
       agentToolOptions.querySelectorAll('input[type="checkbox"]').forEach((input) => {
         input.checked = selectedTools.has(input.value);
       });
-      agentSaveButton.textContent = "Update Agent";
+      agentSaveButton.textContent = "Update Worker";
       setAgentFormStatus(`Editing ${agent.name}`);
+      updateWorkerEditorState(agent);
+      renderToolOptions();
+      if (isWorkerMobileViewport()) {
+        setWorkerMobileEditing(true);
+      }
     }
 
     function buildAgentPayload() {
@@ -5598,6 +6455,111 @@
         is_active: agentIsActive.checked,
         tool_ids: getSelectedToolIds(),
       };
+    }
+
+    function isWorkerMobileViewport() {
+      return window.innerWidth <= 900;
+    }
+
+    function setWorkerMobileEditing(isEditing) {
+      if (!workerManager) {
+        return;
+      }
+      workerManager.classList.toggle("mobile-editing", Boolean(isEditing) && isWorkerMobileViewport());
+    }
+
+    function updateWorkerEditorState(agent = null) {
+      const currentName = String(agentName?.value || agent?.name || "").trim();
+      const currentRole = String(agentRole?.value || agent?.role || "").trim();
+      const currentWorkspace = String(agentWorkspace?.value || agent?.workspace || "").trim();
+      const currentToolCount = getSelectedToolIds().length || (Array.isArray(agent?.tool_ids) ? agent.tool_ids.length : 0);
+      const currentHeartbeatEnabled = Boolean(agentHeartbeatEnabled?.checked || agent?.heartbeat_enabled);
+      const currentHeartbeatInterval = Number(agentHeartbeatInterval?.value || agent?.heartbeat_interval_seconds || 300);
+      const currentActive = agent ? Boolean(agentIsActive?.checked) : Boolean(agentIsActive?.checked);
+      if (workerEditorKicker) {
+        workerEditorKicker.textContent = agent ? "Editing Worker" : "Create Worker";
+      }
+      if (workerEditorTitle) {
+        workerEditorTitle.textContent = agent ? currentName || "Worker details" : (currentName || "New worker");
+      }
+      if (workerEditorCopy) {
+        workerEditorCopy.textContent = agent
+          ? `Update ${currentName || "this worker"}'s role, prompt guidance, and MCP access.`
+          : "Create a new specialist and give them the exact tools and prompt guidance they need.";
+      }
+      if (workerEditorSummary) {
+        const chips = [];
+        if (agent) {
+          chips.push(currentRole || "worker");
+          chips.push(currentActive ? "active" : "inactive");
+          chips.push(`${currentToolCount} tools`);
+          if (currentWorkspace) {
+            chips.push(`workspace: ${currentWorkspace}`);
+          }
+          if (currentHeartbeatEnabled) {
+            chips.push(`heartbeat ${currentHeartbeatInterval}s`);
+          }
+        } else {
+          chips.push(currentName ? "draft" : "new draft");
+          if (currentRole) {
+            chips.push(currentRole);
+          }
+          chips.push(`${currentToolCount} tools selected`);
+          if (currentWorkspace) {
+            chips.push(`workspace: ${currentWorkspace}`);
+          }
+        }
+        if (!chips.length) {
+          workerEditorSummary.innerHTML = "";
+        } else {
+          const nodes = chips.map((text) => {
+            const chip = document.createElement("span");
+            chip.className = "worker-summary-chip";
+            chip.textContent = text;
+            return chip;
+          });
+          replaceChildren(workerEditorSummary, nodes);
+        }
+      }
+    }
+
+    function matchesAgentFilter(agent) {
+      if (agentFilter === "active") {
+        return Boolean(agent.is_active);
+      }
+      if (agentFilter === "inactive") {
+        return !agent.is_active;
+      }
+      if (agentFilter.startsWith("role:")) {
+        return String(agent.role || "") === agentFilter.slice(5);
+      }
+      return true;
+    }
+
+    function renderWorkerFilters(items) {
+      if (!workerFilterRow) {
+        return;
+      }
+      const roles = Array.from(new Set(items.map((item) => String(item.role || "")).filter(Boolean))).sort();
+      const filters = [
+        { value: "all", label: `All (${items.length})` },
+        { value: "active", label: `Active (${items.filter((item) => item.is_active).length})` },
+        { value: "inactive", label: `Inactive (${items.filter((item) => !item.is_active).length})` },
+        ...roles.map((role) => ({ value: `role:${role}`, label: role })),
+      ];
+      const nodes = filters.map((filter) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "worker-filter-chip";
+        button.textContent = filter.label;
+        button.setAttribute("aria-pressed", agentFilter === filter.value ? "true" : "false");
+        button.addEventListener("click", () => {
+          agentFilter = filter.value;
+          renderAgents(allAgents);
+        });
+        return button;
+      });
+      replaceChildren(workerFilterRow, nodes);
     }
 
     function renderChatHistory(messages) {
@@ -5817,37 +6779,76 @@
     }
 
     function renderAgents(items) {
-      if (!items.length) {
-        agentList.textContent = "No agents loaded.";
+      allAgents = Array.isArray(items) ? items.slice() : [];
+      renderWorkerFilters(allAgents);
+      const filteredItems = allAgents.filter(matchesAgentFilter);
+      if (!filteredItems.length) {
+        agentList.innerHTML = `<div class="worker-directory-empty">No workers match the current filter.</div>`;
         return;
       }
-      const nodes = items.map((agent) => {
+      const selectedAgent = allAgents.find((agent) => agent.id === selectedAgentId) || null;
+      updateWorkerEditorState(selectedAgent);
+      const nodes = filteredItems.map((agent) => {
         const card = document.createElement("div");
-        card.className = `card clickable${selectedAgentId === agent.id ? " selected" : ""}`;
-        const pills = [agent.role];
-        if (agent.tool_ids && agent.tool_ids.length) pills.push(`${agent.tool_ids.length} tools`);
-        if (agent.heartbeat_enabled) pills.push(`heartbeat ${agent.heartbeat_interval_seconds}s`);
+        card.className = `worker-card${selectedAgentId === agent.id ? " is-selected" : ""}`;
+
+        const topline = document.createElement("div");
+        topline.className = "worker-card-topline";
+        const titleBlock = document.createElement("div");
+        titleBlock.className = "worker-card-title-block";
         const heading = document.createElement("h3");
+        heading.className = "worker-card-title";
         heading.textContent = agent.name;
-        card.appendChild(heading);
-        const pillRow = document.createElement("div");
-        pills.forEach((pillText) => {
-          const pill = document.createElement("span");
-          pill.className = "pill";
-          pill.textContent = pillText;
-          pillRow.appendChild(pill);
+        const subtitle = document.createElement("div");
+        subtitle.className = "worker-card-subtitle";
+        subtitle.textContent = agent.role || "worker";
+        titleBlock.appendChild(heading);
+        titleBlock.appendChild(subtitle);
+        topline.appendChild(titleBlock);
+        const status = document.createElement("span");
+        status.className = `worker-status-badge${agent.is_active ? "" : " is-inactive"}`;
+        status.textContent = agent.is_active ? "Active" : "Inactive";
+        topline.appendChild(status);
+        card.appendChild(topline);
+
+        const summary = document.createElement("div");
+        summary.className = "worker-card-summary";
+        summary.textContent = agent.system_prompt || "No system prompt configured.";
+        card.appendChild(summary);
+
+        const metrics = document.createElement("div");
+        metrics.className = "worker-card-metrics";
+        const metricValues = [
+          `${Array.isArray(agent.tool_ids) ? agent.tool_ids.length : 0} tools`,
+          agent.workspace ? `workspace: ${agent.workspace}` : "workspace unset",
+          agent.heartbeat_enabled ? `heartbeat ${agent.heartbeat_interval_seconds || 300}s` : "heartbeat off",
+        ];
+        metricValues.forEach((text) => {
+          const chip = document.createElement("span");
+          chip.className = "worker-metric";
+          chip.textContent = text;
+          metrics.appendChild(chip);
         });
-        card.appendChild(pillRow);
-        const pre = document.createElement("pre");
-        pre.textContent = JSON.stringify({
-          id: agent.id,
-          system_prompt: agent.system_prompt,
-          workspace: agent.workspace,
-          tools: agent.tool_ids,
-          heartbeat_file_path: agent.heartbeat_file_path,
-          heartbeat_preview: agent.heartbeat_preview,
-        }, null, 2);
-        card.appendChild(pre);
+        card.appendChild(metrics);
+
+        if (Array.isArray(agent.tool_ids) && agent.tool_ids.length) {
+          const tools = document.createElement("div");
+          tools.className = "worker-card-tools";
+          agent.tool_ids.slice(0, 6).forEach((toolId) => {
+            const chip = document.createElement("span");
+            chip.className = "worker-tool-chip";
+            chip.textContent = toolId;
+            tools.appendChild(chip);
+          });
+          if (agent.tool_ids.length > 6) {
+            const overflow = document.createElement("span");
+            overflow.className = "worker-metric";
+            overflow.textContent = `+${agent.tool_ids.length - 6} more`;
+            tools.appendChild(overflow);
+          }
+          card.appendChild(tools);
+        }
+
         card.addEventListener("click", () => populateAgentForm(agent));
         return card;
       });
@@ -5902,6 +6903,28 @@
         availableTools = [];
       }
       renderToolOptions();
+      if (mcpConfigEditor) {
+        renderMcpServerPreview(mcpConfigEditor.value);
+      }
+    }
+
+    async function reloadTools() {
+      setAgentFormStatus("Reloading MCP tools...");
+      try {
+        const response = await fetch("/api/tools/reload", { method: "POST" });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "MCP reload failed");
+        }
+        availableTools = data.tools || [];
+        renderToolOptions();
+        if (mcpConfigEditor) {
+          renderMcpServerPreview(mcpConfigEditor.value);
+        }
+        setAgentFormStatus(`Reloaded ${data.available_count || 0}/${data.tool_count || availableTools.length} MCPs.`);
+      } catch (error) {
+        setAgentFormStatus(error instanceof Error ? error.message : String(error), true);
+      }
     }
 
     function formatEventTitle(eventType) {
@@ -6404,12 +7427,28 @@
       });
     }
 
+    if (workerCreateButton) {
+      workerCreateButton.addEventListener("click", () => {
+        resetAgentForm();
+        if (isWorkerMobileViewport()) {
+          setWorkerMobileEditing(true);
+        }
+      });
+    }
+
+    if (workerBackButton) {
+      workerBackButton.addEventListener("click", () => {
+        setWorkerMobileEditing(false);
+      });
+    }
+
     window.addEventListener("resize", () => {
       if (window.innerWidth > 1180) {
         setUtilityPanelOpen(false);
       }
       resizeComposerTextarea();
       syncComposerInputState();
+      setWorkerMobileEditing(Boolean(selectedAgentId) && isWorkerMobileViewport() && workerManager?.classList.contains("mobile-editing"));
     });
 
     document.querySelectorAll("[data-voice-proxy]").forEach((button) => {
@@ -6418,7 +7457,7 @@
       });
     });
 
-    ["settings", "voice", "agents", "notifications"].forEach((panelId) => {
+    ["settings", "voice", "agents", "mcps", "notifications"].forEach((panelId) => {
       const panel = document.querySelector(`.sidebar-panel[data-sidebar-panel="${panelId}"]`);
       if (panel && configShellBody) {
         configShellBody.appendChild(panel);
@@ -6478,7 +7517,7 @@
     agentForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const payload = buildAgentPayload();
-      setAgentFormStatus(selectedAgentId ? "Updating agent..." : "Creating agent...");
+      setAgentFormStatus(selectedAgentId ? "Updating worker..." : "Creating worker...");
       try {
         const response = await fetch(selectedAgentId ? `/api/agents/${selectedAgentId}` : "/api/agents", {
           method: selectedAgentId ? "PUT" : "POST",
@@ -6491,6 +7530,9 @@
         }
         setAgentFormStatus(selectedAgentId ? `Updated ${data.name}` : `Created ${data.name}`);
         resetAgentForm();
+        if (isWorkerMobileViewport()) {
+          setWorkerMobileEditing(false);
+        }
         await refreshSidePanels();
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -6500,7 +7542,60 @@
 
     agentResetButton.addEventListener("click", () => {
       resetAgentForm();
+      if (isWorkerMobileViewport()) {
+        setWorkerMobileEditing(false);
+      }
     });
+
+    reloadToolsButton.addEventListener("click", async () => {
+      await reloadTools();
+    });
+
+    if (agentToolOptions) {
+      agentToolOptions.addEventListener("change", () => {
+        renderToolOptions();
+        updateWorkerEditorState(allAgents.find((agent) => agent.id === selectedAgentId) || null);
+      });
+    }
+
+    [agentName, agentRole, agentWorkspace, agentHeartbeatInterval, agentHeartbeatEnabled, agentIsActive].forEach((input) => {
+      if (!input) {
+        return;
+      }
+      input.addEventListener("input", () => updateWorkerEditorState(allAgents.find((agent) => agent.id === selectedAgentId) || null));
+      input.addEventListener("change", () => updateWorkerEditorState(allAgents.find((agent) => agent.id === selectedAgentId) || null));
+    });
+
+    if (mcpConfigEditor) {
+      mcpConfigEditor.addEventListener("input", () => {
+        mcpConfigDirty = true;
+        renderMcpServerPreview(mcpConfigEditor.value);
+        setMcpConfigStatus("Unsaved MCP config changes.");
+      });
+    }
+
+    if (mcpConfigSaveButton) {
+      mcpConfigSaveButton.addEventListener("click", async () => {
+        await saveMcpConfig({ reload: false });
+      });
+    }
+
+    if (mcpConfigSaveReloadButton) {
+      mcpConfigSaveReloadButton.addEventListener("click", async () => {
+        await saveMcpConfig({ reload: true });
+      });
+    }
+
+    if (mcpConfigReloadButton) {
+      mcpConfigReloadButton.addEventListener("click", async () => {
+        await reloadTools();
+        if (mcpConfigDirty) {
+          setMcpConfigStatus("Reloaded current MCP tools. Save your JSON changes to apply them.");
+        } else {
+          setMcpConfigStatus("Reloaded current MCP tools.");
+        }
+      });
+    }
 
     notificationForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -6641,6 +7736,9 @@
       });
     loadNotificationSettings().catch((error) => {
       setNotificationStatus(error instanceof Error ? error.message : String(error), true);
+    });
+    loadMcpConfig().catch((error) => {
+      setMcpConfigStatus(error instanceof Error ? error.message : String(error), true);
     });
     loadSessionHistory();
 

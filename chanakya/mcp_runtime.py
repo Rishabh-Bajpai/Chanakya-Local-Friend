@@ -43,12 +43,29 @@ def _tool_spec_server_name(spec: Any) -> str:
     return "unknown_server"
 
 
-def normalize_tool_spec_summary(spec: Any) -> dict[str, str | None]:
+def normalize_tool_spec_summary(spec: Any) -> dict[str, Any]:
     tool_id = _tool_spec_id(spec)
+    functions: list[dict[str, str]] = []
+    for function in list(getattr(spec, "functions", []) or []):
+        function_name = str(getattr(function, "name", "") or "").strip()
+        if not function_name:
+            continue
+        functions.append(
+            {
+                "name": function_name,
+                "description": str(getattr(function, "description", "") or "").strip(),
+            }
+        )
     return {
         "tool_id": tool_id,
         "tool_name": _tool_spec_name(spec, fallback=tool_id or "unknown_tool"),
         "server_name": _tool_spec_server_name(spec),
+        "functions": functions,
+        "function_count": len(functions),
+        "description": (
+            " ".join(item["description"] for item in functions if item.get("description")).strip()
+            or None
+        ),
     }
 
 

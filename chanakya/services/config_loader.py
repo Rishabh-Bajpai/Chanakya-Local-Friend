@@ -19,6 +19,11 @@ def _resolve_mcp_config_path() -> Path:
     # Default to the source-layout location for consistent error reporting.
     return candidates[0]
 
+
+def get_mcp_config_path() -> Path:
+    return _resolve_mcp_config_path()
+
+
 def load_mcp_config() -> dict[str, dict[str, Any]]:
     """Reads mcp_config_file.json and returns the mcpServers dict."""
     config_path = _resolve_mcp_config_path()

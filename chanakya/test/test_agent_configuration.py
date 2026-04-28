@@ -76,6 +76,7 @@ def _build_test_app(
     database_path = tmp_path / "chanakya-test.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
     monkeypatch.setattr(app_module, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(app_module, "get_mcp_config_path", lambda: tmp_path / "mcp_config_file.json")
     monkeypatch.setattr(tool_loader, "initialize_all_tools", lambda: None)
     monkeypatch.setattr(
         tool_loader,
@@ -98,6 +99,22 @@ def _build_test_app(
                 "status": "available",
                 "tool_name": "mcp_fetch",
                 "server_name": "fetch",
+            }
+        ],
+    )
+    monkeypatch.setattr(app_module, "get_configured_tool_ids", lambda: {"mcp_fetch"})
+    monkeypatch.setattr(
+        app_module,
+        "reload_all_tools",
+        lambda: [
+            {
+                "tool_id": "mcp_fetch",
+                "status": "available",
+                "tool_name": "mcp_fetch",
+                "server_name": "fetch",
+                "transport": "stdio",
+                "functions": [{"name": "mcp_fetch_fetch", "description": "Fetch a URL."}],
+                "description": "Fetch a URL.",
             }
         ],
     )
@@ -803,6 +820,155 @@ def test_tools_availability_api_returns_payload(
 
     assert response.status_code == 200
     assert "tools" in response.get_json()
+
+
+def test_tools_reload_api_returns_catalog_payload(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+    monkeypatch.setattr(
+        app_module,
+        "reload_all_tools",
+        lambda: [
+            {
+                "tool_id": "youtube-transcript",
+                "tool_name": "youtube-transcript",
+                "server_name": "npx -y @kimtaeyoon83/mcp-server-youtube-transcript",
+                "status": "available",
+                "transport": "stdio",
+                "functions": [
+                    {
+                        "name": "youtube-transcript_get_transcript",
+                        "description": "Get a transcript for a YouTube video.",
+                    }
+                ],
+                "description": "Get a transcript for a YouTube video.",
+            }
+        ],
+    )
+
+    response = client.post("/api/tools/reload")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert payload["tool_count"] == 1
+    assert payload["available_count"] == 1
+    assert payload["tools"][0]["tool_id"] == "youtube-transcript"
+
+
+def test_create_agent_rejects_unknown_tool_ids(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/agents",
+        json={
+            "name": "Bad Tool Agent",
+            "role": "researcher",
+            "system_prompt": "You are a researcher.",
+            "personality": "",
+            "tool_ids": ["mcp_unknown"],
+            "workspace": None,
+            "heartbeat_enabled": False,
+            "heartbeat_interval_seconds": 300,
+            "heartbeat_file_path": None,
+            "is_active": True,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "Unknown tool_ids: mcp_unknown"
+
+
+def test_tools_config_api_reads_and_writes_mcp_config(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+    config_path = tmp_path / "mcp_config_file.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "mcp_fetch": {
+                        "command": "uvx",
+                        "args": ["mcp-server-fetch"],
+                    }
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    get_response = client.get("/api/tools/config")
+
+    assert get_response.status_code == 200
+    get_payload = get_response.get_json()
+    assert get_payload["server_ids"] == ["mcp_fetch"]
+    assert get_payload["server_count"] == 1
+    assert get_payload["config_path"].endswith("mcp_config_file.json")
+
+    monkeypatch.setattr(
+        app_module,
+        "reload_all_tools",
+        lambda: [
+            {
+                "tool_id": "arxiv",
+                "tool_name": "arxiv",
+                "server_name": "uvx arxiv-mcp-server",
+                "status": "available",
+                "transport": "stdio",
+                "functions": [{"name": "arxiv_search_papers", "description": "Search arXiv."}],
+                "description": "Search arXiv.",
+            }
+        ],
+    )
+
+    put_response = client.put(
+        "/api/tools/config",
+        json={
+            "raw_text": json.dumps(
+                {
+                    "mcpServers": {
+                        "arxiv": {
+                            "command": "uvx",
+                            "args": ["arxiv-mcp-server"],
+                        }
+                    }
+                }
+            ),
+            "reload": True,
+        },
+    )
+
+    assert put_response.status_code == 200
+    put_payload = put_response.get_json()
+    assert put_payload["server_ids"] == ["arxiv"]
+    assert put_payload["reloaded"] is True
+    assert put_payload["available_count"] == 1
+    assert json.loads(config_path.read_text(encoding="utf-8"))["mcpServers"]["arxiv"]["command"] == "uvx"
+
+
+def test_tools_config_api_rejects_invalid_json(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.put("/api/tools/config", json={"raw_text": "{bad json}"})
+
+    assert response.status_code == 400
+    assert response.get_json()["error"].startswith("Invalid MCP config JSON:")
 
 
 def test_session_pause_api_uses_chat_service_public_method(

@@ -41,6 +41,7 @@ from chanakya.services.mcp_sandbox_exec_server import (
     stop_all_work_containers,
     stop_container,
 )
+from chanakya.services.config_loader import get_mcp_config_path
 from chanakya.services.mcp_work_tools_server import _create_work
 from chanakya.services.ntfy import (
     NtfyClient,
@@ -53,7 +54,11 @@ from chanakya.services.sandbox_workspace import (
     get_artifact_storage_root,
     get_shared_workspace_root,
 )
-from chanakya.services.tool_loader import get_tools_availability
+from chanakya.services.tool_loader import (
+    get_configured_tool_ids,
+    get_tools_availability,
+    reload_all_tools,
+)
 from chanakya.store import ChanakyaStore
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -833,6 +838,69 @@ def create_app() -> Flask:
         tools = get_tools_availability()
         return jsonify({"tools": tools})
 
+    @app.post("/api/tools/reload")
+    def api_tools_reload() -> Any:
+        tools = reload_all_tools()
+        available_count = sum(1 for item in tools if str(item.get("status") or "") == "available")
+        return jsonify(
+            {
+                "ok": True,
+                "tools": tools,
+                "tool_count": len(tools),
+                "available_count": available_count,
+            }
+        )
+
+    @app.get("/api/tools/config")
+    def api_tools_config() -> Any:
+        config_path = get_mcp_config_path()
+        if config_path.exists():
+            raw_text = config_path.read_text(encoding="utf-8")
+        else:
+            raw_text = json.dumps({"mcpServers": {}}, indent=2) + "\n"
+        try:
+            parsed = json.loads(raw_text)
+            servers = _extract_mcp_servers(parsed)
+        except ValueError:
+            servers = {}
+        return jsonify(
+            {
+                "config_path": str(config_path),
+                "raw_text": raw_text,
+                "server_ids": sorted(servers.keys()),
+                "server_count": len(servers),
+            }
+        )
+
+    @app.put("/api/tools/config")
+    def api_put_tools_config() -> Any:
+        payload = request.get_json(silent=True) or {}
+        try:
+            config_text = _parse_mcp_config_text(payload)
+            parsed = json.loads(config_text)
+            servers = _extract_mcp_servers(parsed)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        config_path = get_mcp_config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(config_text, encoding="utf-8")
+        should_reload = bool(payload.get("reload", False))
+        tools = reload_all_tools() if should_reload else get_tools_availability()
+        available_count = sum(1 for item in tools if str(item.get("status") or "") == "available")
+        return jsonify(
+            {
+                "ok": True,
+                "config_path": str(config_path),
+                "server_ids": sorted(servers.keys()),
+                "server_count": len(servers),
+                "raw_text": config_text,
+                "reloaded": should_reload,
+                "tools": tools,
+                "tool_count": len(tools),
+                "available_count": available_count,
+            }
+        )
+
     @app.get("/api/notifications/ntfy")
     def api_get_ntfy_settings() -> Any:
         return jsonify(ntfy_dispatcher.get_settings_payload())
@@ -1486,6 +1554,7 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             agent_data = _parse_agent_payload(payload)
+            _validate_agent_tool_ids(agent_data["tool_ids"])
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -1525,6 +1594,7 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             agent_data = _parse_agent_payload(payload)
+            _validate_agent_tool_ids(agent_data["tool_ids"])
             heartbeat_path = agent_data["heartbeat_file_path"] or default_heartbeat_relative_path(
                 agent_id
             )
@@ -1679,6 +1749,43 @@ def sync_default_agent_tools(store: ChanakyaStore) -> None:
         changed_count += 1
     if changed_count:
         debug_log("agent_tool_sync_completed", {"updated_profiles": changed_count})
+
+
+def _validate_agent_tool_ids(tool_ids: list[str]) -> None:
+    configured_tool_ids = get_configured_tool_ids()
+    if not configured_tool_ids:
+        return
+    unknown = [tool_id for tool_id in tool_ids if tool_id not in configured_tool_ids]
+    if unknown:
+        raise ValueError(
+            "Unknown tool_ids: " + ", ".join(sorted(dict.fromkeys(unknown)))
+        )
+
+
+def _extract_mcp_servers(data: Any) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        raise ValueError("MCP config must be a JSON object")
+    servers = data.get("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise ValueError("MCP config must contain an object field named mcpServers")
+    for server_id, details in servers.items():
+        if not isinstance(server_id, str) or not server_id.strip():
+            raise ValueError("Each MCP server id must be a non-empty string")
+        if not isinstance(details, dict):
+            raise ValueError(f"Invalid MCP config for {server_id}: expected an object")
+    return servers
+
+
+def _parse_mcp_config_text(payload: dict[str, Any]) -> str:
+    raw_text = payload.get("raw_text")
+    if not isinstance(raw_text, str) or not raw_text.strip():
+        raise ValueError("raw_text must be a non-empty JSON string")
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid MCP config JSON: {exc.msg}") from exc
+    _extract_mcp_servers(parsed)
+    return json.dumps(parsed, indent=2, ensure_ascii=True) + "\n"
 
 
 def _parse_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:

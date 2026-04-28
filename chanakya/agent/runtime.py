@@ -204,6 +204,20 @@ class MAFRuntime:
             },
         )
 
+    def _refresh_profile_and_tools(self) -> None:
+        with self.session_factory() as session:
+            latest = session.get(AgentProfileModel, self.profile.id)
+            if latest is None:
+                return
+            self.profile = latest
+        config = build_profile_agent_config_for_usage(
+            self.profile,
+            usage_text="",
+            repo_root=self.repo_root,
+        )
+        self.availability = config.availability
+        self.cached_tools = config.cached_tools
+
     def run(
         self,
         session_id: str,
@@ -257,6 +271,7 @@ class MAFRuntime:
         a2a_model_id: str | None = None,
         prompt_addendum: str | None = None,
     ) -> RunResult:
+        self._refresh_profile_and_tools()
         selected_backend = normalize_runtime_backend(backend or self.default_backend)
         if selected_backend == "a2a":
             return await self._run_async_a2a_in_loop(
