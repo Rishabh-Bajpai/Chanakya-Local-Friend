@@ -12,6 +12,7 @@ from mcp.server.fastmcp import FastMCP
 
 from chanakya.services.mcp_feedback import build_recovery_payload
 from chanakya.services.sandbox_workspace import normalize_work_id, resolve_shared_workspace
+from chanakya.services.sandbox_workspace import CLASSIC_ARTIFACT_WORKSPACE_ID
 
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 600
@@ -387,7 +388,7 @@ def _run_in_sandbox(
     except (ValueError, PermissionError, FileNotFoundError) as exc:
         return build_recovery_payload(
             error=str(exc),
-            hint="Retry with a valid existing work_id or use temp for ephemeral execution.",
+            hint=f"Retry with a valid existing work_id or use {CLASSIC_ARTIFACT_WORKSPACE_ID} for classic-chat artifact work.",
             exit_code=None,
             output=str(exc),
             truncated=False,
@@ -468,7 +469,7 @@ def _run_in_sandbox(
 @mcp.tool()
 def execute_python(
     code: str,
-    work_id: str = "temp",
+    work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     filename: str = "snippet.py",
 ) -> dict[str, object]:
@@ -480,7 +481,7 @@ def execute_python(
         runtime = _select_runtime()
         return build_recovery_payload(
             error=str(exc),
-            hint="Retry with a valid existing work_id or use temp for ephemeral execution.",
+            hint=f"Retry with a valid existing work_id or use {CLASSIC_ARTIFACT_WORKSPACE_ID} for classic-chat artifact work.",
             exit_code=None,
             output=str(exc),
             truncated=False,
@@ -507,7 +508,7 @@ def execute_python(
 @mcp.tool()
 def execute_shell(
     command: str,
-    work_id: str = "temp",
+    work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, object]:
     """Execute any shell command inside the persistent per-work sandbox container."""

@@ -8,6 +8,7 @@ from chanakya.config import get_data_dir
 from chanakya.debug import debug_log
 
 _WORK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+CLASSIC_ARTIFACT_WORKSPACE_ID = "artifacts"
 
 
 def get_shared_workspace_root() -> Path:
@@ -18,7 +19,7 @@ def get_shared_workspace_root() -> Path:
 
 
 def get_artifact_storage_root(*, create: bool = True) -> Path:
-    root = (get_shared_workspace_root() / "artifacts").resolve()
+    root = (get_shared_workspace_root() / CLASSIC_ARTIFACT_WORKSPACE_ID).resolve()
     if create:
         root.mkdir(parents=True, exist_ok=True)
         root.chmod(0o775)
@@ -28,7 +29,7 @@ def get_artifact_storage_root(*, create: bool = True) -> Path:
 def normalize_work_id(work_id: str | None) -> str:
     value = "" if work_id is None else work_id.strip()
     if not value:
-        return "temp"
+        return CLASSIC_ARTIFACT_WORKSPACE_ID
     if value in {".", ".."}:
         raise ValueError("Invalid work_id for sandbox workspace")
     if "/" in value or "\\" in value:

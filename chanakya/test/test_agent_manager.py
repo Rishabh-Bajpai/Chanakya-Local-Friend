@@ -1748,8 +1748,8 @@ def test_handoff_prompts_wrap_untrusted_artifacts() -> None:
         "Implement safely",
         "Use staged rollout",
         developer_handoff,
-        sandbox_workspace="chanakya_data/shared_workspace/temp",
-        sandbox_work_id="temp",
+        sandbox_workspace="chanakya_data/shared_workspace/artifacts",
+        sandbox_work_id="artifacts",
     )
     writer_prompt = manager._build_writer_handoff_prompt(developer_handoff)
 
@@ -1796,7 +1796,7 @@ def test_developer_stage_prompt_forbids_plan_only_output() -> None:
         "Clone a website",
         "Build the local copy",
         sandbox_workspace="/tmp/workspace",
-        sandbox_work_id="temp",
+        sandbox_work_id="artifacts",
     )
 
     assert "Return completed work, not a plan" in prompt
@@ -1929,7 +1929,7 @@ def test_researcher_stage_prompt_requires_actual_findings() -> None:
 
     assert "Return completed research findings" in prompt
     assert "Include facts, references_or_sources, uncertainties, and notes_for_writer" in prompt
-    assert "Use work_id='temp' for sandbox and filesystem tool calls." in prompt
+    assert "Use work_id='artifacts' for sandbox and filesystem tool calls." in prompt
     assert "Do not create or write under /workspace/<work_id>/" in prompt
 
 

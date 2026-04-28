@@ -56,7 +56,7 @@ from chanakya.mcp_runtime import (
 from chanakya.model import AgentProfileModel
 from chanakya.services.async_loop import run_in_maf_loop
 from chanakya.services.mcp_sandbox_exec_server import execute_python
-from chanakya.services.sandbox_workspace import normalize_work_id, resolve_shared_workspace
+from chanakya.services.sandbox_workspace import CLASSIC_ARTIFACT_WORKSPACE_ID, normalize_work_id, resolve_shared_workspace
 from chanakya.store import ChanakyaStore
 from chanakya.subagents import (
     TemporaryAgentPlan,
@@ -4388,14 +4388,14 @@ class AgentManager:
         try:
             return str(resolve_shared_workspace(work_id, create=False))
         except (ValueError, PermissionError):
-            return str(resolve_shared_workspace("temp", create=False))
+            return str(resolve_shared_workspace(CLASSIC_ARTIFACT_WORKSPACE_ID, create=False))
 
     def _resolve_current_sandbox_work_id(self) -> str:
         work_id = _ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get()
         try:
             return normalize_work_id(work_id)
         except ValueError:
-            return "temp"
+            return CLASSIC_ARTIFACT_WORKSPACE_ID
 
     def _build_worker_subagent_plan_prompt(
         self,
@@ -5690,11 +5690,11 @@ class AgentManager:
         try:
             sandbox_work_id = normalize_work_id(work_id)
         except ValueError:
-            sandbox_work_id = "temp"
+            sandbox_work_id = CLASSIC_ARTIFACT_WORKSPACE_ID
         try:
             sandbox_workspace = str(resolve_shared_workspace(sandbox_work_id, create=False))
         except (ValueError, PermissionError):
-            sandbox_workspace = str(resolve_shared_workspace("temp", create=False))
+            sandbox_workspace = str(resolve_shared_workspace(CLASSIC_ARTIFACT_WORKSPACE_ID, create=False))
         lines = [
             f"Active work context: use work_id='{sandbox_work_id}'.",
             f"Shared workspace host path: {sandbox_workspace}",
@@ -5712,7 +5712,7 @@ class AgentManager:
                     f"Use mcp_filesystem_read_text_file(path=..., work_id='{sandbox_work_id}') "
                     f"and mcp_filesystem_list_directory(path=..., work_id='{sandbox_work_id}') "
                     "to inspect the same workspace.",
-                    "If you omit work_id, files may go to temp instead of the active work.",
+                    f"If you omit work_id, files may go to {CLASSIC_ARTIFACT_WORKSPACE_ID} instead of the active work.",
                 ]
             )
         if "mcp_code_execution" in tool_ids:

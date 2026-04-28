@@ -161,6 +161,7 @@ def test_chat_post_processes_visible_assistant_message() -> None:
             session_id: str,
             user_message: str,
             assistant_message: str,
+            request_id: str | None = None,
             model_id: str | None = None,
             backend: str | None = None,
             a2a_url: str | None = None,
@@ -659,6 +660,7 @@ def test_work_scoped_generated_artifacts_remain_immutable_across_requests() -> N
 
     service = ChatService(store, cast(MAFRuntime, _WorkScopedInlineCodeRuntimeStub()))
     work_id = "work_shared_artifacts"
+    store.create_work(work_id=work_id, title="Shared Artifacts", description="")
 
     first_reply = service.chat("session_work_shared", "Write script one", work_id=work_id)
     second_reply = service.chat("session_work_shared", "Write script two", work_id=work_id)
@@ -698,6 +700,7 @@ def test_chat_passes_a2a_backend_into_conversation_layer() -> None:
             session_id: str,
             user_message: str,
             assistant_message: str,
+            request_id: str | None = None,
             model_id: str | None = None,
             backend: str | None = None,
             a2a_url: str | None = None,
@@ -768,6 +771,7 @@ def test_chat_passes_conversation_preferences_into_conversation_layer() -> None:
             session_id: str,
             user_message: str,
             assistant_message: str,
+            request_id: str | None = None,
             model_id: str | None = None,
             backend: str | None = None,
             a2a_url: str | None = None,
