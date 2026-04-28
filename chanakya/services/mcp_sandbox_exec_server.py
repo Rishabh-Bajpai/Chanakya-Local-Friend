@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -9,16 +10,20 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from chanakya.config import get_data_dir
 from chanakya.services.mcp_feedback import build_recovery_payload
-from chanakya.services.sandbox_workspace import resolve_shared_workspace
+from chanakya.services.sandbox_workspace import normalize_work_id, resolve_shared_workspace
 
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 600
 MAX_OUTPUT_CHARS = 20000
-PYTHON_IMAGE = os.getenv("CHANAKYA_SANDBOX_PYTHON_IMAGE", "python:3.11-alpine")
-SHELL_IMAGE = os.getenv("CHANAKYA_SANDBOX_SHELL_IMAGE", "alpine:3.20")
+SANDBOX_IMAGE = (
+    os.getenv("CHANAKYA_SANDBOX_IMAGE")
+    or os.getenv("CHANAKYA_SANDBOX_SHELL_IMAGE")
+    or os.getenv("CHANAKYA_SANDBOX_PYTHON_IMAGE")
+    or "chanakya-sandbox:latest"
+)
 REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_IMAGE_DOCKERFILE = REPO_ROOT / "docker" / "chanakya-sandbox.Dockerfile"
 
 mcp = FastMCP("Chanakya Sandbox Executor", json_response=True)
 
@@ -56,19 +61,14 @@ def _annotate_permission_error(text: str, workspace: Path) -> str:
     if "permission denied" not in lowered and "read-only file system" not in lowered:
         return text
     hint = (
-        "Permission hint: Host files are mounted read-only inside the sandbox. "
-        f"Write only inside /workspace (mapped to {workspace}) or copy host files "
-        "into /workspace before modifying them."
+        "Permission hint: The agent is running inside an isolated container. "
+        f"Use /workspace (mapped to {workspace}) for project files and writable output."
     )
     return f"{text}\n\n{hint}" if text else hint
 
 
-def _get_host_read_mounts() -> list[tuple[Path, str]]:
-    data_dir = get_data_dir().resolve()
-    return [
-        (REPO_ROOT, "/host/repo"),
-        (data_dir, "/host/chanakya_data"),
-    ]
+def _container_name(work_id: str | None) -> str:
+    return f"chanakya-sandbox-{normalize_work_id(work_id)}"
 
 
 def _ensure_workspace_writable(workspace: Path) -> None:
@@ -83,12 +83,15 @@ def _build_runtime_base_args(
     *,
     runtime: RuntimeSelection,
     workspace: Path,
-    timeout_seconds: int,
+    container_name: str,
 ) -> list[str]:
     args = [
         runtime.binary,
         "run",
-        "--rm",
+        "-d",
+        "--name",
+        container_name,
+        "--init",
         "--cpus",
         "1",
         "--memory",
@@ -102,13 +105,115 @@ def _build_runtime_base_args(
         "-w",
         "/workspace",
         "-e",
-        f"CHANAKYA_TIMEOUT_SECONDS={timeout_seconds}",
+        "HOME=/workspace/.home",
     ]
-    for host_path, sandbox_path in _get_host_read_mounts():
-        args.extend(["-v", f"{host_path}:{sandbox_path}:ro"])
     if runtime.engine == "docker":
         args.extend(["--security-opt", "no-new-privileges", "--cap-drop", "ALL"])
     return args
+
+
+def _run_runtime_command(
+    *,
+    command: list[str],
+    timeout_seconds: int | None = None,
+) -> subprocess.CompletedProcess[str]:
+    effective_timeout = None if timeout_seconds is None else max(1, timeout_seconds)
+    return subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=effective_timeout,
+        check=False,
+    )
+
+
+def _ensure_default_image(runtime: RuntimeSelection, image: str) -> None:
+    inspect_result = _run_runtime_command(
+        command=[runtime.binary, "image", "inspect", image],
+        timeout_seconds=30,
+    )
+    if inspect_result.returncode == 0:
+        return
+    if image != SANDBOX_IMAGE:
+        raise RuntimeError(f"Sandbox image not found: {image}")
+    if not DEFAULT_IMAGE_DOCKERFILE.exists():
+        raise RuntimeError(f"Sandbox Dockerfile not found: {DEFAULT_IMAGE_DOCKERFILE}")
+    build_result = _run_runtime_command(
+        command=[
+            runtime.binary,
+            "build",
+            "-t",
+            image,
+            "-f",
+            str(DEFAULT_IMAGE_DOCKERFILE),
+            str(REPO_ROOT),
+        ],
+        timeout_seconds=1800,
+    )
+    if build_result.returncode != 0:
+        output = "\n".join(
+            part for part in (build_result.stdout.strip(), build_result.stderr.strip()) if part
+        )
+        raise RuntimeError(output or f"Failed to build sandbox image: {image}")
+
+
+def _inspect_container_running(runtime: RuntimeSelection, container_name: str) -> bool | None:
+    result = _run_runtime_command(
+        command=[runtime.binary, "inspect", "-f", "{{.State.Running}}", container_name],
+        timeout_seconds=30,
+    )
+    if result.returncode != 0:
+        return None
+    value = (result.stdout or "").strip().lower()
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    return None
+
+
+def _remove_container(runtime: RuntimeSelection, container_name: str) -> None:
+    _run_runtime_command(
+        command=[runtime.binary, "rm", "-f", container_name],
+        timeout_seconds=30,
+    )
+
+
+def _ensure_persistent_container(
+    *,
+    runtime: RuntimeSelection,
+    workspace: Path,
+    work_id: str | None,
+    image: str,
+) -> str:
+    _ensure_default_image(runtime, image)
+    container_name = _container_name(work_id)
+    running = _inspect_container_running(runtime, container_name)
+    if running is True:
+        return container_name
+    if running is False:
+        _remove_container(runtime, container_name)
+    start_result = _run_runtime_command(
+        command=[
+            *_build_runtime_base_args(
+                runtime=runtime,
+                workspace=workspace,
+                container_name=container_name,
+            ),
+            image,
+            "sh",
+            "-lc",
+            "mkdir -p /workspace/.home && trap 'exit 0' TERM INT; while true; do sleep 3600; done",
+        ],
+        timeout_seconds=60,
+    )
+    if start_result.returncode != 0:
+        output = "\n".join(
+            part for part in (start_result.stdout.strip(), start_result.stderr.strip()) if part
+        )
+        raise RuntimeError(output or f"Failed to start sandbox container: {container_name}")
+    return container_name
 
 
 def _run_in_sandbox(
@@ -135,11 +240,20 @@ def _run_in_sandbox(
         )
     try:
         _ensure_workspace_writable(workspace)
-    except PermissionError as exc:
+        container_name = _ensure_persistent_container(
+            runtime=runtime,
+            workspace=workspace,
+            work_id=work_id,
+            image=image,
+        )
+    except (PermissionError, RuntimeError) as exc:
         message = _annotate_permission_error(str(exc), workspace)
         return build_recovery_payload(
             error=message,
-            hint="Write only inside /workspace or copy source files into the sandbox workspace before modifying them.",
+            hint=(
+                "Use files under /workspace and retry. If the container failed to start, "
+                "inspect the runtime and image configuration."
+            ),
             exit_code=None,
             output=message,
             truncated=False,
@@ -149,23 +263,11 @@ def _run_in_sandbox(
             image=image,
         )
     bounded_timeout = _bounded_timeout(timeout_seconds)
-    cmd = [
-        *_build_runtime_base_args(
-            runtime=runtime,
-            workspace=workspace,
-            timeout_seconds=bounded_timeout,
-        ),
-        image,
-        *command,
-    ]
+    cmd = [runtime.binary, "exec", "-w", "/workspace", container_name, *command]
     try:
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=bounded_timeout,
-            check=False,
+        result = _run_runtime_command(
+            command=cmd,
+            timeout_seconds=bounded_timeout + 5,
         )
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout or ""
@@ -175,7 +277,7 @@ def _run_in_sandbox(
         trimmed, truncated = _trim_output(merged)
         return build_recovery_payload(
             error=trimmed,
-            hint="Retry with simpler code, a longer timeout_seconds, or smaller input.",
+            hint="Retry with simpler code, a longer timeout_seconds, or a background process.",
             exit_code=None,
             output=trimmed,
             truncated=truncated,
@@ -190,15 +292,18 @@ def _run_in_sandbox(
     )
     merged_output = _annotate_permission_error(merged_output, workspace)
     trimmed_output, truncated = _trim_output(merged_output)
+    timed_out = result.returncode == 124
     return {
         "ok": result.returncode == 0,
         "exit_code": result.returncode,
         "output": trimmed_output,
         "truncated": truncated,
-        "timed_out": False,
+        "timed_out": timed_out,
         "workspace": str(workspace),
         "runtime": runtime.engine,
         "image": image,
+        "container_name": container_name,
+        "cwd": "/workspace",
     }
 
 
@@ -209,7 +314,7 @@ def execute_python(
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     filename: str = "snippet.py",
 ) -> dict[str, object]:
-    """Execute Python code only inside an isolated shared sandbox workspace."""
+    """Execute Python code inside the persistent per-work sandbox container."""
     safe_name = Path(filename).name or "snippet.py"
     try:
         workspace = resolve_shared_workspace(work_id, allow_create_missing_classic=False)
@@ -224,7 +329,7 @@ def execute_python(
             timed_out=False,
             workspace="",
             runtime=runtime.engine,
-            image=PYTHON_IMAGE,
+            image=SANDBOX_IMAGE,
         )
     script_path = workspace / safe_name
     with tempfile.NamedTemporaryFile("w", delete=False, dir=workspace, suffix=".py") as handle:
@@ -234,7 +339,7 @@ def execute_python(
     temp_path.rename(script_path)
     script_path.chmod(0o644)
     return _run_in_sandbox(
-        image=PYTHON_IMAGE,
+        image=SANDBOX_IMAGE,
         command=["python", safe_name],
         work_id=work_id,
         timeout_seconds=timeout_seconds,
@@ -247,10 +352,16 @@ def execute_shell(
     work_id: str = "temp",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, object]:
-    """Execute a shell command only inside an isolated shared sandbox workspace."""
+    """Execute any shell command inside the persistent per-work sandbox container."""
+    bounded_timeout = _bounded_timeout(timeout_seconds)
+    quoted_command = shlex.quote(command)
     return _run_in_sandbox(
-        image=SHELL_IMAGE,
-        command=["sh", "-lc", command],
+        image=SANDBOX_IMAGE,
+        command=[
+            "sh",
+            "-lc",
+            f"timeout {bounded_timeout}s sh -lc {quoted_command}",
+        ],
         work_id=work_id,
         timeout_seconds=timeout_seconds,
     )
