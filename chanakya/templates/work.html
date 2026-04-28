@@ -2450,7 +2450,7 @@
           workRuntimePhase = "completed";
         } else if (taskStatus === "in_progress") {
           workRuntimePhase = "working";
-        } else if (!activeWorkId) {
+        } else if (!cachedActiveRuntime || !activeWorkId) {
           workRuntimePhase = "idle";
         }
         applyWorkWaitingIndicatorState();
@@ -3958,10 +3958,18 @@
           const cardBody = document.createElement("div");
           const preview = document.createElement("div");
           preview.className = "agent-history-overview";
-          preview.innerHTML = `
-            <div><strong>Latest:</strong> ${history.latest_created_at || "unknown-time"}</div>
-            <div><strong>Preview:</strong> ${history.latest_message_preview || "No messages yet."}</div>
-          `;
+          const latestRow = document.createElement("div");
+          const latestLabel = document.createElement("strong");
+          latestLabel.textContent = "Latest:";
+          latestRow.appendChild(latestLabel);
+          latestRow.appendChild(document.createTextNode(` ${history.latest_created_at || "unknown-time"}`));
+          const previewRow = document.createElement("div");
+          const previewLabel = document.createElement("strong");
+          previewLabel.textContent = "Preview:";
+          previewRow.appendChild(previewLabel);
+          previewRow.appendChild(document.createTextNode(` ${history.latest_message_preview || "No messages yet."}`));
+          preview.appendChild(latestRow);
+          preview.appendChild(previewRow);
           cardBody.appendChild(preview);
           const metadata = document.createElement("pre");
           metadata.textContent = JSON.stringify(history.message_stats || {}, null, 2);

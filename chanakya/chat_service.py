@@ -1008,7 +1008,7 @@ class ChatService:
                     "visible_agent_id": str(message.get("agent_id") or "").strip() or None,
                     "visible_agent_name": str(message.get("agent_name") or "").strip() or None,
                     "visible_agent_role": str(message.get("agent_role") or "").strip() or None,
-                    "group_chat_turn_index": int(message.get("turn_index") or index),
+                    "group_chat_turn_index": int(message["turn_index"] if message.get("turn_index") is not None else index),
                 },
             )
 
@@ -1075,13 +1075,30 @@ class ChatService:
                 },
             )
 
+    def _prune_work_locks(self, *, max_entries: int = 1024) -> None:
+        """Evict idle (unlocked) entries until the map is within *max_entries*."""
+        while len(self._work_locks) > max_entries:
+            evicted = False
+            for stale_work_id, stale_lock in tuple(self._work_locks.items()):
+                if stale_lock.locked():
+                    continue
+                self._work_locks.pop(stale_work_id, None)
+                evicted = True
+                break
+            if not evicted:
+                break
+
     def _work_lock(self, work_id: str) -> threading.Lock:
         with self._work_locks_guard:
             existing = self._work_locks.get(work_id)
             if existing is not None:
+                # Move to end to maintain LRU order
+                self._work_locks.pop(work_id, None)
+                self._work_locks[work_id] = existing
                 return existing
             created = threading.Lock()
             self._work_locks[work_id] = created
+            self._prune_work_locks()
             return created
 
     def _latest_assistant_request_id(self, session_id: str) -> str | None:

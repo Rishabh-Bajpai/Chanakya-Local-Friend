@@ -42,22 +42,27 @@ async def with_transient_retry(coro_factory, *, label: str = "agent_call"):
     ``coro_factory`` must be a zero-arg callable that returns a new awaitable
     each time (we cannot re-await an already-consumed coroutine).
     """
-    for index, delay_seconds in enumerate((0.0, *_RETRY_DELAYS_SECONDS)):
+    max_attempts = len(_RETRY_DELAYS_SECONDS) + 1
+    for attempt in range(max_attempts):
+        if attempt > 0:
+            delay_seconds = _RETRY_DELAYS_SECONDS[attempt - 1]
+            await asyncio.sleep(delay_seconds)
+
         try:
             return await coro_factory()
         except Exception as exc:
             if not is_transient_api_error(exc):
                 raise
-            if index >= len(_RETRY_DELAYS_SECONDS):
+            if attempt >= len(_RETRY_DELAYS_SECONDS):
                 raise
             debug_log(
                 "transient_retry",
                 {
                     "label": label,
                     "error": str(exc),
-                    "delay": delay_seconds,
-                    "attempt": index + 1,
+                    "delay": _RETRY_DELAYS_SECONDS[attempt],
+                    "attempt": attempt + 1,
                 },
             )
-            await asyncio.sleep(delay_seconds)
-    return await coro_factory()
+
+    raise RuntimeError("with_transient_retry exhausted without returning or raising")

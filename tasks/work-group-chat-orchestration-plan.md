@@ -121,7 +121,6 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
   - [x] full visible transcript window
   - [x] compact manager summary + recent turns
   - [ ] agent-local session history + synchronized group conversation excerpt
-- [ ] Refactor `/api/works/<work_id>/history` expectations so the visible work conversation and internal agent sessions remain understandable together.
 - [x] Refactor `/api/works/<work_id>/history` expectations so the visible work conversation and internal agent sessions remain understandable together.
 - [x] Validate that all visible `/work` transcript turns are reproducible from persisted state after reload.
 
@@ -153,7 +152,6 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 ### Phase 8: Artifact and Workspace Safety
 
 - [ ] Preserve the current per-work shared sandbox/workspace model.
-- [ ] Fix artifact attribution so files created during one request are not ambiguously claimed by later requests in the same work.
 - [x] Fix artifact attribution so files created during one request are not ambiguously claimed by later requests in the same work.
 - [ ] Decide whether artifacts should be attached to:
   - [ ] current request only
@@ -182,7 +180,6 @@ Replace the current strict sequential `/work` orchestration with a manager-led g
 - [x] Add tests for clarification routing through Chanakya only.
 - [x] Add tests for resume-after-user-input on non-developer participants.
 - [ ] Add tests for concurrent work-message rejection/serialization.
-- [ ] Add tests for artifact attribution across multiple requests in one work.
 - [x] Add tests for artifact attribution across multiple requests in one work.
 - [x] Add tests for work history API correctness under group chat.
 
