@@ -6357,6 +6357,22 @@
       return Array.from(agentToolOptions.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
     }
 
+    function getConfiguredToolIds() {
+      return new Set(
+        (Array.isArray(availableTools) ? availableTools : [])
+          .map((tool) => String(tool?.tool_id || "").trim())
+          .filter(Boolean)
+      );
+    }
+
+    function getVisibleAgentToolIds(toolIds) {
+      const configured = getConfiguredToolIds();
+      if (!configured.size) {
+        return [];
+      }
+      return (Array.isArray(toolIds) ? toolIds : []).filter((toolId) => configured.has(String(toolId || "").trim()));
+    }
+
     function renderToolOptions() {
       if (!availableTools.length) {
         agentToolOptions.innerHTML = '<span class="status-text">No MCP tools available.</span>';
@@ -6478,7 +6494,7 @@
       const currentName = String(agentName?.value || agent?.name || "").trim();
       const currentRole = String(agentRole?.value || agent?.role || "").trim();
       const currentWorkspace = String(agentWorkspace?.value || agent?.workspace || "").trim();
-      const currentToolCount = getSelectedToolIds().length || (Array.isArray(agent?.tool_ids) ? agent.tool_ids.length : 0);
+      const currentToolCount = getSelectedToolIds().length || getVisibleAgentToolIds(agent?.tool_ids).length;
       const currentHeartbeatEnabled = Boolean(agentHeartbeatEnabled?.checked || agent?.heartbeat_enabled);
       const currentHeartbeatInterval = Number(agentHeartbeatInterval?.value || agent?.heartbeat_interval_seconds || 300);
       const currentActive = agent ? Boolean(agentIsActive?.checked) : Boolean(agentIsActive?.checked);
@@ -6822,10 +6838,11 @@
         summary.textContent = agent.system_prompt || "No system prompt configured.";
         card.appendChild(summary);
 
+        const visibleToolIds = getVisibleAgentToolIds(agent.tool_ids);
         const metrics = document.createElement("div");
         metrics.className = "worker-card-metrics";
         const metricValues = [
-          `${Array.isArray(agent.tool_ids) ? agent.tool_ids.length : 0} tools`,
+          `${visibleToolIds.length} tools`,
           agent.workspace ? `workspace: ${agent.workspace}` : "workspace unset",
           agent.heartbeat_enabled ? `heartbeat ${agent.heartbeat_interval_seconds || 300}s` : "heartbeat off",
         ];
@@ -6837,19 +6854,19 @@
         });
         card.appendChild(metrics);
 
-        if (Array.isArray(agent.tool_ids) && agent.tool_ids.length) {
+        if (visibleToolIds.length) {
           const tools = document.createElement("div");
           tools.className = "worker-card-tools";
-          agent.tool_ids.slice(0, 6).forEach((toolId) => {
+          visibleToolIds.slice(0, 6).forEach((toolId) => {
             const chip = document.createElement("span");
             chip.className = "worker-tool-chip";
             chip.textContent = toolId;
             tools.appendChild(chip);
           });
-          if (agent.tool_ids.length > 6) {
+          if (visibleToolIds.length > 6) {
             const overflow = document.createElement("span");
             overflow.className = "worker-metric";
-            overflow.textContent = `+${agent.tool_ids.length - 6} more`;
+            overflow.textContent = `+${visibleToolIds.length - 6} more`;
             tools.appendChild(overflow);
           }
           card.appendChild(tools);
