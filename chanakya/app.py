@@ -86,9 +86,14 @@ def _register_sandbox_shutdown_cleanup() -> None:
         _SANDBOX_SHUTDOWN_REGISTERED = True
     if _SANDBOX_SIGNAL_HANDLERS_REGISTERED:
         return
-    for signum in (signal.SIGTERM, signal.SIGINT):
-        _PREVIOUS_SIGNAL_HANDLERS[signum] = signal.getsignal(signum)
-        signal.signal(signum, _handle_shutdown_signal)
+    if threading.current_thread() is not threading.main_thread():
+        return
+    try:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            _PREVIOUS_SIGNAL_HANDLERS[signum] = signal.getsignal(signum)
+            signal.signal(signum, _handle_shutdown_signal)
+    except ValueError:
+        return
     _SANDBOX_SIGNAL_HANDLERS_REGISTERED = True
 
 
