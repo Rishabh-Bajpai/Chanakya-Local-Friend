@@ -92,7 +92,8 @@ def _register_sandbox_shutdown_cleanup() -> None:
         for signum in (signal.SIGTERM, signal.SIGINT):
             _PREVIOUS_SIGNAL_HANDLERS[signum] = signal.getsignal(signum)
             signal.signal(signum, _handle_shutdown_signal)
-    except ValueError:
+    except ValueError as exc:
+        debug_log("sandbox_signal_registration_skipped", {"reason": str(exc)})
         return
     _SANDBOX_SIGNAL_HANDLERS_REGISTERED = True
 
