@@ -64,5 +64,3 @@ async def with_transient_retry(coro_factory, *, label: str = "agent_call"):
                     "attempt": attempt + 1,
                 },
             )
-
-    raise RuntimeError("with_transient_retry exhausted without returning or raising")

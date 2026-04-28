@@ -1009,7 +1009,7 @@ class ChatService:
                     "visible_agent_id": str(message.get("agent_id") or "").strip() or None,
                     "visible_agent_name": str(message.get("agent_name") or "").strip() or None,
                     "visible_agent_role": str(message.get("agent_role") or "").strip() or None,
-                    "group_chat_turn_index": int(message["turn_index"] if message.get("turn_index") is not None else index),
+                    "group_chat_turn_index": int(message.get("turn_index", index)),
                 },
             )
 
@@ -1078,15 +1078,11 @@ class ChatService:
 
     def _prune_work_locks(self, *, max_entries: int = 1024) -> None:
         """Evict idle (unlocked) LRU entries until the map is within *max_entries*."""
-        # Single-pass: collect candidates from the oldest end first, then remove them.
-        to_evict = [
-            wid
-            for wid, lock in self._work_locks.items()
-            if not lock.locked()
-        ]
-        for wid in to_evict:
-            if len(self._work_locks) <= max_entries:
-                break
+        needed = max(0, len(self._work_locks) - max_entries)
+        if needed == 0:
+            return
+        candidates = [wid for wid, lock in self._work_locks.items() if not lock.locked()]
+        for wid in candidates[:needed]:
             self._work_locks.pop(wid, None)
 
     def _work_lock(self, work_id: str) -> threading.Lock:
