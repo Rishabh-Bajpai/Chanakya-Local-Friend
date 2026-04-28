@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -70,6 +71,24 @@ class _RuntimeStub:
 
     def clear_session_state(self, session_id: str) -> None:
         return None
+
+
+class _TrackingManager(AgentManager):
+    def __init__(self, store: ChanakyaStore, session_factory, manager_profile: AgentProfileModel) -> None:
+        super().__init__(store, session_factory, manager_profile)
+        self.prompts_run: list[tuple[str, str]] = []
+        self.completion_adjudication_runner = self._adjudicate_completion
+
+    def _run_profile_prompt(self, profile: AgentProfileModel, prompt: str) -> str:  # type: ignore[override]
+        self.prompts_run.append((profile.role, prompt))
+        return "Merged file saved to `/workspace/rishabh_bajpai_merged.txt` with the summary and citations combined."
+
+    @staticmethod
+    def _adjudicate_completion(profile, prompt: str, request_message: str, visible_messages: list[dict[str, Any]], completion_payload: dict[str, Any]) -> str:
+        if visible_messages:
+            latest = str(visible_messages[-1].get("text") or "").strip()
+            return '{"status":"completed","summary":' + json.dumps(latest) + ',"reason":null,"termination_case":"user_request_satisfied"}'
+        return '{"status":"failed","summary":null,"reason":"The workflow reported completion without producing any visible result.","termination_case":"blocker_or_failure"}'
 
 
 class _FakeWorkflowResult(list):
@@ -157,7 +176,7 @@ def test_work_group_chat_persists_visible_agent_turns_and_mirrors_history() -> N
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)
     work_session_id = _create_work_with_sessions(store)
-    manager = AgentManager(store, store.Session, manager_profile)
+    manager = _TrackingManager(store, store.Session, manager_profile)
 
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
@@ -235,7 +254,7 @@ def test_work_group_chat_waiting_input_resumes_same_request() -> None:
     store = _build_store()
     chanakya, manager_profile = _seed_full_hierarchy(store)
     work_session_id = _create_work_with_sessions(store, "work_wait")
-    manager = AgentManager(store, store.Session, manager_profile)
+    manager = _TrackingManager(store, store.Session, manager_profile)
     call_count = {"count": 0}
 
     def _fake_builder(**kwargs):
@@ -585,6 +604,180 @@ def test_group_chat_recovers_successful_information_followup_from_bad_failure_pa
 
     assert reply.root_task_status == TASK_STATUS_DONE
     assert reply.messages[-1]["agent_name"] == "Researcher"
+
+
+def test_group_chat_save_followup_stops_once_workspace_path_is_reported() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_save_followup")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(
+                role="assistant",
+                text="Done. The summary has been saved to `/workspace/rishabh_bajpai_summary.txt` in the active workspace.",
+                author_name="Developer",
+            ),
+            Message(
+                role="assistant",
+                text='{"status":"failed","reason":"The 1-paragraph summary of Rishabh Bajpai has been saved to the workspace."}',
+                author_name="Agent Manager",
+            ),
+        ]
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(work_session_id, "save it to the workspace", work_id="work_save_followup")
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert "/workspace/rishabh_bajpai_summary.txt" in reply.messages[-1]["text"]
+
+
+def test_group_chat_max_rounds_falls_back_to_success_when_visible_report_is_sufficient() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_report_rounds")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(
+                role="assistant",
+                text="Report saved as **`climate_change_2025_report.md`** in the shared workspace.\n\n**Word count: ~170 words.**\n\n### Summary of Key Points:\n1. Temperatures remained near record highs in 2025.\n2. Climate action progress was uneven across sectors.\n3. Extreme weather continued to intensify globally.\n4. Major legal and diplomatic milestones shaped the year.\n5. Adaptation and emissions gaps remained significant.",
+                author_name="Researcher",
+            ),
+            Message(
+                role="assistant",
+                text="The group chat has reached the maximum number of rounds.",
+                author_name="Agent Manager",
+            ),
+        ]
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(work_session_id, "ok do it, I want 100-200 words", work_id="work_report_rounds")
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert "climate_change_2025_report.md" in reply.messages[-1]["text"]
+
+
+def test_group_chat_work_context_memo_includes_recent_requests_outputs_and_paths() -> None:
+    store = _build_store()
+    _chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_context_memo")
+    manager = _TrackingManager(store, store.Session, manager_profile)
+
+    store.add_message(work_session_id, "user", "First request", metadata={})
+    store.add_message(
+        work_session_id,
+        "assistant",
+        "Done. The summary has been saved to `/workspace/rishabh_bajpai_summary.txt` in the active workspace.",
+        metadata={"visible_agent_name": "Developer"},
+    )
+    store.add_message(
+        work_session_id,
+        "assistant",
+        "I've saved Rishabh Bajpai's citations to `/workspace/rishabh_bajpai_citations.txt` in the active workspace.",
+        metadata={"visible_agent_name": "Researcher"},
+    )
+    memo = manager._build_group_chat_work_context_memo(
+        session_id=work_session_id,
+        current_message="good! can you merge those files?",
+    )
+
+    assert "Current user request: good! can you merge those files?" in memo
+    assert "Recent user requests:" in memo
+    assert "Recent visible work outputs:" in memo
+    assert "/workspace/rishabh_bajpai_summary.txt" in memo
+    assert "/workspace/rishabh_bajpai_citations.txt" in memo
+    assert "resolve it against the recent requests, outputs, and workspace artifacts" in memo
+
+
+def test_group_chat_retries_with_sanitized_user_seed_after_missing_user_query_failure() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_retry_seed")
+    manager = AgentManager(store, store.Session, manager_profile)
+    call_count = {"count": 0}
+
+    def _fake_builder(**kwargs):
+        class _Workflow:
+            async def run(self, message=None, include_status_events: bool = False, **more_kwargs):
+                call_count["count"] += 1
+                seeded = list(message or [])
+                if call_count["count"] == 1:
+                    return _FakeWorkflowResult([
+                        [
+                            *seeded,
+                            Message(
+                                role="assistant",
+                                text='{"status":"failed","reason":"Internal framework error: prompt template rendering failed (no user query found in messages). Please retry the request."}',
+                                author_name="Agent Manager",
+                            ),
+                        ]
+                    ])
+                assert seeded[-1].role == "user"
+                assert seeded[-1].text == "please try again"
+                return _FakeWorkflowResult([
+                    [
+                        *seeded,
+                        Message(
+                            role="assistant",
+                            text="Merged file saved to `/workspace/rishabh_bajpai_merged.txt` in the active workspace.",
+                            author_name="Developer",
+                        ),
+                        Message(
+                            role="assistant",
+                            text='{"status":"completed","summary":"Merged file saved to `/workspace/rishabh_bajpai_merged.txt` in the active workspace."}',
+                            author_name="Agent Manager",
+                        ),
+                    ]
+                ])
+
+        return _Workflow()
+
+    manager._build_work_group_chat_workflow = _fake_builder  # type: ignore[method-assign]
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(work_session_id, "please try again", work_id="work_retry_seed")
+
+    assert reply.root_task_status == TASK_STATUS_DONE
+    assert "/workspace/rishabh_bajpai_merged.txt" in reply.messages[-1]["text"]
+    assert call_count["count"] == 2
+
+
+def test_group_chat_completed_without_result_is_rejected() -> None:
+    store = _build_store()
+    chanakya, manager_profile = _seed_full_hierarchy(store)
+    work_session_id = _create_work_with_sessions(store, "work_empty_success")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
+        lambda seeded: [
+            *seeded,
+            Message(
+                role="assistant",
+                text='{"status":"completed","summary":""}',
+                author_name="Agent Manager",
+            ),
+        ]
+    )
+
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub(chanakya)), manager)
+    service._conversation_layer = type("_DisabledLayer", (), {"enabled": False})()  # type: ignore[attr-defined]
+
+    reply = service.chat(work_session_id, "try again", work_id="work_empty_success")
+
+    assert reply.root_task_status == TASK_STATUS_FAILED
+    assert reply.message == "The workflow reported completion without producing any visible result."
 
 
 def test_group_chat_max_rounds_is_normalized_into_bounded_failure() -> None:

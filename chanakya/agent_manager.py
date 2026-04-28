@@ -94,6 +94,7 @@ _VALIDATION_REQUEST_MARKERS = (
     "confirm",
     "make sure",
 )
+_WORKSPACE_PATH_PATTERN = re.compile(r"/workspace/[A-Za-z0-9._/\-]+")
 
 _ACTIVE_WORK_ID: ContextVar[str | None] = ContextVar("active_work_id", default=None)
 _ACTIVE_REQUEST_ID: ContextVar[str | None] = ContextVar("active_request_id", default=None)
@@ -409,6 +410,7 @@ class AgentManager:
         self.specialist_runner: Any | None = None
         self.workflow_runner: Any | None = None
         self.clarification_runner: Any | None = None
+        self.completion_adjudication_runner: Any | None = None
         self.subagent_decision_runner: Any | None = None
         self.subagent_plan_runner: Any | None = None
         self.workflow_runtime = ManagerWorkflowRuntime(
@@ -648,6 +650,10 @@ class AgentManager:
     ) -> ManagerRunResult:
         participant_profiles = self._group_chat_participant_profiles()
         participant_meta = self._group_chat_participant_metadata(participant_profiles)
+        context_memo = self._build_group_chat_work_context_memo(
+            session_id=session_id,
+            current_message=message,
+        )
         seeded_conversation: list[Message] = []
         workflow = None
         self.store.create_task_event(
@@ -661,6 +667,34 @@ class AgentManager:
             },
         )
         try:
+            def _run_group_chat_once(seed_messages: list[Message]):
+                local_workflow = self._build_work_group_chat_workflow(
+                    message=message,
+                    participant_profiles=participant_profiles,
+                    context_memo=context_memo,
+                )
+                local_result = run_in_maf_loop(
+                    with_transient_retry(
+                        lambda: asyncio.wait_for(
+                            local_workflow.run(message=seed_messages, include_status_events=True),
+                            timeout=get_long_running_agent_request_timeout_seconds(),
+                        ),
+                        label="work_group_chat",
+                    )
+                )
+                local_conversation = self._extract_group_chat_conversation(local_result)
+                local_slice = local_conversation[len(seed_messages) :]
+                local_completion_payload, local_visible_messages = self._split_group_chat_completion(
+                    conversation_slice=local_slice,
+                    participant_profiles=participant_profiles,
+                )
+                return (
+                    local_workflow,
+                    local_result,
+                    self._normalize_group_chat_completion_payload(local_completion_payload),
+                    local_visible_messages,
+                )
+
             seeded_conversation = self._build_group_chat_seed_conversation(session_id)
             debug_log(
                 "work_group_chat_seeded_conversation",
@@ -671,31 +705,26 @@ class AgentManager:
                     "total_chars": sum(len(message.text or "") for message in seeded_conversation),
                 },
             )
-            workflow = self._build_work_group_chat_workflow(
-                message=message,
-                participant_profiles=participant_profiles,
+            workflow, workflow_result, completion_payload, visible_messages = _run_group_chat_once(
+                seeded_conversation
             )
-            workflow_result = run_in_maf_loop(
-                with_transient_retry(
-                    lambda: asyncio.wait_for(
-                        workflow.run(message=seeded_conversation, include_status_events=True),
-                        timeout=get_long_running_agent_request_timeout_seconds(),
-                    ),
-                    label="work_group_chat",
+            if not visible_messages and self._completion_payload_looks_like_missing_user_query_failure(completion_payload):
+                sanitized_seed = []
+                if context_memo:
+                    sanitized_seed.append(
+                        Message(role="assistant", text=context_memo, author_name="Chanakya")
+                    )
+                sanitized_seed.append(Message(role="user", text=message, author_name="User"))
+                workflow, workflow_result, completion_payload, visible_messages = _run_group_chat_once(
+                    sanitized_seed
                 )
-            )
-            final_conversation = self._extract_group_chat_conversation(workflow_result)
-            conversation_slice = final_conversation[len(seeded_conversation) :]
-            completion_payload, visible_messages = self._split_group_chat_completion(
-                conversation_slice=conversation_slice,
-                participant_profiles=participant_profiles,
-            )
-            completion_payload = self._normalize_group_chat_completion_payload(completion_payload)
+                seeded_conversation = sanitized_seed
             completion_payload = self._enforce_group_chat_completion_requirements(
                 message=message,
                 completion_payload=completion_payload,
                 visible_messages=visible_messages,
                 runtime_trace=getattr(workflow, "_chanakya_group_chat_trace", None),
+                context_memo=context_memo,
             )
             completion_payload = self._normalize_group_chat_completion_payload(completion_payload)
             execution_trace = self.build_group_chat_execution_trace(
@@ -706,6 +735,7 @@ class AgentManager:
                 completion_payload=completion_payload,
                 work_id=_ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get(),
                 runtime_trace=getattr(workflow, "_chanakya_group_chat_trace", None),
+                context_memo=context_memo,
             )
             self._record_group_chat_manager_events(
                 session_id=session_id,
@@ -884,6 +914,7 @@ class AgentManager:
                 completion_payload={"status": "failed", "reason": error_text},
                 work_id=_ACTIVE_WORK_ID.get() or _ACTIVE_REQUEST_ID.get(),
                 runtime_trace=runtime_trace,
+                context_memo=context_memo,
             )
             failed_manager_decisions = list(failed_execution_trace.get("manager_decisions") or [])
             last_selected_speaker = None
@@ -1081,6 +1112,58 @@ class AgentManager:
             seeded.append(Message(role=role, text=content, author_name=author_name or None))
         return seeded
 
+    def _extract_workspace_paths_from_messages(self, messages: list[dict[str, Any]]) -> list[str]:
+        found: list[str] = []
+        for message in messages:
+            text = str(message.get("content") or "")
+            for match in _WORKSPACE_PATH_PATTERN.findall(text):
+                if match not in found:
+                    found.append(match)
+        return found[-6:]
+
+    def _build_group_chat_work_context_memo(self, *, session_id: str, current_message: str) -> str:
+        records = self.store.list_messages(session_id)
+        prior_records = records[:-1] if records and str(records[-1].get("content") or "").strip() == current_message.strip() else records
+        recent_user_requests = [
+            self._bounded_text(str(item.get("content") or "").strip(), limit=220)
+            for item in prior_records
+            if str(item.get("role") or "") == "user" and str(item.get("content") or "").strip()
+        ][-4:]
+        recent_visible_outputs = [
+            {
+                "agent_name": (
+                    str(dict(item.get("metadata") or {}).get("visible_agent_name") or "").strip()
+                    or str(dict(item.get("metadata") or {}).get("group_chat_agent_name") or "").strip()
+                    or "Chanakya"
+                ),
+                "text": self._bounded_text(str(item.get("content") or "").strip(), limit=260),
+            }
+            for item in prior_records
+            if str(item.get("role") or "") == "assistant" and str(item.get("content") or "").strip()
+        ][-4:]
+        workspace_paths = self._extract_workspace_paths_from_messages(prior_records)
+        lines = [
+            "Shared Work Context:",
+            f"- Current user request: {self._bounded_text(current_message.strip(), limit=260)}",
+        ]
+        if recent_user_requests:
+            lines.append("- Recent user requests:")
+            lines.extend(f"  - {item}" for item in recent_user_requests)
+        if recent_visible_outputs:
+            lines.append("- Recent visible work outputs:")
+            lines.extend(
+                f"  - {item['agent_name']}: {item['text']}"
+                for item in recent_visible_outputs
+                if item.get("text")
+            )
+        if workspace_paths:
+            lines.append("- Recent workspace artifacts/paths:")
+            lines.extend(f"  - {path}" for path in workspace_paths)
+        lines.append(
+            "- If the current request is referential or vague, resolve it against the recent requests, outputs, and workspace artifacts above before deciding the next step."
+        )
+        return "\n".join(lines)
+
     def _group_chat_completion_requirements(self, message: str) -> GroupChatCompletionRequirements:
         workflow_type = self.select_workflow(message)
         requires_validation = False
@@ -1151,43 +1234,77 @@ class AgentManager:
             or "ok" == output_text.strip('"')
         )
 
-    @staticmethod
-    def _group_chat_failure_reason_looks_recoverable(reason: str) -> bool:
-        lowered = reason.lower()
-        markers = (
-            "conversation has been terminated by the agent",
-            "workflow is stuck",
-            "without progress",
-            "no concrete evidence",
-            "not yet provided concrete evidence",
+    def _build_group_chat_completion_adjudication_prompt(
+        self,
+        *,
+        request_message: str,
+        context_memo: str | None,
+        visible_messages: list[dict[str, Any]],
+        completion_payload: dict[str, Any],
+    ) -> str:
+        visible_block = "\n\n".join(
+            f"[{str(item.get('agent_name') or 'Agent')}] {str(item.get('text') or '').strip()}"
+            for item in visible_messages
+            if str(item.get("text") or "").strip()
+        ) or "<none>"
+        payload_block = json.dumps(completion_payload, ensure_ascii=True, default=str)
+        return (
+            "You are adjudicating the final state of a multi-agent work run. Decide whether the user's request was actually satisfied based only on the evidence below.\n\n"
+            "Rules:\n"
+            "1. Mark status='completed' only if the visible worker output or final summary actually satisfies the user's current request.\n"
+            "2. Mark status='failed' if the request is still unmet, blocked, or no actual result was produced.\n"
+            "3. Do not invent internal framework, template, admin, or infrastructure failures unless they are explicitly proven by the evidence.\n"
+            "4. If the current request is a referential follow-up, resolve it against the shared context memo.\n"
+            "5. Return JSON only with keys status, summary, reason, termination_case.\n\n"
+            f"Current request:\n{request_message}\n\n"
+            f"{context_memo or ''}\n\n"
+            f"Visible worker output:\n{visible_block}\n\n"
+            f"Raw completion payload:\n{payload_block}"
         )
-        return any(marker in lowered for marker in markers)
+
+    def _adjudicate_group_chat_completion(
+        self,
+        *,
+        request_message: str,
+        context_memo: str | None,
+        visible_messages: list[dict[str, Any]],
+        completion_payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        prompt = self._build_group_chat_completion_adjudication_prompt(
+            request_message=request_message,
+            context_memo=context_memo,
+            visible_messages=visible_messages,
+            completion_payload=completion_payload,
+        )
+        if self.completion_adjudication_runner is not None:
+            response_text = str(
+                self.completion_adjudication_runner(
+                    self.manager_profile,
+                    prompt,
+                    request_message,
+                    visible_messages,
+                    completion_payload,
+                )
+            )
+            parsed = self._parse_json_object_relaxed(response_text)
+            return parsed if isinstance(parsed, dict) else None
+        try:
+            response_text = self._run_profile_prompt_without_tools(self.manager_profile, prompt)
+        except Exception as exc:
+            debug_log("group_chat_completion_adjudication_failed", {"error": str(exc)})
+            return None
+        parsed = self._parse_json_object_relaxed(response_text)
+        if not isinstance(parsed, dict):
+            return None
+        return parsed
 
     @staticmethod
-    def _group_chat_failure_reason_looks_like_success(reason: str) -> bool:
-        lowered = reason.lower()
-        success_markers = (
-            "has already fetched",
-            "has already provided",
-            "no further steps are required",
-            "request has been completed",
-            "here is the extracted",
-            "here's the extracted",
-            "here is a summary",
-            "here's a summary",
-            "completed the request",
-        )
-        blocker_markers = (
-            "cannot",
-            "unable",
-            "failed",
-            "error",
-            "blocked",
-            "no configured participant",
-            "no available agents",
-        )
-        return any(marker in lowered for marker in success_markers) and not any(
-            marker in lowered for marker in blocker_markers
+    def _completion_payload_looks_like_missing_user_query_failure(completion_payload: dict[str, Any]) -> bool:
+        reason = str(completion_payload.get("reason") or "").strip().lower()
+        return (
+            "no user query found in messages" in reason
+            or "prompt template rendering failed" in reason
+            or "prompt template failed to render user query" in reason
         )
 
     def _assess_group_chat_completion(
@@ -1245,6 +1362,7 @@ class AgentManager:
         completion_payload: dict[str, Any],
         visible_messages: list[dict[str, Any]],
         runtime_trace: RuntimeGroupChatTrace | None = None,
+        context_memo: str | None = None,
     ) -> dict[str, Any]:
         normalized = dict(completion_payload or {})
         assessment = self._assess_group_chat_completion(
@@ -1253,27 +1371,27 @@ class AgentManager:
             runtime_trace=runtime_trace,
         )
         status = str(normalized.get("status") or "completed").strip()
+        summary_text = str(normalized.get("summary") or "").strip()
+        has_concrete_result = bool(visible_messages) or bool(summary_text)
         if status != "completed":
-            reason = str(normalized.get("reason") or "").strip()
-            if assessment.completion_allowed and self._group_chat_failure_reason_looks_recoverable(reason):
-                normalized["status"] = "completed"
-                normalized["termination_case"] = "user_request_satisfied"
-                normalized["reason"] = None
-                normalized["summary"] = str(normalized.get("summary") or "").strip() or None
-                normalized["completion_requirements"] = {
-                    "workflow_type": assessment.requirements.workflow_type,
-                    "require_developer_implementation": assessment.requirements.require_developer_implementation,
-                    "require_tester_validation": assessment.requirements.require_tester_validation,
-                    "developer_implementation_seen": assessment.developer_implementation_seen,
-                    "tester_validation_seen": assessment.tester_validation_seen,
-                }
-                if assessment.role_conformance_issues:
-                    normalized["role_conformance_issues"] = assessment.role_conformance_issues
-            elif visible_messages and self._group_chat_failure_reason_looks_like_success(reason):
-                normalized["status"] = "completed"
-                normalized["termination_case"] = "user_request_satisfied"
-                normalized["summary"] = str(normalized.get("summary") or "").strip() or reason
+            if visible_messages:
+                adjudicated = self._adjudicate_group_chat_completion(
+                    request_message=message,
+                    context_memo=context_memo,
+                    visible_messages=visible_messages,
+                    completion_payload=normalized,
+                )
+                if isinstance(adjudicated, dict):
+                    normalized.update(adjudicated)
             return normalized
+        if not has_concrete_result:
+            return {
+                **normalized,
+                "status": "failed",
+                "termination_case": "blocker_or_failure",
+                "reason": "The workflow reported completion without producing any visible result.",
+                "summary": None,
+            }
         missing_requirements: list[str] = []
         if assessment.requirements.require_developer_implementation and not assessment.developer_implementation_seen:
             missing_requirements.append("developer implementation turn")
@@ -1311,6 +1429,7 @@ class AgentManager:
         *,
         message: str,
         participant_profiles: list[AgentProfileModel],
+        context_memo: str | None = None,
     ):
         runtime_metadata = self._active_runtime_metadata()
         trace_store = RuntimeGroupChatTrace()
@@ -1320,6 +1439,7 @@ class AgentManager:
                 profile,
                 message=message,
                 runtime_metadata=runtime_metadata,
+                context_memo=context_memo,
             )
             participant_executors.append(
                 TracedAgentExecutor(
@@ -1334,6 +1454,7 @@ class AgentManager:
         orchestrator_agent, orchestrator_snapshot = self._build_group_chat_orchestrator_agent(
             participant_profiles=participant_profiles,
             message=message,
+            context_memo=context_memo,
         )
         orchestrator = TracedGroupChatOrchestrator(
             agent=orchestrator_agent,
@@ -1358,8 +1479,12 @@ class AgentManager:
         *,
         message: str,
         runtime_metadata: dict[str, Any],
+        context_memo: str | None = None,
     ) -> tuple[Agent, dict[str, Any], list[Any]]:
-        combined_addendum = self._build_group_chat_participant_prompt_addendum(profile)
+        combined_addendum = self._build_group_chat_participant_prompt_addendum(
+            profile,
+            context_memo=context_memo,
+        )
         agent, config = build_profile_agent(
             profile,
             self.session_factory,
@@ -1410,15 +1535,15 @@ class AgentManager:
             ),
             "developer": (
                 "Return concrete implementation progress only. If files were created or changed, name the exact /workspace paths. "
-                "State assumptions and residual risks briefly. Do not claim tests you did not run."
+                "State assumptions and residual risks briefly. Do not claim tests you did not run. When the requested file/save/update work is complete, return the completed outcome directly instead of narrating planned next steps."
             ),
             "researcher": (
                 "Return grounded facts, sources, and explicit uncertainties only. If you created research artifacts, name the exact /workspace paths. "
-                "Do not polish into a final answer."
+                "Do not polish into a final answer. When the requested research or summary is already complete, return the finished result directly instead of saying what you will do next."
             ),
             "writer": (
                 "Return the user-facing draft or revision only, grounded in prior research. If you created output artifacts, name the exact /workspace paths. "
-                "Do not invent unsupported claims."
+                "Do not invent unsupported claims. When the requested draft/report is complete, return the finished text directly instead of narrating planned next steps."
             ),
             "tester": (
                 "Return verification results only: checks performed, failures or residual risks, and pass/fail recommendation. "
@@ -1443,6 +1568,7 @@ class AgentManager:
         profile: AgentProfileModel,
         *,
         work_id: str | None = None,
+        context_memo: str | None = None,
     ) -> str:
         prompt_addendum = (
             self._build_active_workspace_prompt_addendum(profile)
@@ -1450,17 +1576,19 @@ class AgentManager:
             else self._build_workspace_prompt_addendum_for_work_id(profile, work_id)
         )
         group_chat_addendum = self._build_group_chat_participant_addendum(profile)
-        return "\n\n".join(part for part in [group_chat_addendum, prompt_addendum] if part)
+        return "\n\n".join(part for part in [group_chat_addendum, context_memo, prompt_addendum] if part)
 
     def _build_group_chat_orchestrator_agent(
         self,
         *,
         participant_profiles: list[AgentProfileModel],
         message: str,
+        context_memo: str | None = None,
     ) -> tuple[Agent, dict[str, Any]]:
         prompt_addendum = self._build_group_chat_orchestrator_addendum(
             participant_profiles=participant_profiles,
             message=message,
+            context_memo=context_memo,
         )
         config = build_profile_agent_config_for_usage(
             self.manager_profile,
@@ -1488,6 +1616,7 @@ class AgentManager:
         *,
         participant_profiles: list[AgentProfileModel],
         message: str,
+        context_memo: str | None = None,
     ) -> str:
         capability_lines = [
             f"- {profile.name} ({profile.id} / role={profile.role}): {self._group_chat_capability_summary(profile)}"
@@ -1512,21 +1641,24 @@ class AgentManager:
             "You are the internal group-chat orchestrator for /work. "
             "Your only job is to choose the best next visible speaker or terminate the conversation. "
             "The human only talks to Chanakya. When user clarification is needed, terminate the group chat with a JSON string in final_message indicating status='needs_user_input'.\n\n"
-            "Participant roster and capabilities:\n"
+            + ((context_memo + "\n\n") if context_memo else "")
+            + "Participant roster and capabilities:\n"
             + "\n".join(capability_lines)
             + ("\n\nCompletion requirements for this request:\n" + completion_rules_block if completion_rules_block else "")
             + "\n\nSelection rules:\n"
-            "1. Prefer the smallest number of turns needed for a correct result.\n"
-            "2. Pick agents whose capabilities match the current unresolved need.\n"
-            "2a. Do not terminate because of generic model-identity limitations such as 'as an AI' or 'text-based agent' if a participant or tool path could still perform the task. Judge blockers based on actual participant/tool capability, not generic LLM disclaimers.\n"
-            "3. Do not force hierarchical chains; any participant may speak next. Do not make everyone speak unless their contribution materially improves correctness.\n"
-            "4. If a participant says NEEDS_USER_INPUT:, terminate with final_message as a compact JSON string with keys status, question, reason, requesting_agent_id, requesting_agent_name.\n"
-            "5. When the work is complete, terminate with final_message as a compact JSON string with keys status='completed' and summary.\n"
-            "6. If you are not terminating, you must always provide next_speaker using one of the exact participant names. Never leave next_speaker empty when terminate=false.\n"
-            "7. After the user answers a clarification, usually send the next turn back to the agent best positioned to use that answer.\n"
-            "8. If the conversation is stuck, terminate with status='failed' and a short reason.\n"
-            "9. Treat termination as valid in four cases only: the user request is satisfied, clarification is required, a blocker or failure must be surfaced, or max rounds were effectively reached.\n"
-            "10. The manager is not a visible worker. Select participants or terminate; do not produce user-facing content directly."
+            + "1. Prefer the smallest number of turns needed for a correct result.\n"
+            + "2. Pick agents whose capabilities match the current unresolved need.\n"
+            + "2a. Do not terminate because of generic model-identity limitations such as 'as an AI' or 'text-based agent' if a participant or tool path could still perform the task. Judge blockers based on actual participant/tool capability, not generic LLM disclaimers.\n"
+            + "2b. If the latest visible worker turn already satisfies the user's request, terminate immediately with status='completed' and put the delivered outcome in summary. Do not spend extra rounds seeking redundant confirmation.\n"
+            + "3. Do not force hierarchical chains; any participant may speak next. Do not make everyone speak unless their contribution materially improves correctness.\n"
+            + "4. If a participant says NEEDS_USER_INPUT:, terminate with final_message as a compact JSON string with keys status, question, reason, requesting_agent_id, requesting_agent_name.\n"
+            + "5. When the work is complete, terminate with final_message as a compact JSON string with keys status='completed' and summary.\n"
+            + "6. If you are not terminating, you must always provide next_speaker using one of the exact participant names. Never leave next_speaker empty when terminate=false.\n"
+            + "7. After the user answers a clarification, usually send the next turn back to the agent best positioned to use that answer.\n"
+            + "8. If the conversation is stuck, terminate with status='failed' and a short reason. But do not call a finished answer 'stuck' just because it could be phrased differently.\n"
+            + "8a. Never claim internal framework, template, prompt-rendering, or administrator configuration issues unless the system explicitly surfaced such an error to you in the conversation context. If a follow-up references earlier workspace files or outputs, use that shared context or ask for clarification instead of inventing internal failure explanations.\n"
+            + "9. Treat termination as valid in four cases only: the user request is satisfied, clarification is required, a blocker or failure must be surfaced, or max rounds were effectively reached.\n"
+            + "10. The manager is not a visible worker. Select participants or terminate; do not produce user-facing content directly."
         )
 
     def build_group_chat_participant_prompt_snapshot(
@@ -1535,6 +1667,7 @@ class AgentManager:
         *,
         message: str,
         work_id: str | None = None,
+        context_memo: str | None = None,
     ) -> dict[str, Any]:
         config = build_profile_agent_config_for_usage(
             profile,
@@ -1542,6 +1675,7 @@ class AgentManager:
             prompt_addendum=self._build_group_chat_participant_prompt_addendum(
                 profile,
                 work_id=work_id,
+                context_memo=context_memo,
             ),
         )
         return {
@@ -1559,6 +1693,7 @@ class AgentManager:
         *,
         participant_profiles: list[AgentProfileModel],
         message: str,
+        context_memo: str | None = None,
     ) -> dict[str, Any]:
         config = build_profile_agent_config_for_usage(
             self.manager_profile,
@@ -1566,6 +1701,7 @@ class AgentManager:
             prompt_addendum=self._build_group_chat_orchestrator_addendum(
                 participant_profiles=participant_profiles,
                 message=message,
+                context_memo=context_memo,
             ),
         )
         return {
@@ -1588,12 +1724,14 @@ class AgentManager:
         completion_payload: dict[str, Any],
         work_id: str | None = None,
         runtime_trace: RuntimeGroupChatTrace | None = None,
+        context_memo: str | None = None,
     ) -> dict[str, Any]:
         participant_snapshots = [
             self.build_group_chat_participant_prompt_snapshot(
                 profile,
                 message=request_message,
                 work_id=work_id,
+                context_memo=context_memo,
             )
             for profile in participant_profiles
         ]
@@ -1603,6 +1741,7 @@ class AgentManager:
         orchestrator_snapshot = self.build_group_chat_orchestrator_prompt_snapshot(
             participant_profiles=participant_profiles,
             message=request_message,
+            context_memo=context_memo,
         )
         seeded_context = [
             {
@@ -1756,6 +1895,7 @@ class AgentManager:
                 "shared_context_source": "compact_summary_plus_visible_transcript",
             },
             "request_message": request_message,
+            "context_memo": context_memo,
             "seeded_context": seeded_context,
             "orchestrator": orchestrator_snapshot,
             "participants": participant_snapshots,
