@@ -885,12 +885,38 @@ def create_app() -> Flask:
             session_id=session_id,
             limit=limit,
         )
+        counts_by_status: dict[str, int] = {}
+        counts_by_type: dict[str, int] = {}
+        event_counts_by_type: dict[str, int] = {}
+        latest_retrieval = None
+        latest_operations_applied = None
+        latest_failure = None
+        for item in memories:
+            status_key = str(item.get("status") or "unknown")
+            type_key = str(item.get("type") or "unknown")
+            counts_by_status[status_key] = counts_by_status.get(status_key, 0) + 1
+            counts_by_type[type_key] = counts_by_type.get(type_key, 0) + 1
+        for item in events:
+            event_type = str(item.get("event_type") or "unknown")
+            event_counts_by_type[event_type] = event_counts_by_type.get(event_type, 0) + 1
+            if event_type == "memory_retrieved":
+                latest_retrieval = item
+            elif event_type == "memory_operations_applied":
+                latest_operations_applied = item
+            elif event_type == "memory_extraction_failed":
+                latest_failure = item
         return jsonify(
             {
                 "owner_id": owner_id,
                 "session_id": session_id,
                 "memory_count": len(memories),
                 "event_count": len(events),
+                "counts_by_status": counts_by_status,
+                "counts_by_type": counts_by_type,
+                "event_counts_by_type": event_counts_by_type,
+                "latest_retrieval": latest_retrieval,
+                "latest_operations_applied": latest_operations_applied,
+                "latest_failure": latest_failure,
                 "memories": memories,
                 "events": events,
             }

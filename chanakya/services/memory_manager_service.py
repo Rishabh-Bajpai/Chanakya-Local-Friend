@@ -267,6 +267,26 @@ class MemoryManagerService:
         request_id: str | None,
         source_messages: list[dict[str, Any]],
     ) -> None:
+        source_message_ids = [str(item.get("id") or "") for item in source_messages if item.get("id")]
+        source_request_ids = [request_id] if request_id else []
+        self.store.create_memory_event(
+            owner_id=self.owner_id,
+            session_id=session_id,
+            request_id=request_id,
+            event_type="memory_operations_proposed",
+            payload={
+                "status": result.status,
+                "summary": result.summary,
+                "needs_clarification": result.needs_clarification,
+                "clarification_question": result.clarification_question,
+                "retryable": result.retryable,
+                "error_code": result.error_code,
+                "error_detail": result.error_detail,
+                "operations": result.operations,
+                "source_message_ids": source_message_ids,
+                "source_request_ids": source_request_ids,
+            },
+        )
         if result.status == "failed":
             self.store.create_memory_event(
                 owner_id=self.owner_id,
@@ -278,41 +298,45 @@ class MemoryManagerService:
                     "retryable": result.retryable,
                     "error_code": result.error_code,
                     "error_detail": result.error_detail,
+                    "source_message_ids": source_message_ids,
+                    "source_request_ids": source_request_ids,
                 },
             )
             return
-        source_message_ids = [str(item.get("id") or "") for item in source_messages if item.get("id")]
-        source_request_ids = [request_id] if request_id else []
         changed_ids: list[str] = []
+        applied_operations: list[dict[str, Any]] = []
         for item in result.operations:
             op = str(item.get("op") or "noop")
             if op == "add":
                 if not item.get("subject") or not item.get("content"):
                     continue
-                record = self.store.create_memory(
-                    memory_id=make_id("memory"),
-                    owner_id=self.owner_id,
+                record, event_type = self._apply_add_operation(
+                    item=item,
                     session_id=session_id,
-                    scope=str(item.get("scope") or "shared"),
-                    type=str(item.get("type") or "fact"),
-                    subject=str(item.get("subject") or "").strip(),
-                    content=str(item.get("content") or "").strip(),
-                    importance=self._bounded_importance(item.get("importance")),
-                    confidence=self._bounded_confidence(item.get("confidence")),
+                    request_id=request_id,
                     source_message_ids=source_message_ids,
                     source_request_ids=source_request_ids,
                 )
+                if record is None:
+                    continue
                 changed_ids.append(str(record.get("id") or ""))
-                self.store.create_memory_event(
-                    owner_id=self.owner_id,
-                    session_id=session_id,
-                    request_id=request_id,
-                    memory_id=str(record.get("id") or ""),
-                    event_type="memory_added",
-                    payload={"subject": record.get("subject"), "type": record.get("type")},
+                applied_operations.append(
+                    {
+                        "op": "add",
+                        "resolved_as": event_type,
+                        "memory_id": str(record.get("id") or ""),
+                        "subject": record.get("subject"),
+                        "type": record.get("type"),
+                    }
                 )
             elif op == "update":
-                memory_id = str(item.get("memory_id") or "").strip()
+                memory_id = self._resolve_existing_memory_id(
+                    memory_id=str(item.get("memory_id") or "").strip() or None,
+                    session_id=session_id,
+                    subject=str(item.get("subject") or "").strip(),
+                    memory_type=str(item.get("type") or "fact").strip() or "fact",
+                    content=str(item.get("content") or "").strip(),
+                )
                 if not memory_id:
                     continue
                 try:
@@ -333,13 +357,32 @@ class MemoryManagerService:
                 self.store.create_memory_event(
                     owner_id=self.owner_id,
                     session_id=session_id,
-                    request_id=request_id,
-                    memory_id=memory_id,
-                    event_type="memory_updated",
-                    payload={"subject": updated.get("subject"), "type": updated.get("type")},
+                        request_id=request_id,
+                        memory_id=memory_id,
+                        event_type="memory_updated",
+                    payload={
+                        "subject": updated.get("subject"),
+                        "type": updated.get("type"),
+                        "source_message_ids": source_message_ids,
+                        "source_request_ids": source_request_ids,
+                    },
+                )
+                applied_operations.append(
+                    {
+                        "op": "update",
+                        "memory_id": memory_id,
+                        "subject": updated.get("subject"),
+                        "type": updated.get("type"),
+                    }
                 )
             elif op == "delete":
-                memory_id = str(item.get("memory_id") or "").strip()
+                memory_id = self._resolve_existing_memory_id(
+                    memory_id=str(item.get("memory_id") or "").strip() or None,
+                    session_id=session_id,
+                    subject=str(item.get("subject") or "").strip(),
+                    memory_type=str(item.get("type") or "fact").strip() or "fact",
+                    content=str(item.get("content") or "").strip(),
+                )
                 if not memory_id:
                     continue
                 try:
@@ -353,8 +396,28 @@ class MemoryManagerService:
                     request_id=request_id,
                     memory_id=memory_id,
                     event_type="memory_deleted",
-                    payload={"reason": result.summary or "deleted by memory manager"},
+                    payload={
+                        "reason": result.summary or "deleted by memory manager",
+                        "source_message_ids": source_message_ids,
+                        "source_request_ids": source_request_ids,
+                    },
                 )
+                applied_operations.append({"op": "delete", "memory_id": memory_id})
+        if applied_operations:
+            self.store.create_memory_event(
+                owner_id=self.owner_id,
+                session_id=session_id,
+                request_id=request_id,
+                event_type="memory_operations_applied",
+                payload={
+                    "status": result.status,
+                    "summary": result.summary,
+                    "operations_applied": applied_operations,
+                    "memory_ids": changed_ids,
+                    "source_message_ids": source_message_ids,
+                    "source_request_ids": source_request_ids,
+                },
+            )
         if not changed_ids:
             self.store.create_memory_event(
                 owner_id=self.owner_id,
@@ -369,8 +432,208 @@ class MemoryManagerService:
                     "retryable": result.retryable,
                     "error_code": result.error_code,
                     "error_detail": result.error_detail,
+                    "source_message_ids": source_message_ids,
+                    "source_request_ids": source_request_ids,
                 },
             )
+
+    def _apply_add_operation(
+        self,
+        *,
+        item: dict[str, Any],
+        session_id: str | None,
+        request_id: str | None,
+        source_message_ids: list[str],
+        source_request_ids: list[str],
+    ) -> tuple[dict[str, Any] | None, str]:
+        scope = str(item.get("scope") or "shared")
+        memory_type = str(item.get("type") or "fact").strip() or "fact"
+        subject = str(item.get("subject") or "").strip()
+        content = str(item.get("content") or "").strip()
+        active = self.store.list_memories(
+            owner_id=self.owner_id,
+            status="active",
+            session_id=session_id,
+            limit=200,
+        )
+        exact_match = self._find_exact_active_match(
+            active,
+            subject=subject,
+            memory_type=memory_type,
+            content=content,
+        )
+        if exact_match is not None:
+            updated = self.store.update_memory(
+                str(exact_match.get("id") or ""),
+                importance=max(
+                    int(exact_match.get("importance") or 0),
+                    self._bounded_importance(item.get("importance")),
+                ),
+                confidence=max(
+                    float(exact_match.get("confidence") or 0),
+                    self._bounded_confidence(item.get("confidence")),
+                ),
+                source_message_ids=self._merge_unique_strings(
+                    list(exact_match.get("source_message_ids") or []),
+                    source_message_ids,
+                ),
+                source_request_ids=self._merge_unique_strings(
+                    list(exact_match.get("source_request_ids") or []),
+                    source_request_ids,
+                ),
+            )
+            self.store.create_memory_event(
+                owner_id=self.owner_id,
+                session_id=session_id,
+                request_id=request_id,
+                memory_id=str(updated.get("id") or ""),
+                event_type="memory_updated",
+                payload={
+                    "subject": updated.get("subject"),
+                    "type": updated.get("type"),
+                    "reason": "merged_duplicate_add",
+                    "source_message_ids": source_message_ids,
+                    "source_request_ids": source_request_ids,
+                },
+            )
+            return updated, "merged_duplicate_add"
+
+        prior = self._find_subject_type_active_match(active, subject=subject, memory_type=memory_type)
+        if prior is not None:
+            self.store.update_memory(str(prior.get("id") or ""), status="superseded")
+            record = self.store.create_memory(
+                memory_id=make_id("memory"),
+                owner_id=self.owner_id,
+                session_id=session_id,
+                scope=scope,
+                type=memory_type,
+                subject=subject,
+                content=content,
+                importance=self._bounded_importance(item.get("importance")),
+                confidence=self._bounded_confidence(item.get("confidence")),
+                source_message_ids=source_message_ids,
+                source_request_ids=source_request_ids,
+                supersedes_memory_id=str(prior.get("id") or ""),
+            )
+            self.store.create_memory_event(
+                owner_id=self.owner_id,
+                session_id=session_id,
+                request_id=request_id,
+                memory_id=str(record.get("id") or ""),
+                event_type="memory_superseded",
+                payload={
+                    "subject": record.get("subject"),
+                    "type": record.get("type"),
+                    "superseded_memory_id": str(prior.get("id") or ""),
+                    "source_message_ids": source_message_ids,
+                    "source_request_ids": source_request_ids,
+                },
+            )
+            return record, "memory_superseded"
+
+        record = self.store.create_memory(
+            memory_id=make_id("memory"),
+            owner_id=self.owner_id,
+            session_id=session_id,
+            scope=scope,
+            type=memory_type,
+            subject=subject,
+            content=content,
+            importance=self._bounded_importance(item.get("importance")),
+            confidence=self._bounded_confidence(item.get("confidence")),
+            source_message_ids=source_message_ids,
+            source_request_ids=source_request_ids,
+        )
+        self.store.create_memory_event(
+            owner_id=self.owner_id,
+            session_id=session_id,
+            request_id=request_id,
+            memory_id=str(record.get("id") or ""),
+            event_type="memory_added",
+            payload={
+                "subject": record.get("subject"),
+                "type": record.get("type"),
+                "source_message_ids": source_message_ids,
+                "source_request_ids": source_request_ids,
+            },
+        )
+        return record, "memory_added"
+
+    def _resolve_existing_memory_id(
+        self,
+        *,
+        memory_id: str | None,
+        session_id: str | None,
+        subject: str,
+        memory_type: str,
+        content: str,
+    ) -> str | None:
+        if memory_id:
+            return memory_id
+        active = self.store.list_memories(
+            owner_id=self.owner_id,
+            status="active",
+            session_id=session_id,
+            limit=200,
+        )
+        exact = self._find_exact_active_match(active, subject=subject, memory_type=memory_type, content=content)
+        if exact is not None:
+            return str(exact.get("id") or "") or None
+        by_subject = self._find_subject_type_active_match(active, subject=subject, memory_type=memory_type)
+        if by_subject is not None:
+            return str(by_subject.get("id") or "") or None
+        return None
+
+    @staticmethod
+    def _find_exact_active_match(
+        memories: list[dict[str, Any]],
+        *,
+        subject: str,
+        memory_type: str,
+        content: str,
+    ) -> dict[str, Any] | None:
+        normalized_subject = MemoryManagerService._normalize_text(subject)
+        normalized_type = MemoryManagerService._normalize_text(memory_type)
+        normalized_content = MemoryManagerService._normalize_text(content)
+        for item in memories:
+            if str(item.get("status") or "") != "active":
+                continue
+            if MemoryManagerService._normalize_text(str(item.get("type") or "")) != normalized_type:
+                continue
+            if MemoryManagerService._normalize_text(str(item.get("subject") or "")) != normalized_subject:
+                continue
+            if MemoryManagerService._normalize_text(str(item.get("content") or "")) != normalized_content:
+                continue
+            return item
+        return None
+
+    @staticmethod
+    def _find_subject_type_active_match(
+        memories: list[dict[str, Any]],
+        *,
+        subject: str,
+        memory_type: str,
+    ) -> dict[str, Any] | None:
+        normalized_subject = MemoryManagerService._normalize_text(subject)
+        normalized_type = MemoryManagerService._normalize_text(memory_type)
+        for item in memories:
+            if str(item.get("status") or "") != "active":
+                continue
+            if MemoryManagerService._normalize_text(str(item.get("type") or "")) != normalized_type:
+                continue
+            if MemoryManagerService._normalize_text(str(item.get("subject") or "")) != normalized_subject:
+                continue
+            return item
+        return None
+
+    @staticmethod
+    def _merge_unique_strings(existing: list[str], incoming: list[str]) -> list[str]:
+        merged: list[str] = []
+        for value in [*existing, *incoming]:
+            cleaned = str(value or "").strip()
+            if cleaned and cleaned not in merged:
+                merged.append(cleaned)
+        return merged
 
     @staticmethod
     def _extract_json_object(raw: str) -> dict[str, Any]:
@@ -435,6 +698,10 @@ class MemoryManagerService:
         except (TypeError, ValueError):
             return 0.85
         return max(0.0, min(parsed, 1.0))
+
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        return " ".join(str(text or "").replace("\x00", " ").strip().lower().split())
 
 
 def run_memory_manager_update_job(store: ChanakyaStore, *, session_id: str, request_id: str) -> None:

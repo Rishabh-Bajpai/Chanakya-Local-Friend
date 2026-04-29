@@ -58,6 +58,13 @@ def test_memory_debug_endpoints(monkeypatch, tmp_path: Path) -> None:
         event_type="memory_added",
         payload={"subject": "project context"},
     )
+    store.create_memory_event(
+        owner_id="default_user",
+        session_id="session_memory_api",
+        request_id="req_memory_api",
+        event_type="memory_retrieved",
+        payload={"memory_ids": ["memory_1"], "count": 1},
+    )
 
     client = app.test_client()
 
@@ -71,13 +78,17 @@ def test_memory_debug_endpoints(monkeypatch, tmp_path: Path) -> None:
     events_response = client.get("/api/memory/events?session_id=session_memory_api")
     assert events_response.status_code == 200
     events_payload = events_response.get_json()
-    assert events_payload["count"] == 1
+    assert events_payload["count"] == 2
     assert events_payload["counts_by_type"]["memory_added"] == 1
+    assert events_payload["counts_by_type"]["memory_retrieved"] == 1
     assert events_payload["events"][0]["memory_id"] == "memory_1"
 
     session_response = client.get("/api/sessions/session_memory_api/memory")
     assert session_response.status_code == 200
     session_payload = session_response.get_json()
     assert session_payload["memory_count"] == 1
-    assert session_payload["event_count"] == 1
+    assert session_payload["event_count"] == 2
     assert session_payload["memories"][0]["subject"] == "project context"
+    assert session_payload["counts_by_type"]["project"] == 1
+    assert session_payload["event_counts_by_type"]["memory_retrieved"] == 1
+    assert session_payload["latest_retrieval"]["event_type"] == "memory_retrieved"

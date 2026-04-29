@@ -6,7 +6,7 @@ from typing import Any, cast
 from chanakya.chat_service import ChatService
 from chanakya.db import build_engine, build_session_factory, init_database
 from chanakya.model import AgentProfileModel
-from chanakya.services.long_term_memory import run_memory_update_job
+from chanakya.services.long_term_memory import LongTermMemoryService, run_memory_update_job
 from chanakya.services.memory_manager_service import MemoryManagerResult, MemoryManagerService
 from chanakya.store import ChanakyaStore
 
@@ -318,3 +318,210 @@ def test_memory_manager_failure_is_recorded(monkeypatch) -> None:
     assert events[-1]["event_type"] == "memory_extraction_failed"
     assert events[-1]["payload"]["retryable"] is True
     assert events[-1]["payload"]["error_code"] == "parse_failed"
+
+
+def test_duplicate_add_merges_into_existing_active_memory(monkeypatch) -> None:
+    store = _build_store()
+    store.create_memory(
+        memory_id="memory_existing",
+        owner_id="default_user",
+        session_id="session_1",
+        scope="user",
+        type="identity",
+        subject="user_name",
+        content="Rishabh Bajpai",
+        importance=4,
+        confidence=0.9,
+        source_message_ids=["1"],
+        source_request_ids=["req_old"],
+    )
+    store.create_session("session_1", "Test")
+    store.add_message(
+        "session_1",
+        "user",
+        "Remember that my name is Rishabh Bajpai.",
+        request_id="req_dup_1",
+    )
+    store.add_message("session_1", "assistant", "Done.", request_id="req_dup_1")
+
+    monkeypatch.setattr(
+        MemoryManagerService,
+        "_run_memory_manager",
+        lambda self, prompt_text, session_id: MemoryManagerResult(
+            status="ok",
+            summary="No new memory needed beyond reinforcing the current identity.",
+            needs_clarification=False,
+            clarification_question=None,
+            retryable=False,
+            error_code=None,
+            error_detail=None,
+            operations=[
+                {
+                    "op": "add",
+                    "memory_id": None,
+                    "scope": "user",
+                    "type": "identity",
+                    "subject": "user_name",
+                    "content": "Rishabh Bajpai",
+                    "importance": 5,
+                    "confidence": 1.0,
+                }
+            ],
+        ),
+    )
+
+    run_memory_update_job(store, session_id="session_1", request_id="req_dup_1")
+
+    memories = store.list_memories(owner_id="default_user", session_id="session_1", status=None)
+    active = [item for item in memories if item["status"] == "active"]
+    assert len(active) == 1
+    assert active[0]["id"] == "memory_existing"
+    assert active[0]["importance"] == 5
+    assert "req_dup_1" in active[0]["source_request_ids"]
+
+
+def test_add_with_same_subject_and_new_content_supersedes_prior_memory(monkeypatch) -> None:
+    store = _build_store()
+    store.create_memory(
+        memory_id="memory_old_address",
+        owner_id="default_user",
+        session_id="session_1",
+        scope="user",
+        type="attribute",
+        subject="address",
+        content="123 Old Street",
+        importance=3,
+        confidence=0.9,
+    )
+    store.create_session("session_1", "Test")
+    store.add_message(
+        "session_1",
+        "user",
+        "Remember that my new address is 456 Lincoln Dr.",
+        request_id="req_sup_1",
+    )
+    store.add_message("session_1", "assistant", "Done.", request_id="req_sup_1")
+
+    monkeypatch.setattr(
+        MemoryManagerService,
+        "_run_memory_manager",
+        lambda self, prompt_text, session_id: MemoryManagerResult(
+            status="ok",
+            summary="Updated the address.",
+            needs_clarification=False,
+            clarification_question=None,
+            retryable=False,
+            error_code=None,
+            error_detail=None,
+            operations=[
+                {
+                    "op": "add",
+                    "memory_id": None,
+                    "scope": "user",
+                    "type": "attribute",
+                    "subject": "address",
+                    "content": "456 Lincoln Dr.",
+                    "importance": 4,
+                    "confidence": 0.97,
+                }
+            ],
+        ),
+    )
+
+    run_memory_update_job(store, session_id="session_1", request_id="req_sup_1")
+
+    memories = store.list_memories(owner_id="default_user", session_id="session_1", status=None)
+    old_memory = next(item for item in memories if item["id"] == "memory_old_address")
+    new_memory = next(item for item in memories if item["id"] != "memory_old_address")
+    assert old_memory["status"] == "superseded"
+    assert new_memory["status"] == "active"
+    assert new_memory["supersedes_memory_id"] == "memory_old_address"
+
+
+def test_retrieval_prioritizes_identity_memory_for_name_queries() -> None:
+    store = _build_store()
+    store.create_memory(
+        memory_id="memory_name",
+        owner_id="default_user",
+        session_id="session_1",
+        scope="user",
+        type="identity",
+        subject="user_name",
+        content="Rishabh Bajpai",
+        importance=5,
+        confidence=1.0,
+    )
+    store.create_memory(
+        memory_id="memory_project",
+        owner_id="default_user",
+        session_id="session_1",
+        scope="shared",
+        type="project",
+        subject="project context",
+        content="User is building an assistant app with MAF and MCP.",
+        importance=4,
+        confidence=0.9,
+    )
+
+    addendum = LongTermMemoryService(store).build_prompt_addendum(
+        session_id="session_1",
+        query="What is my name?",
+    )
+
+    assert addendum is not None
+    lines = addendum.splitlines()
+    assert len(lines) >= 2
+    assert "Rishabh Bajpai" in lines[1]
+
+
+def test_memory_events_record_proposed_and_applied_operations(monkeypatch) -> None:
+    store = _build_store()
+    store.create_session("session_1", "Test")
+    store.add_message(
+        "session_1",
+        "user",
+        "Remember that my favorite style is concise.",
+        request_id="req_evt_1",
+    )
+    store.add_message("session_1", "assistant", "Done.", request_id="req_evt_1")
+
+    monkeypatch.setattr(
+        MemoryManagerService,
+        "_run_memory_manager",
+        lambda self, prompt_text, session_id: MemoryManagerResult(
+            status="ok",
+            summary="Stored a preference.",
+            needs_clarification=False,
+            clarification_question=None,
+            retryable=False,
+            error_code=None,
+            error_detail=None,
+            operations=[
+                {
+                    "op": "add",
+                    "memory_id": None,
+                    "scope": "user",
+                    "type": "preference",
+                    "subject": "response style",
+                    "content": "User prefers concise responses.",
+                    "importance": 4,
+                    "confidence": 0.96,
+                }
+            ],
+        ),
+    )
+
+    run_memory_update_job(store, session_id="session_1", request_id="req_evt_1")
+
+    events = store.list_memory_events(
+        owner_id="default_user",
+        session_id="session_1",
+        request_id="req_evt_1",
+    )
+    event_types = [item["event_type"] for item in events]
+    assert "memory_operations_proposed" in event_types
+    assert "memory_operations_applied" in event_types
+    proposed = next(item for item in events if item["event_type"] == "memory_operations_proposed")
+    applied = next(item for item in events if item["event_type"] == "memory_operations_applied")
+    assert proposed["payload"]["operations"][0]["op"] == "add"
+    assert applied["payload"]["operations_applied"][0]["resolved_as"] in {"memory_added", "merged_duplicate_add", "memory_superseded"}

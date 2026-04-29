@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
 
 from chanakya.config import (
@@ -21,6 +22,7 @@ class LongTermMemoryService:
         self.owner_id = configured_owner or "default_user"
 
     def build_prompt_addendum(self, *, session_id: str, query: str) -> str | None:
+        lowered_query = str(query or "").strip().lower()
         query_tokens = self._tokenize(query)
         active = self.store.list_memories(
             owner_id=self.owner_id,
@@ -33,16 +35,16 @@ class LongTermMemoryService:
 
         scored: list[tuple[float, dict[str, Any]]] = []
         for item in active:
-            score = self._memory_score(item, query_tokens)
+            score = self._memory_score(item, query_tokens, lowered_query)
             if score <= 0:
                 continue
             scored.append((score, item))
 
         if not scored:
             scored = [
-                (self._fallback_memory_score(item), item)
+                (self._fallback_memory_score(item, lowered_query), item)
                 for item in active
-                if str(item.get("type") or "") in {"preference", "instruction", "profile"}
+                if str(item.get("type") or "") in {"preference", "instruction", "profile", "identity", "attribute"}
             ]
 
         scored.sort(key=lambda pair: pair[0], reverse=True)
@@ -76,7 +78,7 @@ class LongTermMemoryService:
         return "Relevant long-term memory:\n" + "\n".join(f"- {line}" for line in lines)
 
     @staticmethod
-    def _memory_score(item: dict[str, Any], query_tokens: set[str]) -> float:
+    def _memory_score(item: dict[str, Any], query_tokens: set[str], lowered_query: str) -> float:
         if str(item.get("status") or "") != "active":
             return 0.0
         item_tokens = LongTermMemoryService._tokenize(
@@ -84,14 +86,22 @@ class LongTermMemoryService:
         )
         overlap = len(query_tokens.intersection(item_tokens)) if query_tokens else 0
         if overlap <= 0 and query_tokens:
-            return 0.0
+            overlap = LongTermMemoryService._soft_query_affinity(item, lowered_query)
+            if overlap <= 0:
+                return 0.0
         importance = float(item.get("importance") or 0)
         confidence = float(item.get("confidence") or 0)
-        return overlap * 3.0 + importance * 0.5 + confidence * 0.25
+        type_weight = LongTermMemoryService._memory_type_weight(item, lowered_query)
+        recency_weight = LongTermMemoryService._recency_weight(str(item.get("updated_at") or ""))
+        return overlap * 3.0 + importance * 0.5 + confidence * 0.25 + type_weight + recency_weight
 
     @staticmethod
-    def _fallback_memory_score(item: dict[str, Any]) -> float:
-        return float(item.get("importance") or 0) * 0.5 + float(item.get("confidence") or 0) * 0.25
+    def _fallback_memory_score(item: dict[str, Any], lowered_query: str) -> float:
+        return (
+            float(item.get("importance") or 0) * 0.5
+            + float(item.get("confidence") or 0) * 0.25
+            + LongTermMemoryService._memory_type_weight(item, lowered_query)
+        )
 
     @staticmethod
     def _memory_line(item: dict[str, Any]) -> str:
@@ -110,6 +120,55 @@ class LongTermMemoryService:
         if len(value) <= limit:
             return value
         return value[:limit].rstrip() + "..."
+
+    @staticmethod
+    def _soft_query_affinity(item: dict[str, Any], lowered_query: str) -> float:
+        subject = str(item.get("subject") or "").strip().lower()
+        content = str(item.get("content") or "").strip().lower()
+        memory_type = str(item.get("type") or "").strip().lower()
+        affinity = 0.0
+        if any(token in lowered_query for token in ("name", "who am i", "who i am", "identity")):
+            if memory_type in {"identity", "profile"} or "name" in subject:
+                affinity += 2.0
+        if any(token in lowered_query for token in ("address", "location", "live", "where")):
+            if memory_type == "attribute" or "address" in subject or "address" in content:
+                affinity += 1.5
+        if any(token in lowered_query for token in ("prefer", "preference", "style", "usually")):
+            if memory_type in {"preference", "instruction"}:
+                affinity += 1.5
+        return affinity
+
+    @staticmethod
+    def _memory_type_weight(item: dict[str, Any], lowered_query: str) -> float:
+        memory_type = str(item.get("type") or "").strip().lower()
+        base = {
+            "identity": 1.8,
+            "profile": 1.6,
+            "preference": 1.4,
+            "instruction": 1.4,
+            "project": 0.9,
+            "attribute": 0.8,
+            "fact": 0.4,
+        }.get(memory_type, 0.2)
+        if lowered_query and memory_type in {"identity", "profile"} and "name" in lowered_query:
+            return base + 1.2
+        return base
+
+    @staticmethod
+    def _recency_weight(updated_at: str) -> float:
+        text = str(updated_at or "").strip()
+        if not text:
+            return 0.0
+        try:
+            timestamp = datetime.fromisoformat(text)
+        except ValueError:
+            return 0.0
+        age_seconds = max((datetime.now(timestamp.tzinfo) - timestamp).total_seconds(), 0.0)
+        if age_seconds <= 3600:
+            return 0.5
+        if age_seconds <= 86400:
+            return 0.25
+        return 0.0
 
 
 def run_memory_update_job(store: ChanakyaStore, *, session_id: str, request_id: str) -> None:
