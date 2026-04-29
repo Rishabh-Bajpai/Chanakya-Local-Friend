@@ -44,7 +44,7 @@ class LongTermMemoryService:
             scored = [
                 (self._fallback_memory_score(item, lowered_query), item)
                 for item in active
-                if str(item.get("type") or "") in {"preference", "instruction", "profile", "identity", "attribute"}
+                if str(item.get("type") or "").lower() in {"preference", "instruction", "profile", "identity", "attribute"}
             ]
 
         scored.sort(key=lambda pair: pair[0], reverse=True)

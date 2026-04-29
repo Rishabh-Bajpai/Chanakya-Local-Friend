@@ -5,6 +5,7 @@ import mimetypes
 import re
 import threading
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from itertools import islice
 from pathlib import Path
 from typing import Any
@@ -203,6 +204,7 @@ class ChatService:
         self._work_locks: OrderedDict[str, threading.Lock] = OrderedDict()
         self._work_locks_guard = threading.Lock()
         self._long_term_memory = LongTermMemoryService(store)
+        self._memory_update_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="memory-update")
 
     @staticmethod
     def _runtime_snapshot_from_metadata(runtime_meta: dict[str, object]) -> dict[str, str | None]:
@@ -834,13 +836,12 @@ class ChatService:
     def _schedule_long_term_memory_update(self, *, session_id: str, request_id: str) -> None:
         if not get_long_term_memory_enabled():
             return
-        worker = threading.Thread(
-            target=run_memory_update_job,
-            kwargs={"store": self.store, "session_id": session_id, "request_id": request_id},
-            daemon=True,
-            name=f"memory-update-{request_id}",
+        self._memory_update_executor.submit(
+            run_memory_update_job,
+            store=self.store,
+            session_id=session_id,
+            request_id=request_id,
         )
-        worker.start()
 
     def _notify_root_task_outcome(
         self,

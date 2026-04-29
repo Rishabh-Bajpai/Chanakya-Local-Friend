@@ -331,12 +331,27 @@ class MemoryManagerService:
                     }
                 )
             elif op == "update":
+                subject = str(item.get("subject") or "").strip()
+                content = str(item.get("content") or "").strip()
+                if not subject or not content:
+                    self.store.create_memory_event(
+                        owner_id=self.owner_id,
+                        session_id=session_id,
+                        request_id=request_id,
+                        memory_id=str(item.get("memory_id") or "").strip() or None,
+                        event_type="memory_update_skipped",
+                        payload={
+                            "reason": "missing required fields",
+                            "missing": [f for f, v in (("subject", subject), ("content", content)) if not v],
+                        },
+                    )
+                    continue
                 memory_id = self._resolve_existing_memory_id(
                     memory_id=str(item.get("memory_id") or "").strip() or None,
                     session_id=session_id,
-                    subject=str(item.get("subject") or "").strip(),
+                    subject=subject,
                     memory_type=str(item.get("type") or "fact").strip() or "fact",
-                    content=str(item.get("content") or "").strip(),
+                    content=content,
                 )
                 if not memory_id:
                     continue
@@ -345,8 +360,8 @@ class MemoryManagerService:
                         memory_id,
                         scope=str(item.get("scope") or "shared"),
                         type=str(item.get("type") or "fact"),
-                        subject=str(item.get("subject") or "").strip(),
-                        content=str(item.get("content") or "").strip(),
+                        subject=subject,
+                        content=content,
                         importance=self._bounded_importance(item.get("importance")),
                         confidence=self._bounded_confidence(item.get("confidence")),
                         source_message_ids=source_message_ids,
@@ -358,9 +373,9 @@ class MemoryManagerService:
                 self.store.create_memory_event(
                     owner_id=self.owner_id,
                     session_id=session_id,
-                        request_id=request_id,
-                        memory_id=memory_id,
-                        event_type="memory_updated",
+                    request_id=request_id,
+                    memory_id=memory_id,
+                    event_type="memory_updated",
                     payload={
                         "subject": updated.get("subject"),
                         "type": updated.get("type"),
