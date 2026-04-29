@@ -1761,11 +1761,17 @@ class ChanakyaStore:
     def get_work(self, work_id: str) -> WorkModel:
         return self.works.get_work(work_id)
 
-    def delete_work(self, work_id: str) -> list[str]:
+    def delete_work(self, work_id: str) -> tuple[list[str], list[str]]:
+        """Delete a work and all associated records.
+
+        Returns a tuple of (session_ids, artifact_ids) for the caller to clean
+        up in-memory runtime state and artifact files on disk.
+        """
         self.get_work(work_id)
         session_ids = self.work_agent_sessions.list_session_ids_for_work(work_id)
         request_ids: list[str] = []
         task_ids: list[str] = []
+        artifact_ids: list[str] = []
         with session_scope(self.Session) as session:
             if session_ids:
                 request_ids = list(
@@ -1779,6 +1785,12 @@ class ChanakyaStore:
                             select(TaskModel.id).where(TaskModel.request_id.in_(request_ids))
                         ).all()
                     )
+                session_artifact_ids = list(
+                    session.scalars(
+                        select(ArtifactModel.id).where(ArtifactModel.session_id.in_(session_ids))
+                    ).all()
+                )
+                artifact_ids.extend(session_artifact_ids)
                 if task_ids:
                     session.execute(
                         delete(TaskEventModel).where(TaskEventModel.task_id.in_(task_ids))
@@ -1812,6 +1824,12 @@ class ChanakyaStore:
                 session.execute(
                     delete(ChatSessionModel).where(ChatSessionModel.id.in_(session_ids))
                 )
+            work_artifact_ids = list(
+                session.scalars(
+                    select(ArtifactModel.id).where(ArtifactModel.work_id == work_id)
+                ).all()
+            )
+            artifact_ids.extend(work_artifact_ids)
             session.execute(delete(ArtifactModel).where(ArtifactModel.work_id == work_id))
             session.execute(
                 delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
@@ -1828,7 +1846,7 @@ class ChanakyaStore:
             session.commit()
         for session_id in session_ids:
             self.session_contexts.delete(session_id)
-        return session_ids
+        return session_ids, artifact_ids
 
     def get_agent_session_context(
         self, session_id: str, *, target_key: str | None = None

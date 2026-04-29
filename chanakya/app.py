@@ -1232,7 +1232,7 @@ def create_app() -> Flask:
     @app.delete("/api/works/<work_id>")
     def api_delete_work(work_id: str) -> Any:
         try:
-            deleted_session_ids = store.delete_work(work_id)
+            deleted_session_ids, deleted_artifact_ids = store.delete_work(work_id)
         except KeyError as exc:
             message = str(exc.args[0]) if exc.args else str(exc)
             return jsonify({"error": message}), 404
@@ -1240,11 +1240,19 @@ def create_app() -> Flask:
             runtime.clear_session_state(session_id)
         container_cleanup = stop_container(work_id)
         workspace_cleanup = delete_shared_workspace(work_id)
+        artifact_root = get_artifact_storage_root(create=False)
+        for artifact_id in deleted_artifact_ids:
+            artifact_dir = artifact_root / artifact_id
+            if artifact_dir.exists():
+                for p in sorted(artifact_dir.rglob("*"), reverse=True):
+                    p.unlink() if p.is_file() else p.rmdir()
+                artifact_dir.rmdir()
         store.log_event(
             "work_deleted",
             {
                 "work_id": work_id,
                 "session_count": len(deleted_session_ids),
+                "artifact_count": len(deleted_artifact_ids),
                 "container_cleanup_ok": bool(container_cleanup.get("ok")),
                 "workspace_cleanup_ok": bool(workspace_cleanup.get("ok")),
             },

@@ -703,6 +703,7 @@ class ProxyEngine:
                 e,
                 exc_info=True,
             )
+            _trace_summaries.pop(trace_id, None)
             raise ProxyError(detail=str(e)) from e
 
     async def forward_multipart_request(self, request: Request, provider: ProviderConfig, path: str, data: dict, files: dict, *, is_stream: bool | None = False):
@@ -845,6 +846,7 @@ class ProxyEngine:
                 e,
                 exc_info=True,
             )
+            _trace_summaries.pop(trace_id, None)
             raise ProxyError(detail=str(e)) from e
 
 proxy_engine = ProxyEngine()

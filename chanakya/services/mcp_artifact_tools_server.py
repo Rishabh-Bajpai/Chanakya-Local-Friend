@@ -21,8 +21,8 @@ from chanakya.services.mcp_feedback import (
     build_missing_argument_payload,
     build_wrong_id_payload,
 )
-from chanakya.store import ChanakyaStore
 from chanakya.services.sandbox_workspace import get_artifact_storage_root
+from chanakya.store import ChanakyaStore
 
 _FILENAME_SANITIZE_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -310,8 +310,10 @@ def _locate_artifact(
             request_id=request_id,
             work_id=work_id,
         )
-    artifact_root = get_artifact_storage_root(create=False)
+    artifact_root = get_artifact_storage_root(create=False).resolve()
     absolute_path = (artifact_root / artifact.path).resolve()
+    if artifact_root not in absolute_path.parents and absolute_path != artifact_root:
+        return {"ok": False, "error": "Artifact path escapes storage root"}
     return {
         "ok": True,
         "artifact": _artifact_payload(store.artifacts._to_dict(artifact)),
