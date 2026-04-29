@@ -3510,6 +3510,10 @@
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M4.25 2A2.25 2.25 0 002 4.25v11.5A2.25 2.25 0 004.25 18h11.5A2.25 2.25 0 0018 15.75V4.25A2.25 2.25 0 0015.75 2H4.25zm4.03 6.28a.75.75 0 00-1.06-1.06L4.97 9.47a.75.75 0 000 1.06l2.25 2.25a.75.75 0 001.06-1.06L6.56 10l1.72-1.72zm4.5-1.06a.75.75 0 10-1.06 1.06L13.44 10l-1.72 1.72a.75.75 0 101.06 1.06l2.25-2.25a.75.75 0 000-1.06l-2.25-2.25z" clip-rule="evenodd"/></svg>
                   Debug
                 </button>
+                <button id="composerMemoryButton" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6.5A2.5 2.5 0 0 1 9.5 4h5A2.5 2.5 0 0 1 17 6.5v11A2.5 2.5 0 0 1 14.5 20h-5A2.5 2.5 0 0 1 7 17.5v-11Z" /><path d="M10 8.5h4" /><path d="M10 12h4" /><path d="M10 15.5h2.5" /></svg>
+                  Memory
+                </button>
                 <button type="button" data-voice-proxy="speak">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 14h3l4 3V7L8 10H5v4Z" /><path d="M16 9a4.5 4.5 0 0 1 0 6" /><path d="M18.5 6.5a8 8 0 0 1 0 11" /></svg>
                   Speak latest reply
@@ -4078,11 +4082,14 @@
     const composerMenu = document.getElementById("composerMenu");
     const composerSettingsButton = document.getElementById("composerSettingsButton");
     const composerCharacterButton = document.getElementById("composerCharacterButton");
+    const composerMemoryButton = document.getElementById("composerMemoryButton");
     const callModePrimaryLabel = document.getElementById("callModePrimaryLabel");
     const callHeroStatus = document.getElementById("callHeroStatus");
     const callHeroStatusText = document.getElementById("callHeroStatusText");
     const composerSubmitButton = chatForm ? chatForm.querySelector(".composer-submit") : null;
     let airVoiceController = null;
+    let memoryDebugWindow = null;
+    let memoryDebugRefreshTimer = null;
     const CALL_MODE_VIEW_KEY = "chanakya-call-mode-view";
     let preferredCallModeView = false;
     let mcpConfigDirty = false;
@@ -4223,6 +4230,13 @@
       composerCharacterButton.addEventListener("click", () => {
         setComposerMenuOpen(false);
         openVoiceCharacterSettings();
+      });
+    }
+
+    if (composerMemoryButton) {
+      composerMemoryButton.addEventListener("click", () => {
+        setComposerMenuOpen(false);
+        openMemoryDebug();
       });
     }
 
@@ -5094,6 +5108,235 @@
         disconnectDebugLogsStream();
         debugLogsWindow = null;
       });
+    }
+
+    function disconnectMemoryDebugRefresh() {
+      if (memoryDebugRefreshTimer) {
+        window.clearInterval(memoryDebugRefreshTimer);
+        memoryDebugRefreshTimer = null;
+      }
+    }
+
+    function openMemoryDebug() {
+      if (!sessionId) {
+        alert("Open or start a chat session first to inspect long-term memory.");
+        return;
+      }
+      if (memoryDebugWindow && !memoryDebugWindow.closed) {
+        memoryDebugWindow.focus();
+        syncMemoryDebugWindow();
+        return;
+      }
+      memoryDebugWindow = window.open("", "chanakya-memory-debug", "width=1100,height=820,scrollbars=yes");
+      if (!memoryDebugWindow) {
+        alert("Please allow popups for this site to open the Memory window.");
+        return;
+      }
+      const doc = memoryDebugWindow.document;
+      doc.open();
+      doc.write(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Chanakya — Memory Debug</title>
+<style>
+  :root { --bg: #111111; --panel: rgba(22,22,22,0.96); --line: #2a2a2a; --text: #e8e6e3; --muted: #9a9590; --accent: #d86b4a; --ink: #3a8a87; --green: #4caf50; --red: #e74c3c; --yellow: #f39c12; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Inter','SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color: var(--text); background: var(--bg); }
+  .memory-shell { max-width: 1240px; margin: 0 auto; padding: 20px; display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 16px; }
+  .memory-header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .memory-header h1 { margin: 0; font-size: 20px; font-weight: 700; }
+  .memory-header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+  .memory-actions { display: flex; align-items: center; gap: 8px; }
+  .memory-actions button { border: 0; border-radius: 10px; padding: 8px 14px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .memory-actions button:hover { background: #c95b3a; }
+  .memory-status { font-size: 11px; color: var(--muted); }
+  .memory-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-height: 220px; overflow: hidden; display: flex; flex-direction: column; }
+  .memory-panel h2 { margin: 0 0 4px; font-size: 15px; }
+  .memory-panel p { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+  .memory-panel-body { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #3a3a3a transparent; }
+  .memory-summary { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .memory-summary-card { background: rgba(255,255,255,0.03); border: 1px solid #383838; border-radius: 10px; padding: 12px; }
+  .memory-summary-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .memory-summary-card .value { margin-top: 6px; font-size: 20px; font-weight: 700; }
+  .card { border: 1px solid #383838; border-left: 4px solid var(--ink); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: rgba(255,255,255,0.03); }
+  .card.deleted { border-left-color: var(--red); }
+  .card.superseded { border-left-color: var(--yellow); }
+  .card h3 { margin: 0 0 6px; font-size: 14px; }
+  .card pre { white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; font-family: 'SFMono-Regular',Consolas,monospace; font-size: 11px; color: #b0aea8; }
+  .pill { display: inline-block; margin-right: 6px; margin-bottom: 6px; padding: 3px 8px; border-radius: 999px; background: rgba(45,37,32,0.8); font-size: 11px; }
+  .pill.active { background: rgba(76,175,80,0.18); color: var(--green); }
+  .pill.deleted { background: rgba(231,76,60,0.18); color: var(--red); }
+  .pill.superseded { background: rgba(243,156,18,0.18); color: var(--yellow); }
+  .pill.type { background: rgba(58,138,135,0.2); color: var(--ink); }
+  .empty-state { color: var(--muted); font-style: italic; font-size: 12px; padding: 4px 0; }
+  code { font-family: 'SFMono-Regular',Consolas,monospace; font-size: 0.9em; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.1em 0.3em; }
+  @media (max-width: 800px) { .memory-shell { grid-template-columns: 1fr; } .memory-summary { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<div class="memory-shell">
+  <div class="memory-header">
+    <div>
+      <h1>Long-Term Memory Debug</h1>
+      <p id="memoryWindowMeta">Loading current session memory…</p>
+    </div>
+    <div class="memory-actions">
+      <span class="memory-status" id="memoryWindowStatus">Loading...</span>
+      <button id="memoryWindowRefresh" type="button">Refresh</button>
+    </div>
+  </div>
+  <div class="memory-summary">
+    <div class="memory-summary-card"><div class="label">Active Memories</div><div class="value" id="memoryCountActive">0</div></div>
+    <div class="memory-summary-card"><div class="label">All Memories</div><div class="value" id="memoryCountAll">0</div></div>
+    <div class="memory-summary-card"><div class="label">Events</div><div class="value" id="memoryEventCount">0</div></div>
+    <div class="memory-summary-card"><div class="label">Last Retrievals</div><div class="value" id="memoryRetrievedCount">0</div></div>
+  </div>
+  <div class="memory-panel">
+    <h2>Stored Memories</h2>
+    <p>Current durable facts remembered for this session.</p>
+    <div class="memory-panel-body" id="memoryRecordsPanel"></div>
+  </div>
+  <div class="memory-panel">
+    <h2>Memory Events</h2>
+    <p>Background writes, retrievals, skips, deletes, and failures.</p>
+    <div class="memory-panel-body" id="memoryEventsPanel"></div>
+  </div>
+</div>
+</body>
+</html>`);
+      doc.close();
+      const refreshButton = doc.getElementById("memoryWindowRefresh");
+      if (refreshButton) {
+        refreshButton.addEventListener("click", () => {
+          syncMemoryDebugWindow();
+        });
+      }
+      memoryDebugWindow.addEventListener("beforeunload", () => {
+        disconnectMemoryDebugRefresh();
+        memoryDebugWindow = null;
+      });
+      syncMemoryDebugWindow();
+      disconnectMemoryDebugRefresh();
+      memoryDebugRefreshTimer = window.setInterval(() => {
+        syncMemoryDebugWindow();
+      }, 4000);
+    }
+
+    function buildMemoryCard(doc, memory) {
+      const card = doc.createElement("div");
+      const status = String(memory.status || "active").trim() || "active";
+      card.className = `card ${status}`;
+      const title = doc.createElement("h3");
+      title.textContent = String(memory.subject || memory.type || "Memory");
+      card.appendChild(title);
+      const pillRow = doc.createElement("div");
+      [status, memory.type, memory.scope].filter(Boolean).forEach((value, index) => {
+        const pill = doc.createElement("span");
+        pill.className = `pill ${index === 0 ? status : "type"}`;
+        pill.textContent = String(value);
+        pillRow.appendChild(pill);
+      });
+      card.appendChild(pillRow);
+      const body = doc.createElement("div");
+      body.textContent = String(memory.content || "");
+      card.appendChild(body);
+      const meta = doc.createElement("pre");
+      meta.textContent = JSON.stringify({
+        id: memory.id,
+        importance: memory.importance,
+        confidence: memory.confidence,
+        source_message_ids: memory.source_message_ids,
+        source_request_ids: memory.source_request_ids,
+        supersedes_memory_id: memory.supersedes_memory_id,
+        updated_at: memory.updated_at,
+      }, null, 2);
+      card.appendChild(meta);
+      return card;
+    }
+
+    function buildMemoryEventCard(doc, event) {
+      const card = doc.createElement("div");
+      card.className = "card";
+      const title = doc.createElement("h3");
+      title.textContent = String(event.event_type || "memory_event").replaceAll("_", " ");
+      card.appendChild(title);
+      const pillRow = doc.createElement("div");
+      [event.memory_id, event.request_id].filter(Boolean).forEach((value) => {
+        const pill = doc.createElement("span");
+        pill.className = "pill type";
+        pill.textContent = String(value);
+        pillRow.appendChild(pill);
+      });
+      card.appendChild(pillRow);
+      const meta = doc.createElement("pre");
+      meta.textContent = JSON.stringify({
+        created_at: event.created_at,
+        payload: event.payload,
+      }, null, 2);
+      card.appendChild(meta);
+      return card;
+    }
+
+    async function syncMemoryDebugWindow() {
+      if (!memoryDebugWindow || memoryDebugWindow.closed || !sessionId) {
+        disconnectMemoryDebugRefresh();
+        return;
+      }
+      const doc = memoryDebugWindow.document;
+      const statusNode = doc.getElementById("memoryWindowStatus");
+      const metaNode = doc.getElementById("memoryWindowMeta");
+      const recordsPanel = doc.getElementById("memoryRecordsPanel");
+      const eventsPanel = doc.getElementById("memoryEventsPanel");
+      if (!statusNode || !metaNode || !recordsPanel || !eventsPanel) {
+        return;
+      }
+      statusNode.textContent = "Refreshing...";
+      try {
+        const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/memory?limit=200`);
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Memory debug refresh failed");
+        }
+        const memories = Array.isArray(payload.memories) ? payload.memories : [];
+        const events = Array.isArray(payload.events) ? payload.events : [];
+        const activeCount = memories.filter((item) => String(item.status || "") === "active").length;
+        const retrievalCount = events.filter((item) => String(item.event_type || "") === "memory_retrieved").length;
+        const activeValue = doc.getElementById("memoryCountActive");
+        const allValue = doc.getElementById("memoryCountAll");
+        const eventValue = doc.getElementById("memoryEventCount");
+        const retrievalValue = doc.getElementById("memoryRetrievedCount");
+        if (activeValue) activeValue.textContent = String(activeCount);
+        if (allValue) allValue.textContent = String(memories.length);
+        if (eventValue) eventValue.textContent = String(events.length);
+        if (retrievalValue) retrievalValue.textContent = String(retrievalCount);
+        metaNode.textContent = `Session: ${sessionId} | Owner: ${payload.owner_id || "default_user"}`;
+        recordsPanel.innerHTML = "";
+        if (!memories.length) {
+          const empty = doc.createElement("div");
+          empty.className = "empty-state";
+          empty.textContent = "No long-term memories stored for this session yet.";
+          recordsPanel.appendChild(empty);
+        } else {
+          memories.forEach((memory) => {
+            recordsPanel.appendChild(buildMemoryCard(doc, memory));
+          });
+        }
+        eventsPanel.innerHTML = "";
+        if (!events.length) {
+          const empty = doc.createElement("div");
+          empty.className = "empty-state";
+          empty.textContent = "No memory events recorded for this session yet.";
+          eventsPanel.appendChild(empty);
+        } else {
+          events.slice().reverse().forEach((event) => {
+            eventsPanel.appendChild(buildMemoryEventCard(doc, event));
+          });
+        }
+        statusNode.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      } catch (error) {
+        statusNode.textContent = error instanceof Error ? error.message : String(error);
+      }
     }
 
     function syncDebugPanelContent() {
@@ -7401,6 +7644,7 @@
       }
       await refreshToolTraces();
       syncDebugPanelContent();
+      syncMemoryDebugWindow();
     }
 
     async function loadSessionHistory(targetSessionId = null) {

@@ -11,6 +11,7 @@ from typing import Any
 
 from chanakya.agent.runtime import MAFRuntime, normalize_runtime_backend
 from chanakya.agent_manager import AgentManager
+from chanakya.config import get_long_term_memory_enabled
 from chanakya.conversation_layer_support import ConversationLayerResult, ConversationLayerSupport
 from chanakya.debug import debug_log
 from chanakya.domain import (
@@ -30,6 +31,7 @@ from chanakya.domain import (
     make_id,
     now_iso,
 )
+from chanakya.services.long_term_memory import LongTermMemoryService, run_memory_update_job
 from chanakya.services.ntfy import NtfyNotificationDispatcher, summarize_notification_text
 from chanakya.services.sandbox_workspace import (
     CLASSIC_ARTIFACT_WORKSPACE_ID,
@@ -200,6 +202,7 @@ class ChatService:
         self._conversation_layer = ConversationLayerSupport()
         self._work_locks: OrderedDict[str, threading.Lock] = OrderedDict()
         self._work_locks_guard = threading.Lock()
+        self._long_term_memory = LongTermMemoryService(store)
 
     @staticmethod
     def _runtime_snapshot_from_metadata(runtime_meta: dict[str, object]) -> dict[str, str | None]:
@@ -705,6 +708,7 @@ class ChatService:
                     session_id=session_id,
                     request_id=request_id,
                     work_id=work_id,
+                    current_message=user_message,
                 ),
             )
             self.runtime.clear_session_state(artifact_session_id)
@@ -739,6 +743,7 @@ class ChatService:
         session_id: str,
         request_id: str,
         work_id: str | None,
+        current_message: str | None = None,
     ) -> str:
         base_prompt = (
             _WORK_MODE_RUNTIME_PROMPT_ADDENDUM
@@ -749,7 +754,11 @@ class ChatService:
         has_artifact_tools = "mcp_artifact_tools" in tool_ids
         has_filesystem = "mcp_filesystem" in tool_ids
         if not has_artifact_tools and not has_filesystem:
-            return base_prompt
+            return self._with_long_term_memory_addendum(
+                base_prompt,
+                session_id=session_id,
+                current_message=current_message,
+            )
         artifact_root = get_artifact_storage_root(create=True)
         if work_id is not None:
             scratch_workspace = get_shared_workspace_root() / str(work_id).strip()
@@ -786,7 +795,52 @@ class ChatService:
                 artifact_prompt += (
                     f" In classic chat, if you use filesystem tools, always pass work_id='{CLASSIC_ARTIFACT_WORKSPACE_ID}' so files go into the shared artifacts workspace."
                 )
-        return base_prompt + context_prompt + artifact_prompt
+        return self._with_long_term_memory_addendum(
+            base_prompt + context_prompt + artifact_prompt,
+            session_id=session_id,
+            current_message=current_message,
+        )
+
+    def _with_long_term_memory_addendum(
+        self,
+        base_prompt: str,
+        *,
+        session_id: str,
+        current_message: str | None,
+    ) -> str:
+        if not get_long_term_memory_enabled():
+            return base_prompt
+        additions: list[str] = []
+        tool_ids = set(self.runtime.profile.tool_ids_json or [])
+        if "mcp_memory_agent" in tool_ids:
+            additions.append(
+                "You are an agent with durable long-term memory, not only a conversational model. "
+                "You can remember, recall, update, and forget durable information through `mcp_memory_agent_memory_agent_request`. "
+                "Use that tool whenever the user asks you to remember, forget, update, or recall personal details, preferences, project facts, or other durable context. "
+                "Do not manage memory yourself and do not claim that a memory was stored, removed, updated, or recalled unless that tool actually returned a successful result. "
+                "If the memory-agent tool reports ambiguity, ask the clarification question it returns. "
+                "If the memory-agent tool fails, explain the exact problem returned by the tool, mention whether it is retryable, and ask the user if they want you to retry when appropriate."
+            )
+        memory_block = self._long_term_memory.build_prompt_addendum(
+            session_id=session_id,
+            query=str(current_message or "").strip(),
+        )
+        if memory_block:
+            additions.append(memory_block)
+        if not additions:
+            return base_prompt
+        return f"{base_prompt}\n\n" + "\n\n".join(additions)
+
+    def _schedule_long_term_memory_update(self, *, session_id: str, request_id: str) -> None:
+        if not get_long_term_memory_enabled():
+            return
+        worker = threading.Thread(
+            target=run_memory_update_job,
+            kwargs={"store": self.store, "session_id": session_id, "request_id": request_id},
+            daemon=True,
+            name=f"memory-update-{request_id}",
+        )
+        worker.start()
 
     def _notify_root_task_outcome(
         self,
@@ -1742,6 +1796,7 @@ class ChatService:
                         session_id=session_id,
                         request_id=request_id,
                         work_id=work_id,
+                        current_message=message,
                     ),
                 )
                 manager_invoked = False
@@ -2225,6 +2280,7 @@ class ChatService:
                 "tool_trace_ids": tool_trace_ids,
             },
         )
+        self._schedule_long_term_memory_update(session_id=session_id, request_id=request_id)
         return reply
 
     @staticmethod
