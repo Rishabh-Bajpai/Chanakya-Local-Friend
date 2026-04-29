@@ -18,14 +18,18 @@ from chanakya.store import ChanakyaStore
 _MEMORY_MANAGER_SYSTEM_PROMPT = (
     "You are the long-term memory manager. Your only job is to maintain accurate, minimal, "
     "durable memory about the user, the project, and stable working preferences. Do not store "
-    "full conversations, temporary chatter, or uncertain guesses. When information is ambiguous, "
-    "do not guess. Return JSON only.\n\n"
+    "full conversations, temporary chatter, or uncertain guesses. You may return multiple memory "
+    "operations in a single response. When information is ambiguous, do not guess. Return JSON only.\n\n"
     "Allowed operations: add, update, delete, noop.\n"
-    "Return a JSON object with keys: status, summary, needs_clarification, clarification_question, operations.\n"
+    "Return a JSON object with keys: status, summary, needs_clarification, clarification_question, "
+    "retryable, error_code, error_detail, operations.\n"
+    "Allowed status values: ok, needs_clarification, failed.\n"
     "Each operation must be an object with keys: op, memory_id, scope, type, subject, content, importance, confidence.\n"
     "Use memory_id only for update/delete. For add, memory_id should be null.\n"
     "Use delete for memories that should no longer be active.\n"
-    "If nothing durable should be changed, return operations as an empty list and status='ok'."
+    "If nothing durable should be changed, return operations as an empty list and status='ok'.\n"
+    "If the request is ambiguous, return status='needs_clarification' with a short clarification_question.\n"
+    "If the request cannot be processed, return status='failed' with exact error_detail and retryable true or false."
 )
 
 
@@ -35,6 +39,9 @@ class MemoryManagerResult:
     summary: str
     needs_clarification: bool
     clarification_question: str | None
+    retryable: bool
+    error_code: str | None
+    error_detail: str | None
     operations: list[dict[str, Any]]
 
 
@@ -85,11 +92,18 @@ class MemoryManagerService:
             session_id=effective_session_id,
             limit=200,
         )
+        recent_messages: list[dict[str, Any]] = []
+        if effective_request_id:
+            recent_messages = self.store.list_messages_for_request(effective_request_id)[-8:]
+        elif effective_session_id:
+            recent_messages = self.store.list_messages(effective_session_id)[-8:]
         prompt = self._build_user_request_prompt(
             user_request=user_request,
             session_id=effective_session_id,
             request_id=effective_request_id,
             active_memories=active_memories,
+            request_envelope=parsed,
+            recent_messages=recent_messages,
         )
         result = self._run_memory_manager(
             prompt_text=prompt,
@@ -106,6 +120,9 @@ class MemoryManagerService:
             "summary": result.summary,
             "needs_clarification": result.needs_clarification,
             "clarification_question": result.clarification_question,
+            "retryable": result.retryable,
+            "error_code": result.error_code,
+            "error_detail": result.error_detail,
             "operations": result.operations,
         }
 
@@ -147,6 +164,8 @@ class MemoryManagerService:
         session_id: str | None,
         request_id: str | None,
         active_memories: list[dict[str, Any]],
+        request_envelope: dict[str, Any],
+        recent_messages: list[dict[str, Any]],
     ) -> str:
         payload = {
             "mode": "explicit_memory_request",
@@ -155,9 +174,12 @@ class MemoryManagerService:
             "request_id": request_id,
             "active_memories": active_memories,
             "memory_request": user_request,
+            "request_envelope": request_envelope,
+            "recent_messages": recent_messages,
             "instruction": (
                 "Handle this memory-related request using the current memory state. "
-                "If the request is ambiguous, return needs_clarification=true with a short question."
+                "If the request is ambiguous, return needs_clarification=true with a short question. "
+                "Use recent_messages to resolve references like 'it', 'that', or 'my old name'."
             ),
         }
         return json.dumps(payload, indent=2, ensure_ascii=True)
@@ -231,6 +253,9 @@ class MemoryManagerService:
             clarification_question=(
                 str(payload.get("clarification_question") or "").strip() or None
             ),
+            retryable=bool(payload.get("retryable", False)),
+            error_code=str(payload.get("error_code") or "").strip() or None,
+            error_detail=str(payload.get("error_detail") or "").strip() or None,
             operations=normalized_ops,
         )
 
@@ -242,6 +267,20 @@ class MemoryManagerService:
         request_id: str | None,
         source_messages: list[dict[str, Any]],
     ) -> None:
+        if result.status == "failed":
+            self.store.create_memory_event(
+                owner_id=self.owner_id,
+                session_id=session_id,
+                request_id=request_id,
+                event_type="memory_extraction_failed",
+                payload={
+                    "summary": result.summary,
+                    "retryable": result.retryable,
+                    "error_code": result.error_code,
+                    "error_detail": result.error_detail,
+                },
+            )
+            return
         source_message_ids = [str(item.get("id") or "") for item in source_messages if item.get("id")]
         source_request_ids = [request_id] if request_id else []
         changed_ids: list[str] = []
@@ -327,6 +366,9 @@ class MemoryManagerService:
                     "summary": result.summary,
                     "needs_clarification": result.needs_clarification,
                     "clarification_question": result.clarification_question,
+                    "retryable": result.retryable,
+                    "error_code": result.error_code,
+                    "error_detail": result.error_detail,
                 },
             )
 
@@ -355,7 +397,28 @@ class MemoryManagerService:
             payload = json.loads(str(memory_request or ""))
         except json.JSONDecodeError:
             return {"request": memory_request}
-        return payload if isinstance(payload, dict) else {"request": memory_request}
+        if not isinstance(payload, dict):
+            return {"request": memory_request}
+        request_text = str(payload.get("request") or "").strip()
+        if request_text:
+            return payload
+        text_value = str(payload.get("text") or "").strip()
+        if text_value:
+            payload["request"] = text_value
+            return payload
+        data = payload.get("data")
+        if isinstance(data, dict) and data:
+            parts: list[str] = []
+            for key, value in data.items():
+                cleaned = str(value or "").strip()
+                if not cleaned:
+                    continue
+                parts.append(f"{key}: {cleaned}")
+            if parts:
+                payload["request"] = "Remember this information: " + "; ".join(parts)
+                return payload
+        payload["request"] = memory_request
+        return payload
 
     @staticmethod
     def _bounded_importance(value: Any) -> int:

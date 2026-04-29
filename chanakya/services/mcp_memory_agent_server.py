@@ -33,7 +33,19 @@ def _build_memory_agent_server() -> FastMCP:
         for clarification.
         """
 
-        return service.handle_memory_request(memory_request=memory_request)
+        try:
+            return service.handle_memory_request(memory_request=memory_request)
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "summary": "The memory agent request could not be completed.",
+                "needs_clarification": False,
+                "clarification_question": None,
+                "retryable": True,
+                "error_code": "memory_agent_request_failed",
+                "error_detail": str(exc),
+                "operations": [],
+            }
 
     return mcp
 

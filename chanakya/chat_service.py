@@ -814,10 +814,12 @@ class ChatService:
         tool_ids = set(self.runtime.profile.tool_ids_json or [])
         if "mcp_memory_agent" in tool_ids:
             additions.append(
-                "Your long-term memory is available through `mcp_memory_agent_memory_agent_request`. "
-                "Use it when the user asks you to remember, forget, update, or recall durable information. "
-                "Do not manage memory yourself. Send memory-related requests through that tool and use its result. "
-                "If it reports ambiguity, ask the returned clarification question concisely."
+                "You are an agent with durable long-term memory, not only a conversational model. "
+                "You can remember, recall, update, and forget durable information through `mcp_memory_agent_memory_agent_request`. "
+                "Use that tool whenever the user asks you to remember, forget, update, or recall personal details, preferences, project facts, or other durable context. "
+                "Do not manage memory yourself and do not claim that a memory was stored, removed, updated, or recalled unless that tool actually returned a successful result. "
+                "If the memory-agent tool reports ambiguity, ask the clarification question it returns. "
+                "If the memory-agent tool fails, explain the exact problem returned by the tool, mention whether it is retryable, and ask the user if they want you to retry when appropriate."
             )
         memory_block = self._long_term_memory.build_prompt_addendum(
             session_id=session_id,

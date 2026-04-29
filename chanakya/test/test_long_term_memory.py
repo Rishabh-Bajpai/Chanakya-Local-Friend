@@ -96,6 +96,9 @@ def test_long_term_memory_service_creates_project_memory_from_agent_result(monke
             summary="Stored project context.",
             needs_clarification=False,
             clarification_question=None,
+            retryable=False,
+            error_code=None,
+            error_detail=None,
             operations=[
                 {
                     "op": "add",
@@ -157,6 +160,9 @@ def test_chat_service_background_memory_update_can_be_run_inline_without_affecti
             summary="Stored user preference.",
             needs_clarification=False,
             clarification_question=None,
+            retryable=False,
+            error_code=None,
+            error_detail=None,
             operations=[
                 {
                     "op": "add",
@@ -209,6 +215,9 @@ def test_memory_manager_handles_explicit_memory_request(monkeypatch) -> None:
             summary="Updated the user's full name.",
             needs_clarification=False,
             clarification_question=None,
+            retryable=False,
+            error_code=None,
+            error_detail=None,
             operations=[
                 {
                     "op": "update",
@@ -232,3 +241,80 @@ def test_memory_manager_handles_explicit_memory_request(monkeypatch) -> None:
     memories = store.list_memories(owner_id="default_user", session_id="session_1")
     assert len(memories) == 1
     assert memories[0]["content"] == "User name is Rishabh Bajpai."
+
+
+def test_memory_manager_request_envelope_uses_text_field(monkeypatch) -> None:
+    store = _build_store()
+
+    monkeypatch.setattr(
+        MemoryManagerService,
+        "_run_memory_manager",
+        lambda self, prompt_text, session_id: MemoryManagerResult(
+            status="ok",
+            summary="Stored a project fact.",
+            needs_clarification=False,
+            clarification_question=None,
+            retryable=False,
+            error_code=None,
+            error_detail=None,
+            operations=[
+                {
+                    "op": "add",
+                    "memory_id": None,
+                    "scope": "shared",
+                    "type": "project",
+                    "subject": "project context",
+                    "content": "User site says they are a postdoctoral researcher.",
+                    "importance": 4,
+                    "confidence": 0.95,
+                }
+            ],
+        ),
+    )
+
+    result = MemoryManagerService(store).handle_memory_request(
+        memory_request='{"request":"add","text":"User site says they are a postdoctoral researcher.","session_id":"session_1"}'
+    )
+
+    assert result["status"] == "ok"
+    memories = store.list_memories(owner_id="default_user", session_id="session_1")
+    assert len(memories) == 1
+    assert "postdoctoral researcher" in memories[0]["content"]
+
+
+def test_memory_manager_failure_is_recorded(monkeypatch) -> None:
+    store = _build_store()
+    store.create_session("session_1", "Test")
+    store.add_message(
+        "session_1",
+        "user",
+        "Remember my website details.",
+        request_id="req_fail_1",
+    )
+    store.add_message("session_1", "assistant", "I'll try.", request_id="req_fail_1")
+
+    monkeypatch.setattr(
+        MemoryManagerService,
+        "_run_memory_manager",
+        lambda self, prompt_text, session_id: MemoryManagerResult(
+            status="failed",
+            summary="Memory manager could not parse the request.",
+            needs_clarification=False,
+            clarification_question=None,
+            retryable=True,
+            error_code="parse_failed",
+            error_detail="The memory request envelope was malformed.",
+            operations=[],
+        ),
+    )
+
+    run_memory_update_job(store, session_id="session_1", request_id="req_fail_1")
+
+    events = store.list_memory_events(
+        owner_id="default_user",
+        session_id="session_1",
+        request_id="req_fail_1",
+    )
+    assert events[-1]["event_type"] == "memory_extraction_failed"
+    assert events[-1]["payload"]["retryable"] is True
+    assert events[-1]["payload"]["error_code"] == "parse_failed"
