@@ -72,6 +72,38 @@ def test_ensure_persistent_container_reuses_running_container(monkeypatch, tmp_p
     assert container_name == "chanakya-sandbox-temp"
 
 
+def test_ensure_sandbox_image_reports_success(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sandbox_exec,
+        "_select_runtime",
+        lambda: sandbox_exec.RuntimeSelection(binary="docker", engine="docker"),
+    )
+    monkeypatch.setattr(sandbox_exec, "_ensure_default_image", lambda runtime, image: None)
+
+    result = sandbox_exec.ensure_sandbox_image()
+
+    assert result == {
+        "ok": True,
+        "runtime": "docker",
+        "image": sandbox_exec.SANDBOX_IMAGE,
+    }
+
+
+def test_ensure_sandbox_image_reports_runtime_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sandbox_exec,
+        "_select_runtime",
+        lambda: (_ for _ in ()).throw(RuntimeError("missing runtime")),
+    )
+
+    result = sandbox_exec.ensure_sandbox_image()
+
+    assert result["ok"] is False
+    assert result["runtime"] is None
+    assert result["image"] == sandbox_exec.SANDBOX_IMAGE
+    assert result["error"] == "missing runtime"
+
+
 def test_execute_shell_wraps_command_with_timeout(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
@@ -175,4 +207,7 @@ def test_prune_stale_work_containers_removes_untracked_containers(monkeypatch) -
 
     assert result["ok"] is True
     assert [item["work_id"] for item in result["removed"]] == ["cwork_stale"]
-    assert removed_commands == [["docker", "rm", "-f", "chanakya-sandbox-cwork_stale"]]
+    assert removed_commands == [
+        ["docker", "inspect", "-f", "{{.State.Running}}", "chanakya-sandbox-cwork_stale"],
+        ["docker", "rm", "-f", "chanakya-sandbox-cwork_stale"],
+    ]

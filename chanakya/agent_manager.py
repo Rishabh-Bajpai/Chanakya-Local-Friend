@@ -345,8 +345,8 @@ class TracedGroupChatOrchestrator(AgentBasedGroupChatOrchestrator):
                 retry_attempts -= 1
                 current_conversation = [
                     Message(
-                        role="user",
-                        text=f"Your input could not be parsed due to an error: {ex}. Please try again.",
+                        "user",
+                        [f"Your input could not be parsed due to an error: {ex}. Please try again."],
                     )
                 ]
                 manager_call_messages = [_serialize_trace_message(item) for item in current_conversation]
@@ -698,8 +698,10 @@ class AgentManager:
                         label="work_group_chat",
                     )
                 )
-                local_conversation = self._extract_group_chat_conversation(local_result)
-                local_slice = local_conversation[len(seed_messages) :]
+                local_conversation = self._extract_group_chat_conversation(local_result, workflow=local_workflow)
+                local_slice = local_conversation
+                if len(local_conversation) >= len(seed_messages) and local_conversation[: len(seed_messages)] == seed_messages:
+                    local_slice = local_conversation[len(seed_messages) :]
                 local_completion_payload, local_visible_messages = self._split_group_chat_completion(
                     conversation_slice=local_slice,
                     participant_profiles=participant_profiles,
@@ -1219,11 +1221,7 @@ class AgentManager:
         seeded: list[Message] = []
         if compact_summary:
             seeded.append(
-                Message(
-                    role="assistant",
-                    text=compact_summary,
-                    author_name="Chanakya",
-                )
+                Message("assistant", [compact_summary], author_name="Chanakya")
             )
         for record in visible_records:
             role = str(record.get("role") or "assistant")
@@ -2214,14 +2212,49 @@ class AgentManager:
             },
         )
 
-    def _extract_group_chat_conversation(self, result: Any) -> list[Message]:
+    def _extract_group_chat_conversation(
+        self,
+        result: Any,
+        workflow: Any | None = None,
+    ) -> list[Message]:
         outputs = []
+        terminal_response_messages: list[Message] = []
         get_outputs = getattr(result, "get_outputs", None)
         if callable(get_outputs):
             outputs = list(get_outputs())
         for output in reversed(outputs):
             if isinstance(output, list) and all(isinstance(item, Message) for item in output):
                 return list(output)
+            response_messages = _safe_response_messages(output)
+            if response_messages and not terminal_response_messages:
+                terminal_response_messages = list(response_messages)
+        runtime_trace = None if workflow is None else getattr(workflow, "_chanakya_group_chat_trace", None)
+        if isinstance(runtime_trace, RuntimeGroupChatTrace):
+            reconstructed: list[Message] = []
+            for participant_call in runtime_trace.participant_calls:
+                for item in list(participant_call.get("response_messages") or []):
+                    text = str(item.get("text") or "")
+                    if not text:
+                        continue
+                    reconstructed.append(
+                        Message(
+                            str(item.get("role") or "assistant"),
+                            [text],
+                            author_name=str(item.get("author_name") or "").strip() or None,
+                        )
+                    )
+            for decision in reversed(runtime_trace.manager_decisions):
+                payload = dict(decision.get("decision") or {})
+                final_message = str(payload.get("final_message") or "").strip()
+                if final_message:
+                    reconstructed.append(
+                        Message("assistant", [final_message], author_name="Agent Manager")
+                    )
+                    break
+            if reconstructed:
+                return reconstructed
+        if terminal_response_messages:
+            return terminal_response_messages
         return []
 
     def _split_group_chat_completion(

@@ -115,6 +115,10 @@ class _TracedFakeWorkflow(_FakeWorkflow):
         self._chanakya_group_chat_trace = trace
 
 
+def _msg(role: str, text: str, *, author_name: str | None = None) -> Message:
+    return Message(role, [text], author_name=author_name)
+
+
 def _build_store() -> ChanakyaStore:
     engine = build_engine("sqlite:///:memory:")
     init_database(engine)
@@ -187,13 +191,9 @@ def test_work_group_chat_persists_visible_agent_turns_and_mirrors_history() -> N
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(role="assistant", text="I found the core facts.", author_name="Researcher"),
-            Message(role="assistant", text="Here is the polished answer.", author_name="Writer"),
-            Message(
-                role="assistant",
-                text='{"status":"completed","summary":"Here is the polished answer."}',
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", "I found the core facts.", author_name="Researcher"),
+            _msg("assistant", "Here is the polished answer.", author_name="Writer"),
+            _msg("assistant", '{"status":"completed","summary":"Here is the polished answer."}', author_name="Agent Manager"),
         ]
     )
 
@@ -284,12 +284,8 @@ def test_work_group_chat_termination_event_uses_final_completion_payload() -> No
     manager._build_work_group_chat_workflow = lambda **kwargs: _TracedFakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(role="assistant", text="Implemented the Flask app.", author_name="Developer"),
-            Message(
-                role="assistant",
-                text='{"status":"completed","summary":"Implemented the Flask app."}',
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", "Implemented the Flask app.", author_name="Developer"),
+            _msg("assistant", '{"status":"completed","summary":"Implemented the Flask app."}', author_name="Agent Manager"),
         ],
         trace,
     )
@@ -340,9 +336,9 @@ def test_group_chat_split_collapses_consecutive_messages_from_same_agent() -> No
 
     completion, visible_messages = manager._split_group_chat_completion(
         conversation_slice=[
-            Message(role="assistant", text="First update.", author_name="Developer"),
-            Message(role="assistant", text="Second update.", author_name="Developer"),
-            Message(role="assistant", text='{"status":"completed","summary":"Done."}', author_name="Agent Manager"),
+            _msg("assistant", "First update.", author_name="Developer"),
+            _msg("assistant", "Second update.", author_name="Developer"),
+            _msg("assistant", '{"status":"completed","summary":"Done."}', author_name="Agent Manager"),
         ],
         participant_profiles=participant_profiles,
     )
@@ -361,12 +357,8 @@ def test_work_chat_binds_classic_session_to_active_work() -> None:
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(role="assistant", text="Here is the work update.", author_name="Researcher"),
-            Message(
-                role="assistant",
-                text='{"status":"completed","summary":"Here is the work update."}',
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", "Here is the work update.", author_name="Researcher"),
+            _msg("assistant", '{"status":"completed","summary":"Here is the work update."}', author_name="Agent Manager"),
         ]
     )
 
@@ -399,14 +391,10 @@ def test_work_group_chat_waiting_input_resumes_same_request() -> None:
             if call_count["count"] == 1:
                 return [
                     *seeded,
-                    Message(
-                        role="assistant",
-                        text="NEEDS_USER_INPUT: Need a framework choice before implementation can continue.",
-                        author_name="Developer",
-                    ),
-                    Message(
-                        role="assistant",
-                        text=(
+                    _msg("assistant", "NEEDS_USER_INPUT: Need a framework choice before implementation can continue.", author_name="Developer"),
+                    _msg(
+                        "assistant",
+                        (
                             '{"status":"needs_user_input","question":"Should we use Flask or FastAPI?",'
                             '"reason":"Framework not chosen.","requesting_agent_id":"agent_developer",'
                             '"requesting_agent_name":"Developer"}'
@@ -416,12 +404,8 @@ def test_work_group_chat_waiting_input_resumes_same_request() -> None:
                 ]
             return [
                 *seeded,
-                Message(role="assistant", text="Implemented with Flask.", author_name="Developer"),
-                Message(
-                    role="assistant",
-                    text='{"status":"completed","summary":"Implemented with Flask."}',
-                    author_name="Agent Manager",
-                ),
+                _msg("assistant", "Implemented with Flask.", author_name="Developer"),
+                _msg("assistant", '{"status":"completed","summary":"Implemented with Flask."}', author_name="Agent Manager"),
             ]
 
         return _FakeWorkflow(_conversation)
@@ -513,14 +497,10 @@ def test_work_chat_autoresume_prefers_explicit_active_pending_interaction() -> N
             if call_count["count"] == 1:
                 return [
                     *seeded,
-                    Message(
-                        role="assistant",
-                        text="NEEDS_USER_INPUT: Need a framework choice before implementation can continue.",
-                        author_name="Developer",
-                    ),
-                    Message(
-                        role="assistant",
-                        text=(
+                    _msg("assistant", "NEEDS_USER_INPUT: Need a framework choice before implementation can continue.", author_name="Developer"),
+                    _msg(
+                        "assistant",
+                        (
                             '{"status":"needs_user_input","question":"Should we use Flask or FastAPI?",'
                             '"reason":"Framework not chosen.","requesting_agent_id":"agent_developer",'
                             '"requesting_agent_name":"Developer"}'
@@ -530,12 +510,8 @@ def test_work_chat_autoresume_prefers_explicit_active_pending_interaction() -> N
                 ]
             return [
                 *seeded,
-                Message(role="assistant", text="Implemented with Flask.", author_name="Developer"),
-                Message(
-                    role="assistant",
-                    text='{"status":"completed","summary":"Implemented with Flask."}',
-                    author_name="Agent Manager",
-                ),
+                _msg("assistant", "Implemented with Flask.", author_name="Developer"),
+                _msg("assistant", '{"status":"completed","summary":"Implemented with Flask."}', author_name="Agent Manager"),
             ]
 
         return _FakeWorkflow(_conversation)
@@ -582,16 +558,8 @@ def test_group_chat_software_completion_requires_developer_and_tester_when_valid
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(
-                role="assistant",
-                text="I've updated `hello_world.py` with the requested implementation and verified it conceptually.",
-                author_name="Researcher",
-            ),
-            Message(
-                role="assistant",
-                text='{"status":"completed","summary":"Finished the software change."}',
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", "I've updated `hello_world.py` with the requested implementation and verified it conceptually.", author_name="Researcher"),
+            _msg("assistant", '{"status":"completed","summary":"Finished the software change."}', author_name="Agent Manager"),
         ]
     )
 
@@ -624,12 +592,8 @@ def test_group_chat_software_completion_allows_developer_only_when_validation_no
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(role="assistant", text="Implemented `/workspace/hello_world.py` with the requested output.", author_name="Developer"),
-            Message(
-                role="assistant",
-                text='{"status":"completed","summary":"Implemented the requested output."}',
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", "Implemented `/workspace/hello_world.py` with the requested output.", author_name="Developer"),
+            _msg("assistant", '{"status":"completed","summary":"Implemented the requested output."}', author_name="Agent Manager"),
         ]
     )
 
@@ -663,9 +627,9 @@ def test_group_chat_split_completion_collapses_consecutive_messages_from_same_ag
 
     completion, visible_messages = manager._split_group_chat_completion(
         conversation_slice=[
-            Message(role="assistant", text="First implementation update.", author_name="Developer"),
-            Message(role="assistant", text="Second implementation update.", author_name="Developer"),
-            Message(role="assistant", text='{"status":"completed","summary":"Done."}', author_name="Agent Manager"),
+            _msg("assistant", "First implementation update.", author_name="Developer"),
+            _msg("assistant", "Second implementation update.", author_name="Developer"),
+            _msg("assistant", '{"status":"completed","summary":"Done."}', author_name="Agent Manager"),
         ],
         participant_profiles=participant_profiles,
     )
@@ -674,6 +638,79 @@ def test_group_chat_split_completion_collapses_consecutive_messages_from_same_ag
     assert len(visible_messages) == 1
     assert visible_messages[0]["agent_name"] == "Developer"
     assert visible_messages[0]["text"] == "First implementation update.\n\nSecond implementation update."
+
+
+def test_group_chat_extract_conversation_falls_back_to_runtime_trace() -> None:
+    store = _build_store()
+    _, manager_profile = _seed_full_hierarchy(store)
+    manager = AgentManager(store, store.Session, manager_profile)
+    workflow = type("_Workflow", (), {})()
+    workflow._chanakya_group_chat_trace = RuntimeGroupChatTrace(
+        manager_decisions=[
+            {
+                "decision": {
+                    "terminate": True,
+                    "final_message": '{"status":"completed","summary":"Implemented the API."}',
+                }
+            }
+        ],
+        participant_calls=[
+            {
+                "response_messages": [
+                    {
+                        "role": "assistant",
+                        "author_name": "Developer",
+                        "text": "Implemented the API.",
+                    }
+                ]
+            }
+        ],
+    )
+
+    conversation = manager._extract_group_chat_conversation(_FakeWorkflowResult([]), workflow=workflow)
+
+    assert [item.author_name for item in conversation] == ["Developer", "Agent Manager"]
+    assert conversation[0].text == "Implemented the API."
+    assert conversation[1].text == '{"status":"completed","summary":"Implemented the API."}'
+
+
+def test_group_chat_extract_conversation_prefers_runtime_trace_over_terminal_completion_only() -> None:
+    store = _build_store()
+    _, manager_profile = _seed_full_hierarchy(store)
+    manager = AgentManager(store, store.Session, manager_profile)
+    workflow = type("_Workflow", (), {})()
+    workflow._chanakya_group_chat_trace = RuntimeGroupChatTrace(
+        manager_decisions=[
+            {
+                "decision": {
+                    "terminate": True,
+                    "final_message": '{"status":"completed","summary":"Implemented the API."}',
+                }
+            }
+        ],
+        participant_calls=[
+            {
+                "response_messages": [
+                    {
+                        "role": "assistant",
+                        "author_name": "Developer",
+                        "text": "Implemented the API.",
+                    }
+                ]
+            }
+        ],
+    )
+    terminal_only_result = _FakeWorkflowResult([
+        type(
+            "_TerminalResponse",
+            (),
+            {"messages": [_msg("assistant", '{"status":"completed","summary":"Implemented the API."}', author_name="Agent Manager")]},
+        )()
+    ])
+
+    conversation = manager._extract_group_chat_conversation(terminal_only_result, workflow=workflow)
+
+    assert [item.author_name for item in conversation] == ["Developer", "Agent Manager"]
 
 
 def test_group_chat_recovers_false_negative_failure_when_developer_evidence_exists() -> None:
@@ -685,16 +722,8 @@ def test_group_chat_recovers_false_negative_failure_when_developer_evidence_exis
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(
-                role="assistant",
-                text="Script saved to `/workspace/primes_between_74_and_534.py` in the shared workspace.",
-                author_name="Developer",
-            ),
-            Message(
-                role="assistant",
-                text='{"status":"failed","reason":"The conversation has been terminated by the agent."}',
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", "Script saved to `/workspace/primes_between_74_and_534.py` in the shared workspace.", author_name="Developer"),
+            _msg("assistant", '{"status":"failed","reason":"The conversation has been terminated by the agent."}', author_name="Agent Manager"),
         ]
     )
 
@@ -720,11 +749,7 @@ def test_group_chat_failed_run_uses_failure_reason_when_no_visible_output() -> N
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(
-                role="assistant",
-                text='{"status":"failed","reason":"No configured participant/tool path could capture a screenshot for this request."}',
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", '{"status":"failed","reason":"No configured participant/tool path could capture a screenshot for this request."}', author_name="Agent Manager"),
         ]
     )
 
@@ -750,16 +775,8 @@ def test_group_chat_recovers_successful_information_followup_from_bad_failure_pa
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(
-                role="assistant",
-                text="Here is the extracted and summarized text content from the website.",
-                author_name="Researcher",
-            ),
-            Message(
-                role="assistant",
-                text='{"status":"failed","reason":"The user requested to extract and summarize the text content of the website. The Researcher has already fetched the content and provided a comprehensive summary. No further steps are required."}',
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", "Here is the extracted and summarized text content from the website.", author_name="Researcher"),
+            _msg("assistant", '{"status":"failed","reason":"The user requested to extract and summarize the text content of the website. The Researcher has already fetched the content and provided a comprehensive summary. No further steps are required."}', author_name="Agent Manager"),
         ]
     )
 
@@ -785,16 +802,8 @@ def test_group_chat_save_followup_stops_once_workspace_path_is_reported() -> Non
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(
-                role="assistant",
-                text="Done. The summary has been saved to `/workspace/rishabh_bajpai_summary.txt` in the active workspace.",
-                author_name="Developer",
-            ),
-            Message(
-                role="assistant",
-                text='{"status":"failed","reason":"The 1-paragraph summary of Rishabh Bajpai has been saved to the workspace."}',
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", "Done. The summary has been saved to `/workspace/rishabh_bajpai_summary.txt` in the active workspace.", author_name="Developer"),
+            _msg("assistant", '{"status":"failed","reason":"The 1-paragraph summary of Rishabh Bajpai has been saved to the workspace."}', author_name="Agent Manager"),
         ]
     )
 
@@ -816,16 +825,8 @@ def test_group_chat_max_rounds_falls_back_to_success_when_visible_report_is_suff
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(
-                role="assistant",
-                text="Report saved as **`climate_change_2025_report.md`** in the shared workspace.\n\n**Word count: ~170 words.**\n\n### Summary of Key Points:\n1. Temperatures remained near record highs in 2025.\n2. Climate action progress was uneven across sectors.\n3. Extreme weather continued to intensify globally.\n4. Major legal and diplomatic milestones shaped the year.\n5. Adaptation and emissions gaps remained significant.",
-                author_name="Researcher",
-            ),
-            Message(
-                role="assistant",
-                text="The group chat has reached the maximum number of rounds.",
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", "Report saved as **`climate_change_2025_report.md`** in the shared workspace.\n\n**Word count: ~170 words.**\n\n### Summary of Key Points:\n1. Temperatures remained near record highs in 2025.\n2. Climate action progress was uneven across sectors.\n3. Extreme weather continued to intensify globally.\n4. Major legal and diplomatic milestones shaped the year.\n5. Adaptation and emissions gaps remained significant.", author_name="Researcher"),
+            _msg("assistant", "The group chat has reached the maximum number of rounds.", author_name="Agent Manager"),
         ]
     )
 
@@ -886,11 +887,7 @@ def test_group_chat_retries_with_sanitized_user_seed_after_missing_user_query_fa
                     return _FakeWorkflowResult([
                         [
                             *seeded,
-                            Message(
-                                role="assistant",
-                                text='{"status":"failed","reason":"Internal framework error: prompt template rendering failed (no user query found in messages). Please retry the request."}',
-                                author_name="Agent Manager",
-                            ),
+                            _msg("assistant", '{"status":"failed","reason":"Internal framework error: prompt template rendering failed (no user query found in messages). Please retry the request."}', author_name="Agent Manager"),
                         ]
                     ])
                 assert seeded[-1].role == "user"
@@ -898,16 +895,8 @@ def test_group_chat_retries_with_sanitized_user_seed_after_missing_user_query_fa
                 return _FakeWorkflowResult([
                     [
                         *seeded,
-                        Message(
-                            role="assistant",
-                            text="Merged file saved to `/workspace/rishabh_bajpai_merged.txt` in the active workspace.",
-                            author_name="Developer",
-                        ),
-                        Message(
-                            role="assistant",
-                            text='{"status":"completed","summary":"Merged file saved to `/workspace/rishabh_bajpai_merged.txt` in the active workspace."}',
-                            author_name="Agent Manager",
-                        ),
+                        _msg("assistant", "Merged file saved to `/workspace/rishabh_bajpai_merged.txt` in the active workspace.", author_name="Developer"),
+                        _msg("assistant", '{"status":"completed","summary":"Merged file saved to `/workspace/rishabh_bajpai_merged.txt` in the active workspace."}', author_name="Agent Manager"),
                     ]
                 ])
 
@@ -984,8 +973,8 @@ def test_delegated_tool_traces_are_persisted_and_counted() -> None:
     manager._build_work_group_chat_workflow = lambda **kwargs: _TracedFakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(role="assistant", text="Saved report to /workspace/report.md", author_name="Developer"),
-            Message(role="assistant", text='{"status":"completed","summary":"Saved report."}', author_name="Agent Manager"),
+            _msg("assistant", "Saved report to /workspace/report.md", author_name="Developer"),
+            _msg("assistant", '{"status":"completed","summary":"Saved report."}', author_name="Agent Manager"),
         ],
         trace,
     )
@@ -1015,11 +1004,7 @@ def test_group_chat_completed_without_result_is_rejected() -> None:
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(
-                role="assistant",
-                text='{"status":"completed","summary":""}',
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", '{"status":"completed","summary":""}', author_name="Agent Manager"),
         ]
     )
 
@@ -1041,12 +1026,8 @@ def test_group_chat_max_rounds_is_normalized_into_bounded_failure() -> None:
     manager._build_work_group_chat_workflow = lambda **kwargs: _FakeWorkflow(  # type: ignore[method-assign]
         lambda seeded: [
             *seeded,
-            Message(role="assistant", text="Developer is still iterating.", author_name="Developer"),
-            Message(
-                role="assistant",
-                text="The group chat has reached the maximum number of rounds.",
-                author_name="Agent Manager",
-            ),
+            _msg("assistant", "Developer is still iterating.", author_name="Developer"),
+            _msg("assistant", "The group chat has reached the maximum number of rounds.", author_name="Agent Manager"),
         ]
     )
 
@@ -1090,12 +1071,8 @@ def test_work_group_chat_retries_transient_502() -> None:
                 return _FakeWorkflowResult([
                     [
                         *seeded,
-                        Message(role="assistant", text="Recovered after retry.", author_name="Writer"),
-                        Message(
-                            role="assistant",
-                            text='{"status":"completed","summary":"Recovered after retry."}',
-                            author_name="Agent Manager",
-                        ),
+                        _msg("assistant", "Recovered after retry.", author_name="Writer"),
+                        _msg("assistant", '{"status":"completed","summary":"Recovered after retry."}', author_name="Agent Manager"),
                     ]
                 ])
 
@@ -1257,7 +1234,7 @@ def test_group_chat_execution_trace_includes_runtime_decisions_and_tool_calls() 
     execution_trace = manager.build_group_chat_execution_trace(
         request_message="Build a demo API",
         participant_profiles=participant_profiles,
-        seeded_conversation=[Message(role="user", text="Build a demo API", author_name="User")],
+        seeded_conversation=[_msg("user", "Build a demo API", author_name="User")],
         visible_messages=[
             {
                 "text": "Implemented the API.",

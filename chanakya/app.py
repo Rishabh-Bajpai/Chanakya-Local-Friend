@@ -39,6 +39,7 @@ from chanakya.seed import load_agent_seeds
 from chanakya.services.a2a_discovery import discover_a2a_options
 from chanakya.services.config_loader import get_mcp_config_path
 from chanakya.services.mcp_sandbox_exec_server import (
+    ensure_sandbox_image,
     prune_stale_work_containers,
     stop_all_work_containers,
     stop_container,
@@ -354,6 +355,8 @@ def create_app() -> Flask:
     ensure_heartbeat_files(store, BASE_DIR)
     get_shared_workspace_root()
     _register_sandbox_shutdown_cleanup()
+    sandbox_image_status = ensure_sandbox_image()
+    debug_log("sandbox_image_startup_status", sandbox_image_status)
     valid_work_ids = {str(item.get("id") or "").strip() for item in store.list_works(limit=1000)}
     valid_work_ids.discard("")
     sandbox_prune = prune_stale_work_containers(valid_work_ids, remove_running=False)

@@ -167,6 +167,32 @@ def _ensure_default_image(runtime: RuntimeSelection, image: str) -> None:
         raise RuntimeError(output or f"Failed to build sandbox image: {image}")
 
 
+def ensure_sandbox_image() -> dict[str, object]:
+    try:
+        runtime = _select_runtime()
+    except RuntimeError as exc:
+        return {
+            "ok": False,
+            "runtime": None,
+            "image": SANDBOX_IMAGE,
+            "error": str(exc),
+        }
+    try:
+        _ensure_default_image(runtime, SANDBOX_IMAGE)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "runtime": runtime.engine,
+            "image": SANDBOX_IMAGE,
+            "error": str(exc),
+        }
+    return {
+        "ok": True,
+        "runtime": runtime.engine,
+        "image": SANDBOX_IMAGE,
+    }
+
+
 def _inspect_container_running(runtime: RuntimeSelection, container_name: str) -> bool | None:
     result = _run_runtime_command(
         command=[runtime.binary, "inspect", "-f", "{{.State.Running}}", container_name],
