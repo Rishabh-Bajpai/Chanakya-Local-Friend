@@ -342,7 +342,7 @@ class MemoryManagerService:
                         event_type="memory_update_skipped",
                         payload={
                             "reason": "missing required fields",
-                            "missing": [f for f, v in (("subject", subject), ("content", content)) if not v],
+                            "missing": [field_name for field_name, field_value in (("subject", subject), ("content", content)) if not field_value],
                         },
                     )
                     continue

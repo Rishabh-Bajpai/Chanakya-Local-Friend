@@ -206,6 +206,10 @@ class ChatService:
         self._long_term_memory = LongTermMemoryService(store)
         self._memory_update_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="memory-update")
 
+    def close(self) -> None:
+        """Release resources held by this service (e.g. background thread pool)."""
+        self._memory_update_executor.shutdown(wait=False)
+
     @staticmethod
     def _runtime_snapshot_from_metadata(runtime_meta: dict[str, object]) -> dict[str, str | None]:
         backend = normalize_runtime_backend(runtime_meta.get("backend"))
