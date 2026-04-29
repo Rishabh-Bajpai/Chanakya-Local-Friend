@@ -25,6 +25,7 @@ from chanakya.config import (
     get_air_status_url,
     get_data_dir,
     get_database_url,
+    get_long_term_memory_default_owner_id,
     get_ntfy_default_server_url,
     load_local_env,
 )
@@ -36,12 +37,12 @@ from chanakya.heartbeat import read_heartbeat, resolve_heartbeat_path
 from chanakya.model import AgentProfileModel
 from chanakya.seed import load_agent_seeds
 from chanakya.services.a2a_discovery import discover_a2a_options
+from chanakya.services.config_loader import get_mcp_config_path
 from chanakya.services.mcp_sandbox_exec_server import (
     prune_stale_work_containers,
     stop_all_work_containers,
     stop_container,
 )
-from chanakya.services.config_loader import get_mcp_config_path
 from chanakya.services.mcp_work_tools_server import _create_work
 from chanakya.services.ntfy import (
     NtfyClient,
@@ -783,6 +784,117 @@ def create_app() -> Flask:
         )
         debug_log("api_task_events_request", {"event_count": len(events)})
         return jsonify({"events": events})
+
+    @app.get("/api/memory")
+    def api_memory() -> Any:
+        owner_id = (
+            str(request.args.get("owner_id") or get_long_term_memory_default_owner_id()).strip()
+            or get_long_term_memory_default_owner_id()
+        )
+        session_id = request.args.get("session_id")
+        status = request.args.get("status", "active")
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
+        normalized_status = str(status).strip() if status is not None else "active"
+        if normalized_status == "":
+            normalized_status = None
+        memories = store.list_memories(
+            owner_id=owner_id,
+            status=normalized_status,
+            session_id=session_id,
+            limit=limit,
+        )
+        counts_by_status: dict[str, int] = {}
+        counts_by_type: dict[str, int] = {}
+        for item in memories:
+            status_key = str(item.get("status") or "unknown")
+            type_key = str(item.get("type") or "unknown")
+            counts_by_status[status_key] = counts_by_status.get(status_key, 0) + 1
+            counts_by_type[type_key] = counts_by_type.get(type_key, 0) + 1
+        return jsonify(
+            {
+                "owner_id": owner_id,
+                "session_id": session_id,
+                "status": normalized_status,
+                "count": len(memories),
+                "counts_by_status": counts_by_status,
+                "counts_by_type": counts_by_type,
+                "memories": memories,
+            }
+        )
+
+    @app.get("/api/memory/events")
+    def api_memory_events() -> Any:
+        owner_id = (
+            str(request.args.get("owner_id") or get_long_term_memory_default_owner_id()).strip()
+            or get_long_term_memory_default_owner_id()
+        )
+        session_id = request.args.get("session_id")
+        request_id = request.args.get("request_id")
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
+        events = store.list_memory_events(
+            owner_id=owner_id,
+            session_id=session_id,
+            request_id=request_id,
+            limit=limit,
+        )
+        counts_by_type: dict[str, int] = {}
+        for item in events:
+            event_type = str(item.get("event_type") or "unknown")
+            counts_by_type[event_type] = counts_by_type.get(event_type, 0) + 1
+        return jsonify(
+            {
+                "owner_id": owner_id,
+                "session_id": session_id,
+                "request_id": request_id,
+                "count": len(events),
+                "counts_by_type": counts_by_type,
+                "events": events,
+            }
+        )
+
+    @app.get("/api/sessions/<session_id>/memory")
+    def api_session_memory(session_id: str) -> Any:
+        owner_id = (
+            str(request.args.get("owner_id") or get_long_term_memory_default_owner_id()).strip()
+            or get_long_term_memory_default_owner_id()
+        )
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(limit, 500))
+        memories = store.list_memories(
+            owner_id=owner_id,
+            status=None,
+            session_id=session_id,
+            limit=limit,
+        )
+        events = store.list_memory_events(
+            owner_id=owner_id,
+            session_id=session_id,
+            limit=limit,
+        )
+        return jsonify(
+            {
+                "owner_id": owner_id,
+                "session_id": session_id,
+                "memory_count": len(memories),
+                "event_count": len(events),
+                "memories": memories,
+                "events": events,
+            }
+        )
 
     @app.post("/api/tasks/<task_id>/input")
     def api_task_input(task_id: str) -> Any:
@@ -1713,6 +1825,8 @@ def ensure_heartbeat_file(profile: AgentProfileModel, repo_root: Path) -> None:
 def sync_default_agent_tools(store: ChanakyaStore) -> None:
     baseline_tools = ["mcp_websearch", "mcp_fetch", "mcp_calculator"]
     code_exec_tool = "mcp_code_execution"
+    memory_agent_tool = "mcp_memory_agent"
+    configured_tool_ids = get_configured_tool_ids()
     sandbox_prompt_hint = (
         " Inside the sandbox, host files are readable but read-only, and only the shared "
         "workspace is writable. If you hit a permission-related error, copy the needed file "
@@ -1723,6 +1837,8 @@ def sync_default_agent_tools(store: ChanakyaStore) -> None:
         required = list(baseline_tools)
         if profile.role in {"developer", "tester"}:
             required.append(code_exec_tool)
+        if profile.id == "agent_chanakya" and memory_agent_tool in configured_tool_ids:
+            required.append(memory_agent_tool)
         existing = list(profile.tool_ids_json or [])
         merged: list[str] = []
         for tool_id in [*existing, *required]:

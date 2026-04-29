@@ -195,6 +195,24 @@ def get_history_max_message_chars() -> int:
     return _get_positive_int_env("CHANAKYA_HISTORY_MAX_MESSAGE_CHARS", 3000)
 
 
+def get_long_term_memory_enabled() -> bool:
+    return env_flag("CHANAKYA_LONG_TERM_MEMORY_ENABLED", default=True)
+
+
+def get_long_term_memory_max_injected_items() -> int:
+    return _get_positive_int_env("CHANAKYA_LONG_TERM_MEMORY_MAX_INJECTED_ITEMS", 6)
+
+
+def get_long_term_memory_max_injected_chars() -> int:
+    return _get_positive_int_env("CHANAKYA_LONG_TERM_MEMORY_MAX_INJECTED_CHARS", 2200)
+
+
+def get_long_term_memory_default_owner_id() -> str:
+    load_local_env()
+    configured = os.getenv("CHANAKYA_LONG_TERM_MEMORY_OWNER_ID") or "default_user"
+    return configured.strip() or "default_user"
+
+
 def get_ntfy_default_server_url() -> str:
     load_local_env()
     configured = os.getenv("CHANAKYA_NTFY_DEFAULT_SERVER")
