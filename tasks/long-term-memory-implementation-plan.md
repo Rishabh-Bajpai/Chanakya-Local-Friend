@@ -1,6 +1,6 @@
 # Implementation Plan: Long-Term Memory for Classic Chat
 
-**Status:** In Progress
+**Status:** Partially Implemented
 **Created:** 2026-04-28
 **Last Updated:** 2026-04-28
 
@@ -533,146 +533,174 @@ Likely touchpoints:
 
 ---
 
-## File-by-File Implementation Tasks
+## Implementation Status
 
-## Phase 1: Data Model and Store
+The core architecture described above is now implemented.
 
-- [ ] Add `MemoryRecordModel` to `chanakya/model.py`
-- [ ] Add `MemoryEventModel` to `chanakya/model.py`
-- [ ] Export and wire the new models where needed
-- [ ] Add a `MemoryRepository` to `chanakya/store.py`
-- [ ] Add memory repository access through `ChanakyaStore`
-- [ ] Add search, list, add, update, supersede, and soft-delete operations
-- [ ] Add memory event logging helpers
-- [ ] Add model/store unit tests for CRUD, supersede, and delete semantics
+### Completed foundation work
 
-## Phase 2: Memory Manager Service
+- [x] Add `MemoryRecordModel` to `chanakya/model.py`
+- [x] Add `MemoryEventModel` to `chanakya/model.py`
+- [x] Add `MemoryRepository` to `chanakya/store.py`
+- [x] Expose memory repository operations through `ChanakyaStore`
+- [x] Add memory event logging helpers
+- [x] Add basic active-memory retrieval and soft-delete behavior
 
-- [ ] Add a new service module such as `chanakya/services/memory_manager_service.py`
-- [ ] Define typed payload shapes for memory-agent operations
-- [ ] Implement normalization and validation helpers for memory-agent output
-- [ ] Implement dedupe logic for near-identical active memories
-- [ ] Implement lexical retrieval scoring for v1 search
-- [ ] Implement a compact memory-summary formatter for prompt injection
-- [ ] Add service tests for validation, dedupe, and scoring
+### Completed memory-manager architecture work
 
-## Phase 3: Background Extraction
+- [x] Replace heuristic write decisions with a dedicated memory manager MAF agent
+- [x] Add `chanakya/services/memory_manager_service.py`
+- [x] Use a strict JSON operation contract for memory-manager output
+- [x] Validate and apply proposed operations in app code rather than letting the agent write directly
+- [x] Support multiple operations in a single memory request
+- [x] Add failure fields such as `retryable`, `error_code`, and `error_detail`
 
-- [ ] Replace heuristic updater with the dedicated memory manager MAF agent
-- [ ] Create a strict memory-manager prompt that produces JSON only
-- [ ] Add a parser for memory-manager JSON output with failure handling
-- [ ] Add a post-response trigger point in `chanakya/chat_service.py`
-- [ ] Capture the source message ids and request id for each extraction pass
-- [ ] Run the memory manager outside the main user-response critical path
-- [ ] Apply validated operations through `memory_service.py`
-- [ ] Log `memory_extraction_failed` events without breaking chat replies
-- [ ] Add tests proving background extraction failures do not break chat
+### Completed background update integration
 
-## Phase 4: Retrieval and Prompt Injection
+- [x] Trigger background memory updates after response persistence in `chat_service.py`
+- [x] Keep memory updates outside the main reply critical path
+- [x] Capture request/session context for background memory updates
+- [x] Log `memory_extraction_failed` and `memory_extraction_skipped` events without breaking replies
 
-- [ ] Add a retrieval method that accepts `owner_id`, `session_id`, and current user query
-- [ ] Build compact injected memory text from top relevant memories
-- [ ] Wire memory retrieval into `chanakya/chat_service.py` before runtime invocation
-- [ ] Pass memory text through existing `prompt_addendum` support in `chanakya/agent/runtime.py`
-- [ ] Preserve existing transcript history behavior in `SQLAlchemyHistoryProvider`
-- [ ] Add observability for retrieved memory ids and counts
-- [ ] Add tests verifying relevant memory is injected and irrelevant memory is excluded
+### Completed retrieval and prompt work
 
-## Phase 5: MCP Memory-Agent Tool
+- [x] Add retrieval by `owner_id`, `session_id`, and current query
+- [x] Inject compact long-term memory into runtime prompt addendum
+- [x] Preserve existing transcript history behavior in `SQLAlchemyHistoryProvider`
+- [x] Add observability for retrieved memory ids and counts
+- [x] Update classic-chat prompt guidance so Chanakya knows it is an agent with long-term memory
+- [x] Instruct Chanakya not to manage memory directly and to rely on the memory-agent tool
 
-- [ ] Add `chanakya/services/mcp_memory_agent_server.py`
-- [ ] Implement the single `memory_agent_request(memory_request: str)` tool
-- [ ] Make the tool invoke the dedicated memory manager service
-- [ ] Add memory-agent server startup entrypoint consistent with other MCP servers
-- [ ] Register the memory-agent server in local MCP configuration
-- [ ] Ensure the core assistant profile gets only the single memory-agent tool if configured
-- [ ] Add MCP server tests similar to existing MCP tool server coverage
+### Completed MCP memory-agent tool work
 
-## Phase 6: API and Debug Visibility
+- [x] Add `chanakya/services/mcp_memory_agent_server.py`
+- [x] Implement the single `memory_agent_request(memory_request: str)` tool
+- [x] Make the tool invoke the dedicated memory manager service
+- [x] Add memory-agent server startup entrypoint consistent with other MCP servers
+- [x] Register the memory-agent server in local MCP configuration
+- [x] Ensure the core assistant profile can receive only the single memory-agent tool when configured
 
-- [ ] Add debug/admin APIs for listing memories and memory events if useful
-- [ ] Optionally add `/api/memory` and `/api/memory/events` routes in `chanakya/app.py`
-- [ ] Add safe response payloads for memory inspection in the UI or debugging tools
-- [ ] Keep these endpoints minimal and internal-facing unless a product surface is required
+### Completed debug visibility work
 
-## Phase 7: Prompt and Policy Updates
+- [x] Add `/api/memory`
+- [x] Add `/api/memory/events`
+- [x] Add `/api/sessions/<session_id>/memory`
+- [x] Add `+ -> Memory` debug UI in classic chat
+- [x] Show stored memories and memory events for the active session
 
-- [ ] Update core assistant prompt guidance so it knows the memory-agent tool exists
-- [ ] Instruct the assistant not to manage memory directly
-- [ ] Instruct the assistant to use the memory-agent tool for explicit recall or forgetting
-- [ ] Add rules for handling "forget this" and "remember this" through the memory-agent tool
+### Completed verification work
 
-## Phase 8: Verification
-
-- [ ] Add unit tests for models, repositories, extraction parsing, dedupe, and retrieval
-- [ ] Add integration tests covering end-to-end memory add and later recall
-- [ ] Add integration tests covering contradiction and supersede flows
-- [ ] Add integration tests covering explicit forget/delete flows
-- [ ] Add integration tests covering MCP memory tool behavior
-- [ ] Run `python -m ruff check chanakya/`
-- [ ] Run `python -m mypy chanakya/`
-- [ ] Run focused `pytest` for changed areas first
-- [ ] Run broader `pytest chanakya/test`
+- [x] Add focused tests for long-term memory behavior
+- [x] Add focused tests for memory debug APIs
+- [x] Add prompt-regression checks for classic/work runtime addenda
+- [x] Run focused `pytest` for changed areas during implementation
 
 ---
 
-## Suggested New Files
+## Remaining Work
 
-- [ ] `chanakya/services/memory_manager_service.py`
-- [ ] `chanakya/services/mcp_memory_agent_server.py`
-- [ ] `chanakya/test/test_memory_service.py`
-- [ ] `chanakya/test/test_memory_extractor.py`
-- [ ] `chanakya/test/test_mcp_memory_server.py`
+The remaining items are mostly quality, reliability, and future-scale improvements rather than core architecture work.
+
+## Priority 1: Reliability and Product Confidence
+
+- [ ] Add stronger end-to-end tests for explicit memory recall through Chanakya replies, not just service-layer behavior
+- [ ] Add integration tests covering contradiction and supersede flows in realistic multi-turn sessions
+- [ ] Add integration tests covering explicit forget/delete flows with ambiguous references like `remove it`
+- [ ] Add integration tests covering memory-agent MCP behavior from the assistant side
+- [ ] Add tests covering failure propagation so Chanakya accurately reflects memory-agent failures and retryability
+
+## Priority 2: Retrieval Quality
+
+- [ ] Improve ranking of memories for prompt injection beyond simple lexical overlap
+- [ ] Add stronger weighting for identity, preference, and instruction memories
+- [ ] Add better suppression for low-value or overly verbose memory bodies
+- [ ] Add tests verifying relevant memory is injected and irrelevant memory is excluded
+- [ ] Optionally surface the latest retrieved memories more explicitly in the debug UI
+
+## Priority 3: Memory Hygiene and Maintenance
+
+- [ ] Implement dedupe logic for near-identical active memories
+- [ ] Add explicit supersede flows where newer memories should replace older active ones cleanly
+- [ ] Add optional memory expiry handling for facts that should age out
+- [ ] Add a periodic maintenance job later for retrying failed memory updates, dedupe, and cleanup
+
+## Priority 4: Tooling and Debug Depth
+
+- [ ] Add dedicated MCP server tests similar to other MCP server coverage
+- [ ] Add richer event payloads for operations proposed vs operations applied
+- [ ] Add clearer debug visibility for source messages used during a memory update decision
+- [ ] Add richer filtering/search in the debug UI if manual inspection becomes cumbersome
+
+## Priority 5: Future-Scale Enhancements
+
+- [ ] Add optional embedding field/table for memory records
+- [ ] Evaluate `sqlite-vec` for local-first deployment
+- [ ] Evaluate Postgres + `pgvector` if moving toward multi-user or production deployment
+- [ ] Add semantic search fallback for vague recall queries
+- [ ] Optionally add episodic recall over old transcript chunks
+
+---
+
+## Current File Map
+
+Implemented or added during this feature:
+
+- [x] `chanakya/services/memory_manager_service.py`
+- [x] `chanakya/services/mcp_memory_agent_server.py`
+- [x] `chanakya/services/long_term_memory.py`
+- [x] `chanakya/test/test_long_term_memory.py`
+- [x] `chanakya/test/test_memory_api.py`
+
+Still useful to add later:
+
+- [ ] `chanakya/test/test_mcp_memory_agent_server.py`
 - [ ] `chanakya/test/test_long_term_memory_integration.py`
 
 ---
 
-## Suggested Existing Files to Modify
+## Primary Files Touched
 
-- [ ] `chanakya/model.py`
-- [ ] `chanakya/store.py`
-- [ ] `chanakya/chat_service.py`
-- [ ] `chanakya/agent/runtime.py`
-- [ ] `chanakya/services/tool_loader.py` if registration logic needs updates
-- [ ] `chanakya/app.py` if adding debug APIs
-- [ ] agent profile seed/default tool wiring if memory tools should be baseline
+- [x] `chanakya/model.py`
+- [x] `chanakya/store.py`
+- [x] `chanakya/chat_service.py`
+- [x] `chanakya/app.py`
+- [x] agent profile/default tool wiring via `sync_default_agent_tools()`
 
----
+Potential future touchpoints:
 
-## Implementation Order
-
-Use this order to reduce risk and keep the system shippable at each step.
-
-### Milestone 1: durable store only
-
-- add models
-- add repository methods
-- add tests
-
-### Milestone 2: retrieval-only memory
-
-- seed some manual memories
-- inject relevant memories before runs
-- verify answer quality improvements
-
-### Milestone 3: automatic background extraction
-
-- enable extractor writes
-- add event logging and failure isolation
-
-### Milestone 4: MCP memory tools
-
-- enable explicit search, remember, and forget operations
-
-### Milestone 5: optional semantic search
-
-- add embeddings only if lexical retrieval is no longer enough
+- [ ] `chanakya/agent/runtime.py` if memory-specific runtime hooks become necessary
+- [ ] `chanakya/services/tool_loader.py` if tool lifecycle for memory-agent MCP needs refinement
 
 ---
 
-## Prompting Guidance for Extractor
+## Suggested Next Milestones
 
-The extractor prompt should explicitly say:
+### Milestone A: confidence and regression coverage
+
+- expand end-to-end tests
+- lock down forget/update/recall behavior
+- verify failure and retry reporting stays honest
+
+### Milestone B: retrieval quality
+
+- improve ranking and filtering
+- validate memory injection quality over longer sessions
+
+### Milestone C: maintenance and cleanup
+
+- dedupe
+- supersede hygiene
+- periodic retry/cleanup jobs
+
+### Milestone D: optional semantic search
+
+- embeddings only if lexical retrieval is no longer enough
+
+---
+
+## Prompting Guidance for Memory Manager
+
+The memory-manager prompt should explicitly say:
 
 1. store only durable facts likely to matter later,
 2. do not summarize the entire conversation,
@@ -681,6 +709,8 @@ The extractor prompt should explicitly say:
 5. output JSON only,
 6. never invent facts not present in the source turns,
 7. mark low-confidence candidates conservatively.
+8. multiple operations in one request are allowed when necessary.
+9. return precise failure and retryability information when processing fails.
 
 ---
 
@@ -704,23 +734,18 @@ This is important because memory bugs often look like prompt bugs unless the pip
 
 ## Rollout Controls
 
-Add feature flags in `chanakya/config.py`.
+Current useful flags in `chanakya/config.py`:
 
-Recommended flags:
+- [x] `CHANAKYA_LONG_TERM_MEMORY_ENABLED`
+- [x] `CHANAKYA_LONG_TERM_MEMORY_MAX_INJECTED_ITEMS`
+- [x] `CHANAKYA_LONG_TERM_MEMORY_MAX_INJECTED_CHARS`
+- [x] `CHANAKYA_LONG_TERM_MEMORY_OWNER_ID`
 
-- [ ] `CHANAKYA_LONG_TERM_MEMORY_ENABLED`
+Potential future flags if needed:
+
 - [ ] `CHANAKYA_LONG_TERM_MEMORY_EXTRACTION_ENABLED`
 - [ ] `CHANAKYA_LONG_TERM_MEMORY_MCP_ENABLED`
-- [ ] `CHANAKYA_LONG_TERM_MEMORY_MAX_INJECTED_ITEMS`
-- [ ] `CHANAKYA_LONG_TERM_MEMORY_MAX_INJECTED_CHARS`
-
-Initial rollout sequence:
-
-1. ship store + manual retrieval with feature flag off by default,
-2. enable retrieval in local development,
-3. enable background extraction,
-4. enable MCP memory tools,
-5. tune prompt and scoring based on observed quality.
+- [ ] `CHANAKYA_LONG_TERM_MEMORY_DEBUG_UI_ENABLED`
 
 ---
 
@@ -751,42 +776,50 @@ Use embeddings for recall quality, not as the sole source of truth.
 
 ## Acceptance Criteria
 
-- [ ] The system preserves durable user/project facts across long sessions
-- [ ] The agent can recall relevant saved facts even when they are far outside recent history
-- [ ] Memory updates happen automatically after conversation turns
-- [ ] Contradicted memories are superseded and not retrieved as current truth
-- [ ] Explicit forget requests remove memories from future retrieval
-- [ ] Transcript history remains intact and separate from curated memory
-- [ ] User-facing latency does not regress materially because extraction runs outside the main reply path
-- [ ] The feature can be disabled cleanly with configuration flags
+- [x] The system preserves durable user/project facts across long sessions
+- [x] The agent can recall relevant saved facts even when they are far outside recent history
+- [x] Memory updates happen automatically after conversation turns
+- [x] Explicit forget requests remove memories from future retrieval when the memory-agent tool succeeds
+- [x] Transcript history remains intact and separate from curated memory
+- [x] User-facing latency does not regress materially because extraction runs outside the main reply path
+- [x] The feature can be disabled cleanly with configuration flags
+
+Still to strengthen further:
+
+- [ ] Contradicted memories are always superseded cleanly in realistic multi-turn cases
+- [ ] Retrieval quality remains strong as memory volume grows
+- [ ] Failure and retry behavior remain consistently honest in all memory-agent edge cases
 
 ---
 
 ## Verification Commands
 
-Run from repo root:
+Current focused checks:
+
+```bash
+pytest chanakya/test/test_long_term_memory.py -q
+pytest chanakya/test/test_memory_api.py -q
+pytest chanakya/test/test_domain_foundation.py -q
+pytest chanakya/test/test_agent_manager.py::test_normal_chat_uses_classic_runtime_prompt_addendum_for_direct_runs -q
+pytest chanakya/test/test_agent_manager.py::test_work_mode_uses_work_runtime_prompt_addendum_for_direct_runs -q
+```
+
+Broader checks when doing follow-up work:
 
 ```bash
 python -m ruff check chanakya/
 python -m mypy chanakya/
-pytest chanakya/test/test_memory_service.py -q
-pytest chanakya/test/test_memory_extractor.py -q
-pytest chanakya/test/test_mcp_memory_server.py -q
-pytest chanakya/test/test_long_term_memory_integration.py -q
 pytest chanakya/test
 ```
 
 ---
 
-## Recommended First Build Slice
+## Recommended Next Slice
 
-If you want the smallest valuable slice first, implement this order:
+If work resumes on this feature, the best next slice is:
 
-- [ ] Add memory tables and repository methods
-- [ ] Add lexical retrieval and prompt injection
-- [ ] Manually seed one or two memory records in tests
-- [ ] Verify the agent answers from injected long-term memory
-- [ ] Add background extractor after retrieval quality is confirmed
-- [ ] Add MCP memory tools last
+- [ ] add realistic end-to-end tests for recall, delete, ambiguity, and retry paths
+- [ ] improve retrieval ranking and filtering quality
+- [ ] add richer memory event payloads for debugging proposed vs applied operations
 
-This gets memory usefulness on-screen before taking on autonomous mutation logic.
+That will improve product confidence more than adding embeddings or new infrastructure right now.
