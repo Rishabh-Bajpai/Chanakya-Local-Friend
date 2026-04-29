@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from chanakya.domain import now_iso
@@ -106,6 +106,44 @@ class ChatMessageModel(Base):
     metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
     session: Mapped[ChatSessionModel] = relationship(back_populates="messages")
+
+
+class MemoryRecordModel(Base):
+    __tablename__ = "memory_records"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    session_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    scope: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    subject: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    importance: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.8)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active", index=True)
+    source_message_ids_json: Mapped[list[str]] = mapped_column(
+        "source_message_ids", JSON, default=list
+    )
+    source_request_ids_json: Mapped[list[str]] = mapped_column(
+        "source_request_ids", JSON, default=list
+    )
+    supersedes_memory_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    expires_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class MemoryEventModel(Base):
+    __tablename__ = "memory_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    memory_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    owner_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    session_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    request_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column("payload", JSON, default=dict)
+    created_at: Mapped[str] = mapped_column(String, nullable=False, index=True)
 
 
 class ArtifactModel(Base):

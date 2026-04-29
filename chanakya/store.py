@@ -16,6 +16,8 @@ from chanakya.model import (
     ChatMessageModel,
     ChatSessionModel,
     ClassicActiveWorkModel,
+    MemoryEventModel,
+    MemoryRecordModel,
     NotificationSettingsModel,
     RequestModel,
     RuntimeConfigModel,
@@ -98,6 +100,27 @@ class ChatRepository:
         return [
             {
                 "id": row.id,
+                "role": row.role,
+                "content": row.content,
+                "request_id": row.request_id,
+                "route": row.route,
+                "metadata": row.metadata_json,
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
+
+    def list_messages_for_request(self, request_id: str) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ChatMessageModel)
+                .where(ChatMessageModel.request_id == request_id)
+                .order_by(ChatMessageModel.id.asc())
+            ).all()
+        return [
+            {
+                "id": row.id,
+                "session_id": row.session_id,
                 "role": row.role,
                 "content": row.content,
                 "request_id": row.request_id,
@@ -234,6 +257,176 @@ class EventRepository:
                 "session_id": row.session_id,
                 "request_id": row.request_id,
                 "task_id": row.task_id,
+                "event_type": row.event_type,
+                "payload": row.payload_json,
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
+        records.reverse()
+        return records
+
+
+class MemoryRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    @staticmethod
+    def _to_dict(row: MemoryRecordModel) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "owner_id": row.owner_id,
+            "session_id": row.session_id,
+            "scope": row.scope,
+            "type": row.type,
+            "subject": row.subject,
+            "content": row.content,
+            "importance": row.importance,
+            "confidence": row.confidence,
+            "status": row.status,
+            "source_message_ids": list(row.source_message_ids_json or []),
+            "source_request_ids": list(row.source_request_ids_json or []),
+            "supersedes_memory_id": row.supersedes_memory_id,
+            "expires_at": row.expires_at,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    def create_memory(
+        self,
+        *,
+        memory_id: str,
+        owner_id: str,
+        session_id: str | None,
+        scope: str,
+        type: str,
+        subject: str,
+        content: str,
+        importance: int = 3,
+        confidence: float = 0.8,
+        status: str = "active",
+        source_message_ids: list[str] | None = None,
+        source_request_ids: list[str] | None = None,
+        supersedes_memory_id: str | None = None,
+        expires_at: str | None = None,
+    ) -> dict[str, Any]:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            row = MemoryRecordModel(
+                id=memory_id,
+                owner_id=owner_id,
+                session_id=session_id,
+                scope=scope,
+                type=type,
+                subject=subject,
+                content=content,
+                importance=importance,
+                confidence=confidence,
+                status=status,
+                source_message_ids_json=list(source_message_ids or []),
+                source_request_ids_json=list(source_request_ids or []),
+                supersedes_memory_id=supersedes_memory_id,
+                expires_at=expires_at,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+            session.add(row)
+            session.commit()
+            return self._to_dict(row)
+
+    def get_memory(self, memory_id: str) -> MemoryRecordModel:
+        with session_scope(self.Session) as session:
+            row = session.get(MemoryRecordModel, memory_id)
+            if row is None:
+                raise KeyError(f"Memory not found: {memory_id}")
+            return row
+
+    def update_memory(self, memory_id: str, **kwargs: Any) -> dict[str, Any]:
+        with session_scope(self.Session) as session:
+            row = session.get(MemoryRecordModel, memory_id)
+            if row is None:
+                raise KeyError(f"Memory not found: {memory_id}")
+            for key, value in kwargs.items():
+                if key == "source_message_ids":
+                    row.source_message_ids_json = list(value or [])
+                elif key == "source_request_ids":
+                    row.source_request_ids_json = list(value or [])
+                elif hasattr(row, key):
+                    setattr(row, key, value)
+            row.updated_at = now_iso()
+            session.commit()
+            return self._to_dict(row)
+
+    def list_memories(
+        self,
+        *,
+        owner_id: str,
+        status: str | None = "active",
+        session_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = select(MemoryRecordModel).where(MemoryRecordModel.owner_id == owner_id)
+            if status is not None:
+                stmt = stmt.where(MemoryRecordModel.status == status)
+            if session_id is not None:
+                stmt = stmt.where(
+                    or_(
+                        MemoryRecordModel.session_id == session_id,
+                        MemoryRecordModel.session_id.is_(None),
+                    )
+                )
+            rows = session.scalars(
+                stmt.order_by(MemoryRecordModel.updated_at.desc()).limit(limit)
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+    def create_memory_event(
+        self,
+        *,
+        owner_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        memory_id: str | None = None,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        with session_scope(self.Session) as session:
+            session.add(
+                MemoryEventModel(
+                    memory_id=memory_id,
+                    owner_id=owner_id,
+                    session_id=session_id,
+                    request_id=request_id,
+                    event_type=event_type,
+                    payload_json=payload,
+                    created_at=now_iso(),
+                )
+            )
+            session.commit()
+
+    def list_memory_events(
+        self,
+        *,
+        owner_id: str,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = select(MemoryEventModel).where(MemoryEventModel.owner_id == owner_id)
+            if session_id is not None:
+                stmt = stmt.where(MemoryEventModel.session_id == session_id)
+            if request_id is not None:
+                stmt = stmt.where(MemoryEventModel.request_id == request_id)
+            rows = session.scalars(stmt.order_by(MemoryEventModel.id.desc()).limit(limit)).all()
+        records = [
+            {
+                "id": row.id,
+                "memory_id": row.memory_id,
+                "owner_id": row.owner_id,
+                "session_id": row.session_id,
+                "request_id": row.request_id,
                 "event_type": row.event_type,
                 "payload": row.payload_json,
                 "created_at": row.created_at,
@@ -1539,6 +1732,7 @@ class ChanakyaStore:
         self.requests = RequestRepository(session_factory)
         self.tasks = TaskRepository(session_factory)
         self.events = EventRepository(session_factory)
+        self.memories = MemoryRepository(session_factory)
         self.session_contexts = AgentSessionContextRepository(session_factory)
         self.notification_settings = NotificationSettingsRepository(session_factory)
         self.tools = ToolInvocationRepository(session_factory)
@@ -1815,6 +2009,67 @@ class ChanakyaStore:
 
     def list_events(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.events.list_events(limit)
+
+    def list_messages_for_request(self, request_id: str) -> list[dict[str, Any]]:
+        return self.chat.list_messages_for_request(request_id)
+
+    def create_memory(self, **kwargs: Any) -> dict[str, Any]:
+        return self.memories.create_memory(**kwargs)
+
+    def get_memory(self, memory_id: str) -> MemoryRecordModel:
+        return self.memories.get_memory(memory_id)
+
+    def update_memory(self, memory_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.memories.update_memory(memory_id, **kwargs)
+
+    def list_memories(
+        self,
+        *,
+        owner_id: str,
+        status: str | None = "active",
+        session_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.memories.list_memories(
+            owner_id=owner_id,
+            status=status,
+            session_id=session_id,
+            limit=limit,
+        )
+
+    def create_memory_event(
+        self,
+        *,
+        owner_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        memory_id: str | None = None,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        self.memories.create_memory_event(
+            owner_id=owner_id,
+            event_type=event_type,
+            payload=payload,
+            memory_id=memory_id,
+            session_id=session_id,
+            request_id=request_id,
+        )
+
+    def list_memory_events(
+        self,
+        *,
+        owner_id: str,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.memories.list_memory_events(
+            owner_id=owner_id,
+            session_id=session_id,
+            request_id=request_id,
+            limit=limit,
+        )
 
     def get_notification_settings(self, channel_type: str) -> NotificationSettingsModel | None:
         return self.notification_settings.get_settings(channel_type)
