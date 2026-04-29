@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -36,6 +37,7 @@ class MAFOrchestrationAgent:
     default_model_provider: str | None = None
     default_model_id: str | None = None
     a2a_agent_factory: Any | None = None
+    _agent: Agent | None = field(init=False, default=None, repr=False)
     _a2a_agent: Any | None = field(init=False, default=None, repr=False)
     _a2a_sessions: dict[str, Any] = field(
         init=False, default_factory=dict, repr=False
@@ -51,6 +53,12 @@ class MAFOrchestrationAgent:
                 name="ConversationLayerPlanner",
                 description="Structured orchestration planner for the conversation layer.",
                 url=self.remote_agent_url,
+            )
+        elif self.runner is None:
+            self._agent = self._create_planner_agent(
+                model_id=self.model,
+                default_headers=None,
+                name=f"ConversationLayerPlanner[{self.model}]",
             )
 
     def plan(
@@ -142,7 +150,7 @@ class MAFOrchestrationAgent:
         from agent_framework import Message
 
         return await self._a2a_agent.run(
-            [Message(role="user", text=message)],
+            [Message("user", [message])],
             session=session,
         )
 
@@ -239,7 +247,7 @@ class MAFOrchestrationAgent:
             default_headers=default_headers,
         )
         return OpenAIChatClient(
-            model_id=model_id,
+            model=model_id,
             async_client=async_client,
-            env_file_path=self.env_file_path,
+            env_file_path=self.env_file_path if os.path.exists(self.env_file_path) else None,
         )

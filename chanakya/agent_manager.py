@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import json
 import re
 from contextvars import ContextVar, Token
@@ -301,8 +302,10 @@ class TracedGroupChatOrchestrator(AgentBasedGroupChatOrchestrator):
             ])
         )
         manager_call_messages = [_serialize_trace_message(item) for item in current_conversation]
-        manager_call_messages.append(_serialize_trace_message(Message(role="user", text=instruction)))
-        current_conversation.append(Message(role="user", text=instruction))
+        manager_call_messages.append(
+            _serialize_trace_message(Message("user", [instruction]))
+        )
+        current_conversation.append(Message("user", [instruction]))
 
         retry_attempts = self._retry_attempts
         while True:
@@ -404,7 +407,7 @@ class AgentManager:
         self.store = store
         self.session_factory = session_factory
         self.manager_profile = manager_profile
-        self.client = OpenAIChatClient(env_file_path=".env")
+        self.client: OpenAIChatClient | None = None
         self.route_runner: Any | None = None
         self.summary_runner: Any | None = None
         self.specialist_runner: Any | None = None
@@ -491,6 +494,8 @@ class AgentManager:
         active_model = _ACTIVE_MODEL_ID.get()
         if active_model:
             return create_openai_chat_client(model_id=active_model)
+        if self.client is None:
+            self.client = create_openai_chat_client()
         return self.client
 
     def _active_runtime_selection(self) -> RuntimeSelection:
@@ -723,9 +728,9 @@ class AgentManager:
                 sanitized_seed = []
                 if context_memo:
                     sanitized_seed.append(
-                        Message(role="assistant", text=context_memo, author_name="Chanakya")
+                        Message("assistant", [context_memo], author_name="Chanakya")
                     )
-                sanitized_seed.append(Message(role="user", text=message, author_name="User"))
+                sanitized_seed.append(Message("user", [message], author_name="User"))
                 workflow, workflow_result, completion_payload, visible_messages = _run_group_chat_once(
                     sanitized_seed
                 )
@@ -1235,7 +1240,7 @@ class AgentManager:
                     or str(metadata.get("group_chat_agent_name") or "").strip()
                     or "Chanakya"
                 )
-            seeded.append(Message(role=role, text=content, author_name=author_name or None))
+            seeded.append(Message(role, [content], author_name=author_name or None))
         return seeded
 
     def _extract_workspace_paths_from_messages(self, messages: list[dict[str, Any]]) -> list[str]:
@@ -5592,7 +5597,7 @@ class AgentManager:
             response = await with_transient_retry(
                 lambda: asyncio.wait_for(
                     agent.run(
-                        Message(role="user", text=prompt),
+                        Message("user", [prompt]),
                         session=session,
                         options={"store": store},
                     ),
@@ -5627,7 +5632,7 @@ class AgentManager:
             response = await with_transient_retry(
                 lambda: asyncio.wait_for(
                     fallback_agent.run(
-                        Message(role="user", text=seeded_prompt),
+                        Message("user", [seeded_prompt]),
                         session=fallback_session,
                         options={"store": False},
                     ),
@@ -5869,7 +5874,7 @@ class AgentManager:
         response = await with_transient_retry(
             lambda: asyncio.wait_for(
                 agent.run(
-                    Message(role="user", text=prompt),
+                    Message("user", [prompt]),
                     session=None,
                     options={"store": False},
                 ),

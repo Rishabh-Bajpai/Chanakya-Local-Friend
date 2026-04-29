@@ -220,7 +220,7 @@ class MemoryManagerService:
         async def _run() -> str:
             session = agent.create_session(session_id=session_id)
             response = await agent.run(
-                Message(role="user", text=prompt_text),
+                Message("user", [prompt_text]),
                 session=session,
                 options={"store": False},
             )

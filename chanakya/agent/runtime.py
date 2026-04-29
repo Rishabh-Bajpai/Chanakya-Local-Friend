@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
+from urllib.request import urlopen
 
 from agent_framework import Agent, AgentResponse, Message
-from agent_framework.openai import OpenAIChatClient
+from agent_framework.openai import OpenAIChatCompletionClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.agent.prompt import inject_tools_into_prompt
@@ -45,14 +49,42 @@ def create_openai_chat_client(
     model_id: str | None = None,
     env_file_path: str = ".env",
     default_headers: dict[str, str] | None = None,
-) -> OpenAIChatClient:
+) -> OpenAIChatCompletionClient:
     cfg = get_openai_compatible_config()
-    return OpenAIChatClient(
-        model_id=model_id or cfg.get("model"),
-        api_key=cfg.get("api_key"),
+    resolved_api_key = str(cfg.get("api_key") or "").strip() or None
+    resolved_model = str(model_id or cfg.get("model") or "").strip() or None
+    if resolved_model is None:
+        try:
+            with urlopen(f"{cfg.get('base_url')}/models/", timeout=1.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (OSError, TimeoutError, ValueError, URLError):
+            payload = None
+        models = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(models, list):
+            for item in models:
+                if not isinstance(item, dict):
+                    continue
+                provider_type = str(item.get("provider_type") or "").strip().lower()
+                candidate = str(item.get("id") or "").strip()
+                if candidate and provider_type == "llm":
+                    resolved_model = candidate
+                    break
+            if resolved_model is None:
+                for item in models:
+                    if not isinstance(item, dict):
+                        continue
+                    candidate = str(item.get("id") or "").strip()
+                    if candidate:
+                        resolved_model = candidate
+                        break
+    if resolved_api_key is None and str(cfg.get("base_url") or "").strip():
+        resolved_api_key = "air-local-placeholder"
+    return OpenAIChatCompletionClient(
+        model=resolved_model,
+        api_key=resolved_api_key,
         base_url=cfg.get("base_url"),
         default_headers=default_headers,
-        env_file_path=env_file_path,
+        env_file_path=env_file_path if os.path.exists(env_file_path) else None,
     )
 
 
@@ -92,7 +124,7 @@ def build_profile_agent(
     profile: AgentProfileModel,
     session_factory: sessionmaker[Session],
     *,
-    client: OpenAIChatClient | None = None,
+    client: OpenAIChatCompletionClient | None = None,
     env_file_path: str = ".env",
     include_history: bool = False,
     store_inputs: bool = True,
@@ -161,7 +193,6 @@ class MAFRuntime:
         self.profile = profile
         self.repo_root = Path(__file__).resolve().parents[2]
         self.env_file_path = env_file_path
-        self.client = OpenAIChatClient(env_file_path=env_file_path)
         self.session_factory = session_factory
         self.history_provider = SQLAlchemyHistoryProvider(
             session_factory=session_factory,
@@ -177,14 +208,10 @@ class MAFRuntime:
         self._a2a_sessions: dict[str, Any] = {}
         self._a2a_remote_context_by_session: dict[str, str] = {}
         self._a2a_session_sequence = 0
-        self.agent, config = build_profile_agent(
+        self.client: OpenAIChatCompletionClient | None = None
+        self.agent: Agent | None = None
+        config = build_profile_agent_config_for_usage(
             profile,
-            session_factory,
-            client=self.client,
-            env_file_path=env_file_path,
-            include_history=True,
-            store_inputs=False,
-            store_outputs=False,
             usage_text="",
             repo_root=self.repo_root,
         )
@@ -309,11 +336,7 @@ class MAFRuntime:
             "x-session-id": session_id,
         }
 
-        run_client = create_openai_chat_client(
-            model_id=model_id,
-            env_file_path=self.env_file_path,
-            default_headers=request_headers,
-        )
+        run_client: OpenAIChatCompletionClient | None = None
 
         debug_log(
             "maf_runtime_before_run",
@@ -452,7 +475,7 @@ class MAFRuntime:
         session_id: str,
         request_id: str,
         prompt_text: str,
-        client: OpenAIChatClient,
+        client: OpenAIChatCompletionClient | None,
         include_history: bool,
         history_query_text: str,
         prompt_addendum: str | None,
@@ -472,13 +495,13 @@ class MAFRuntime:
         session.state["request_id"] = request_id
         session.state["history_query_text"] = history_query_text
         return await asyncio.wait_for(
-            run_agent.run(
-                Message(
-                    role="user",
-                    text=prompt_text,
-                    additional_properties={"request_id": request_id},
-                ),
-                session=session,
+                run_agent.run(
+                    Message(
+                        "user",
+                        [prompt_text],
+                        additional_properties={"request_id": request_id},
+                    ),
+                    session=session,
                 options={"store": True},
             ),
             timeout=get_agent_request_timeout_seconds(),
@@ -619,7 +642,7 @@ class MAFRuntime:
         additional_properties: dict[str, Any] = {}
         if remote_context_id:
             additional_properties["context_id"] = remote_context_id
-        return [Message(role="user", text=text, additional_properties=additional_properties)]
+        return [Message("user", [text], additional_properties=additional_properties)]
 
     @staticmethod
     def _build_a2a_prompt(

@@ -5,7 +5,7 @@ import json
 import re
 from typing import Any
 
-from agent_framework import BaseHistoryProvider, Message
+from agent_framework import HistoryProvider, Message
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -21,7 +21,7 @@ from chanakya.domain import now_iso
 from chanakya.model import ChatMessageModel, ChatSessionModel
 
 
-class SQLAlchemyHistoryProvider(BaseHistoryProvider):
+class SQLAlchemyHistoryProvider(HistoryProvider):
     def __init__(
         self,
         session_factory: sessionmaker[Session],
@@ -98,7 +98,7 @@ class SQLAlchemyHistoryProvider(BaseHistoryProvider):
         return [
             Message(
                 role=row.role,
-                text=content,
+                contents=[content],
                 additional_properties=dict(row.metadata_json or {}),
             )
             for row, content in selected

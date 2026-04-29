@@ -522,7 +522,7 @@ class WorkerSubagentOrchestrator:
         result = await with_transient_retry(
             lambda: asyncio.wait_for(
                 workflow.run(
-                    message=Message(role="user", text=kickoff),
+                    message=Message("user", [kickoff]),
                     include_status_events=True,
                 ),
                 timeout=timeout_seconds,

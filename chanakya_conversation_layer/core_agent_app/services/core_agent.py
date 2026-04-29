@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -68,10 +69,10 @@ class AgentFrameworkCoreAgentAdapter(CoreAgentAdapter):
 
     def __post_init__(self) -> None:
         self._client = OpenAIChatClient(
-            model_id=self.model,
+            model=self.model,
             api_key=self.api_key,
             base_url=self.base_url,
-            env_file_path=self.env_file_path,
+            env_file_path=self.env_file_path if os.path.exists(self.env_file_path) else None,
         )
         self._agent = Agent(
             client=self._client,

@@ -4,14 +4,14 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
-from agent_framework import BaseHistoryProvider, Message
+from agent_framework import HistoryProvider, Message
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from core_agent_app.db import HistoryMessageRecord
 
 
-class SQLAlchemyHistoryProvider(BaseHistoryProvider):
+class SQLAlchemyHistoryProvider(HistoryProvider):
     def __init__(
         self,
         db_session_factory: sessionmaker[Session],

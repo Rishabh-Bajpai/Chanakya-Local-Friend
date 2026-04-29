@@ -145,7 +145,10 @@ class ConversationLayerSupport:
             return ConversationLayerResult(
                 response=assistant_message,
                 messages=[{"text": assistant_message, "delay_ms": 0}],
-                metadata={},
+                metadata={
+                    "source": "conversation_layer",
+                    "conversation_layer_backend": "passthrough",
+                },
             )
         wrapper = ConversationWrapper(
             agent=_FixedResponseAgent(
