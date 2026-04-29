@@ -18,6 +18,7 @@ The primary app is `chanakya/`, with supporting services in `AI-Router-AIR/` and
 
 ```bash
 source /home/rishabh/miniconda3/etc/profile.d/conda.sh
+conda create -n test python=3.11 -y
 conda activate test
 python -m pip install -e .[dev]
 cp .env.example .env

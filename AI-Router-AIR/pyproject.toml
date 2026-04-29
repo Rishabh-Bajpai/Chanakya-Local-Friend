@@ -2,7 +2,7 @@
 name = "ai-router-air"
 version = "0.1.0"
 description = "Unified API for LLM, STT, and TTS"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",

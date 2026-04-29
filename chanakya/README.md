@@ -9,9 +9,13 @@ This is the full implementation tracked in `task.md`.
 ## Quick Start
 
 ```bash
-# Activate your conda environment
+# Create the environment once
 source /home/rishabh/miniconda3/etc/profile.d/conda.sh
+conda create -n test python=3.11 -y
+
+# Activate it for each new shell
 conda activate test
+python -m pip install -e .[dev]
 
 # Run Chanakya and AIR together
 ./scripts/start_chanakya_air.sh core
@@ -22,6 +26,8 @@ conda activate test
 
 Open `http://localhost:5513` to access the GUI. AIR runs at `http://localhost:5512`.
 When using `core+a2a`, the A2A bridge runs at `http://127.0.0.1:18770`.
+
+If you already have the `test` environment, skip the `conda create ...` step and just activate it.
 
 ---
 

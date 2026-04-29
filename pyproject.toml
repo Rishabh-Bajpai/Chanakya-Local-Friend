@@ -31,7 +31,7 @@ line-length = 100
 select = ["E", "F", "I"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 strict = true
 warn_unused_configs = true
 
