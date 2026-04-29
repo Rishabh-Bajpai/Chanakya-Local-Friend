@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from agent_framework import Message
@@ -706,9 +707,35 @@ class MemoryManagerService:
 
 def run_memory_manager_update_job(store: ChanakyaStore, *, session_id: str, request_id: str) -> None:
     service = MemoryManagerService(store)
+    started_at = now_iso()
+    started_clock = perf_counter()
+    store.create_memory_event(
+        owner_id=service.owner_id,
+        session_id=session_id,
+        request_id=request_id,
+        event_type="memory_background_job_started",
+        payload={"started_at": started_at},
+    )
     try:
-        service.process_request_turn(session_id=session_id, request_id=request_id)
+        result = service.process_request_turn(session_id=session_id, request_id=request_id)
+        duration_ms = int(max((perf_counter() - started_clock) * 1000, 0.0))
+        store.create_memory_event(
+            owner_id=service.owner_id,
+            session_id=session_id,
+            request_id=request_id,
+            event_type="memory_background_job_finished",
+            payload={
+                "started_at": started_at,
+                "finished_at": now_iso(),
+                "duration_ms": duration_ms,
+                "result_status": result.status,
+                "operations_count": len(result.operations),
+                "needs_clarification": result.needs_clarification,
+                "retryable": result.retryable,
+            },
+        )
     except Exception as exc:
+        duration_ms = int(max((perf_counter() - started_clock) * 1000, 0.0))
         debug_log(
             "memory_manager_update_failed",
             {"session_id": session_id, "request_id": request_id, "error": str(exc)},
@@ -718,5 +745,21 @@ def run_memory_manager_update_job(store: ChanakyaStore, *, session_id: str, requ
             session_id=session_id,
             request_id=request_id,
             event_type="memory_extraction_failed",
-            payload={"error": str(exc)},
+            payload={"error": str(exc), "started_at": started_at, "duration_ms": duration_ms},
+        )
+        store.create_memory_event(
+            owner_id=service.owner_id,
+            session_id=session_id,
+            request_id=request_id,
+            event_type="memory_background_job_finished",
+            payload={
+                "started_at": started_at,
+                "finished_at": now_iso(),
+                "duration_ms": duration_ms,
+                "result_status": "failed",
+                "operations_count": 0,
+                "needs_clarification": False,
+                "retryable": True,
+                "error": str(exc),
+            },
         )

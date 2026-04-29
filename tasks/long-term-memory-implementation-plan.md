@@ -268,6 +268,12 @@ Use event-driven background updates after each completed turn.
 
 The background worker should call the dedicated memory manager agent immediately after reply persistence.
 
+Current decision:
+
+- do not add a deterministic pre-gate for skipping the memory manager yet,
+- keep the background memory-manager call asynchronous and post-response,
+- rely on prompt-driven `noop` behavior for transient turns unless cost or noise becomes a real issue later.
+
 ### Why not periodic-only in v1
 
 Periodic-only memory updates have avoidable drawbacks:

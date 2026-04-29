@@ -891,6 +891,7 @@ def create_app() -> Flask:
         latest_retrieval = None
         latest_operations_applied = None
         latest_failure = None
+        latest_background_job = None
         for item in memories:
             status_key = str(item.get("status") or "unknown")
             type_key = str(item.get("type") or "unknown")
@@ -905,6 +906,8 @@ def create_app() -> Flask:
                 latest_operations_applied = item
             elif event_type == "memory_extraction_failed":
                 latest_failure = item
+            elif event_type == "memory_background_job_finished":
+                latest_background_job = item
         return jsonify(
             {
                 "owner_id": owner_id,
@@ -917,6 +920,7 @@ def create_app() -> Flask:
                 "latest_retrieval": latest_retrieval,
                 "latest_operations_applied": latest_operations_applied,
                 "latest_failure": latest_failure,
+                "latest_background_job": latest_background_job,
                 "memories": memories,
                 "events": events,
             }

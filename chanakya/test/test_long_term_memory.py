@@ -315,9 +315,15 @@ def test_memory_manager_failure_is_recorded(monkeypatch) -> None:
         session_id="session_1",
         request_id="req_fail_1",
     )
-    assert events[-1]["event_type"] == "memory_extraction_failed"
-    assert events[-1]["payload"]["retryable"] is True
-    assert events[-1]["payload"]["error_code"] == "parse_failed"
+    event_types = [item["event_type"] for item in events]
+    assert "memory_background_job_started" in event_types
+    assert "memory_extraction_failed" in event_types
+    assert "memory_background_job_finished" in event_types
+    failed = next(item for item in events if item["event_type"] == "memory_extraction_failed")
+    finished = next(item for item in events if item["event_type"] == "memory_background_job_finished")
+    assert failed["payload"]["retryable"] is True
+    assert failed["payload"]["error_code"] == "parse_failed"
+    assert finished["payload"]["result_status"] == "failed"
 
 
 def test_duplicate_add_merges_into_existing_active_memory(monkeypatch) -> None:
@@ -519,9 +525,13 @@ def test_memory_events_record_proposed_and_applied_operations(monkeypatch) -> No
         request_id="req_evt_1",
     )
     event_types = [item["event_type"] for item in events]
+    assert "memory_background_job_started" in event_types
     assert "memory_operations_proposed" in event_types
     assert "memory_operations_applied" in event_types
+    assert "memory_background_job_finished" in event_types
     proposed = next(item for item in events if item["event_type"] == "memory_operations_proposed")
     applied = next(item for item in events if item["event_type"] == "memory_operations_applied")
+    finished = next(item for item in events if item["event_type"] == "memory_background_job_finished")
     assert proposed["payload"]["operations"][0]["op"] == "add"
     assert applied["payload"]["operations_applied"][0]["resolved_as"] in {"memory_added", "merged_duplicate_add", "memory_superseded"}
+    assert finished["payload"]["result_status"] == "ok"
