@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const btn = e.target;
         btn.disabled = true;
         btn.classList.add('rotating');
-        await fetchModels();
+        await fetchModels(true);
         btn.classList.remove('rotating');
         btn.disabled = false;
     });
@@ -28,15 +28,16 @@ let currentTab = 'llm';
 let currentPage = 1;
 let rowsPerPage = 10;
 
-async function fetchModels() {
+async function fetchModels(forceRefresh = false) {
     const tableBody = document.getElementById('models-table-body');
     try {
         // Show loading state if first load or explicit refresh
-        if (allModels.length === 0) {
+        if (allModels.length === 0 || forceRefresh) {
             tableBody.innerHTML = '<tr><td colspan="4" class="loading">Loading registry...</td></tr>';
         }
 
-        const response = await fetch('/v1/models');
+        const url = forceRefresh ? '/v1/models?refresh=true' : '/v1/models';
+        const response = await fetch(url);
         const data = await response.json();
         allModels = data.data || [];
 
@@ -149,7 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('next-page').addEventListener('click', () => {
         // We need total pages to check upper bound, but loose check is fine or we re-calc
-        // For simplicity, just increment and render handles bounds in real app, 
+        // For simplicity, just increment and render handles bounds in real app,
         // but here we can just rely on the fact button is disabled if at max.
         currentPage++;
         renderModelTable();
@@ -207,7 +208,7 @@ async function refreshWithRetry(retries = 5, delay = 1000) {
             const check = await fetch('/api/config/providers');
             if (check.ok) {
                 await fetchProviders(true); // Force refresh to clear editing state
-                await fetchModels();
+                await fetchModels(true);
                 return true;
             }
         } catch (e) {
@@ -230,7 +231,7 @@ function renderProviderRow(tbody, p, index, statusClass) {
     row.dataset.url = p.base_url;
     row.dataset.name = p.name;
 
-    // We store API Key in a data attribute? Ideally we shouldn't expose it if not needed, 
+    // We store API Key in a data attribute? Ideally we shouldn't expose it if not needed,
     // but the API returns it. We need it for pre-filling edit.
     // We'll fetch it on demand or trust the config endpoint.
     // For now let's just render standard.
@@ -536,4 +537,3 @@ document.getElementById('add-provider-btn').onclick = () => {
         }
     };
 };
-

@@ -13,6 +13,7 @@
       getLatestAssistantText,
       onTranscript,
       beforeRecordStart,
+      pauseAssistantReplies,
     } = options;
 
     let mediaRecorder = null;
@@ -27,9 +28,34 @@
     let ttsInFlightCount = 0;
     let spokenAssistantSegments = [];
     let nextAudioTimer = null;
-    const playbackGapMs = 1200;
+    const interruptionListeningWindowMs = 3000;
+    const interruptionVoiceThreshold = 0.045;
+    const interruptionVoiceFrames = 3;
+    const activeRecordingSilenceMs = 3000;
+    const activeRecordingPollMs = 120;
     let speechSequenceId = 0;
     let voiceTurnActive = false;
+    let interruptionStream = null;
+    let interruptionAudioContext = null;
+    let interruptionAnalyser = null;
+    let interruptionSource = null;
+    let interruptionListenTimer = null;
+    let interruptionMonitorTimer = null;
+    let interruptionSpeechRecognition = null;
+    let interruptionResolve = null;
+    let interruptionWindowActive = false;
+    let interruptionTriggerInFlight = false;
+    let interruptionConsecutiveVoiceFrames = 0;
+    let interruptionWindowToken = 0;
+    let pendingInterruptionSubmission = false;
+    let recordingAudioContext = null;
+    let recordingAnalyser = null;
+    let recordingSource = null;
+    let recordingMonitorTimer = null;
+    let recordingSpeechDetected = false;
+    let recordingLastVoiceAt = 0;
+    let recordingConsecutiveVoiceFrames = 0;
+    let recordingSubmitInFlight = false;
 
     function setStatus(text, isError = false) {
       if (!statusNode) {
@@ -37,6 +63,24 @@
       }
       statusNode.textContent = text || "";
       statusNode.dataset.state = isError ? "error" : "idle";
+      window.dispatchEvent(new CustomEvent("air-voice-status", {
+        detail: { text: text || "", isError },
+      }));
+    }
+
+    function setButtonLabel(button, label) {
+      if (!button) {
+        return;
+      }
+      const nextLabel = label || "";
+      button.setAttribute("aria-label", nextLabel);
+      button.setAttribute("title", nextLabel);
+      const labelNode = button.querySelector(".control-button-label");
+      if (labelNode) {
+        labelNode.textContent = nextLabel;
+        return;
+      }
+      button.textContent = nextLabel;
     }
 
     function selectedValue(select) {
@@ -81,7 +125,7 @@
         populateSelect(llmModelSelect, models, "llm");
         populateSelect(sttModelSelect, models, "stt");
         populateSelect(ttsModelSelect, models, "tts");
-        setStatus(models.length ? "AIR models loaded." : "AIR is reachable but returned no models.");
+        setStatus(models.length ? "" : "AIR is reachable but returned no models.");
       } catch (error) {
         setStatus(error instanceof Error ? error.message : String(error), true);
       }
@@ -101,10 +145,383 @@
       }
     }
 
+    function stopInterruptionMonitorTimers() {
+      if (interruptionListenTimer) {
+        window.clearTimeout(interruptionListenTimer);
+        interruptionListenTimer = null;
+      }
+      if (interruptionMonitorTimer) {
+        window.clearInterval(interruptionMonitorTimer);
+        interruptionMonitorTimer = null;
+      }
+    }
+
+    async function teardownInterruptionWindow(keepStream = false) {
+      stopInterruptionMonitorTimers();
+      if (interruptionSpeechRecognition) {
+        try {
+          interruptionSpeechRecognition.stop();
+        } catch (e) {}
+        interruptionSpeechRecognition = null;
+      }
+      const stream = interruptionStream;
+      const context = interruptionAudioContext;
+      interruptionStream = null;
+      interruptionAudioContext = null;
+      interruptionAnalyser = null;
+      interruptionSource = null;
+      if (stream && !keepStream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      if (!keepStream && mediaRecorder && mediaRecorder.stream === stream) {
+        mediaRecorder.stop();
+        mediaRecorder = null;
+        audioChunks = [];
+      }
+      if (context) {
+        try {
+          await context.close();
+        } catch {
+        }
+      }
+    }
+
+    async function finishInterruptionWindow(result) {
+      const resolve = interruptionResolve;
+      interruptionResolve = null;
+      interruptionWindowActive = false;
+      interruptionTriggerInFlight = false;
+      interruptionConsecutiveVoiceFrames = 0;
+      await teardownInterruptionWindow(result && result.startedRecording);
+      if (typeof resolve === "function") {
+        resolve(result);
+      }
+    }
+
+    async function cancelInterruptionWindow(result = { interrupted: false }) {
+      interruptionWindowToken += 1;
+      await finishInterruptionWindow(result);
+    }
+
+    function getInterruptionRms() {
+      return getAnalyserRms(interruptionAnalyser);
+    }
+
+    function getAnalyserRms(analyser) {
+      if (!analyser) {
+        return 0;
+      }
+      const buffer = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(buffer);
+      let sum = 0;
+      for (let index = 0; index < buffer.length; index += 1) {
+        const normalized = (buffer[index] - 128) / 128;
+        sum += normalized * normalized;
+      }
+      return Math.sqrt(sum / buffer.length);
+    }
+
+    async function submitTranscript(transcript, options = {}) {
+      const { metadata = null } = options;
+      console.debug("[air-voice] submitTranscript: transcript=%s, isInterruption=%s", transcript ? `'${transcript.substring(0, 50)}...'` : '(empty)', Boolean(metadata?.voice_interruption));
+      if (!transcript) {
+        setStatus("No speech detected.", true);
+        if (metadata && metadata.voice_interruption) {
+          window.dispatchEvent(new CustomEvent("air-voice-interruption-empty", {
+            detail: { reason: "no_speech" },
+          }));
+        }
+        return "";
+      }
+      if (typeof onTranscript === "function") {
+        onTranscript(transcript, { metadata });
+      }
+      const llmModel = selectedValue(llmModelSelect);
+      startAssistantSpeechQueue();
+      voiceTurnActive = true;
+      setStatus("Thinking...");
+      try {
+        console.debug("[air-voice] submitTranscript: calling submitText...");
+        const replyText = await submitText(transcript, {
+          llmModel,
+          voiceMode: true,
+          metadata,
+          onAssistantMessage: async (assistantMessage) => {
+            if (continuousMode) {
+              setStatus("Speaking...");
+            }
+            await speakAssistantMessageAndWait(assistantMessage);
+            setStatus(continuousMode ? "Listening for your next turn..." : "");
+          },
+        });
+        console.debug("[air-voice] submitTranscript: submitText complete");
+        latestAssistantText = typeof replyText === "string" ? replyText : "";
+        if (selectedValue(ttsModelSelect)) {
+          await waitForSpeechQueueToFinish();
+        }
+        return latestAssistantText;
+      } finally {
+        voiceTurnActive = false;
+        if (statusNode && (statusNode.textContent === "Thinking..." || statusNode.textContent === "Speaking...")) {
+          setStatus("");
+        }
+      }
+    }
+
+    function stopRecordingMonitor() {
+      if (recordingMonitorTimer) {
+        window.clearInterval(recordingMonitorTimer);
+        recordingMonitorTimer = null;
+      }
+    }
+
+    async function teardownRecordingMonitor() {
+      stopRecordingMonitor();
+      const context = recordingAudioContext;
+      recordingAudioContext = null;
+      recordingAnalyser = null;
+      recordingSource = null;
+      recordingSpeechDetected = false;
+      recordingLastVoiceAt = 0;
+      recordingConsecutiveVoiceFrames = 0;
+      if (context) {
+        try {
+          await context.close();
+        } catch {
+        }
+      }
+    }
+
+    function shouldAutoSubmitRecording() {
+      return continuousMode || pendingInterruptionSubmission;
+    }
+
+    async function autoSubmitCurrentRecording() {
+      console.debug("[air-voice] autoSubmitCurrentRecording: called (inFlight=%s, hasRecorder=%s, state=%s)",
+        recordingSubmitInFlight, Boolean(mediaRecorder), mediaRecorder?.state);
+      if (recordingSubmitInFlight || !mediaRecorder || mediaRecorder.state === "inactive") {
+        return;
+      }
+      recordingSubmitInFlight = true;
+      try {
+        console.debug("[air-voice] autoSubmitCurrentRecording: calling stopRecordingAndProcess...");
+        await stopRecordingAndProcess();
+        console.debug("[air-voice] autoSubmitCurrentRecording: stopRecordingAndProcess complete, continuing loop...");
+        await continueLoopIfNeeded();
+        console.debug("[air-voice] autoSubmitCurrentRecording: continueLoopIfNeeded complete");
+      } catch (error) {
+        console.error("[air-voice] autoSubmitCurrentRecording: error", error);
+        setStatus(error instanceof Error ? error.message : String(error), true);
+      } finally {
+        recordingSubmitInFlight = false;
+      }
+    }
+
+    async function startRecordingMonitor(stream) {
+      await teardownRecordingMonitor();
+      if (!shouldAutoSubmitRecording()) {
+        return;
+      }
+      recordingAudioContext = new AudioContext();
+      recordingSource = recordingAudioContext.createMediaStreamSource(stream);
+      recordingAnalyser = recordingAudioContext.createAnalyser();
+      recordingAnalyser.fftSize = 2048;
+      recordingSource.connect(recordingAnalyser);
+      recordingSpeechDetected = pendingInterruptionSubmission;
+      recordingLastVoiceAt = pendingInterruptionSubmission ? Date.now() : 0;
+      recordingConsecutiveVoiceFrames = 0;
+      recordingMonitorTimer = window.setInterval(() => {
+        if (!mediaRecorder || mediaRecorder.state === "inactive" || recordingSubmitInFlight) {
+          return;
+        }
+        const now = Date.now();
+        const rms = getAnalyserRms(recordingAnalyser);
+        if (rms >= interruptionVoiceThreshold) {
+          recordingConsecutiveVoiceFrames += 1;
+          if (recordingConsecutiveVoiceFrames >= interruptionVoiceFrames) {
+            recordingSpeechDetected = true;
+            recordingLastVoiceAt = now;
+          }
+          return;
+        }
+        recordingConsecutiveVoiceFrames = 0;
+        if (recordingSpeechDetected && recordingLastVoiceAt && now - recordingLastVoiceAt >= activeRecordingSilenceMs) {
+          void autoSubmitCurrentRecording();
+        }
+      }, activeRecordingPollMs);
+    }
+
+    async function beginActiveRecording(options = {}) {
+      const {
+        interruptionTriggered = false,
+        skipBeforeRecordStart = false,
+        reuseStream = false,
+      } = options;
+      console.debug("[air-voice] beginActiveRecording: reuseStream=%s, hasRecorder=%s, recorderState=%s",
+        reuseStream, Boolean(mediaRecorder), mediaRecorder?.state);
+      if (!reuseStream && mediaRecorder && mediaRecorder.state !== "inactive") {
+        console.debug("[air-voice] beginActiveRecording: skipped (already recording, reuseStream=false)");
+        return;
+      }
+      if (!skipBeforeRecordStart && typeof beforeRecordStart === "function") {
+        await beforeRecordStart({
+          isPlaybackActive: Boolean(activeAudio || audioQueue.length || nextAudioTimer),
+        });
+      }
+      if (activeAudio || audioQueue.length || nextAudioTimer) {
+        stopPlayback();
+      }
+      let stream;
+      if (reuseStream && mediaRecorder && mediaRecorder.state !== "inactive") {
+        stream = mediaRecorder.stream;
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data);
+          }
+        };
+        mediaRecorder.start(250);
+      }
+      pendingInterruptionSubmission = interruptionTriggered;
+      await startRecordingMonitor(stream);
+      recordButton.dataset.state = "recording";
+      setButtonLabel(recordButton, "Stop Recording");
+      setStatus(interruptionTriggered ? "Recording interruption..." : (continuousMode ? "Listening for your next turn..." : "Recording..."));
+    }
+
+    async function triggerInterruptionRecording(token) {
+      if (interruptionTriggerInFlight || token !== interruptionWindowToken) {
+        console.debug("[air-voice] triggerInterruptionRecording: skipped (inFlight=%s, tokenMatch=%s)", interruptionTriggerInFlight, token === interruptionWindowToken);
+        return;
+      }
+      interruptionTriggerInFlight = true;
+      if (interruptionListenTimer) {
+        window.clearTimeout(interruptionListenTimer);
+        interruptionListenTimer = null;
+      }
+      console.debug("[air-voice] triggerInterruptionRecording: starting pause...");
+      setStatus("Voice activity detected. Pausing assistant...");
+      try {
+        if (typeof pauseAssistantReplies === "function") {
+          await pauseAssistantReplies({ source: "voice_interruption" });
+        }
+        console.debug("[air-voice] triggerInterruptionRecording: pause complete. token=%s, current=%s", token, interruptionWindowToken);
+        if (token !== interruptionWindowToken) {
+          console.debug("[air-voice] triggerInterruptionRecording: token mismatch after pause, aborting");
+          return;
+        }
+        console.debug("[air-voice] triggerInterruptionRecording: finishing interruption window...");
+        await finishInterruptionWindow({ interrupted: true, startedRecording: true });
+        console.debug("[air-voice] triggerInterruptionRecording: beginning active recording (reuseStream)...");
+        await beginActiveRecording({
+          interruptionTriggered: true,
+          skipBeforeRecordStart: true,
+          reuseStream: true,
+        });
+        console.debug("[air-voice] triggerInterruptionRecording: active recording started successfully");
+      } catch (error) {
+        console.error("[air-voice] triggerInterruptionRecording: error", error);
+        await finishInterruptionWindow({ interrupted: true, startedRecording: false, error: error instanceof Error ? error.message : String(error) });
+        setStatus(error instanceof Error ? error.message : String(error), true);
+      } finally {
+        interruptionTriggerInFlight = false;
+      }
+    }
+
+    async function waitForInterruptionWindow() {
+      if (!continuousMode || !voiceTurnActive || stopRequested) {
+        return { interrupted: false };
+      }
+      if (!selectedValue(sttModelSelect)) {
+        return { interrupted: false };
+      }
+      await cancelInterruptionWindow({ interrupted: false });
+      const token = ++interruptionWindowToken;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (token !== interruptionWindowToken) {
+        stream.getTracks().forEach((track) => track.stop());
+        return { interrupted: false };
+      }
+      interruptionStream = stream;
+      if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data);
+          }
+        };
+        mediaRecorder.start(250);
+      }
+      interruptionWindowActive = true;
+      interruptionTriggerInFlight = false;
+      interruptionConsecutiveVoiceFrames = 0;
+      setStatus("Listening for interruption...");
+      return new Promise((resolve) => {
+        interruptionResolve = resolve;
+        interruptionListenTimer = window.setTimeout(() => {
+          interruptionListenTimer = null;
+          void finishInterruptionWindow({ interrupted: false });
+        }, interruptionListeningWindowMs);
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          try {
+            interruptionSpeechRecognition = new SpeechRecognition();
+            interruptionSpeechRecognition.continuous = true;
+            interruptionSpeechRecognition.interimResults = true;
+            interruptionSpeechRecognition.onresult = (event) => {
+              if (token !== interruptionWindowToken || interruptionTriggerInFlight) {
+                return;
+              }
+              for (let i = event.resultIndex; i < event.results.length; i++) {
+                if (event.results[i][0].transcript.trim().length > 0) {
+                  void triggerInterruptionRecording(token);
+                  break;
+                }
+              }
+            };
+            interruptionSpeechRecognition.start();
+          } catch (e) {
+            console.debug("[air-voice] Failed to start Web Speech API for interruption, falling back to RMS", e);
+            startRmsMonitor(token);
+          }
+        } else {
+          startRmsMonitor(token);
+        }
+
+        function startRmsMonitor(currentToken) {
+          interruptionAudioContext = new AudioContext();
+          interruptionSource = interruptionAudioContext.createMediaStreamSource(stream);
+          interruptionAnalyser = interruptionAudioContext.createAnalyser();
+          interruptionAnalyser.fftSize = 2048;
+          interruptionSource.connect(interruptionAnalyser);
+          interruptionMonitorTimer = window.setInterval(() => {
+            if (currentToken !== interruptionWindowToken || interruptionTriggerInFlight) {
+              return;
+            }
+            const rms = getInterruptionRms();
+            if (rms >= interruptionVoiceThreshold) {
+              interruptionConsecutiveVoiceFrames += 1;
+              if (interruptionConsecutiveVoiceFrames >= interruptionVoiceFrames) {
+                void triggerInterruptionRecording(currentToken);
+              }
+              return;
+            }
+            interruptionConsecutiveVoiceFrames = 0;
+          }, 80);
+        }
+      });
+    }
+
     async function stopRecordingSilently() {
       if (!mediaRecorder || mediaRecorder.state === "inactive") {
         return;
       }
+      await teardownRecordingMonitor();
       const recorder = mediaRecorder;
       const stream = recorder.stream;
       await new Promise((resolve) => {
@@ -115,7 +532,7 @@
       mediaRecorder = null;
       audioChunks = [];
       recordButton.dataset.state = "idle";
-      recordButton.textContent = continuousMode ? "Listening" : "Mic";
+      setButtonLabel(recordButton, continuousMode ? "Listening" : "Mic");
     }
 
     function normalizeAudioContentType(contentType) {
@@ -150,11 +567,22 @@
       isPlayingQueue = true;
       const currentChunk = audioQueue.shift();
       activeAudio = new Audio(currentChunk.url);
-      const scheduleNextChunk = () => {
+      const scheduleNextChunk = async () => {
+        if (voiceTurnActive && !stopRequested && selectedValue(sttModelSelect)) {
+          try {
+            const result = await waitForInterruptionWindow();
+            if (result && result.interrupted) {
+              isPlayingQueue = false;
+              return;
+            }
+          } catch (err) {
+            console.debug("Interruption window check failed:", err);
+          }
+        }
         nextAudioTimer = window.setTimeout(() => {
           nextAudioTimer = null;
           playNextAudioChunk();
-        }, playbackGapMs);
+        }, 0);
       };
       activeAudio.onended = () => {
         URL.revokeObjectURL(currentChunk.url);
@@ -225,7 +653,9 @@
         return;
       }
       stopPlayback();
-      setStatus("Generating speech...");
+      if (continuousMode) {
+        setStatus("Generating speech...");
+      }
       const placeholder = { url: null, status: "pending" };
       audioQueue = [placeholder];
       await Promise.allSettled([synthesizeSpeechChunk(cleaned, placeholder)]);
@@ -296,35 +726,17 @@
     }
 
     async function startRecording() {
-      if (mediaRecorder && mediaRecorder.state !== "inactive") {
-        return;
-      }
-      if (typeof beforeRecordStart === "function") {
-        await beforeRecordStart({
-          isPlaybackActive: Boolean(activeAudio || audioQueue.length || nextAudioTimer),
-        });
-      }
-      if (activeAudio || audioQueue.length || nextAudioTimer) {
-        stopPlayback();
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunks = [];
-      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunks.push(event.data);
-        }
-      };
-      mediaRecorder.start();
-      recordButton.dataset.state = "recording";
-      recordButton.textContent = "Stop Mic";
-      setStatus(continuousMode ? "Listening for your next turn..." : "Recording...");
+      await cancelInterruptionWindow({ interrupted: false });
+      await beginActiveRecording();
     }
 
     async function stopRecordingAndProcess() {
       if (!mediaRecorder || mediaRecorder.state === "inactive") {
         return;
       }
+      await teardownRecordingMonitor();
+      const isInterruption = pendingInterruptionSubmission;
+      pendingInterruptionSubmission = false;
       const recorder = mediaRecorder;
       const stream = recorder.stream;
       const audioBlob = await new Promise((resolve) => {
@@ -336,35 +748,26 @@
       stream.getTracks().forEach((track) => track.stop());
       mediaRecorder = null;
       recordButton.dataset.state = "idle";
-      recordButton.textContent = continuousMode ? "Listening" : "Mic";
+      setButtonLabel(recordButton, continuousMode ? "Listening" : "Mic");
 
       setStatus("Transcribing...");
-      const transcript = await transcribeAudio(audioBlob);
-      if (!transcript) {
-        setStatus("No speech detected.", true);
-        return;
-      }
-      if (typeof onTranscript === "function") {
-        onTranscript(transcript);
-      }
-      const llmModel = selectedValue(llmModelSelect);
-      startAssistantSpeechQueue();
-      voiceTurnActive = true;
+      let transcript = "";
       try {
-        const replyText = await submitText(transcript, {
-          llmModel,
-          voiceMode: true,
-          onAssistantMessage: async (assistantMessage) => {
-            await speakAssistantMessageAndWait(assistantMessage);
-          },
-        });
-        latestAssistantText = typeof replyText === "string" ? replyText : "";
-        if (selectedValue(ttsModelSelect)) {
-          await waitForSpeechQueueToFinish();
-        }
-      } finally {
-        voiceTurnActive = false;
+        transcript = await transcribeAudio(audioBlob);
+      } catch (err) {
+        console.debug("STT failed (likely silent/empty audio):", err);
       }
+      setStatus("");
+      await submitTranscript(transcript, {
+        metadata: isInterruption
+          ? {
+            voice_interruption: true,
+            input_mode: "voice",
+          }
+          : {
+            input_mode: "voice",
+          },
+      });
     }
 
     async function runSingleVoiceTurn() {
@@ -385,11 +788,12 @@
 
     function syncButtons() {
       if (continuousButton) {
-        continuousButton.textContent = continuousMode ? "Stop Voice" : "Start Voice";
+        setButtonLabel(continuousButton, continuousMode ? "Stop Voice" : "Start Voice");
         continuousButton.dataset.state = continuousMode ? "recording" : "idle";
       }
       if (!continuousMode && recordButton.dataset.state !== "recording") {
-        recordButton.textContent = "Mic";
+        recordButton.dataset.state = "idle";
+        setButtonLabel(recordButton, "Mic");
       }
     }
 
@@ -399,6 +803,29 @@
         syncButtons();
         return;
       }
+      await runSingleVoiceTurn();
+    }
+
+    async function stopVoiceMode() {
+      stopRequested = true;
+      continuousMode = false;
+      voiceTurnActive = false;
+      speechSequenceId += 1;
+      stopPlayback();
+      await cancelInterruptionWindow({ interrupted: false });
+      await teardownRecordingMonitor();
+      await stopRecordingSilently();
+      setStatus("");
+      syncButtons();
+    }
+
+    async function startVoiceMode() {
+      if (continuousMode) {
+        return;
+      }
+      stopRequested = false;
+      continuousMode = true;
+      syncButtons();
       await runSingleVoiceTurn();
     }
 
@@ -421,22 +848,10 @@
     if (continuousButton) {
       continuousButton.addEventListener("click", async () => {
         if (continuousMode) {
-          stopRequested = true;
-          continuousMode = false;
-          voiceTurnActive = false;
-          speechSequenceId += 1;
-          stopPlayback();
-          if (mediaRecorder && mediaRecorder.state !== "inactive") {
-            mediaRecorder.stop();
-          }
-          setStatus("Voice mode stopped.");
-          syncButtons();
+          await stopVoiceMode();
           return;
         }
-        stopRequested = false;
-        continuousMode = true;
-        syncButtons();
-        await runSingleVoiceTurn();
+        await startVoiceMode();
       });
     }
 
@@ -460,6 +875,11 @@
 
     return {
       fetchModels,
+      startVoiceMode,
+      stopVoiceMode,
+      isContinuousModeEnabled() {
+        return continuousMode;
+      },
       isVoiceModeEnabled() {
         return continuousMode || voiceTurnActive;
       },
@@ -470,6 +890,7 @@
         return Boolean(
           (mediaRecorder && mediaRecorder.state !== "inactive")
           || voiceTurnActive
+          || interruptionWindowActive
           || activeAudio
           || audioQueue.length
           || isPlayingQueue
@@ -480,6 +901,7 @@
       stopSpeechAndInvalidate() {
         speechSequenceId += 1;
         stopPlayback();
+        void cancelInterruptionWindow({ interrupted: false });
       },
       async speakAssistantMessageAndWait(text) {
         return speakAssistantMessageAndWait(text);

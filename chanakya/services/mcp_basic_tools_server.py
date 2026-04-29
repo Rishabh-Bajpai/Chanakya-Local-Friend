@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,8 @@ from urllib import error, parse, request
 
 from mcp.server.fastmcp import FastMCP
 from chanakya.config import get_data_dir
-from chanakya.services.sandbox_workspace import resolve_shared_workspace
+from chanakya.services.mcp_feedback import build_recovery_payload
+from chanakya.services.sandbox_workspace import CLASSIC_ARTIFACT_WORKSPACE_ID, resolve_shared_workspace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MAX_TEXT_CHARS = 20000
@@ -41,11 +43,11 @@ def _resolve_path(path: str) -> Path:
     return candidate
 
 
-def _resolve_filesystem_workspace(work_id: str = "temp") -> Path:
+def _resolve_filesystem_workspace(work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID) -> Path:
     return resolve_shared_workspace(work_id, allow_create_missing_classic=False).resolve()
 
 
-def _resolve_filesystem_path(path: str, work_id: str = "temp") -> tuple[Path, Path]:
+def _resolve_filesystem_path(path: str, work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID) -> tuple[Path, Path]:
     raw = (path or ".").strip()
     workspace_root = _resolve_filesystem_workspace(work_id)
     candidate = (workspace_root / raw).resolve()
@@ -53,7 +55,42 @@ def _resolve_filesystem_path(path: str, work_id: str = "temp") -> tuple[Path, Pa
     return workspace_root, candidate
 
 
-def _list_directory(path: str = ".", work_id: str = "temp") -> dict[str, Any]:
+def _filesystem_error_payload(
+    *,
+    error: Exception,
+    path: str,
+    work_id: str,
+) -> dict[str, Any]:
+    hint = "Retry with a valid path inside the shared workspace."
+    workspace_root = ""
+    entries: list[dict[str, Any]] = []
+    try:
+        root = _resolve_filesystem_workspace(work_id)
+        workspace_root = str(root)
+        if root.exists():
+            entries = [
+                {
+                    "name": item.name,
+                    "path": str(item.relative_to(root)),
+                    "is_dir": item.is_dir(),
+                }
+                for item in sorted(root.iterdir(), key=lambda child: child.name.lower())[:10]
+            ]
+    except Exception:
+        hint = (
+            "Retry with a valid existing work_id or create the workspace through the appropriate tool first."
+        )
+    return build_recovery_payload(
+        error=str(error),
+        hint=hint,
+        path=path,
+        work_id=work_id,
+        workspace_root=workspace_root,
+        available_entries=entries,
+    )
+
+
+def _list_directory(path: str = ".", work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID) -> dict[str, Any]:
     workspace_root, resolved = _resolve_filesystem_path(path, work_id)
     if not resolved.exists():
         raise FileNotFoundError(f"Path not found: {path}")
@@ -77,7 +114,7 @@ def _list_directory(path: str = ".", work_id: str = "temp") -> dict[str, Any]:
     }
 
 
-def _read_text_file(path: str, work_id: str = "temp", max_chars: int = MAX_TEXT_CHARS) -> dict[str, Any]:
+def _read_text_file(path: str, work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID, max_chars: int = MAX_TEXT_CHARS) -> dict[str, Any]:
     workspace_root, resolved = _resolve_filesystem_path(path, work_id)
     if not resolved.exists():
         raise FileNotFoundError(f"Path not found: {path}")
@@ -93,7 +130,7 @@ def _read_text_file(path: str, work_id: str = "temp", max_chars: int = MAX_TEXT_
     }
 
 
-def _write_text_file(path: str, content: str, work_id: str = "temp") -> dict[str, Any]:
+def _write_text_file(path: str, content: str, work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID) -> dict[str, Any]:
     workspace_root, resolved = _resolve_filesystem_path(path, work_id)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     resolved.write_text(content, encoding="utf-8")
@@ -103,6 +140,54 @@ def _write_text_file(path: str, content: str, work_id: str = "temp") -> dict[str
         "workspace_root": str(workspace_root),
         "work_id": work_id,
         "bytes_written": len(content.encode("utf-8")),
+    }
+
+
+def _create_directory(
+    path: str,
+    work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID,
+    *,
+    parents: bool = True,
+) -> dict[str, Any]:
+    workspace_root, resolved = _resolve_filesystem_path(path, work_id)
+    resolved.mkdir(parents=parents, exist_ok=True)
+    return {
+        "ok": True,
+        "path": str(resolved.relative_to(workspace_root)),
+        "workspace_root": str(workspace_root),
+        "work_id": work_id,
+        "created": True,
+    }
+
+
+def _delete_path(
+    path: str,
+    work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID,
+    *,
+    recursive: bool = False,
+) -> dict[str, Any]:
+    workspace_root, resolved = _resolve_filesystem_path(path, work_id)
+    if resolved == workspace_root:
+        raise PermissionError("Refusing to delete the workspace root")
+    if not resolved.exists():
+        raise FileNotFoundError(f"Path not found: {path}")
+    if resolved.is_dir():
+        path_type = "directory"
+        if recursive:
+            shutil.rmtree(resolved)
+        else:
+            resolved.rmdir()
+    else:
+        path_type = "file"
+        resolved.unlink()
+    return {
+        "ok": True,
+        "deleted": True,
+        "path": str(resolved.relative_to(workspace_root)),
+        "path_type": path_type,
+        "workspace_root": str(workspace_root),
+        "work_id": work_id,
+        "recursive": recursive,
     }
 
 
@@ -375,23 +460,63 @@ def _build_filesystem_server() -> FastMCP:
     mcp = FastMCP("Chanakya Filesystem Tools", json_response=True)
 
     @mcp.tool()
-    def list_directory(path: str = ".", work_id: str = "temp") -> dict[str, Any]:
+    def list_directory(path: str = ".", work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID) -> dict[str, Any]:
         """List files in the shared sandbox workspace for the given work_id."""
-        return _list_directory(path, work_id)
+        try:
+            return _list_directory(path, work_id)
+        except (FileNotFoundError, NotADirectoryError, PermissionError, ValueError) as exc:
+            return _filesystem_error_payload(error=exc, path=path, work_id=work_id)
 
     @mcp.tool()
     def read_text_file(
         path: str,
-        work_id: str = "temp",
+        work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID,
         max_chars: int = MAX_TEXT_CHARS,
     ) -> dict[str, Any]:
         """Read a UTF-8 text file from the shared sandbox workspace for the given work_id."""
-        return _read_text_file(path, work_id, max_chars)
+        try:
+            return _read_text_file(path, work_id, max_chars)
+        except (FileNotFoundError, IsADirectoryError, PermissionError, ValueError) as exc:
+            return _filesystem_error_payload(error=exc, path=path, work_id=work_id)
 
     @mcp.tool()
-    def write_text_file(path: str, content: str, work_id: str = "temp") -> dict[str, Any]:
+    def write_text_file(path: str, content: str, work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID) -> dict[str, Any]:
         """Write a UTF-8 text file inside the shared sandbox workspace for the given work_id."""
-        return _write_text_file(path, content, work_id)
+        try:
+            return _write_text_file(path, content, work_id)
+        except (FileNotFoundError, PermissionError, ValueError) as exc:
+            return _filesystem_error_payload(error=exc, path=path, work_id=work_id)
+
+    @mcp.tool()
+    def create_directory(
+        path: str,
+        work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID,
+        parents: bool = True,
+    ) -> dict[str, Any]:
+        """Create a directory inside the shared sandbox workspace for the given work_id."""
+        try:
+            return _create_directory(path, work_id, parents=parents)
+        except (FileNotFoundError, FileExistsError, PermissionError, ValueError) as exc:
+            return _filesystem_error_payload(error=exc, path=path, work_id=work_id)
+
+    @mcp.tool()
+    def delete_path(
+        path: str,
+        work_id: str = CLASSIC_ARTIFACT_WORKSPACE_ID,
+        recursive: bool = False,
+    ) -> dict[str, Any]:
+        """Delete a file or directory inside the shared sandbox workspace for the given work_id."""
+        try:
+            return _delete_path(path, work_id, recursive=recursive)
+        except (
+            FileNotFoundError,
+            IsADirectoryError,
+            NotADirectoryError,
+            OSError,
+            PermissionError,
+            ValueError,
+        ) as exc:
+            return _filesystem_error_payload(error=exc, path=path, work_id=work_id)
 
     return mcp
 

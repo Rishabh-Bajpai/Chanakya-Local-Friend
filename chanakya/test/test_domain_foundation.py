@@ -15,9 +15,14 @@ from chanakya.domain import (
     TASK_STATUS_FAILED,
     TASK_STATUS_IN_PROGRESS,
 )
-from chanakya.model import AgentProfileModel
 from chanakya.history_provider import SQLAlchemyHistoryProvider
+from chanakya.model import AgentProfileModel
 from chanakya.services.async_loop import run_in_maf_loop
+from chanakya.services.sandbox_workspace import (
+    delete_shared_workspace,
+    get_artifact_storage_root,
+    resolve_shared_workspace,
+)
 from chanakya.store import ChanakyaStore
 
 
@@ -57,6 +62,8 @@ class _RuntimeStub:
             updated_at="2026-03-29T00:00:00+00:00",
         )
         self.should_fail = should_fail
+        self.calls: list[dict[str, str]] = []
+        self.cleared_session_ids: list[str] = []
 
     def runtime_metadata(
         self,
@@ -93,11 +100,15 @@ class _RuntimeStub:
     ) -> _RunResult:
         if self.should_fail:
             raise RuntimeError("runtime exploded")
+        self.calls.append({"session_id": session_id, "text": text, "request_id": request_id})
         return _RunResult(
             text=f"reply:{text}",
             response_mode="direct_answer",
             tool_traces=[],
         )
+
+    def clear_session_state(self, session_id: str) -> None:
+        self.cleared_session_ids.append(session_id)
 
 
 def _build_store() -> ChanakyaStore:
@@ -150,6 +161,7 @@ def test_chat_post_processes_visible_assistant_message() -> None:
             session_id: str,
             user_message: str,
             assistant_message: str,
+            request_id: str | None = None,
             model_id: str | None = None,
             backend: str | None = None,
             a2a_url: str | None = None,
@@ -182,6 +194,499 @@ def test_chat_post_processes_visible_assistant_message() -> None:
     assert reply.message == "layered:reply:Explain recursion"
 
 
+def test_chat_applies_conversation_layer_to_tool_assisted_classic_reply() -> None:
+    class _ToolRuntimeStub(_RuntimeStub):
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            prompt_addendum: str | None = None,
+        ) -> _RunResult:
+            return _RunResult(
+                text="I used tools and prepared the answer.",
+                response_mode="tool_assisted",
+                tool_traces=[
+                    _Trace(
+                        tool_id="mcp_artifact_tools",
+                        tool_name="mcp_artifact_tools_create_artifact",
+                        server_name="artifact_server",
+                        status="completed",
+                    )
+                ],
+            )
+
+    class _PostProcessorStub:
+        enabled = True
+
+        def wrap_reply(self, **kwargs):
+            assistant_message = str(kwargs["assistant_message"])
+            return type(
+                "Wrapped",
+                (),
+                {
+                    "response": f"layered:{assistant_message}",
+                    "messages": [{"text": f"layered:{assistant_message}", "delay_ms": 0}],
+                    "metadata": {"pending_delivery_count": 0, "source": "conversation_layer"},
+                },
+            )()
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _ToolRuntimeStub()))
+    service._conversation_layer = _PostProcessorStub()  # type: ignore[attr-defined]
+
+    reply = service.chat("session_layered_tool", "Use a tool and answer")
+
+    assert reply.message == "layered:I used tools and prepared the answer."
+    messages = store.list_messages("session_layered_tool")
+    assert messages[1]["metadata"]["conversation_layer_applied"] is True
+
+
+def test_chat_registers_request_scoped_artifact() -> None:
+    store = _build_store()
+
+    class _ArtifactRuntimeStub(_RuntimeStub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
+
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            prompt_addendum: str | None = None,
+        ) -> _RunResult:
+            artifact_root = get_artifact_storage_root(create=True)
+            artifact_path = artifact_root / "artifact_explicit" / "palindrome.py"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                (
+                    "def is_palindrome_number(value: int) -> bool:\n"
+                    "    text = str(value)\n"
+                    "    return text == text[::-1]\n"
+                ),
+                encoding="utf-8",
+            )
+            store.create_artifact(
+                artifact_id="artifact_explicit",
+                request_id=request_id,
+                session_id=session_id,
+                work_id=None,
+                name="palindrome.py",
+                title="Palindrome Detector",
+                summary="Python palindrome helper",
+                path="artifact_explicit/palindrome.py",
+                mime_type="text/x-python",
+                kind="code",
+                size_bytes=artifact_path.stat().st_size,
+                source_agent_id="agent_chanakya",
+                source_agent_name="Chanakya",
+                latest_request_id=request_id,
+            )
+            return _RunResult(
+                text="I can save that as a Python file if you want.",
+                response_mode="direct_answer",
+                tool_traces=[],
+            )
+
+    service = ChatService(store, cast(MAFRuntime, _ArtifactRuntimeStub()))
+
+    reply = service.chat("session_artifact", "Write a palindrome detector")
+
+    try:
+        assert len(reply.artifacts) == 1
+        artifact = reply.artifacts[0]
+        assert artifact["name"] == "palindrome.py"
+        assert artifact["kind"] == "code"
+        assert artifact["title"] == "Palindrome Detector"
+        assert artifact["download_url"].endswith("/download")
+        assert (
+            store.list_artifacts_for_request(reply.request_id)[0]["path"]
+            == "artifact_explicit/palindrome.py"
+        )
+        messages = store.list_messages("session_artifact")
+        assert messages[1]["metadata"]["artifacts"][0]["name"] == "palindrome.py"
+    finally:
+        delete_shared_workspace(reply.request_id)
+
+
+def test_chat_keeps_artifacts_when_conversation_layer_wraps() -> None:
+    store = _build_store()
+
+    class _ArtifactRuntimeStub(_RuntimeStub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
+
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            prompt_addendum: str | None = None,
+        ) -> _RunResult:
+            artifact_root = get_artifact_storage_root(create=True)
+            artifact_path = artifact_root / "artifact_report" / "report.md"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                "# Report\n\nDetailed findings.\n",
+                encoding="utf-8",
+            )
+            store.create_artifact(
+                artifact_id="artifact_report",
+                request_id=request_id,
+                session_id=session_id,
+                work_id=None,
+                name="report.md",
+                title="Research Report",
+                summary="Detailed findings",
+                path="artifact_report/report.md",
+                mime_type="text/markdown",
+                kind="report",
+                size_bytes=artifact_path.stat().st_size,
+                source_agent_id="agent_chanakya",
+                source_agent_name="Chanakya",
+                latest_request_id=request_id,
+            )
+            return _RunResult(
+                text="I saved the report as an artifact.",
+                response_mode="direct_answer",
+                tool_traces=[],
+            )
+
+    class _PostProcessorStub:
+        enabled = True
+
+        def wrap_reply(self, **kwargs):
+            assistant_message = str(kwargs["assistant_message"])
+            return type(
+                "Wrapped",
+                (),
+                {
+                    "response": f"layered:{assistant_message}",
+                    "messages": [{"text": f"layered:{assistant_message}", "delay_ms": 0}],
+                    "metadata": {"pending_delivery_count": 0, "source": "conversation_layer"},
+                },
+            )()
+
+    service = ChatService(store, cast(MAFRuntime, _ArtifactRuntimeStub()))
+    service._conversation_layer = _PostProcessorStub()  # type: ignore[attr-defined]
+
+    reply = service.chat("session_layer_artifact", "Write a short research report")
+
+    try:
+        assert reply.message == "layered:I saved the report as an artifact."
+        assert reply.artifacts[0]["name"] == "report.md"
+        messages = store.list_messages("session_layer_artifact")
+        assert messages[1]["metadata"]["artifacts"][0]["name"] == "report.md"
+    finally:
+        delete_shared_workspace(reply.request_id)
+
+
+def test_chat_does_not_materialize_inline_code_block_as_artifact_without_explicit_record() -> None:
+    class _InlineCodeRuntimeStub(_RuntimeStub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
+
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            prompt_addendum: str | None = None,
+        ) -> _RunResult:
+            return _RunResult(
+                text=(
+                    "Here is the program:\n\n"
+                    "```python\n"
+                    "def is_palindrome(n):\n"
+                    "    text = str(n)\n"
+                    "    return text == text[::-1]\n"
+                    "```\n"
+                ),
+                response_mode="direct_answer",
+                tool_traces=[],
+            )
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _InlineCodeRuntimeStub()))
+
+    reply = service.chat("session_inline_code", "Write a palindrome program")
+
+    assert reply.artifacts == []
+    assert store.list_artifacts_for_request(reply.request_id) == []
+
+
+def test_chat_does_not_generate_artifact_via_followup_when_first_answer_is_prose_only() -> None:
+    class _ProseOnlyRuntimeStub(_RuntimeStub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
+            self.calls: list[str] = []
+
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            prompt_addendum: str | None = None,
+        ) -> _RunResult:
+            self.calls.append(text)
+            return _RunResult(
+                text=(
+                    "Here is a simple Python program to check if a number is prime. "
+                    "It defines a helper and then prompts for input."
+                ),
+                response_mode="direct_answer",
+                tool_traces=[],
+            )
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _ProseOnlyRuntimeStub()))
+
+    reply = service.chat("session_followup_artifact", "Write a Python program for prime numbers")
+
+    assert reply.artifacts == []
+    assert len(service.runtime.calls) == 1
+
+
+def test_conversation_layer_receives_original_answer_when_artifact_exists() -> None:
+    store = _build_store()
+
+    class _InlineCodeRuntimeStub(_RuntimeStub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
+
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            prompt_addendum: str | None = None,
+        ) -> _RunResult:
+            artifact_root = get_artifact_storage_root(create=True)
+            artifact_path = artifact_root / "artifact_conv" / "palindrome.py"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text("def is_palindrome(n):\n    return str(n) == str(n)[::-1]\n", encoding="utf-8")
+            store.create_artifact(
+                artifact_id="artifact_conv",
+                request_id=request_id,
+                session_id=session_id,
+                work_id=None,
+                name="palindrome.py",
+                title="Palindrome Program",
+                summary="Saved palindrome program",
+                path="artifact_conv/palindrome.py",
+                mime_type="text/x-python",
+                kind="code",
+                size_bytes=artifact_path.stat().st_size,
+                source_agent_id="agent_chanakya",
+                source_agent_name="Chanakya",
+                latest_request_id=request_id,
+            )
+            return _RunResult(
+                text="I prepared the deliverable and can explain how it works.",
+                response_mode="direct_answer",
+                tool_traces=[],
+            )
+
+    class _PostProcessorStub:
+        enabled = True
+
+        def __init__(self) -> None:
+            self.assistant_messages: list[str] = []
+
+        def wrap_reply(self, **kwargs):
+            self.assistant_messages.append(str(kwargs["assistant_message"]))
+            assistant_message = str(kwargs["assistant_message"])
+            return type(
+                "Wrapped",
+                (),
+                {
+                    "response": assistant_message,
+                    "messages": [{"text": assistant_message, "delay_ms": 0}],
+                    "metadata": {"pending_delivery_count": 0, "source": "conversation_layer"},
+                },
+            )()
+
+    service = ChatService(store, cast(MAFRuntime, _InlineCodeRuntimeStub()))
+    layer = _PostProcessorStub()
+    service._conversation_layer = layer  # type: ignore[attr-defined]
+
+    reply = service.chat("session_original_conversation", "Write a palindrome program")
+
+    try:
+        assert reply.artifacts
+        assert layer.assistant_messages
+        assert layer.assistant_messages[0] == "I prepared the deliverable and can explain how it works."
+    finally:
+        delete_shared_workspace(reply.request_id)
+
+
+def test_chat_does_not_issue_artifact_followup_run() -> None:
+    class _SingleRunRuntimeStub(_RuntimeStub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
+
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            prompt_addendum: str | None = None,
+        ) -> _RunResult:
+            self.calls.append({"session_id": session_id, "text": text, "request_id": request_id})
+            return _RunResult(
+                text="Here is a short explanation without code.",
+                response_mode="direct_answer",
+                tool_traces=[],
+            )
+
+    store = _build_store()
+    runtime = _SingleRunRuntimeStub()
+    service = ChatService(store, cast(MAFRuntime, runtime))
+
+    reply = service.chat("session_isolated_followup", "Write a Python program")
+
+    assert reply.artifacts == []
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0]["session_id"] == "session_isolated_followup"
+    assert runtime.cleared_session_ids == []
+
+
+def test_work_scoped_generated_artifacts_remain_immutable_across_requests() -> None:
+    store = _build_store()
+
+    class _WorkScopedInlineCodeRuntimeStub(_RuntimeStub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.profile.tool_ids_json = ["mcp_artifact_tools", "mcp_filesystem"]
+            self.calls = 0
+
+        def run(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            request_id: str,
+            model_id: str | None = None,
+            backend: str | None = None,
+            a2a_url: str | None = None,
+            a2a_remote_agent: str | None = None,
+            a2a_model_provider: str | None = None,
+            a2a_model_id: str | None = None,
+            prompt_addendum: str | None = None,
+        ) -> _RunResult:
+            self.calls += 1
+            artifact_root = get_artifact_storage_root(create=True)
+            artifact_id = f"artifact_work_{self.calls}"
+            artifact_path = artifact_root / artifact_id / "script.py"
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(f"print('request {self.calls}')\n", encoding="utf-8")
+            store.create_artifact(
+                artifact_id=artifact_id,
+                request_id=request_id,
+                session_id=session_id,
+                work_id="work_shared_artifacts",
+                name="script.py",
+                title=f"Script {self.calls}",
+                summary=f"Generated script {self.calls}",
+                path=f"{artifact_id}/script.py",
+                mime_type="text/x-python",
+                kind="code",
+                size_bytes=artifact_path.stat().st_size,
+                source_agent_id="agent_chanakya",
+                source_agent_name="Chanakya",
+                latest_request_id=request_id,
+            )
+            return _RunResult(
+                text=f"Saved script {self.calls}.",
+                response_mode="direct_answer",
+                tool_traces=[],
+            )
+
+    service = ChatService(store, cast(MAFRuntime, _WorkScopedInlineCodeRuntimeStub()))
+    work_id = "work_shared_artifacts"
+    store.create_work(work_id=work_id, title="Shared Artifacts", description="")
+
+    first_reply = service.chat("session_work_shared", "Write script one", work_id=work_id)
+    second_reply = service.chat("session_work_shared", "Write script two", work_id=work_id)
+
+    try:
+        first_artifact = first_reply.artifacts[0]
+        second_artifact = second_reply.artifacts[0]
+        assert first_artifact["path"] != second_artifact["path"]
+        assert first_artifact["path"].startswith("artifact_work_1/")
+        assert second_artifact["path"].startswith("artifact_work_2/")
+
+        artifact_root = get_artifact_storage_root(create=False)
+        first_file = artifact_root / first_artifact["path"]
+        second_file = artifact_root / second_artifact["path"]
+        assert first_file.read_text(encoding="utf-8") == "print('request 1')\n"
+        assert second_file.read_text(encoding="utf-8") == "print('request 2')\n"
+
+        work_artifacts = store.list_artifacts_for_work(work_id)
+        assert [artifact["path"] for artifact in work_artifacts] == [
+            first_artifact["path"],
+            second_artifact["path"],
+        ]
+    finally:
+        delete_shared_workspace(work_id)
+
+
 def test_chat_passes_a2a_backend_into_conversation_layer() -> None:
     class _PostProcessorStub:
         enabled = True
@@ -195,6 +700,7 @@ def test_chat_passes_a2a_backend_into_conversation_layer() -> None:
             session_id: str,
             user_message: str,
             assistant_message: str,
+            request_id: str | None = None,
             model_id: str | None = None,
             backend: str | None = None,
             a2a_url: str | None = None,
@@ -265,6 +771,7 @@ def test_chat_passes_conversation_preferences_into_conversation_layer() -> None:
             session_id: str,
             user_message: str,
             assistant_message: str,
+            request_id: str | None = None,
             model_id: str | None = None,
             backend: str | None = None,
             a2a_url: str | None = None,
@@ -305,6 +812,74 @@ def test_chat_passes_conversation_preferences_into_conversation_layer() -> None:
 
     assert layer.calls[0]["conversation_tone_instruction"] == "Dry but kind."
     assert layer.calls[0]["tts_instruction"] == "Speak clearly with short phrases."
+
+
+def test_chat_hides_raw_core_reply_when_conversation_layer_returns_passthrough() -> None:
+    class _InvalidPostProcessorStub:
+        enabled = True
+
+        def wrap_reply(self, **kwargs):
+            assistant_message = str(kwargs["assistant_message"])
+            return type(
+                "Wrapped",
+                (),
+                {
+                    "response": assistant_message,
+                    "messages": [{"text": assistant_message, "delay_ms": 0}],
+                    "metadata": {},
+                },
+            )()
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub()))
+    service._conversation_layer = _InvalidPostProcessorStub()  # type: ignore[attr-defined]
+
+    reply = service.chat("session_invalid_layer", "Explain recursion")
+
+    assert reply.route == "conversation_layer_error"
+    assert reply.metadata["conversation_layer_failed"] is True
+    messages = store.list_messages("session_invalid_layer")
+    assert messages[1]["route"] == "conversation_layer_error"
+    assert messages[1]["content"] == "I couldn't safely format that reply for classic chat just now. Please try again."
+    assert messages[1]["content"] != "reply:Explain recursion"
+
+
+def test_chat_clears_stale_conversation_layer_queue_when_wrapping_fails() -> None:
+    class _ClearingLayerStub:
+        enabled = True
+
+        def __init__(self) -> None:
+            self.cleared_session_ids: list[str] = []
+
+        def wrap_reply(self, **kwargs):
+            raise RuntimeError("layer failed")
+
+        def clear_session_state(self, session_id: str) -> None:
+            self.cleared_session_ids.append(session_id)
+
+        def deliver_next_message(self, session_id: str) -> dict[str, object]:
+            if session_id in self.cleared_session_ids:
+                return {"status": "idle", "working_memory": {"session_id": session_id}}
+            return {
+                "status": "delivered",
+                "message": {"text": "stale follow-up", "delay_ms": 0},
+                "working_memory": {
+                    "session_id": session_id,
+                    "pending_messages": [],
+                },
+            }
+
+    store = _build_store()
+    service = ChatService(store, cast(MAFRuntime, _RuntimeStub()))
+    layer = _ClearingLayerStub()
+    service._conversation_layer = layer  # type: ignore[attr-defined]
+
+    reply = service.chat("session_clear_layer", "Explain recursion")
+
+    assert reply.route == "conversation_layer_error"
+    assert layer.cleared_session_ids == ["session_clear_layer"]
+    next_payload = service.deliver_next_conversation_message("session_clear_layer")
+    assert next_payload["status"] == "idle"
 
 
 def test_chat_backend_falls_back_for_legacy_runtime_run_signature() -> None:

@@ -19,15 +19,6 @@ CONVERSATION_LAYER_LOG_FILE="$RUNTIME_DIR/chanakya_conversation_layer.log"
 A2A_OPENCODE_LOG_FILE="$RUNTIME_DIR/a2a_opencode.log"
 A2A_BRIDGE_LOG_FILE="$RUNTIME_DIR/a2a_bridge.log"
 
-PYTHON_BIN="${PYTHON_BIN:-python}"
-AIR_PORT="${AIR_SERVER_PORT:-5512}"
-CHANAKYA_PORT="${CHANAKYA_PORT:-5513}"
-CONVERSATION_LAYER_HOST="${CONVERSATION_LAYER_HOST:-127.0.0.1}"
-CONVERSATION_LAYER_PORT="${CONVERSATION_LAYER_PORT:-5514}"
-OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
-OPENCODE_PORT="${OPENCODE_PORT:-18496}"
-A2A_HOST="${A2A_HOST:-127.0.0.1}"
-A2A_PORT="${A2A_PORT:-18770}"
 MODE="${1:-core}"
 ROOT_ENV_FILE="${ENV_FILE_PATH:-$ROOT_DIR/.env}"
 
@@ -38,6 +29,27 @@ if [[ -f "$ROOT_ENV_FILE" ]]; then
 fi
 
 export ENV_FILE_PATH="$ROOT_ENV_FILE"
+
+PYTHON_BIN="${PYTHON_BIN:-python}"
+AIR_PORT="${AIR_SERVER_PORT:-5512}"
+CHANAKYA_PORT="${CHANAKYA_PORT:-5513}"
+CONVERSATION_LAYER_HOST="${CONVERSATION_LAYER_HOST:-127.0.0.1}"
+CONVERSATION_LAYER_PORT="${CONVERSATION_LAYER_PORT:-5514}"
+OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
+OPENCODE_PORT="${OPENCODE_PORT:-18496}"
+A2A_HOST="${A2A_HOST:-127.0.0.1}"
+A2A_PORT="${A2A_PORT:-18770}"
+
+print_start_failure() {
+  local name="$1"
+  local log_file="$2"
+  printf '%s failed to start. Recent log output from %s:\n' "$name" "$log_file" >&2
+  if [[ -f "$log_file" ]]; then
+    tail -n 40 "$log_file" >&2 || true
+  else
+    printf '(log file does not exist yet)\n' >&2
+  fi
+}
 
 start_process() {
   local name="$1"
@@ -57,6 +69,18 @@ start_process() {
 
   nohup "$@" >>"$log_file" 2>&1 &
   local pid=$!
+
+  # Fail fast if the launched process exits immediately.
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$pid_file"
+      print_start_failure "$name" "$log_file"
+      return 1
+    fi
+    sleep 1
+  done
+
   printf '%s' "$pid" >"$pid_file"
   printf 'Started %s (pid %s). Log: %s\n' "$name" "$pid" "$log_file"
 }

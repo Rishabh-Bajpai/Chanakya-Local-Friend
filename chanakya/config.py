@@ -43,9 +43,13 @@ def get_openai_compatible_config() -> dict[str, str | None]:
         or os.getenv("OPENAI_MODEL")
         or os.getenv("MODEL")
     )
+    air_enabled = env_flag("AIR_ENABLED", default=True)
+    direct_base_url = os.getenv("OPENAI_DIRECT_BASE_URL")
     base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
-    if not base_url and env_flag("AIR_ENABLED", default=True):
+    if air_enabled:
         base_url = f"{get_air_server_url()}/v1"
+    elif direct_base_url:
+        base_url = direct_base_url
     return {
         "base_url": base_url,
         "api_key": os.getenv("OPENAI_API_KEY") or os.getenv("AIR_API_KEY"),
@@ -56,8 +60,14 @@ def get_openai_compatible_config() -> dict[str, str | None]:
 def get_conversation_openai_config() -> dict[str, str | None]:
     load_local_env()
     core = get_openai_compatible_config()
+    air_enabled = env_flag("AIR_ENABLED", default=True)
+    direct_base_url = os.getenv("CONVERSATION_OPENAI_DIRECT_BASE_URL")
     return {
-        "base_url": os.getenv("CONVERSATION_OPENAI_BASE_URL") or core.get("base_url"),
+        "base_url": (
+            core.get("base_url")
+            if air_enabled
+            else (direct_base_url or os.getenv("CONVERSATION_OPENAI_BASE_URL") or core.get("base_url"))
+        ),
         "api_key": os.getenv("CONVERSATION_OPENAI_API_KEY") or core.get("api_key"),
         "model": os.getenv("CONVERSATION_OPENAI_CHAT_MODEL_ID") or core.get("model"),
     }
@@ -183,6 +193,24 @@ def get_history_max_chars() -> int:
 
 def get_history_max_message_chars() -> int:
     return _get_positive_int_env("CHANAKYA_HISTORY_MAX_MESSAGE_CHARS", 3000)
+
+
+def get_long_term_memory_enabled() -> bool:
+    return env_flag("CHANAKYA_LONG_TERM_MEMORY_ENABLED", default=True)
+
+
+def get_long_term_memory_max_injected_items() -> int:
+    return _get_positive_int_env("CHANAKYA_LONG_TERM_MEMORY_MAX_INJECTED_ITEMS", 6)
+
+
+def get_long_term_memory_max_injected_chars() -> int:
+    return _get_positive_int_env("CHANAKYA_LONG_TERM_MEMORY_MAX_INJECTED_CHARS", 2200)
+
+
+def get_long_term_memory_default_owner_id() -> str:
+    load_local_env()
+    configured = os.getenv("CHANAKYA_LONG_TERM_MEMORY_OWNER_ID") or "default_user"
+    return configured.strip() or "default_user"
 
 
 def get_ntfy_default_server_url() -> str:

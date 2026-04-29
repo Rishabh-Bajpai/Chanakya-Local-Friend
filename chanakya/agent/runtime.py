@@ -44,12 +44,14 @@ def create_openai_chat_client(
     *,
     model_id: str | None = None,
     env_file_path: str = ".env",
+    default_headers: dict[str, str] | None = None,
 ) -> OpenAIChatClient:
     cfg = get_openai_compatible_config()
     return OpenAIChatClient(
         model_id=model_id or cfg.get("model"),
         api_key=cfg.get("api_key"),
         base_url=cfg.get("base_url"),
+        default_headers=default_headers,
         env_file_path=env_file_path,
     )
 
@@ -202,6 +204,20 @@ class MAFRuntime:
             },
         )
 
+    def _refresh_profile_and_tools(self) -> None:
+        with self.session_factory() as session:
+            latest = session.get(AgentProfileModel, self.profile.id)
+            if latest is None:
+                return
+            self.profile = latest
+        config = build_profile_agent_config_for_usage(
+            self.profile,
+            usage_text="",
+            repo_root=self.repo_root,
+        )
+        self.availability = config.availability
+        self.cached_tools = config.cached_tools
+
     def run(
         self,
         session_id: str,
@@ -255,6 +271,7 @@ class MAFRuntime:
         a2a_model_id: str | None = None,
         prompt_addendum: str | None = None,
     ) -> RunResult:
+        self._refresh_profile_and_tools()
         selected_backend = normalize_runtime_backend(backend or self.default_backend)
         if selected_backend == "a2a":
             return await self._run_async_a2a_in_loop(
@@ -286,7 +303,17 @@ class MAFRuntime:
     ) -> RunResult:
         tool_traces: list[ToolExecutionTrace] = []
 
-        run_client = self.client if not model_id else create_openai_chat_client(model_id=model_id)
+        request_headers = {
+            "x-request-id": request_id,
+            "x-chanakya-request-id": request_id,
+            "x-session-id": session_id,
+        }
+
+        run_client = create_openai_chat_client(
+            model_id=model_id,
+            env_file_path=self.env_file_path,
+            default_headers=request_headers,
+        )
 
         debug_log(
             "maf_runtime_before_run",

@@ -1,3 +1,4 @@
+.vscode/
 .env
 mcp_config_file.json
 
@@ -15,6 +16,7 @@ __pycache__/
 .venv/
 venv/
 env/
+.env.lock
 
 # Build and packaging artifacts
 build/
@@ -37,3 +39,10 @@ Agent-Framework-Samples/
 .chanakya-app.pid
 .*.log
 .*.pid
+
+chanakya-UI
+mobile-opencode-control
+
+# Temporary snapshot/debug artifacts
+mobile-snapshot.md
+worker-mobile-before-open.md

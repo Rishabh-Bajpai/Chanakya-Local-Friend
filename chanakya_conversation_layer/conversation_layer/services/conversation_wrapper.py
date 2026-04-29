@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import textwrap
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from conversation_layer.schemas import ChatRequest, ChatResponse, DeliveryMessage
@@ -17,7 +17,7 @@ from conversation_layer.services.working_memory import (
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 @dataclass(slots=True)
@@ -1514,18 +1514,33 @@ class ConversationWrapper:
         model_id = str(
             metadata.get("conversation_orchestration_model_id") or ""
         ).strip()
+        request_headers = self._conversation_request_headers(chat_request)
         if model_id and hasattr(self.orchestration_agent, "plan_with_model"):
             return self.orchestration_agent.plan_with_model(
                 task=task,
                 instructions=instructions,
                 payload=payload,
                 model_id=model_id,
+                request_headers=request_headers,
             )
         return self.orchestration_agent.plan(
             task=task,
             instructions=instructions,
             payload=payload,
         )
+
+    def _conversation_request_headers(
+        self, chat_request: ChatRequest
+    ) -> dict[str, str] | None:
+        metadata = chat_request.metadata or {}
+        request_id = str(metadata.get("request_id") or "").strip()
+        if not request_id:
+            return None
+        return {
+            "x-request-id": request_id,
+            "x-chanakya-request-id": request_id,
+            "x-session-id": chat_request.session_id,
+        }
 
     def _coerce_planned_messages(
         self,
@@ -1627,7 +1642,9 @@ class ConversationWrapper:
             try:
                 parsed = datetime.fromisoformat(value)
                 return (
-                    parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+                    parsed
+                    if parsed.tzinfo is not None
+                    else parsed.replace(tzinfo=timezone.utc)
                 )
             except ValueError:
                 pass

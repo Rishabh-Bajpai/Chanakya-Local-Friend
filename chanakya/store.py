@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, cast
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.db import session_scope
@@ -11,9 +12,12 @@ from chanakya.model import (
     AgentProfileModel,
     AgentSessionContextModel,
     AppEventModel,
+    ArtifactModel,
     ChatMessageModel,
     ChatSessionModel,
     ClassicActiveWorkModel,
+    MemoryEventModel,
+    MemoryRecordModel,
     NotificationSettingsModel,
     RequestModel,
     RuntimeConfigModel,
@@ -105,6 +109,41 @@ class ChatRepository:
             }
             for row in rows
         ]
+
+    def list_messages_for_request(self, request_id: str) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ChatMessageModel)
+                .where(ChatMessageModel.request_id == request_id)
+                .order_by(ChatMessageModel.id.asc())
+            ).all()
+        return [
+            {
+                "id": row.id,
+                "session_id": row.session_id,
+                "role": row.role,
+                "content": row.content,
+                "request_id": row.request_id,
+                "route": row.route,
+                "metadata": row.metadata_json,
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
+
+    def get_latest_assistant_request_id(self, session_id: str) -> str | None:
+        with session_scope(self.Session) as session:
+            row = session.scalars(
+                select(ChatMessageModel)
+                .where(ChatMessageModel.session_id == session_id)
+                .where(ChatMessageModel.role == "assistant")
+                .where(ChatMessageModel.request_id.isnot(None))
+                .order_by(ChatMessageModel.id.desc())
+                .limit(1)
+            ).first()
+        if row is None:
+            return None
+        return str(row.request_id).strip() or None
 
     def rewrite_latest_assistant_message(
         self,
@@ -228,6 +267,361 @@ class EventRepository:
         return records
 
 
+class MemoryRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    @staticmethod
+    def _to_dict(row: MemoryRecordModel) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "owner_id": row.owner_id,
+            "session_id": row.session_id,
+            "scope": row.scope,
+            "type": row.type,
+            "subject": row.subject,
+            "content": row.content,
+            "importance": row.importance,
+            "confidence": row.confidence,
+            "status": row.status,
+            "source_message_ids": list(row.source_message_ids_json or []),
+            "source_request_ids": list(row.source_request_ids_json or []),
+            "supersedes_memory_id": row.supersedes_memory_id,
+            "expires_at": row.expires_at,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    def create_memory(
+        self,
+        *,
+        memory_id: str,
+        owner_id: str,
+        session_id: str | None,
+        scope: str,
+        type: str,
+        subject: str,
+        content: str,
+        importance: int = 3,
+        confidence: float = 0.8,
+        status: str = "active",
+        source_message_ids: list[str] | None = None,
+        source_request_ids: list[str] | None = None,
+        supersedes_memory_id: str | None = None,
+        expires_at: str | None = None,
+    ) -> dict[str, Any]:
+        timestamp = now_iso()
+        with session_scope(self.Session) as session:
+            row = MemoryRecordModel(
+                id=memory_id,
+                owner_id=owner_id,
+                session_id=session_id,
+                scope=scope,
+                type=type,
+                subject=subject,
+                content=content,
+                importance=importance,
+                confidence=confidence,
+                status=status,
+                source_message_ids_json=list(source_message_ids or []),
+                source_request_ids_json=list(source_request_ids or []),
+                supersedes_memory_id=supersedes_memory_id,
+                expires_at=expires_at,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+            session.add(row)
+            session.commit()
+            return self._to_dict(row)
+
+    def get_memory(self, memory_id: str) -> MemoryRecordModel:
+        with session_scope(self.Session) as session:
+            row = session.get(MemoryRecordModel, memory_id)
+            if row is None:
+                raise KeyError(f"Memory not found: {memory_id}")
+            return row
+
+    def update_memory(self, memory_id: str, **kwargs: Any) -> dict[str, Any]:
+        with session_scope(self.Session) as session:
+            row = session.get(MemoryRecordModel, memory_id)
+            if row is None:
+                raise KeyError(f"Memory not found: {memory_id}")
+            for key, value in kwargs.items():
+                if key == "source_message_ids":
+                    row.source_message_ids_json = list(value or [])
+                elif key == "source_request_ids":
+                    row.source_request_ids_json = list(value or [])
+                elif hasattr(row, key):
+                    setattr(row, key, value)
+            row.updated_at = now_iso()
+            session.commit()
+            return self._to_dict(row)
+
+    def list_memories(
+        self,
+        *,
+        owner_id: str,
+        status: str | None = "active",
+        session_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = select(MemoryRecordModel).where(MemoryRecordModel.owner_id == owner_id)
+            if status is not None:
+                stmt = stmt.where(MemoryRecordModel.status == status)
+            if session_id is not None:
+                stmt = stmt.where(
+                    or_(
+                        MemoryRecordModel.session_id == session_id,
+                        MemoryRecordModel.session_id.is_(None),
+                    )
+                )
+            rows = session.scalars(
+                stmt.order_by(MemoryRecordModel.updated_at.desc()).limit(limit)
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+    def create_memory_event(
+        self,
+        *,
+        owner_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        memory_id: str | None = None,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        with session_scope(self.Session) as session:
+            session.add(
+                MemoryEventModel(
+                    memory_id=memory_id,
+                    owner_id=owner_id,
+                    session_id=session_id,
+                    request_id=request_id,
+                    event_type=event_type,
+                    payload_json=payload,
+                    created_at=now_iso(),
+                )
+            )
+            session.commit()
+
+    def list_memory_events(
+        self,
+        *,
+        owner_id: str,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            stmt = select(MemoryEventModel).where(MemoryEventModel.owner_id == owner_id)
+            if session_id is not None:
+                stmt = stmt.where(MemoryEventModel.session_id == session_id)
+            if request_id is not None:
+                stmt = stmt.where(MemoryEventModel.request_id == request_id)
+            rows = session.scalars(stmt.order_by(MemoryEventModel.id.desc()).limit(limit)).all()
+        records = [
+            {
+                "id": row.id,
+                "memory_id": row.memory_id,
+                "owner_id": row.owner_id,
+                "session_id": row.session_id,
+                "request_id": row.request_id,
+                "event_type": row.event_type,
+                "payload": row.payload_json,
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
+        records.reverse()
+        return records
+
+
+class ArtifactRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.Session = session_factory
+
+    @staticmethod
+    def _to_dict(row: ArtifactModel) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "request_id": row.request_id,
+            "session_id": row.session_id,
+            "work_id": row.work_id,
+            "name": row.name,
+            "title": row.title,
+            "summary": row.summary,
+            "path": row.path,
+            "mime_type": row.mime_type,
+            "kind": row.kind,
+            "size_bytes": row.size_bytes,
+            "source_agent_id": row.source_agent_id,
+            "source_agent_name": row.source_agent_name,
+            "latest_request_id": row.latest_request_id,
+            "supersedes_artifact_id": row.supersedes_artifact_id,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    def create_artifact(
+        self,
+        *,
+        artifact_id: str,
+        request_id: str,
+        session_id: str,
+        work_id: str | None,
+        name: str,
+        title: str | None = None,
+        summary: str | None = None,
+        path: str,
+        mime_type: str | None,
+        kind: str,
+        size_bytes: int,
+        source_agent_id: str | None = None,
+        source_agent_name: str | None = None,
+        latest_request_id: str | None = None,
+        supersedes_artifact_id: str | None = None,
+    ) -> dict[str, Any]:
+        timestamp = now_iso()
+        normalized_title = (title or "").strip() or Path(name).stem or name
+        normalized_summary = (summary or "").strip() or None
+        with session_scope(self.Session) as session:
+            row = ArtifactModel(
+                id=artifact_id,
+                request_id=request_id,
+                session_id=session_id,
+                work_id=work_id,
+                name=name,
+                title=normalized_title,
+                summary=normalized_summary,
+                path=path,
+                mime_type=mime_type,
+                kind=kind,
+                size_bytes=size_bytes,
+                source_agent_id=source_agent_id,
+                source_agent_name=source_agent_name,
+                latest_request_id=latest_request_id or request_id,
+                supersedes_artifact_id=supersedes_artifact_id,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+            session.add(row)
+            session.commit()
+            return self._to_dict(row)
+
+    def update_artifact(
+        self,
+        artifact_id: str,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
+        work_id: str | None = None,
+        name: str | None = None,
+        title: str | None = None,
+        summary: str | None = None,
+        path: str | None = None,
+        mime_type: str | None = None,
+        kind: str | None = None,
+        size_bytes: int | None = None,
+        source_agent_id: str | None = None,
+        source_agent_name: str | None = None,
+        latest_request_id: str | None = None,
+        supersedes_artifact_id: str | None = None,
+    ) -> dict[str, Any]:
+        with session_scope(self.Session) as session:
+            row = session.get(ArtifactModel, artifact_id)
+            if row is None:
+                raise KeyError(f"Artifact not found: {artifact_id}")
+            if request_id is not None:
+                row.request_id = request_id
+            if session_id is not None:
+                row.session_id = session_id
+            if work_id is not None:
+                row.work_id = work_id
+            if name is not None:
+                row.name = name
+            if title is not None:
+                row.title = title.strip() or row.title
+            if summary is not None:
+                row.summary = summary.strip() or None
+            if path is not None:
+                row.path = path
+            if mime_type is not None:
+                row.mime_type = mime_type
+            if kind is not None:
+                row.kind = kind
+            if size_bytes is not None:
+                row.size_bytes = size_bytes
+            if source_agent_id is not None:
+                row.source_agent_id = source_agent_id
+            if source_agent_name is not None:
+                row.source_agent_name = source_agent_name
+            if latest_request_id is not None:
+                row.latest_request_id = latest_request_id
+            if supersedes_artifact_id is not None:
+                row.supersedes_artifact_id = supersedes_artifact_id
+            row.updated_at = now_iso()
+            session.commit()
+            return self._to_dict(row)
+
+    def get_artifact(self, artifact_id: str) -> ArtifactModel:
+        with session_scope(self.Session) as session:
+            row = session.get(ArtifactModel, artifact_id)
+            if row is None:
+                raise KeyError(f"Artifact not found: {artifact_id}")
+            return cast(ArtifactModel, row)
+
+    def delete_artifact(self, artifact_id: str) -> None:
+        with session_scope(self.Session) as session:
+            row = session.get(ArtifactModel, artifact_id)
+            if row is None:
+                raise KeyError(f"Artifact not found: {artifact_id}")
+            session.delete(row)
+            session.commit()
+
+    def list_artifacts_for_request(self, request_id: str) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ArtifactModel)
+                .where(
+                    or_(
+                        ArtifactModel.request_id == request_id,
+                        ArtifactModel.latest_request_id == request_id,
+                    )
+                )
+                .order_by(ArtifactModel.created_at.asc(), ArtifactModel.id.asc())
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+    def list_artifacts_for_work(self, work_id: str) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ArtifactModel)
+                .where(ArtifactModel.work_id == work_id)
+                .order_by(ArtifactModel.created_at.asc(), ArtifactModel.id.asc())
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+    def list_artifacts_for_session(self, session_id: str) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ArtifactModel)
+                .where(ArtifactModel.session_id == session_id)
+                .order_by(ArtifactModel.updated_at.desc(), ArtifactModel.id.desc())
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+    def list_recent_artifacts(self, limit: int = 10) -> list[dict[str, Any]]:
+        bounded = max(1, min(limit, 100))
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ArtifactModel)
+                .order_by(ArtifactModel.updated_at.desc(), ArtifactModel.id.desc())
+                .limit(bounded)
+            ).all()
+        return [self._to_dict(row) for row in rows]
+
+
 class RuntimeConfigRepository:
     _ROW_ID = "global"
 
@@ -261,8 +655,8 @@ class RuntimeConfigRepository:
         a2a_remote_agent: str | None,
         a2a_model_provider: str | None,
         a2a_model_id: str | None,
-        conversation_tone_instruction: str | None,
-        tts_instruction: str | None,
+        conversation_tone_instruction: str | None = None,
+        tts_instruction: str | None = None,
     ) -> dict[str, Any]:
         timestamp = now_iso()
         with session_scope(self.Session) as session:
@@ -1330,6 +1724,7 @@ class ChanakyaStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.Session = session_factory
         self.chat = ChatRepository(session_factory)
+        self.artifacts = ArtifactRepository(session_factory)
         self.runtime_config = RuntimeConfigRepository(session_factory)
         self.works = WorkRepository(session_factory)
         self.work_agent_sessions = WorkAgentSessionRepository(session_factory)
@@ -1337,6 +1732,7 @@ class ChanakyaStore:
         self.requests = RequestRepository(session_factory)
         self.tasks = TaskRepository(session_factory)
         self.events = EventRepository(session_factory)
+        self.memories = MemoryRepository(session_factory)
         self.session_contexts = AgentSessionContextRepository(session_factory)
         self.notification_settings = NotificationSettingsRepository(session_factory)
         self.tools = ToolInvocationRepository(session_factory)
@@ -1365,11 +1761,17 @@ class ChanakyaStore:
     def get_work(self, work_id: str) -> WorkModel:
         return self.works.get_work(work_id)
 
-    def delete_work(self, work_id: str) -> list[str]:
+    def delete_work(self, work_id: str) -> tuple[list[str], list[str]]:
+        """Delete a work and all associated records.
+
+        Returns a tuple of (session_ids, artifact_ids) for the caller to clean
+        up in-memory runtime state and artifact files on disk.
+        """
         self.get_work(work_id)
         session_ids = self.work_agent_sessions.list_session_ids_for_work(work_id)
         request_ids: list[str] = []
         task_ids: list[str] = []
+        artifact_ids: list[str] = []
         with session_scope(self.Session) as session:
             if session_ids:
                 request_ids = list(
@@ -1383,6 +1785,12 @@ class ChanakyaStore:
                             select(TaskModel.id).where(TaskModel.request_id.in_(request_ids))
                         ).all()
                     )
+                session_artifact_ids = list(
+                    session.scalars(
+                        select(ArtifactModel.id).where(ArtifactModel.session_id.in_(session_ids))
+                    ).all()
+                )
+                artifact_ids.extend(session_artifact_ids)
                 if task_ids:
                     session.execute(
                         delete(TaskEventModel).where(TaskEventModel.task_id.in_(task_ids))
@@ -1399,6 +1807,9 @@ class ChanakyaStore:
                     delete(ChatMessageModel).where(ChatMessageModel.session_id.in_(session_ids))
                 )
                 session.execute(
+                    delete(ArtifactModel).where(ArtifactModel.session_id.in_(session_ids))
+                )
+                session.execute(
                     delete(ToolInvocationModel).where(
                         ToolInvocationModel.session_id.in_(session_ids)
                     )
@@ -1407,9 +1818,19 @@ class ChanakyaStore:
                     session.execute(delete(TaskModel).where(TaskModel.id.in_(task_ids)))
                 if request_ids:
                     session.execute(delete(RequestModel).where(RequestModel.id.in_(request_ids)))
+                    session.execute(
+                        delete(ArtifactModel).where(ArtifactModel.request_id.in_(request_ids))
+                    )
                 session.execute(
                     delete(ChatSessionModel).where(ChatSessionModel.id.in_(session_ids))
                 )
+            work_artifact_ids = list(
+                session.scalars(
+                    select(ArtifactModel.id).where(ArtifactModel.work_id == work_id)
+                ).all()
+            )
+            artifact_ids.extend(work_artifact_ids)
+            session.execute(delete(ArtifactModel).where(ArtifactModel.work_id == work_id))
             session.execute(
                 delete(WorkAgentSessionModel).where(WorkAgentSessionModel.work_id == work_id)
             )
@@ -1425,7 +1846,7 @@ class ChanakyaStore:
             session.commit()
         for session_id in session_ids:
             self.session_contexts.delete(session_id)
-        return session_ids
+        return session_ids, artifact_ids
 
     def get_agent_session_context(
         self, session_id: str, *, target_key: str | None = None
@@ -1444,8 +1865,8 @@ class ChanakyaStore:
         a2a_remote_agent: str | None,
         a2a_model_provider: str | None,
         a2a_model_id: str | None,
-        conversation_tone_instruction: str | None,
-        tts_instruction: str | None,
+        conversation_tone_instruction: str | None = None,
+        tts_instruction: str | None = None,
     ) -> dict[str, Any]:
         return self.runtime_config.set(
             backend=backend,
@@ -1574,11 +1995,99 @@ class ChanakyaStore:
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
         return self.chat.list_messages(session_id)
 
+    def get_latest_assistant_request_id(self, session_id: str) -> str | None:
+        return self.chat.get_latest_assistant_request_id(session_id)
+
+    def create_artifact(self, **kwargs: Any) -> dict[str, Any]:
+        return self.artifacts.create_artifact(**kwargs)
+
+    def update_artifact(self, artifact_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.artifacts.update_artifact(artifact_id, **kwargs)
+
+    def get_artifact(self, artifact_id: str) -> ArtifactModel:
+        return self.artifacts.get_artifact(artifact_id)
+
+    def delete_artifact(self, artifact_id: str) -> None:
+        self.artifacts.delete_artifact(artifact_id)
+
+    def list_artifacts_for_request(self, request_id: str) -> list[dict[str, Any]]:
+        return self.artifacts.list_artifacts_for_request(request_id)
+
+    def list_artifacts_for_work(self, work_id: str) -> list[dict[str, Any]]:
+        return self.artifacts.list_artifacts_for_work(work_id)
+
+    def list_artifacts_for_session(self, session_id: str) -> list[dict[str, Any]]:
+        return self.artifacts.list_artifacts_for_session(session_id)
+
+    def list_recent_artifacts(self, limit: int = 10) -> list[dict[str, Any]]:
+        return self.artifacts.list_recent_artifacts(limit)
+
     def log_event(self, event_type: str, payload: dict[str, Any]) -> None:
         self.events.log_event(event_type, payload)
 
     def list_events(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.events.list_events(limit)
+
+    def list_messages_for_request(self, request_id: str) -> list[dict[str, Any]]:
+        return self.chat.list_messages_for_request(request_id)
+
+    def create_memory(self, **kwargs: Any) -> dict[str, Any]:
+        return self.memories.create_memory(**kwargs)
+
+    def get_memory(self, memory_id: str) -> MemoryRecordModel:
+        return self.memories.get_memory(memory_id)
+
+    def update_memory(self, memory_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.memories.update_memory(memory_id, **kwargs)
+
+    def list_memories(
+        self,
+        *,
+        owner_id: str,
+        status: str | None = "active",
+        session_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.memories.list_memories(
+            owner_id=owner_id,
+            status=status,
+            session_id=session_id,
+            limit=limit,
+        )
+
+    def create_memory_event(
+        self,
+        *,
+        owner_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        memory_id: str | None = None,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        self.memories.create_memory_event(
+            owner_id=owner_id,
+            event_type=event_type,
+            payload=payload,
+            memory_id=memory_id,
+            session_id=session_id,
+            request_id=request_id,
+        )
+
+    def list_memory_events(
+        self,
+        *,
+        owner_id: str,
+        session_id: str | None = None,
+        request_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return self.memories.list_memory_events(
+            owner_id=owner_id,
+            session_id=session_id,
+            request_id=request_id,
+            limit=limit,
+        )
 
     def get_notification_settings(self, channel_type: str) -> NotificationSettingsModel | None:
         return self.notification_settings.get_settings(channel_type)

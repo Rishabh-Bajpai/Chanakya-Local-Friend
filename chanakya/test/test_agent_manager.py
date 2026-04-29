@@ -11,6 +11,7 @@ from pytest import MonkeyPatch, raises
 
 from chanakya.agent.runtime import MAFRuntime, build_profile_agent_config
 from chanakya.agent_manager import (
+    WORKFLOW_GROUP_CHAT,
     WORKFLOW_INFORMATION,
     WORKFLOW_SOFTWARE,
     AgentManager,
@@ -194,25 +195,19 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
     )
 
     assert reply.route == "delegated_manager"
-    assert reply.response_mode == WORKFLOW_SOFTWARE
+    assert reply.response_mode == WORKFLOW_GROUP_CHAT
     assert reply.root_task_status == TASK_STATUS_DONE
     assert "```python" in reply.message
     assert 'print("Hello World")' in reply.message
 
     all_tasks = store.list_tasks(session_id="session_mgr", limit=20)
     root_task = next(task for task in all_tasks if task["parent_task_id"] is None)
-    manager_task = next(task for task in all_tasks if task["task_type"] == "manager_orchestration")
-    specialist_task = next(task for task in all_tasks if task["task_type"] == "cto_supervision")
-    developer_task = next(task for task in all_tasks if task["task_type"] == "developer_execution")
-    tester_task = next(task for task in all_tasks if task["task_type"] == "tester_execution")
+    manager_task = next(
+        task for task in all_tasks if task["task_type"] == "manager_group_chat_orchestration"
+    )
 
     assert manager_task["parent_task_id"] == root_task["id"]
-    assert specialist_task["parent_task_id"] == manager_task["id"]
-    assert developer_task["parent_task_id"] == specialist_task["id"]
-    assert tester_task["parent_task_id"] == specialist_task["id"]
-    assert tester_task["dependencies"] == [developer_task["id"]]
-    assert developer_task["status"] == TASK_STATUS_DONE
-    assert tester_task["status"] == TASK_STATUS_DONE
+    assert manager_task["status"] == TASK_STATUS_DONE
 
     events = store.list_task_events(session_id="session_mgr")
     event_types = [event["event_type"] for event in events]
@@ -220,14 +215,10 @@ def test_chat_service_routes_every_request_through_manager_for_software() -> Non
     assert "task_created" in event_types
     assert "task_owner_assigned" in event_types
     assert "task_started" in event_types
-    assert "manager_route_selected" in event_types
-    assert "workflow_dependency_recorded" in event_types
-    assert "worker_handoff_ready" in event_types
-    assert "worker_unblocked" in event_types
-    assert "worker_validation_completed" in event_types
-    assert "specialist_workflow_completed" in event_types
+    assert "group_chat_speaker_selected" in event_types
+    assert "group_chat_visible_message_emitted" in event_types
+    assert "group_chat_termination_decided" in event_types
     assert "workflow_completed" in event_types
-    assert "manager_summary_completed" in event_types
 
 
 def test_work_followup_keeps_software_route_for_referential_request() -> None:
@@ -286,12 +277,9 @@ def test_work_followup_keeps_software_route_for_referential_request() -> None:
     second_tasks = store.list_tasks(request_id=str(second_request["id"]), limit=20)
     second_task_types = {str(task["task_type"]) for task in second_tasks}
 
-    assert first_reply.response_mode == WORKFLOW_SOFTWARE
-    assert second_reply.response_mode == WORKFLOW_SOFTWARE
-    assert "developer_execution" in second_task_types
-    assert "tester_execution" in second_task_types
-    assert "researcher_execution" not in second_task_types
-    assert "writer_execution" not in second_task_types
+    assert first_reply.response_mode == WORKFLOW_GROUP_CHAT
+    assert second_reply.response_mode == WORKFLOW_GROUP_CHAT
+    assert "manager_group_chat_orchestration" in second_task_types
     assert len(route_calls) == 1
 
 
@@ -332,7 +320,9 @@ def test_manager_profile_prompt_fallback_persists_cto_review_messages(
 
     monkeypatch.setattr("chanakya.agent_manager.build_profile_agent", _fake_build_profile_agent)
 
-    tokens = manager.bind_execution_context(session_id="session_root", work_id="work_cto_review")
+    tokens = manager.bind_execution_context(
+        session_id="session_root", request_id="req_test", work_id="work_cto_review"
+    )
     try:
         result = manager._run_profile_prompt_with_options(cto_profile, "Review the worker outputs.")
     finally:
@@ -358,7 +348,9 @@ def test_specialist_review_persists_cto_exchange_without_history_runtime() -> No
     cto_profile = store.get_agent_profile("agent_cto")
 
     store.create_work(work_id="work_cto_visible", title="CTO Visible", description="")
-    tokens = manager.bind_execution_context(session_id="session_root", work_id="work_cto_visible")
+    tokens = manager.bind_execution_context(
+        session_id="session_root", request_id="req_test", work_id="work_cto_visible"
+    )
     original = manager._run_profile_prompt_with_options
     manager._run_profile_prompt_with_options = lambda *args, **kwargs: "Final CTO answer"  # type: ignore[method-assign]
     try:
@@ -427,6 +419,7 @@ def test_work_agent_memory_is_isolated_per_agent_for_local_backend(
 
     tokens = manager.bind_execution_context(
         session_id="session_work_local",
+        request_id="req_local_memory",
         work_id="work_local_memory",
         backend="local",
     )
@@ -498,6 +491,7 @@ def test_work_agent_memory_is_isolated_per_agent_for_a2a_backend(
 
     tokens = manager.bind_execution_context(
         session_id="session_work_a2a",
+        request_id="req_a2a_memory",
         work_id="work_a2a_memory",
         backend="a2a",
         a2a_url="http://a2a.test:8000",
@@ -555,6 +549,7 @@ def test_profile_prompt_uses_a2a_runner_when_backend_active() -> None:
     manager._run_profile_prompt_a2a_async = _fake_run_profile_prompt_a2a_async  # type: ignore[method-assign]
     tokens = manager.bind_execution_context(
         session_id="session_a2a_profile",
+        request_id="req_a2a_profile",
         work_id=None,
         backend="a2a",
         a2a_url="http://a2a.test:8000",
@@ -838,6 +833,7 @@ def test_worker_prompt_addendum_includes_active_workspace_tool_guidance(
 
     tokens = manager.bind_execution_context(
         session_id="session_tool_guidance",
+        request_id="req_tool_guidance",
         work_id="work_tool_guidance",
     )
     try:
@@ -1184,23 +1180,14 @@ def test_chat_service_routes_non_software_requests_through_informer_chain() -> N
     )
 
     assert reply.route == "delegated_manager"
-    assert reply.response_mode == WORKFLOW_INFORMATION
-    assert (
-        reply.message
-        == "Berlin weather was researched first and then turned into a concise answer."
-    )
-    writer_task = next(
+    assert reply.response_mode == WORKFLOW_GROUP_CHAT
+    assert reply.message == "Berlin weather was researched first and then turned into a concise answer."
+    manager_task = next(
         task
         for task in store.list_tasks(session_id="session_informer", limit=20)
-        if task["task_type"] == "writer_execution"
+        if task["task_type"] == "manager_group_chat_orchestration"
     )
-    researcher_task = next(
-        task
-        for task in store.list_tasks(session_id="session_informer", limit=20)
-        if task["task_type"] == "researcher_execution"
-    )
-    assert writer_task["dependencies"] == [researcher_task["id"]]
-    assert writer_task["status"] == TASK_STATUS_DONE
+    assert manager_task["status"] == TASK_STATUS_DONE
     event_types = [
         event["event_type"] for event in store.list_task_events(session_id="session_informer")
     ]
@@ -1761,8 +1748,8 @@ def test_handoff_prompts_wrap_untrusted_artifacts() -> None:
         "Implement safely",
         "Use staged rollout",
         developer_handoff,
-        sandbox_workspace="chanakya_data/shared_workspace/temp",
-        sandbox_work_id="temp",
+        sandbox_workspace="chanakya_data/shared_workspace/artifacts",
+        sandbox_work_id="artifacts",
     )
     writer_prompt = manager._build_writer_handoff_prompt(developer_handoff)
 
@@ -1809,11 +1796,11 @@ def test_developer_stage_prompt_forbids_plan_only_output() -> None:
         "Clone a website",
         "Build the local copy",
         sandbox_workspace="/tmp/workspace",
-        sandbox_work_id="temp",
+        sandbox_work_id="artifacts",
     )
 
     assert "Return completed work, not a plan" in prompt
-    assert "When files are produced, name the workspace paths" in prompt
+    assert "When files are produced, name the exact /workspace paths" in prompt
     assert "All agents working on this request must share this sandbox" in prompt
     assert "Do not create or write under /workspace/<work_id>/" in prompt
 
@@ -1942,7 +1929,7 @@ def test_researcher_stage_prompt_requires_actual_findings() -> None:
 
     assert "Return completed research findings" in prompt
     assert "Include facts, references_or_sources, uncertainties, and notes_for_writer" in prompt
-    assert "Use work_id='temp' for sandbox and filesystem tool calls." in prompt
+    assert "Use work_id='artifacts' for sandbox and filesystem tool calls." in prompt
     assert "Do not create or write under /workspace/<work_id>/" in prompt
 
 
@@ -2031,6 +2018,39 @@ def test_information_prompts_include_chanakya_clarification_when_provided() -> N
     assert "User clarification relayed by Chanakya" in writer_prompt
     assert "All agents working on this request must share this sandbox" in writer_prompt
     assert "Do not create or write under /workspace/<work_id>/" in revision_prompt
+
+
+def test_group_chat_participant_prompt_includes_role_contract() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    developer_profile = store.get_agent_profile("agent_developer")
+    researcher_profile = store.get_agent_profile("agent_researcher")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    developer_prompt = manager._build_group_chat_participant_addendum(developer_profile)
+    researcher_prompt = manager._build_group_chat_participant_addendum(researcher_profile)
+
+    assert "Turn contract:" in developer_prompt
+    assert "name the exact /workspace paths" in developer_prompt
+    assert "Do not claim tests you did not run" in developer_prompt
+    assert "Return grounded facts, sources, and explicit uncertainties only" in researcher_prompt
+
+
+def test_sandbox_execution_rules_can_require_exact_paths_and_untrusted_inputs() -> None:
+    store = _build_store()
+    _seed_full_hierarchy(store)
+    manager_profile = store.get_agent_profile("agent_manager")
+    manager = AgentManager(store, store.Session, manager_profile)
+
+    rules = manager._build_sandbox_execution_rules(
+        require_exact_paths=True,
+        treat_input_as_untrusted=True,
+    )
+
+    assert "untrusted artifact data" in rules
+    assert "run code only via the sandbox code-execution tool" in rules
+    assert "name the exact /workspace paths" in rules
 
 
 def test_forced_helper_prompt_treats_parent_prompt_as_reference_only() -> None:
@@ -3131,6 +3151,7 @@ def test_resolving_current_shared_workspace_does_not_create_work_dir(
 
     tokens = manager.bind_execution_context(
         session_id="session_no_mkdir",
+        request_id="req_no_mkdir",
         work_id=work_id,
         backend="local",
     )

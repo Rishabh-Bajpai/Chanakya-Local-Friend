@@ -4,107 +4,213 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Chanakya Workspaces</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
     <style>
       :root {
-        --bg: #111111;
-        --panel: rgba(24, 24, 24, 0.95);
-        --line: #343434;
-        --text: #e8e6e3;
-        --muted: #9a9590;
+        --bg: #0a0d16;
+        --panel: rgba(17, 21, 34, 0.82);
+        --panel-strong: rgba(10, 13, 24, 0.9);
+        --line: rgba(255, 255, 255, 0.09);
+        --line-strong: rgba(255, 255, 255, 0.14);
+        --text: #e8eef8;
+        --muted: #9aa8ba;
         --accent: #d86b4a;
+        --accent-soft: rgba(216, 107, 74, 0.16);
         --ink: #3a8a87;
+        --glow-cyan: #4fd7ff;
+        --glow-violet: #8f7dff;
+        --glow-warm: #ff8d6b;
       }
       * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
       body {
         margin: 0;
         color: var(--text);
-        font-family: Georgia, "Iowan Old Style", serif;
+        font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         background:
-          radial-gradient(circle at top left, rgba(50,50,50,0.35), transparent 35%),
-          linear-gradient(135deg, #1b1b1b 0%, #121212 45%, #0d0d0d 100%);
+          radial-gradient(circle at 15% 20%, rgba(79, 215, 255, 0.12), transparent 24%),
+          radial-gradient(circle at 82% 18%, rgba(143, 125, 255, 0.13), transparent 28%),
+          radial-gradient(circle at 50% 82%, rgba(216, 107, 74, 0.1), transparent 24%),
+          linear-gradient(160deg, #0a0d16 0%, #0f1220 42%, #0b0e17 100%);
+        min-height: 100vh;
       }
       .shell {
-        max-width: 1500px;
+        max-width: 1680px;
         margin: 0 auto;
         min-height: 100vh;
-        padding: 20px;
+        padding: 24px;
         display: grid;
-        gap: 16px;
-        grid-template-columns: 320px 1fr 1.2fr;
+        gap: 20px;
+        grid-template-columns: 320px minmax(0, 1fr);
       }
       .panel {
-        background: var(--panel);
+        position: relative;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
         border: 1px solid var(--line);
-        border-radius: 16px;
-        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+        border-radius: 28px;
+        box-shadow:
+          0 24px 60px rgba(0, 0, 0, 0.44),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(18px);
         min-height: 0;
+        overflow: hidden;
+      }
+      .panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(circle at top right, rgba(79, 215, 255, 0.08), transparent 32%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 26%);
       }
       .left,
-      .chat,
-      .history {
+      .chat {
         display: flex;
         flex-direction: column;
         min-height: 0;
       }
-      .left,
-      .history {
-        max-height: calc(100vh - 40px);
+      .left {
+        max-height: calc(100vh - 48px);
         position: sticky;
-        top: 20px;
+        top: 24px;
         overflow: hidden;
       }
       .chat {
-        height: calc(100vh - 40px);
+        height: calc(100vh - 48px);
         position: sticky;
-        top: 20px;
+        top: 24px;
+        overflow: hidden;
+      }
+      .chat-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .chat-title-left,
+      .chat-title-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+      .chat-title-row h2 {
+        min-width: 0;
       }
       .header {
-        padding: 16px;
-        border-bottom: 1px solid var(--line);
+        position: relative;
+        z-index: 1;
+        padding: 18px 20px 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(7, 10, 20, 0.45);
       }
       .left .header {
-        padding: 20px 20px 18px;
+        padding: 22px 22px 18px;
         background:
-          linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(216, 107, 74, 0.02) 55%, transparent),
-          rgba(255, 255, 255, 0.01);
+          radial-gradient(circle at top left, rgba(79, 215, 255, 0.12), transparent 32%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
       }
       .header h1,
       .header h2 {
         margin: 0;
       }
       .chat .header {
-        padding: 18px 18px 16px;
+        padding: 20px 22px 16px;
         background:
-          linear-gradient(180deg, rgba(58, 138, 135, 0.08), rgba(58, 138, 135, 0.015) 60%, transparent),
-          rgba(255, 255, 255, 0.01);
+          radial-gradient(circle at top right, rgba(79, 215, 255, 0.1), transparent 28%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
       }
-      .history .header {
-        padding: 18px 18px 16px;
-        background:
-          linear-gradient(180deg, rgba(84, 105, 163, 0.14), rgba(84, 105, 163, 0.02) 60%, transparent),
-          rgba(255, 255, 255, 0.01);
+      .chat-header-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .chat-header-title {
+        min-width: 0;
       }
       .workspace-kicker {
         margin: 0 0 8px;
         font-size: 11px;
         letter-spacing: 0.18em;
         text-transform: uppercase;
-        color: #d7b2a7;
+        color: #d8f3ff;
+      }
+      .header h1 {
+        font-size: 32px;
+        line-height: 1;
+        letter-spacing: -0.04em;
+      }
+      .header h2 {
+        font-size: 18px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #eef6ff;
       }
       .header p {
         margin: 6px 0 0;
         color: var(--muted);
         font-size: 13px;
+        line-height: 1.6;
       }
       .header-actions {
         margin-top: 12px;
         display: flex;
+        flex-wrap: wrap;
         gap: 8px;
       }
+      .chat .header-actions {
+        margin-top: 0;
+        flex: 0 0 auto;
+      }
+      .header-action-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 40px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+        font-weight: 600;
+      }
+      .header-action-emoji {
+        font-size: 16px;
+        line-height: 1;
+      }
+      .header-action-icon {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .header-action-button svg {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      #utilityToggleButton {
+        display: none;
+      }
+      .utility-close {
+        display: none;
+      }
       .button-secondary {
-        background: #2a2a2a;
-        border: 1px solid #454545;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
       }
       .air-link {
         display: inline-flex;
@@ -112,26 +218,34 @@
         justify-content: center;
         min-width: 110px;
         padding: 10px 12px;
-        border-radius: 10px;
-        border: 1px solid #454545;
-        background: #242424;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
         color: var(--text);
         text-decoration: none;
+        transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+      }
+      .air-link:hover {
+        background: rgba(255, 255, 255, 0.09);
+        border-color: rgba(79, 215, 255, 0.24);
+        transform: translateY(-1px);
       }
       .link-row {
         margin-top: 10px;
       }
       .link-row a {
-        color: var(--accent);
+        color: #8ecbff;
         text-decoration: none;
       }
       .body {
-        padding: 14px;
+        position: relative;
+        z-index: 1;
+        padding: 18px;
         flex: 1;
         overflow-x: hidden;
         overflow-y: auto;
         scrollbar-width: thin;
-        scrollbar-color: #4a4a4a rgba(0, 0, 0, 0.3);
+        scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
       }
       .body::-webkit-scrollbar {
         width: 10px;
@@ -141,7 +255,7 @@
         border-radius: 999px;
       }
       .body::-webkit-scrollbar-thumb {
-        background: #4a4a4a;
+        background: rgba(255, 255, 255, 0.18);
         border-radius: 999px;
         border: 2px solid rgba(0, 0, 0, 0.25);
       }
@@ -152,17 +266,20 @@
         align-content: start;
       }
       .sidebar-block {
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 16px;
-        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.025);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
       }
       .sidebar-block-header {
-        padding: 14px 14px 0;
+        padding: 16px 16px 0;
       }
       .sidebar-block-header h3 {
         margin: 0;
-        font-size: 14px;
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #eef6ff;
       }
       .sidebar-block-header p {
         margin: 6px 0 0;
@@ -184,23 +301,44 @@
       input,
       textarea {
         width: 100%;
-        padding: 10px 12px;
-        border-radius: 10px;
-        border: 1px solid #454545;
-        background: #1a1a1a;
+        padding: 12px 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
         color: var(--text);
+        transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+      }
+      input::placeholder,
+      textarea::placeholder {
+        color: #92a1b7;
+      }
+      input:focus,
+      textarea:focus,
+      select:focus {
+        outline: none;
+        border-color: rgba(79, 215, 255, 0.35);
+        box-shadow: 0 0 0 3px rgba(79, 215, 255, 0.12);
+        background: rgba(255, 255, 255, 0.07);
       }
       textarea {
-        min-height: 70px;
+        min-height: 86px;
         resize: vertical;
       }
       button {
-        border: 0;
-        border-radius: 10px;
-        padding: 10px 14px;
-        background: var(--accent);
-        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 999px;
+        padding: 10px 16px;
+        background: rgba(255, 255, 255, 0.05);
+        color: #edf5ff;
         cursor: pointer;
+        font-weight: 600;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+      }
+      button:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.09);
+        border-color: rgba(79, 215, 255, 0.24);
+        transform: translateY(-1px);
       }
       button:disabled {
         opacity: 0.6;
@@ -211,31 +349,31 @@
         color: var(--muted);
       }
       .work-item {
-        border: 1px solid rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-left: 4px solid var(--ink);
-        border-radius: 14px;
+        border-radius: 18px;
         padding: 12px 12px 11px;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
         cursor: pointer;
-        background: rgba(255, 255, 255, 0.02);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
         transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
       }
       .work-item:hover {
         transform: translateY(-1px);
-        border-color: rgba(216, 107, 74, 0.28);
-        background: rgba(255, 255, 255, 0.035);
+        border-color: rgba(79, 215, 255, 0.24);
+        background: rgba(255, 255, 255, 0.055);
       }
       .work-item.active {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 1px rgba(216, 107, 74, 0.24), 0 10px 24px rgba(0, 0, 0, 0.18);
+        border-color: rgba(79, 215, 255, 0.28);
+        box-shadow: 0 0 0 1px rgba(79, 215, 255, 0.18), 0 14px 30px rgba(0, 0, 0, 0.2);
       }
       .work-item h3 {
-        margin: 0 0 6px;
-        font-size: 15px;
+        margin: 0 0 4px;
+        font-size: 14px;
       }
       .work-item p {
         margin: 0;
-        font-size: 12px;
+        font-size: 11px;
         color: var(--muted);
       }
       .chat-log {
@@ -244,37 +382,55 @@
         padding: 18px;
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 14px;
+        min-height: 0;
         background:
-          radial-gradient(circle at top right, rgba(58, 138, 135, 0.08), transparent 28%),
+          radial-gradient(circle at top right, rgba(79, 215, 255, 0.06), transparent 24%),
           linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
       }
       .msg {
-        max-width: 86%;
-        border-radius: 16px;
-        padding: 12px 14px;
+        max-width: 90%;
+        min-width: 0;
+        border-radius: 20px;
+        padding: 14px 15px;
         line-height: 1.5;
-        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .msg.user {
         align-self: flex-end;
-        background: linear-gradient(180deg, #4b3024, #3b271e);
-        border: 1px solid rgba(216, 107, 74, 0.2);
+        background: linear-gradient(180deg, rgba(82, 50, 36, 0.96), rgba(55, 33, 25, 0.98));
+        border: 1px solid rgba(216, 107, 74, 0.26);
       }
       .msg.assistant {
         align-self: flex-start;
-        background: linear-gradient(180deg, #262a2d, #1f2225);
+        background: linear-gradient(180deg, rgba(34, 38, 54, 0.95), rgba(24, 27, 39, 0.98));
         border: 1px solid rgba(97, 120, 129, 0.24);
       }
       .msg-body {
         min-width: 0;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      .msg-agent-name {
+        margin: 0 0 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(165, 223, 255, 0.88);
       }
       .rendered-markdown {
         display: grid;
         gap: 10px;
+        min-width: 0;
+        max-width: 100%;
       }
       .rendered-markdown > * {
         margin: 0;
+        max-width: 100%;
       }
       .rendered-markdown p,
       .rendered-markdown li {
@@ -321,12 +477,14 @@
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 8px;
         padding: 0.1em 0.4em;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .rendered-code-block {
         border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 14px;
+        border-radius: 16px;
         overflow: hidden;
-        background: #151618;
+        background: #151925;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
       }
       .code-language-label {
@@ -334,8 +492,8 @@
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: #d7b2a7;
-        background: rgba(216, 107, 74, 0.12);
+        color: #d8f3ff;
+        background: rgba(79, 215, 255, 0.12);
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       }
       .rendered-code-block pre {
@@ -372,33 +530,185 @@
       .rendered-markdown a {
         color: #8ecbff;
       }
-      .composer {
-        border-top: 1px solid var(--line);
-        padding: 14px;
+      .composer-dock {
+        position: relative;
+        z-index: 1;
+        margin-top: auto;
+        position: sticky;
+        bottom: 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 14px 16px 16px;
         display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 8px;
-        background: rgba(255, 255, 255, 0.015);
+        gap: 10px;
+        background: rgba(8, 10, 18, 0.84);
+        backdrop-filter: blur(14px);
       }
-      .composer input {
-        min-height: 48px;
+      .work-waiting-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 18px;
+        color: #a9bbce;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .work-waiting-indicator::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: #6fc7ff;
+        box-shadow: 0 0 10px rgba(111, 199, 255, 0.45);
+        animation: work-waiting-pulse 1.4s ease-in-out infinite;
+        flex: 0 0 auto;
+      }
+      .work-waiting-indicator[data-state="started"]::before {
+        background: #61d47a;
+        box-shadow: 0 0 10px rgba(97, 212, 122, 0.45);
+        animation: none;
+      }
+      @keyframes work-waiting-pulse {
+        0%, 100% { transform: scale(0.85); opacity: 0.65; }
+        50% { transform: scale(1.15); opacity: 1; }
+      }
+      .composer {
+        position: relative;
+        display: grid;
+        gap: 10px;
+      }
+      .composer-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        gap: 10px;
+        align-items: end;
+      }
+      .composer-textarea {
+        min-height: 52px;
+        max-height: 128px;
+        padding: 14px 18px;
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.05);
+        resize: none;
+        overflow-y: hidden;
+        line-height: 1.5;
+      }
+      .composer-aux-button,
+      .composer-submit {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+      }
+      .composer-aux-button svg,
+      .composer-submit svg {
+        width: 20px;
+        height: 20px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .composer-menu {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 8px);
+        min-width: 220px;
+        display: grid;
+        gap: 4px;
+        padding: 12px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(15, 18, 28, 0.95);
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28);
+        z-index: 12;
+      }
+      .composer-menu[hidden] {
+        display: none !important;
+      }
+      .composer-menu button {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        justify-content: flex-start;
+        text-align: left;
         border-radius: 14px;
-        background: rgba(0, 0, 0, 0.2);
+        min-height: 42px;
+        padding: 0 12px;
+        width: 100%;
+        border: 1px solid transparent;
+        background: transparent;
+        font-size: 13px;
+        transform: none;
+      }
+      .composer-menu button svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .composer-menu button:hover {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 255, 255, 0.08);
+      }
+      .composer-dock.has-text .composer-stt-proxy {
+        display: none;
+      }
+      .composer-stt-proxy[data-state="recording"] {
+        background: linear-gradient(180deg, rgba(255, 133, 104, 0.96), rgba(174, 54, 35, 0.92));
+        border-color: rgba(255, 168, 146, 0.5);
+        color: #fff3ee;
+        box-shadow: 0 0 0 4px rgba(255, 133, 104, 0.14);
+      }
+      .composer-stt-proxy[data-state="recording"] svg {
+        transform: scale(1.04);
+      }
+      .composer-dock:not(.has-text) .composer-submit {
+        opacity: 0.45;
+        pointer-events: none;
+      }
+      #createWorkButton {
+        border: 0;
+        color: #fff;
+        background: linear-gradient(45deg, #2bd1ff, #4561ff 62%, #835eff);
+        box-shadow: 0 10px 24px rgba(57, 128, 255, 0.24);
+      }
+      #createWorkButton:hover:not(:disabled) {
+        background: linear-gradient(45deg, #1ec8f9, #3f59ea 62%, #7758ee);
+      }
+      .composer-submit {
+        border: 0;
+        color: #fff;
+        background: linear-gradient(45deg, #2bd1ff, #4561ff 62%, #835eff);
+        box-shadow: 0 10px 24px rgba(57, 128, 255, 0.24);
+      }
+      .composer-submit:hover:not(:disabled) {
+        background: linear-gradient(45deg, #1ec8f9, #3f59ea 62%, #7758ee);
       }
       .control-deck {
         margin-top: 0;
-        border: 1px solid rgba(216, 107, 74, 0.22);
-        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
         background:
-          linear-gradient(180deg, rgba(216, 107, 74, 0.08), rgba(58, 138, 135, 0.04)),
-          rgba(255, 255, 255, 0.02);
+          radial-gradient(circle at top right, rgba(79, 215, 255, 0.08), transparent 28%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
         overflow: hidden;
       }
       .control-deck summary {
         list-style: none;
         cursor: pointer;
-        padding: 16px;
+        padding: 16px 18px;
+      }
+      .control-deck:not([open]) summary {
+        padding: 13px 16px;
       }
       .control-deck summary::-webkit-details-marker {
         display: none;
@@ -414,7 +724,7 @@
         font-size: 11px;
         letter-spacing: 0.16em;
         text-transform: uppercase;
-        color: #d7b2a7;
+        color: #d8f3ff;
       }
       .control-deck h3 {
         margin: 0;
@@ -435,7 +745,7 @@
         height: 34px;
         border-radius: 999px;
         border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.03);
+        background: rgba(255, 255, 255, 0.05);
         color: var(--text);
         font-size: 16px;
       }
@@ -445,8 +755,19 @@
       .control-deck:not([open]) .control-deck-toggle::before {
         content: "+";
       }
+      .control-deck:not([open]) .control-deck-kicker {
+        margin-bottom: 2px;
+        font-size: 10px;
+      }
+      .control-deck:not([open]) h3 {
+        font-size: 16px;
+      }
+      .control-deck:not([open]) p {
+        margin-top: 4px;
+        font-size: 11px;
+      }
       .control-deck-body {
-        padding: 0 16px 16px;
+        padding: 0 18px 18px;
         display: grid;
         gap: 14px;
       }
@@ -459,16 +780,16 @@
         display: grid;
         gap: 10px;
         padding: 14px;
-        border-radius: 14px;
+        border-radius: 18px;
         border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(0, 0, 0, 0.12);
+        background: rgba(255, 255, 255, 0.03);
       }
       .control-group-title {
         margin: 0;
         font-size: 12px;
         letter-spacing: 0.12em;
         text-transform: uppercase;
-        color: #d0cbc5;
+        color: #d8f3ff;
       }
       .control-group-note {
         margin: -4px 0 0;
@@ -501,20 +822,20 @@
       .air-models select,
       .runtime-models select {
         width: 100%;
-        padding: 8px 10px;
-        border-radius: 10px;
-        border: 1px solid #454545;
-        background: #1a1a1a;
+        padding: 10px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
         color: var(--text);
         font: inherit;
       }
       .air-button {
-        border: 1px solid #454545;
-        background: #242424;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
       }
       .air-button[data-state="recording"] {
-        background: #5a2d20;
-        border-color: #d86b4a;
+        background: linear-gradient(180deg, rgba(255, 133, 104, 0.96), rgba(174, 54, 35, 0.92));
+        border-color: rgba(255, 168, 146, 0.5);
       }
       .air-status {
         min-height: 18px;
@@ -532,18 +853,18 @@
       .work-list-empty {
         padding: 14px;
         border: 1px dashed rgba(255, 255, 255, 0.1);
-        border-radius: 14px;
+        border-radius: 16px;
         color: var(--muted);
         font-size: 12px;
-        background: rgba(255, 255, 255, 0.015);
+        background: rgba(255, 255, 255, 0.025);
       }
       .agent-card {
-        border: 1px solid #3a3a3a;
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-left: 4px solid var(--ink);
-        border-radius: 12px;
-        padding: 10px;
+        border-radius: 16px;
+        padding: 12px;
         margin-bottom: 10px;
-        background: rgba(255, 255, 255, 0.02);
+        background: rgba(255, 255, 255, 0.03);
       }
       .agent-card h3 {
         margin: 0 0 6px;
@@ -553,13 +874,29 @@
         color: var(--muted);
         font-size: 12px;
       }
+      .agent-history-summary,
+      .agent-history-overview {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 10px;
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 12px;
+        background: rgba(13, 16, 27, 0.58);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .agent-history-summary strong,
+      .agent-history-overview strong {
+        color: var(--text);
+      }
       .agent-msg {
         font-size: 12px;
-        padding: 8px;
-        border-radius: 8px;
+        padding: 10px;
+        border-radius: 12px;
         margin-bottom: 6px;
-        background: #1d1d1d;
-        border: 1px solid #303030;
+        background: rgba(13, 16, 27, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.07);
       }
       .agent-msg pre {
         margin: 6px 0 0;
@@ -579,17 +916,17 @@
         border-top: 1px solid var(--line);
         padding-top: 12px;
       }
-      .history .body {
-        padding: 18px;
-        background:
-          radial-gradient(circle at top left, rgba(84, 105, 163, 0.08), transparent 25%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+      .history-mirror {
+        display: none;
+      }
+      .utility-scrim {
+        display: none;
       }
       details.section-toggle {
         margin-top: 14px;
-        border: 1px solid rgba(255, 255, 255, 0.07);
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.024);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.03);
       }
       details.section-toggle > summary {
         cursor: pointer;
@@ -602,9 +939,9 @@
       }
       details.agent-toggle {
         margin-bottom: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.015);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.025);
       }
       details.agent-toggle > summary {
         cursor: pointer;
@@ -612,11 +949,11 @@
         color: var(--text);
       }
       .flow-item {
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 12px;
-        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 16px;
+        padding: 12px;
         margin-bottom: 8px;
-        background: rgba(17, 18, 21, 0.76);
+        background: rgba(13, 16, 27, 0.82);
       }
       .flow-meta {
         color: var(--muted);
@@ -630,10 +967,10 @@
         font-size: 11px;
       }
       .slideshow-shell {
-        border: 1px solid #3a3a3a;
-        border-radius: 12px;
-        padding: 10px;
-        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.03);
       }
       .slideshow-controls {
         display: flex;
@@ -647,10 +984,10 @@
         border-radius: 8px;
       }
       .slideshow-controls select {
-        background: #1a1a1a;
+        background: rgba(255, 255, 255, 0.05);
         color: var(--text);
-        border: 1px solid #454545;
-        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
         padding: 8px;
       }
       .slide-progress {
@@ -658,12 +995,13 @@
         font-size: 12px;
       }
       .slide-card {
-        border: 1px solid #3a3a3a;
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-left: 4px solid var(--accent);
-        border-radius: 12px;
-        padding: 10px;
+        border-radius: 16px;
+        padding: 12px;
         min-height: 220px;
         transition: opacity 220ms ease, transform 220ms ease;
+        background: rgba(255, 255, 255, 0.025);
       }
       .slide-header {
         margin-bottom: 8px;
@@ -684,9 +1022,9 @@
         margin: 8px 0;
       }
       .agent-chip {
-        border: 1px solid #4a4a4a;
+        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 999px;
-        background: #1d1d1d;
+        background: rgba(255, 255, 255, 0.05);
         color: var(--text);
         padding: 5px 10px;
         font-size: 12px;
@@ -694,10 +1032,10 @@
       }
       .slide-event {
         margin-top: 8px;
-        border: 1px solid #353535;
-        border-radius: 10px;
-        padding: 8px;
-        background: #171717;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 14px;
+        padding: 10px;
+        background: rgba(13, 16, 27, 0.84);
       }
       .slide-event-meta {
         color: var(--muted);
@@ -798,22 +1136,9 @@
         font-style: italic;
         padding: 18px;
         border: 1px dashed rgba(255, 255, 255, 0.1);
-        border-radius: 14px;
-        background: rgba(255, 255, 255, 0.018);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.025);
       }
-      @media (max-width: 1200px) {
-        .shell { grid-template-columns: 1fr; }
-        .left,
-        .chat,
-        .history {
-          min-height: auto;
-          max-height: none;
-          height: auto;
-          position: static;
-          top: auto;
-        }
-      }
-
       .runtime-chip {
         display: inline-flex;
         align-items: center;
@@ -845,16 +1170,164 @@
       .control-group.is-disabled {
         opacity: 0.6;
       }
+      @media (max-width: 1200px) {
+        .shell {
+          grid-template-columns: 300px minmax(0, 1fr);
+          padding: 18px;
+        }
+        .left {
+          min-height: auto;
+          max-height: none;
+          height: auto;
+        }
+      }
+      @media (max-width: 960px) {
+        body.utility-panel-open {
+          overflow: hidden;
+        }
+        .shell {
+          grid-template-columns: 1fr;
+        }
+        .chat {
+          position: relative;
+          top: auto;
+          height: calc(100vh - 24px);
+          max-height: calc(100vh - 24px);
+        }
+        .left {
+          position: fixed;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          width: min(88vw, 360px);
+          max-height: none;
+          z-index: 30;
+          border-radius: 0 24px 24px 0;
+          transform: translateX(-110%);
+          transition: transform 180ms ease;
+        }
+        body.utility-panel-open .left {
+          transform: translateX(0);
+        }
+        .utility-close {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 40px;
+          height: 40px;
+          padding: 0;
+          border-radius: 999px;
+        }
+        #utilityToggleButton {
+          display: inline-flex;
+        }
+        .utility-scrim {
+          position: fixed;
+          inset: 0;
+          display: block;
+          background: rgba(4, 7, 13, 0.68);
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 180ms ease;
+          z-index: 20;
+        }
+        body.utility-panel-open .utility-scrim {
+          opacity: 1;
+          pointer-events: auto;
+        }
+      }
       @media (max-width: 900px) {
         .control-grid {
           grid-template-columns: 1fr;
         }
       }
       @media (max-width: 640px) {
+        .shell {
+          padding: 12px;
+          gap: 14px;
+        }
+        .panel {
+          border-radius: 22px;
+        }
+        .header,
+        .left .header,
+        .chat .header {
+          padding-left: 16px;
+          padding-right: 16px;
+        }
+        .chat-header-top {
+          align-items: flex-start;
+        }
+        .left .header {
+          padding-top: 16px;
+          padding-bottom: 12px;
+        }
+        .left .header p:not(.workspace-kicker),
+        .left .header .link-row {
+          display: none;
+        }
+        .workspace-kicker {
+          margin-bottom: 4px;
+          font-size: 10px;
+          letter-spacing: 0.14em;
+        }
+        .header h1 {
+          font-size: 26px;
+        }
+        .body,
+        .left .body,
+        .chat-log,
+        .composer-dock {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+        .left .body {
+          gap: 12px;
+        }
         .air-links,
         .runtime-models,
         .air-controls {
           grid-template-columns: 1fr;
+        }
+        .header-actions {
+          gap: 6px;
+        }
+        .chat .header {
+          padding-top: 16px;
+          padding-bottom: 12px;
+        }
+        .chat .header h2 {
+          font-size: 16px;
+          line-height: 1.2;
+        }
+        .header-action-button {
+          min-width: 42px;
+          min-height: 42px;
+          padding: 0;
+          gap: 0;
+        }
+        .header-action-button .header-action-text {
+          display: none;
+        }
+        .composer-menu {
+          left: 0;
+          right: auto;
+          min-width: min(240px, calc(100vw - 48px));
+        }
+        .msg {
+          max-width: 100%;
+        }
+        .composer-row {
+          grid-template-columns: auto minmax(0, 1fr) auto auto;
+          gap: 8px;
+        }
+        .composer-textarea {
+          min-height: 60px;
+          padding: 11px 16px;
+          line-height: 1.35;
+        }
+        .control-deck:not([open]) summary {
+          padding: 12px 14px;
         }
       }
     </style>
@@ -863,109 +1336,35 @@
     <div class="shell">
       <section class="panel left">
         <div class="header">
-          <p class="workspace-kicker">Workspace Mode</p>
-          <h1>Works</h1>
+          <div class="header-actions">
+            <div>
+              <p class="workspace-kicker">Workspace Mode</p>
+              <h1>Works</h1>
+            </div>
+            <button id="utilityCloseButton" type="button" class="utility-close button-secondary" aria-label="Close controls">✕</button>
+          </div>
           <p>Create and reopen long-running work contexts without crowding the main chat pane.</p>
-          <div class="link-row"><a href="/">Open classic chat</a></div>
         </div>
         <div class="body">
           <section class="sidebar-block">
-            <div class="sidebar-block-header">
-              <h3>New Work</h3>
-              <p>Start a dedicated work context for a report, implementation track, or multi-agent task.</p>
-            </div>
-            <form id="workForm" class="work-form">
-              <input id="workTitle" type="text" placeholder="Work title" required />
-              <textarea id="workDescription" placeholder="Describe the objective (optional)"></textarea>
-              <button id="createWorkButton" type="submit">Create Work</button>
-              <div id="workStatus" class="status"></div>
-            </form>
-          </section>
-          <section class="sidebar-block">
-            <details class="control-deck" open>
+            <details class="control-deck">
               <summary>
                 <div class="control-deck-titlebar">
                   <div>
-                    <p class="control-deck-kicker">Control Deck</p>
-                    <h3>Voice, models, and runtime</h3>
-                    <p>Keep AIR voice controls and chat routing in one place. Use Apply Changes to update future requests across the app.</p>
+                    <p class="control-deck-kicker">Workspace</p>
+                    <h3>New Work</h3>
+                    <p>Start a dedicated work context for a report, implementation track, or multi-agent task.</p>
                   </div>
                   <span class="control-deck-toggle" aria-hidden="true"></span>
                 </div>
               </summary>
               <div class="control-deck-body">
-                <div class="control-grid">
-                  <section class="control-group">
-                    <p class="control-group-title">Chat Runtime</p>
-                    <div class="runtime-chip">Active work chat path</div>
-                    <div class="runtime-models">
-                      <label>
-                        Backend
-                        <select id="chatBackendSelect">
-                          <option value="local">Local OpenAI-compatible via AIR</option>
-                          {% if a2a_gui_enabled %}
-                          <option value="a2a">A2A</option>
-                          {% endif %}
-                        </select>
-                      </label>
-                      <label>
-                        Chanakya Model
-                        <select id="airLlmModel"></select>
-                      </label>
-                      {% if a2a_gui_enabled %}
-                      <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
-                      <label>
-                        A2A Agent Override
-                        <select id="a2aAgentInput"></select>
-                      </label>
-                      <label>
-                        A2A Model Provider
-                        <select id="a2aModelProviderInput"></select>
-                      </label>
-                      <label>
-                        A2A Model
-                        <select id="a2aModelIdInput"></select>
-                      </label>
-                      {% endif %}
-                    </div>
-                    {% if a2a_gui_enabled %}
-                    <p class="control-group-note">A2A sends the next work-chat turn through the app-managed bridge. The selected A2A agent applies to both direct replies and conversation-layer follow-ups. AIR model selection stays active only for local replies.</p>
-                    {% endif %}
-                    <div class="air-controls">
-                      <button id="runtimeConfigApplyButton" class="air-button" type="button">Apply Changes</button>
-                    </div>
-                    <p id="runtimeConfigStatus" class="control-field-hint"></p>
-                    {% if a2a_gui_enabled %}
-                    <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
-                    {% endif %}
-                  </section>
-                  <section class="control-group">
-                    <p class="control-group-title">AIR Voice</p>
-                    <div class="air-links">
-                      <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AIR</a>
-                      <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
-                    </div>
-                    <div class="air-models">
-                      <label>
-                        STT Model
-                        <select id="airSttModel"></select>
-                      </label>
-                      <label>
-                        TTS Model
-                        <select id="airTtsModel"></select>
-                      </label>
-                    </div>
-                  </section>
-                </div>
-                <div class="air-controls">
-                  <button id="airMicButton" class="air-button" type="button">Mic</button>
-                  <button id="airVoiceLoopButton" class="air-button" type="button">Start Voice</button>
-                  <button id="airSpeakButton" class="air-button" type="button">Speak Reply</button>
-                  <button id="airPauseRepliesButton" class="air-button" type="button">Pause Replies</button>
-                  <button id="airRefreshModelsButton" class="air-button" type="button">Refresh Models</button>
-                </div>
-                <div id="airVoiceStatus" class="air-status"></div>
-                <div id="conversationQueueStatus" class="air-status"></div>
+                <form id="workForm" class="work-form">
+                  <input id="workTitle" type="text" placeholder="Work title" required />
+                  <textarea id="workDescription" placeholder="Describe the objective (optional)"></textarea>
+                  <button id="createWorkButton" type="submit">Create Work</button>
+                  <div id="workStatus" class="status"></div>
+                </form>
               </div>
             </details>
           </section>
@@ -976,32 +1375,102 @@
             </div>
             <div id="workList" class="work-list"></div>
           </section>
+          <div hidden aria-hidden="true">
+            <select id="chatBackendSelect">
+              <option value="local">Local OpenAI-compatible via AIR</option>
+              {% if a2a_gui_enabled %}
+              <option value="a2a">A2A</option>
+              {% endif %}
+            </select>
+            <select id="airLlmModel"></select>
+            {% if a2a_gui_enabled %}
+            <button id="a2aRefreshOptionsButton" type="button">Refresh A2A Options</button>
+            {% endif %}
+            <select id="a2aAgentInput"></select>
+            <select id="a2aModelProviderInput"></select>
+            <select id="a2aModelIdInput"></select>
+            <button id="runtimeConfigApplyButton" type="button">Apply Changes</button>
+            <p id="runtimeConfigStatus"></p>
+            <p id="a2aDiscoveryStatus"></p>
+            <select id="airSttModel"></select>
+            <select id="airTtsModel"></select>
+            <p id="airVoiceStatus"></p>
+            <div id="conversationQueueStatus"></div>
+          </div>
         </div>
       </section>
 
       <section class="panel chat">
         <div class="header">
-          <h2 id="chatTitle">Select a work</h2>
-          <p id="chatSubtitle">Work-scoped chat with Chanakya.</p>
-          <div class="header-actions">
-            <button id="deleteWorkButton" type="button" class="button-secondary" disabled>Delete Work</button>
+          <div class="chat-title-row">
+            <div class="chat-title-left">
+              <button id="utilityToggleButton" type="button" class="header-action-button button-secondary" aria-label="Open controls">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></svg>
+                <span class="header-action-text">Controls</span>
+              </button>
+              <h2 id="chatTitle">Select a work</h2>
+            </div>
+            <div class="chat-title-actions">
+              <button id="headerDeleteWorkButton" type="button" class="header-action-button button-secondary" aria-label="Delete current work">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 12h10l1-12" /><path d="M9 7V4h6v3" /></svg>
+                <span class="header-action-text">Delete</span>
+              </button>
+              <button id="classicChatButton" type="button" class="header-action-button button-secondary" aria-label="Open classic chat">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 13.5z" /></svg>
+                <span class="header-action-text">Chat</span>
+              </button>
+            </div>
           </div>
         </div>
         <div id="chatLog" class="chat-log"><div class="empty">No work selected.</div></div>
-        <form id="chatForm" class="composer">
-          <input id="messageInput" type="text" placeholder="Send update request for this work..." required />
-          <button id="sendButton" type="submit" disabled>Send</button>
-        </form>
-      </section>
-
-      <section class="panel history">
-        <div class="header">
-          <h2>Agent Histories</h2>
-          <p>All work-scoped sessions across agents.</p>
+        <div id="composerDock" class="composer-dock">
+          <div id="workWaitingIndicator" class="work-waiting-indicator" hidden></div>
+          <form id="chatForm" class="composer">
+            <div class="composer-row">
+              <button id="composerMoreButton" class="composer-aux-button" type="button" title="More controls" aria-label="More controls" aria-expanded="false" aria-controls="composerMenu">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+              </button>
+              <textarea id="messageInput" class="composer-textarea" placeholder="Send update request for this work..." rows="1" required></textarea>
+              <button class="composer-aux-button composer-stt-proxy" type="button" data-voice-proxy="mic" title="Send voice note" aria-label="Send voice note">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2.5 2.5 0 0 0-2.5 2.5v5a2.5 2.5 0 1 0 5 0v-5A2.5 2.5 0 0 0 12 4Z" /><path d="M7 11.5a5 5 0 0 0 10 0" /><path d="M12 16.5V20" /><path d="M9 20h6" /></svg>
+              </button>
+              <button id="sendButton" type="submit" class="composer-submit" aria-label="Send message" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="m18 11-6-6-6 6" /></svg>
+              </button>
+            </div>
+          </form>
+          <div id="composerMenu" class="composer-menu" hidden>
+            <button type="button" id="composerOpenHistoriesButton">
+              <svg class="header-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5" /><path d="M10 14 19 5" /><path d="M19 14v5h-5" /><path d="M5 10V5h5" /></svg>
+              Agent Histories
+            </button>
+            <button type="button" id="composerDeleteWorkButton">
+              <svg class="header-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 12h10l1-12" /><path d="M9 7V4h6v3" /></svg>
+              Delete Work
+            </button>
+            <button type="button" data-voice-proxy="speak">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 14h3l4 3V7L8 10H5v4Z" /><path d="M16 9a4.5 4.5 0 0 1 0 6" /><path d="M18.5 6.5a8 8 0 0 1 0 11" /></svg>
+              Speak latest reply
+            </button>
+            <button type="button" data-voice-proxy="refresh">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M7.5 16A7 7 0 0 0 19 11" /><path d="M16.5 8A7 7 0 0 0 5 13" /></svg>
+              Refresh models
+            </button>
+          </div>
+          <div id="composerQueueStatus" class="air-status history-mirror"></div>
+          <div id="composerVoiceStatus" class="air-status history-mirror"></div>
+          <div class="history-mirror">
+            <div id="historyList" class="body"><div class="empty">No histories yet.</div></div>
+          </div>
+          <div class="history-mirror">
+            <button id="airMicButton" type="button">Mic</button>
+            <button id="airSpeakButton" type="button">Speak Reply</button>
+            <button id="airRefreshModelsButton" type="button">Refresh Models</button>
+          </div>
         </div>
-        <div id="historyList" class="body"><div class="empty">No histories yet.</div></div>
       </section>
     </div>
+    <div id="utilityScrim" class="utility-scrim"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
@@ -1031,18 +1500,21 @@
       const workStatus = document.getElementById("workStatus");
       const workList = document.getElementById("workList");
       const chatTitle = document.getElementById("chatTitle");
-      const chatSubtitle = document.getElementById("chatSubtitle");
       const chatLog = document.getElementById("chatLog");
+      const composerDock = document.getElementById("composerDock");
       const chatForm = document.getElementById("chatForm");
+      const composerMoreButton = document.getElementById("composerMoreButton");
+      const composerMenu = document.getElementById("composerMenu");
       const messageInput = document.getElementById("messageInput");
       const sendButton = document.getElementById("sendButton");
       const airLlmModel = document.getElementById("airLlmModel");
       const airSttModel = document.getElementById("airSttModel");
       const airTtsModel = document.getElementById("airTtsModel");
+      const airVoiceStatus = document.getElementById("airVoiceStatus");
+      const composerQueueStatus = document.getElementById("composerQueueStatus");
+      const composerVoiceStatus = document.getElementById("composerVoiceStatus");
       const airMicButton = document.getElementById("airMicButton");
-      const airVoiceLoopButton = document.getElementById("airVoiceLoopButton");
       const airSpeakButton = document.getElementById("airSpeakButton");
-      const airPauseRepliesButton = document.getElementById("airPauseRepliesButton");
       const airRefreshModelsButton = document.getElementById("airRefreshModelsButton");
       const chatBackendSelect = document.getElementById("chatBackendSelect");
       const a2aRefreshOptionsButton = document.getElementById("a2aRefreshOptionsButton");
@@ -1052,11 +1524,17 @@
       const runtimeConfigApplyButton = document.getElementById("runtimeConfigApplyButton");
       const runtimeConfigStatus = document.getElementById("runtimeConfigStatus");
       const a2aDiscoveryStatus = document.getElementById("a2aDiscoveryStatus");
-      const airVoiceStatus = document.getElementById("airVoiceStatus");
       const conversationQueueStatus = document.getElementById("conversationQueueStatus");
       const historyList = document.getElementById("historyList");
       const INITIAL_WORK_ID = {{ initial_work_id|tojson }};
-      const deleteWorkButton = document.getElementById("deleteWorkButton");
+      const composerOpenHistoriesButton = document.getElementById("composerOpenHistoriesButton");
+      const composerDeleteWorkButton = document.getElementById("composerDeleteWorkButton");
+      const headerDeleteWorkButton = document.getElementById("headerDeleteWorkButton");
+      const workWaitingIndicator = document.getElementById("workWaitingIndicator");
+      const utilityToggleButton = document.getElementById("utilityToggleButton");
+      const classicChatButton = document.getElementById("classicChatButton");
+      const utilityCloseButton = document.getElementById("utilityCloseButton");
+      const utilityScrim = document.getElementById("utilityScrim");
 
       const WORK_STORAGE_KEY = "chanakya-active-work";
       const SESSION_STORAGE_KEY = "chanakya-active-session";
@@ -1069,12 +1547,23 @@
       let a2aDiscoveryHealthy = false;
       let a2aDiscoveryError = "";
       let works = [];
-      let slideshowTimer = null;
       let workLiveRefreshTimer = null;
+      let historiesWindow = null;
       let historyInFlight = false;
       let historyFetchNonce = 0;
+      let pendingReplyWatcher = null;
+      let pendingReplyWorkId = null;
+      let pendingReplyBaselineAssistantCount = 0;
+      let workWaitingMessageIndex = -1;
+      let workWaitingMessageTimer = null;
+      let workWaitingQueueActive = false;
+      let workRuntimePhase = "idle";
       let taskUiInteractingUntil = 0;
+      let historyUiInteractingUntil = 0;
       let cachedAgentHistories = [];
+      let cachedActiveRuntime = null;
+      let cachedConversation = { session_id: null, messages: [] };
+      let cachedGroupChatInspector = { workflow_type: "work_group_chat", run_count: 0, runs: [] };
       let cachedTaskFlow = [];
       let cachedTasks = [];
       let cachedRequests = [];
@@ -1088,10 +1577,111 @@
         speedMs: 1800,
         autoplay: false,
         open: true,
+        timer: null,
       };
+      const popupSlideshowState = {
+        requestId: null,
+        followLatest: true,
+        slideIndexByRequest: {},
+        speedMs: 1800,
+        autoplay: false,
+        open: true,
+        timer: null,
+      };
+      const WORK_WAITING_MESSAGES = [
+        "Working on it.",
+        "Giving this one a proper minute.",
+        "A little patience, a little progress.",
+        "The workspace is on it.",
+        "Taking the thoughtful route here.",
+        "This one deserves a careful pass.",
+        "Good things are worth a beat.",
+        "The workspace is still with you on this one.",
+        "A tiny pause, not a dead end.",
+        "Letting this one come together properly.",
+        "No rush, this one is getting some attention.",
+        "The request is still getting the deluxe treatment.",
+        "Holding steady while this one comes together.",
+        "A quick breather while this one sorts itself out.",
+        "Giving the answer a little room to breathe.",
+        "This one is taking the scenic route.",
+        "Still on the case.",
+        "A little more patience and we should be there.",
+        "The workspace has not wandered off.",
+        "Taking a moment to do this without chaos.",
+        "This one has a bit more going on.",
+        "Progress, just not the dramatic kind.",
+        "A small wait now for a cleaner result later.",
+        "This one is moving at thoughtful speed.",
+        "Still here, still working.",
+        "The request is getting some careful attention.",
+        "You have my patience. The workspace has yours too.",
+        "A polite amount of waiting is happening.",
+        "Nothing exciting to watch, but it is still moving.",
+        "This one is taking the long hallway, not the shortcut."
+      ];
 
       function delay(ms) {
         return new Promise((resolve) => window.setTimeout(resolve, ms));
+      }
+
+      function isCompactComposerViewport() {
+        return window.innerWidth <= 640;
+      }
+
+      function setComposerMenuOpen(isOpen) {
+        if (!composerMenu || !composerMoreButton) {
+          return;
+        }
+        const nextValue = Boolean(isOpen);
+        composerMenu.hidden = !nextValue;
+        composerMoreButton.setAttribute("aria-expanded", nextValue ? "true" : "false");
+      }
+
+      function resizeComposerTextarea() {
+        if (!messageInput) {
+          return;
+        }
+        messageInput.style.height = "auto";
+        const maxHeight = 128;
+        messageInput.style.height = `${Math.min(messageInput.scrollHeight, maxHeight)}px`;
+        messageInput.style.overflowY = messageInput.scrollHeight > maxHeight ? "auto" : "hidden";
+      }
+
+      function syncComposerInputState() {
+        if (!composerDock || !messageInput || !sendButton) {
+          return;
+        }
+        const hasText = messageInput.value.trim().length > 0;
+        const sttProxy = composerDock.querySelector(".composer-stt-proxy");
+        composerDock.classList.toggle("has-text", hasText);
+        sendButton.disabled = !hasText || !activeWorkId;
+        if (sttProxy) {
+          sttProxy.disabled = !activeWorkId;
+        }
+        if (hasText) {
+          setComposerMenuOpen(false);
+        }
+      }
+
+      function syncMicProxyState() {
+        const sttProxy = composerDock?.querySelector(".composer-stt-proxy");
+        if (!sttProxy) {
+          return;
+        }
+        const isRecording = airMicButton?.dataset.state === "recording";
+        sttProxy.dataset.state = isRecording ? "recording" : "idle";
+        const label = isRecording ? "Stop recording" : "Send voice note";
+        sttProxy.setAttribute("aria-label", label);
+        sttProxy.setAttribute("title", label);
+        sttProxy.disabled = !activeWorkId || Boolean(airMicButton?.disabled);
+        sttProxy.innerHTML = isRecording
+          ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h6v6H9z" /></svg>'
+          : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2.5 2.5 0 0 0-2.5 2.5v5a2.5 2.5 0 1 0 5 0v-5A2.5 2.5 0 0 0 12 4Z" /><path d="M7 11.5a5 5 0 0 0 10 0" /><path d="M12 16.5V20" /><path d="M9 20h6" /></svg>';
+      }
+
+      function setUtilityPanelOpen(isOpen) {
+        document.body.classList.toggle("utility-panel-open", Boolean(isOpen));
       }
 
       function isRecoverableNetworkError(error) {
@@ -1701,16 +2291,25 @@
         window.Prism.highlightAllUnder(container);
       }
 
-      function appendChatMessage(role, content) {
+      function appendChatMessage(role, content, options = {}) {
+        const { shouldScroll = true, agentName = "" } = options;
         const node = document.createElement("div");
         node.className = `msg ${role}`;
+        if (role === "assistant" && agentName) {
+          const label = document.createElement("div");
+          label.className = "msg-agent-name";
+          label.textContent = agentName;
+          node.appendChild(label);
+        }
         const body = document.createElement("div");
         body.className = "msg-body";
         body.appendChild(renderMarkdownContent(content));
         node.appendChild(body);
         chatLog.appendChild(node);
         highlightRenderedCode(body);
-        chatLog.scrollTop = chatLog.scrollHeight;
+        if (shouldScroll) {
+          chatLog.scrollTop = chatLog.scrollHeight;
+        }
         return node;
       }
 
@@ -1725,20 +2324,158 @@
         return clone.textContent || "";
       }
 
+      function getRenderedChatMessageCount() {
+        return chatLog ? chatLog.querySelectorAll(".msg").length : 0;
+      }
+
+      function getHistoryChatMessageCount(agentHistories) {
+        return normalizeConversation(null, agentHistories || []).messages.length;
+      }
+
       function setConversationQueueStatus(text, isError = false) {
-        if (!conversationQueueStatus) {
+        const normalized = String(text || "").trim().toLowerCase();
+        const shouldShowWaiting = !isError && Boolean(normalized) && (
+          normalized.includes("waiting")
+          || normalized.includes("working")
+          || normalized.includes("running")
+          || normalized.includes("recovering")
+          || normalized.includes("retrying")
+          || normalized.includes("thinking")
+          || normalized.includes("pacing")
+          || normalized.includes("processing")
+        );
+        [conversationQueueStatus, composerQueueStatus].forEach((node) => {
+          if (!node) {
+            return;
+          }
+          node.textContent = text || "";
+          node.dataset.state = isError ? "error" : "idle";
+        });
+        workWaitingQueueActive = shouldShowWaiting;
+        applyWorkWaitingIndicatorState();
+      }
+
+      function rotateWorkWaitingMessage() {
+        if (!workWaitingIndicator) {
           return;
         }
-        conversationQueueStatus.textContent = text || "";
-        conversationQueueStatus.dataset.state = isError ? "error" : "idle";
+        const available = WORK_WAITING_MESSAGES.length;
+        if (!available) {
+          workWaitingIndicator.textContent = "Working...";
+          return;
+        }
+        let nextIndex = Math.floor(Math.random() * available);
+        if (available > 1 && nextIndex === workWaitingMessageIndex) {
+          nextIndex = (nextIndex + 1) % available;
+        }
+        workWaitingMessageIndex = nextIndex;
+        workWaitingIndicator.textContent = WORK_WAITING_MESSAGES[nextIndex];
+      }
+
+      function setWorkWaitingIndicatorActive(isActive) {
+        workWaitingQueueActive = Boolean(isActive);
+        applyWorkWaitingIndicatorState();
+      }
+
+      function applyWorkWaitingIndicatorState() {
+        if (!workWaitingIndicator) {
+          return;
+        }
+        const shouldRotate = workRuntimePhase === "working" || workWaitingQueueActive;
+        if (workRuntimePhase === "failed") {
+          if (workWaitingMessageTimer) {
+            window.clearInterval(workWaitingMessageTimer);
+            workWaitingMessageTimer = null;
+          }
+          workWaitingIndicator.dataset.state = "failed";
+          workWaitingIndicator.hidden = false;
+          workWaitingIndicator.textContent = "Work hit a snag.";
+          workWaitingMessageIndex = -1;
+          return;
+        }
+        if (workRuntimePhase === "waiting_input") {
+          if (workWaitingMessageTimer) {
+            window.clearInterval(workWaitingMessageTimer);
+            workWaitingMessageTimer = null;
+          }
+          workWaitingIndicator.dataset.state = "waiting_input";
+          workWaitingIndicator.hidden = false;
+          workWaitingIndicator.textContent = "Waiting for your input.";
+          workWaitingMessageIndex = -1;
+          return;
+        }
+        if (workRuntimePhase === "started") {
+          if (workWaitingMessageTimer) {
+            window.clearInterval(workWaitingMessageTimer);
+            workWaitingMessageTimer = null;
+          }
+          workWaitingIndicator.dataset.state = "started";
+          workWaitingIndicator.hidden = false;
+          workWaitingIndicator.textContent = "Work has started.";
+          workWaitingMessageIndex = -1;
+          return;
+        }
+        if (!shouldRotate) {
+          if (workWaitingMessageTimer) {
+            window.clearInterval(workWaitingMessageTimer);
+            workWaitingMessageTimer = null;
+          }
+          workWaitingIndicator.textContent = "";
+          workWaitingMessageIndex = -1;
+          return;
+        }
+        workWaitingIndicator.dataset.state = "waiting";
+        workWaitingIndicator.hidden = false;
+        rotateWorkWaitingMessage();
+        if (!workWaitingMessageTimer) {
+          workWaitingMessageTimer = window.setInterval(() => {
+            rotateWorkWaitingMessage();
+          }, 6500);
+        }
+      }
+
+      function showWorkStartedIndicator() {
+        workRuntimePhase = "started";
+        applyWorkWaitingIndicatorState();
+      }
+
+      function syncWorkRuntimeState(activeRuntime) {
+        cachedActiveRuntime = activeRuntime && typeof activeRuntime === "object" ? activeRuntime : null;
+        const taskStatus = String(cachedActiveRuntime?.task_status || "").trim().toLowerCase();
+        const pendingInteraction = cachedActiveRuntime?.pending_interaction;
+        const groupChatState = cachedActiveRuntime?.group_chat_state || {};
+        const terminationState = groupChatState?.manager_termination_state || {};
+        const terminationStatus = String(terminationState?.status || "").trim().toLowerCase();
+        const waitingForInput = Boolean(pendingInteraction && pendingInteraction.active) || taskStatus === "waiting_input" || terminationStatus === "needs_user_input";
+        if (waitingForInput) {
+          workRuntimePhase = "waiting_input";
+        } else if (taskStatus === "failed" || terminationStatus === "failed") {
+          workRuntimePhase = "failed";
+        } else if (taskStatus === "done" || terminationStatus === "completed") {
+          workRuntimePhase = "completed";
+        } else if (taskStatus === "in_progress") {
+          workRuntimePhase = "working";
+        } else if (!cachedActiveRuntime || !activeWorkId) {
+          workRuntimePhase = "idle";
+        }
+        applyWorkWaitingIndicatorState();
+      }
+
+      function syncSpeechStatus(text, isError = false) {
+        [airVoiceStatus, composerVoiceStatus].forEach((node) => {
+          if (!node) {
+            return;
+          }
+          node.textContent = text || "";
+          node.dataset.state = isError ? "error" : "idle";
+        });
       }
 
       let voiceQueuePaused = false;
       let voiceQueueGeneration = 0;
 
       function isVoiceDeliveryMode() {
-        return Boolean(airVoiceController && typeof airVoiceController.isVoiceModeEnabled === "function"
-          && airVoiceController.isVoiceModeEnabled());
+        return false;
       }
 
       function resetVoiceQueueState() {
@@ -1752,11 +2489,11 @@
       }
 
       async function deliverAssistantText(text, options = {}) {
-        const { onAssistantMessage } = options;
+        const { onAssistantMessage, agentName = "" } = options;
         if (!text) {
           return;
         }
-        appendChatMessage("assistant", text);
+        appendChatMessage("assistant", text, { agentName });
         if (isVoiceDeliveryMode() && airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
           await airVoiceController.speakAssistantMessageAndWait(text);
           return;
@@ -1823,10 +2560,7 @@
           }
           await delay(CHAT_RECOVERY_POLL_MS);
         }
-        setConversationQueueStatus(
-          "Connection dropped before the response reached the browser. The request may still complete; refresh if needed.",
-          true
-        );
+        setConversationQueueStatus("Work is still running. Waiting for the assistant response...");
         return null;
       }
 
@@ -1835,9 +2569,82 @@
         return error instanceof TypeError || /networkerror|failed to fetch|load failed/i.test(message);
       }
 
-      function extractChanakyaMessages(agentHistories) {
+      function normalizeConversation(conversation, agentHistories) {
+        if (conversation && Array.isArray(conversation.messages)) {
+          return {
+            session_id: conversation.session_id || null,
+            message_count: Number(conversation.message_count || conversation.messages.length || 0),
+            assistant_count: Number(conversation.assistant_count || 0),
+            user_count: Number(conversation.user_count || 0),
+            messages: conversation.messages,
+          };
+        }
         const chanakyaHistory = (agentHistories || []).find((item) => item.agent_id === "agent_chanakya");
-        return Array.isArray(chanakyaHistory?.messages) ? chanakyaHistory.messages : [];
+        const messages = Array.isArray(chanakyaHistory?.messages) ? chanakyaHistory.messages : [];
+        return {
+          session_id: chanakyaHistory?.session_id || null,
+          message_count: messages.length,
+          assistant_count: messages.filter((message) => String(message?.role || "") === "assistant").length,
+          user_count: messages.filter((message) => String(message?.role || "") === "user").length,
+          messages,
+        };
+      }
+
+      function getCachedAssistantMessageCount() {
+        return (cachedConversation?.messages || [])
+          .filter((message) => String(message?.role || "") === "assistant")
+          .length;
+      }
+
+      function isWorkReplyPendingError(error) {
+        const message = error instanceof Error ? error.message : String(error || "");
+        return isRecoverableNetworkError(error)
+          || /next message failed/i.test(message)
+          || /connection interrupted while waiting for queued replies/i.test(message)
+          || /networkerror when attempting to fetch resource/i.test(message);
+      }
+
+      function clearPendingReplyWatcher() {
+        pendingReplyWorkId = null;
+        pendingReplyBaselineAssistantCount = 0;
+        pendingReplyWatcher = null;
+        setWorkWaitingIndicatorActive(false);
+      }
+
+      async function waitForPendingWorkReply(workId, baselineAssistantCount) {
+        pendingReplyWorkId = workId;
+        pendingReplyBaselineAssistantCount = baselineAssistantCount;
+        setConversationQueueStatus("Work is still running. Waiting for the assistant response...");
+        setWorkWaitingIndicatorActive(true);
+        startLiveRefresh(900);
+        try {
+          while (activeWorkId === workId && pendingReplyWorkId === workId) {
+            await loadWorkHistory(workId, { background: true });
+            const assistantCount = getCachedAssistantMessageCount();
+            if (assistantCount > baselineAssistantCount) {
+              setConversationQueueStatus("");
+              clearPendingReplyWatcher();
+              startLiveRefresh(2400);
+              return true;
+            }
+            await delay(1500);
+          }
+        } finally {
+          if (pendingReplyWorkId === workId) {
+            clearPendingReplyWatcher();
+          }
+        }
+        return false;
+      }
+
+      function ensurePendingReplyWatcher(workId, baselineAssistantCount) {
+        const normalizedBaseline = Math.max(Number(baselineAssistantCount || 0), getCachedAssistantMessageCount());
+        pendingReplyBaselineAssistantCount = normalizedBaseline;
+        if (pendingReplyWatcher && pendingReplyWorkId === workId) {
+          return pendingReplyWatcher;
+        }
+        pendingReplyWatcher = waitForPendingWorkReply(workId, normalizedBaseline);
+        return pendingReplyWatcher;
       }
 
       async function recoverSubmittedWorkChat(workId, baselineMessageCount) {
@@ -1849,19 +2656,22 @@
             );
             if (response.ok) {
               const data = await response.json();
-              const messages = extractChanakyaMessages(data.agent_histories || []);
+              const conversation = normalizeConversation(data.conversation, data.agent_histories || []);
+              const messages = conversation.messages || [];
               if (messages.length > baselineMessageCount) {
-                renderChatFromHistory(data.agent_histories || []);
+                renderChatFromHistory(conversation);
+                cachedConversation = conversation;
                 cachedAgentHistories = data.agent_histories || [];
+                cachedGroupChatInspector = data.group_chat_inspector || { workflow_type: "work_group_chat", run_count: 0, runs: [] };
                 cachedTaskFlow = data.task_flow || [];
                 cachedTasks = data.tasks || [];
                 cachedRequests = data.requests || [];
-                renderAgentHistories(cachedAgentHistories, cachedTaskFlow, cachedTasks, cachedRequests);
+                renderAgentHistories(cachedConversation, cachedAgentHistories, cachedGroupChatInspector, cachedTaskFlow, cachedTasks, cachedRequests);
                 const assistantMessages = messages.filter((item) => item.role === "assistant");
                 const latestAssistant = assistantMessages[assistantMessages.length - 1];
                 setConversationQueueStatus(assistantMessages.length ? "" : "Request is still being processed...");
                 return {
-                  session_id: data.work?.session_id || null,
+                  session_id: conversation.session_id || null,
                   message: latestAssistant?.content || "",
                   messages: latestAssistant ? [{ text: latestAssistant.content || "", delay_ms: 0 }] : [],
                   metadata: latestAssistant?.metadata || {},
@@ -2042,7 +2852,7 @@
       }
 
       async function submitWorkChatMessage(message, options = {}) {
-        const { onAssistantMessage, voiceMode = false } = options;
+        const { onAssistantMessage, voiceMode = false, messageMetadata = null } = options;
         if (!activeWorkId) {
           throw new Error("Select a work before starting voice mode.");
         }
@@ -2069,6 +2879,7 @@
               a2a_remote_agent: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_remote_agent : null,
               a2a_model_provider: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_provider : null,
               a2a_model_id: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_model_id : null,
+              message_metadata: messageMetadata,
             }),
           });
         } catch (error) {
@@ -2093,7 +2904,7 @@
           if (!text) {
             continue;
           }
-          await deliverAssistantText(text, { onAssistantMessage });
+          await deliverAssistantText(text, { onAssistantMessage, agentName: item.agent_name || "" });
         }
         if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
           const pendingCount = Number(data.metadata?.pending_delivery_count || 0);
@@ -2126,6 +2937,43 @@
           airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
         }
         return data;
+      }
+
+      async function sendWorkMessage(message, options = {}) {
+        const { messageMetadata = null } = options;
+        if (!activeWorkId) {
+          return;
+        }
+        const workIdAtSend = activeWorkId;
+        const baselineAssistantCount = getCachedAssistantMessageCount();
+        const text = String(message || "").trim();
+        if (!text) {
+          return;
+        }
+        appendChatMessage("user", text);
+        showWorkStartedIndicator();
+        if (messageInput) {
+          messageInput.value = "";
+          resizeComposerTextarea();
+          syncComposerInputState();
+        }
+        slideshowState.followLatest = true;
+        startLiveRefresh(900);
+        try {
+          await submitWorkChatMessage(text, { messageMetadata });
+          clearPendingReplyWatcher();
+        } catch (error) {
+          if (isWorkReplyPendingError(error)) {
+            ensurePendingReplyWatcher(workIdAtSend, baselineAssistantCount);
+            return;
+          }
+          appendChatMessage("assistant", error instanceof Error ? error.message : String(error));
+        } finally {
+          if (!pendingReplyWatcher) {
+            startLiveRefresh(2400);
+          }
+          syncComposerInputState();
+        }
       }
 
       if (chatBackendSelect) {
@@ -2202,6 +3050,53 @@
         void syncActiveWorkFromSession();
       });
 
+      window.addEventListener("air-voice-status", (event) => {
+        const detail = event instanceof CustomEvent ? event.detail || {} : {};
+        syncSpeechStatus(detail.text || "", Boolean(detail.isError));
+      });
+
+      if (window.createAirVoiceController && airMicButton && airSttModel && airTtsModel && airVoiceStatus) {
+        airVoiceController = window.createAirVoiceController({
+          baseUrl: AIR_SERVER_URL,
+          llmModelSelect: airLlmModel,
+          sttModelSelect: airSttModel,
+          ttsModelSelect: airTtsModel,
+          recordButton: airMicButton,
+          continuousButton: null,
+          speakButton: airSpeakButton,
+          statusNode: airVoiceStatus,
+          submitText: async (text, options = {}) => {
+            const { metadata = null } = options;
+            await sendWorkMessage(text, { messageMetadata: metadata });
+            return getLatestAssistantMessageText();
+          },
+          getLatestAssistantText: getLatestAssistantMessageText,
+          onTranscript: () => {},
+          beforeRecordStart: async () => {
+            if (!activeWorkId) {
+              throw new Error("Select a work before recording.");
+            }
+          },
+          pauseAssistantReplies: pauseConversationReplies,
+        });
+        syncMicProxyState();
+        new MutationObserver(() => {
+          syncMicProxyState();
+        }).observe(airMicButton, {
+          attributes: true,
+          attributeFilter: ["data-state", "disabled", "title", "aria-label"],
+        });
+      }
+      if (airRefreshModelsButton) {
+        airRefreshModelsButton.addEventListener("click", async () => {
+          if (!airVoiceController || typeof airVoiceController.fetchModels !== "function") {
+            return;
+          }
+          await airVoiceController.fetchModels();
+          syncSpeechStatus(airVoiceStatus?.textContent || "", airVoiceStatus?.dataset.state === "error");
+        });
+      }
+
       function formatAsPrettyJSON(text) {
         if (typeof text !== "string") return "";
         const trimmed = text.trim();
@@ -2213,10 +3108,19 @@
         }
       }
 
+      function syncDeleteWorkActionState() {
+        if (composerDeleteWorkButton) {
+          composerDeleteWorkButton.disabled = !activeWorkId;
+        }
+        if (headerDeleteWorkButton) {
+          headerDeleteWorkButton.disabled = !activeWorkId;
+        }
+      }
+
       function renderWorks() {
         if (!works.length) {
           workList.innerHTML = '<div class="empty">No works yet.</div>';
-          deleteWorkButton.disabled = true;
+          syncDeleteWorkActionState();
           return;
         }
         const nodes = works.map((work) => {
@@ -2227,27 +3131,43 @@
           return card;
         });
         workList.replaceChildren(...nodes);
-        deleteWorkButton.disabled = !activeWorkId;
+        syncDeleteWorkActionState();
       }
 
       function resetWorkView() {
+        clearPendingReplyWatcher();
         chatTitle.textContent = "Select a work";
-        chatSubtitle.textContent = "Work-scoped chat with Chanakya.";
         chatLog.innerHTML = '<div class="empty">No work selected.</div>';
         historyList.innerHTML = '<div class="empty">No histories yet.</div>';
+        cachedActiveRuntime = null;
+        cachedConversation = { session_id: null, messages: [] };
         cachedAgentHistories = [];
+        cachedGroupChatInspector = { workflow_type: "work_group_chat", run_count: 0, runs: [] };
         cachedTaskFlow = [];
         cachedTasks = [];
         cachedRequests = [];
+        workRuntimePhase = "idle";
+        workWaitingQueueActive = false;
+        applyWorkWaitingIndicatorState();
         sendButton.disabled = true;
         messageInput.disabled = true;
-        deleteWorkButton.disabled = true;
+        if (airMicButton) {
+          airMicButton.disabled = true;
+        }
+        const sttProxy = composerDock?.querySelector(".composer-stt-proxy");
+        if (sttProxy) {
+          sttProxy.disabled = true;
+        }
+        syncDeleteWorkActionState();
+        syncHistoryWindowContent();
+        syncComposerInputState();
+        syncMicProxyState();
       }
 
-      function stopSlideshow() {
-        if (slideshowTimer) {
-          window.clearInterval(slideshowTimer);
-          slideshowTimer = null;
+      function stopSlideshow(state = slideshowState) {
+        if (state && state.timer) {
+          window.clearInterval(state.timer);
+          state.timer = null;
         }
       }
 
@@ -2269,7 +3189,12 @@
         historyFetchNonce += 1;
         stopSlideshow();
         stopLiveRefresh();
-        deleteWorkButton.disabled = true;
+        if (composerDeleteWorkButton) {
+          composerDeleteWorkButton.disabled = true;
+        }
+        if (headerDeleteWorkButton) {
+          headerDeleteWorkButton.disabled = true;
+        }
         try {
           const response = await fetch(`/api/works/${encodeURIComponent(deletingWorkId)}`, {
             method: "DELETE",
@@ -2280,13 +3205,47 @@
           clearActiveWorkSelection();
           setStatus(`Deleted ${label}`);
         } catch (error) {
-          deleteWorkButton.disabled = false;
+          syncDeleteWorkActionState();
           setStatus(error instanceof Error ? error.message : String(error), true);
         }
       }
 
       function markTaskUiInteraction(holdMs = 4500) {
         taskUiInteractingUntil = Date.now() + holdMs;
+      }
+
+      function markHistoryUiInteraction(holdMs = 6000) {
+        historyUiInteractingUntil = Date.now() + holdMs;
+      }
+
+      function isHistoryUiInteracting() {
+        if (Date.now() < historyUiInteractingUntil) {
+          return true;
+        }
+        const activeElement = document.activeElement;
+        if (activeElement instanceof HTMLElement && historyList && historyList.contains(activeElement)) {
+          return true;
+        }
+        if (historiesWindow && !historiesWindow.closed) {
+          try {
+            const popupDoc = historiesWindow.document;
+            const popupActive = popupDoc.activeElement;
+            const popupHasFocus = typeof historiesWindow.document.hasFocus === "function"
+              ? historiesWindow.document.hasFocus()
+              : false;
+            if (popupHasFocus) {
+              return true;
+            }
+            if (popupActive instanceof historiesWindow.HTMLElement) {
+              const contentNode = popupDoc.getElementById("historyWindowContent");
+              if (contentNode && contentNode.contains(popupActive)) {
+                return true;
+              }
+            }
+          } catch {
+          }
+        }
+        return false;
       }
 
       function startLiveRefresh(intervalMs = 2400) {
@@ -2354,15 +3313,20 @@
         return "idle";
       }
 
-      function renderTaskSlideshow(taskFlow, tasks, agentHistories, requests) {
+      function renderTaskSlideshow(taskFlow, tasks, agentHistories, requests, options = {}) {
+        const {
+          state = slideshowState,
+          interactionMarker = markTaskUiInteraction,
+          historyRoot = historyList,
+        } = options;
         const wrap = document.createElement("details");
         wrap.className = "flow-wrap section-toggle";
-        wrap.open = slideshowState.open;
+        wrap.open = state.open;
         wrap.addEventListener("toggle", () => {
-          slideshowState.open = wrap.open;
+          state.open = wrap.open;
         });
         const summary = document.createElement("summary");
-        summary.textContent = "Task Flow Slideshow";
+        summary.textContent = "Task Flow";
         wrap.appendChild(summary);
 
         const body = document.createElement("div");
@@ -2372,19 +3336,19 @@
         const requestRecords = (requests || []).filter((item) => item && item.id);
         const allRequestIds = requestRecords.map((item) => item.id);
         const latestRequestId = allRequestIds.length ? allRequestIds[allRequestIds.length - 1] : null;
-        let selectedRequestId = slideshowState.requestId;
-        if (slideshowState.followLatest || !selectedRequestId || !allRequestIds.includes(selectedRequestId)) {
+        let selectedRequestId = state.requestId;
+        if (state.followLatest || !selectedRequestId || !allRequestIds.includes(selectedRequestId)) {
           selectedRequestId = latestRequestId;
-          slideshowState.requestId = selectedRequestId;
+          state.requestId = selectedRequestId;
         }
         let slides = groupTaskFlow(taskFlow, selectedRequestId);
-        let currentIndex = Number(slideshowState.slideIndexByRequest[selectedRequestId || "none"] || 0);
-        let speedMs = Number(slideshowState.speedMs || 1800);
+        let currentIndex = Number(state.slideIndexByRequest[selectedRequestId || "none"] || 0);
+        let speedMs = Number(state.speedMs || 1800);
 
         const controls = document.createElement("div");
         controls.className = "slideshow-controls";
-        controls.addEventListener("pointerdown", () => markTaskUiInteraction());
-        controls.addEventListener("focusin", () => markTaskUiInteraction());
+        controls.addEventListener("pointerdown", () => interactionMarker());
+        controls.addEventListener("focusin", () => interactionMarker());
 
         const requestSelect = document.createElement("select");
         allRequestIds.forEach((requestId) => {
@@ -2440,9 +3404,9 @@
         slideCard.className = "slide-card";
 
         function openAgentHistory(agentId) {
-          const messageSection = historyList.querySelector("details.section-toggle");
+          const messageSection = historyRoot ? historyRoot.querySelector("#messageFlowHost details.section-toggle, details.section-toggle") : null;
           if (messageSection) messageSection.open = true;
-          const card = historyList.querySelector(`details.agent-toggle[data-agent-id="${agentId}"]`);
+          const card = historyRoot ? historyRoot.querySelector(`details.agent-toggle[data-agent-id="${agentId}"]`) : null;
           if (card) {
             card.open = true;
             card.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2459,7 +3423,7 @@
           }
           if (currentIndex < 0) currentIndex = 0;
           if (currentIndex >= slides.length) currentIndex = slides.length - 1;
-          slideshowState.slideIndexByRequest[selectedRequestId || "none"] = currentIndex;
+          state.slideIndexByRequest[selectedRequestId || "none"] = currentIndex;
 
           scrubber.max = String(slides.length - 1);
           scrubber.value = String(currentIndex);
@@ -2552,20 +3516,20 @@
         }
 
         function startSlideshow() {
-          stopSlideshow();
-          slideshowTimer = window.setInterval(() => {
+          stopSlideshow(state);
+          state.timer = window.setInterval(() => {
             if (!slides.length) return;
             currentIndex = (currentIndex + 1) % slides.length;
             renderSlide();
           }, speedMs);
-          slideshowState.autoplay = true;
+          state.autoplay = true;
           playButton.textContent = "Pause";
         }
 
         function togglePlay() {
-          if (slideshowTimer) {
-            stopSlideshow();
-            slideshowState.autoplay = false;
+          if (state.timer) {
+            stopSlideshow(state);
+            state.autoplay = false;
             playButton.textContent = "Play";
             return;
           }
@@ -2573,46 +3537,46 @@
         }
 
         prevButton.addEventListener("click", () => {
-          markTaskUiInteraction();
-          stopSlideshow();
-          slideshowState.autoplay = false;
+          interactionMarker();
+          stopSlideshow(state);
+          state.autoplay = false;
           playButton.textContent = "Play";
           currentIndex = Math.max(0, currentIndex - 1);
           renderSlide();
         });
         nextButton.addEventListener("click", () => {
-          markTaskUiInteraction();
-          stopSlideshow();
-          slideshowState.autoplay = false;
+          interactionMarker();
+          stopSlideshow(state);
+          state.autoplay = false;
           playButton.textContent = "Play";
           currentIndex = Math.min(slides.length - 1, currentIndex + 1);
           renderSlide();
         });
         playButton.addEventListener("click", togglePlay);
         speedSelect.addEventListener("change", () => {
-          markTaskUiInteraction();
+          interactionMarker();
           speedMs = Number(speedSelect.value || 1800);
-          slideshowState.speedMs = speedMs;
-          if (slideshowTimer) startSlideshow();
+          state.speedMs = speedMs;
+          if (state.timer) startSlideshow();
         });
         scrubber.addEventListener("input", () => {
-          markTaskUiInteraction();
-          stopSlideshow();
-          slideshowState.autoplay = false;
+          interactionMarker();
+          stopSlideshow(state);
+          state.autoplay = false;
           playButton.textContent = "Play";
           currentIndex = Number(scrubber.value || "0");
           renderSlide();
         });
         requestSelect.addEventListener("change", () => {
-          markTaskUiInteraction();
-          stopSlideshow();
-          slideshowState.autoplay = false;
+          interactionMarker();
+          stopSlideshow(state);
+          state.autoplay = false;
           playButton.textContent = "Play";
           selectedRequestId = requestSelect.value;
-          slideshowState.requestId = selectedRequestId;
-          slideshowState.followLatest = false;
+          state.requestId = selectedRequestId;
+          state.followLatest = false;
           slides = groupTaskFlow(taskFlow, selectedRequestId);
-          currentIndex = Number(slideshowState.slideIndexByRequest[selectedRequestId || "none"] || 0);
+          currentIndex = Number(state.slideIndexByRequest[selectedRequestId || "none"] || 0);
           renderSlide();
         });
 
@@ -2627,7 +3591,7 @@
         shell.appendChild(slideCard);
         renderSlide();
         speedSelect.value = String(speedMs);
-        if (slideshowState.autoplay) {
+        if (state.autoplay) {
           startSlideshow();
         } else {
           playButton.textContent = "Play";
@@ -2654,17 +3618,388 @@
         return { messageHost, taskHost };
       }
 
-      function renderMessageSection(agentHistories) {
+      function buildHistorySummaryLine(parts) {
+        return parts.filter((part) => part !== null && part !== undefined && part !== "").join(" | ");
+      }
+
+      function createHistoryMetric(label, value, tone = "neutral") {
+        const item = document.createElement("div");
+        item.className = `history-metric history-metric-${tone}`;
+        const labelNode = document.createElement("span");
+        labelNode.className = "history-metric-label";
+        labelNode.textContent = label;
+        const valueNode = document.createElement("strong");
+        valueNode.className = "history-metric-value";
+        valueNode.textContent = value;
+        item.append(labelNode, valueNode);
+        return item;
+      }
+
+      function appendSectionLabel(parent, text) {
+        const label = document.createElement("div");
+        label.className = "history-section-label";
+        label.textContent = text;
+        parent.appendChild(label);
+      }
+
+      function classifyTraceTone(mode) {
+        if (mode === "runtime_traced") return "good";
+        if (mode === "reconstructed") return "warn";
+        return "neutral";
+      }
+
+      function renderPromptSnapshotCard(snapshot, label) {
+        const card = document.createElement("details");
+        card.className = "agent-card";
+        const summary = document.createElement("summary");
+        summary.textContent = buildHistorySummaryLine([
+          label,
+          snapshot?.agent_name || "Unknown",
+          snapshot?.agent_role || "unknown-role",
+          `tools=${Array.isArray(snapshot?.tool_ids) ? snapshot.tool_ids.length : 0}`,
+        ]);
+        card.appendChild(summary);
+        const body = document.createElement("div");
+        const meta = document.createElement("div");
+        meta.className = "history-metric-grid";
+        meta.append(
+          createHistoryMetric("Agent", snapshot?.agent_name || "Unknown"),
+          createHistoryMetric("Role", snapshot?.agent_role || "unknown"),
+          createHistoryMetric("Tools", String(Array.isArray(snapshot?.tool_ids) ? snapshot.tool_ids.length : 0)),
+          createHistoryMetric("Backend", snapshot?.runtime_metadata?.backend || "unknown"),
+          createHistoryMetric("Model", snapshot?.runtime_metadata?.model || "default")
+        );
+        body.appendChild(meta);
+        if (Array.isArray(snapshot?.tool_summaries) && snapshot.tool_summaries.length) {
+          appendSectionLabel(body, "Tool availability");
+          const toolSummary = document.createElement("pre");
+          toolSummary.textContent = `available_tools:\n${JSON.stringify(snapshot.tool_summaries, null, 2)}`;
+          body.appendChild(toolSummary);
+        }
+        appendSectionLabel(body, "System prompt packet");
+        const prompt = document.createElement("pre");
+        prompt.textContent = snapshot?.system_prompt || "No prompt captured.";
+        body.appendChild(prompt);
+        card.appendChild(body);
+        return card;
+      }
+
+      function renderToolTraceCard(agentName, toolTrace) {
+        const block = document.createElement("div");
+        block.className = `agent-msg ${toolTrace?.status === "failed" ? "user" : "assistant"}`;
+        const meta = document.createElement("div");
+        meta.className = "flow-meta";
+        meta.textContent = buildHistorySummaryLine([
+          agentName || "Unknown",
+          toolTrace?.tool_name || toolTrace?.tool_id || "tool",
+          toolTrace?.server_name || "unknown-server",
+          toolTrace?.status || "unknown-status",
+        ]);
+        block.appendChild(meta);
+        const payload = document.createElement("pre");
+        payload.textContent = JSON.stringify(toolTrace || {}, null, 2);
+        block.appendChild(payload);
+        return block;
+      }
+
+      function renderGroupChatRun(run, index) {
+        const trace = run && typeof run.execution_trace === "object" ? run.execution_trace : {};
+        const details = document.createElement("details");
+        details.className = "agent-card agent-toggle";
+        details.dataset.agentId = run?.request_id || `run-${index}`;
+        const summary = document.createElement("summary");
+        const callSequence = Array.isArray(trace.call_sequence) ? trace.call_sequence : [];
+        const participantTurns = callSequence.filter((item) => item && item.kind === "participant_turn").length;
+        const toolCallCount = (Array.isArray(trace.tool_calls) ? trace.tool_calls : []).reduce(
+          (count, item) => count + (Array.isArray(item.tool_traces) ? item.tool_traces.length : 0),
+          0
+        );
+        summary.textContent = buildHistorySummaryLine([
+          `Run ${index + 1}`,
+          run?.status || trace?.completion?.status || "unknown",
+          run?.request_id || "no-request",
+          `turns=${participantTurns}`,
+          run?.created_at || "unknown-time",
+        ]);
+        details.appendChild(summary);
+
+        const body = document.createElement("div");
+        const overview = document.createElement("div");
+        overview.className = "agent-history-summary history-hero run-hero";
+        overview.innerHTML = `<strong>Run Overview</strong>`;
+        overview.append(
+          createHistoryMetric("Trace", trace?.capture_mode || "unknown", classifyTraceTone(trace?.capture_mode)),
+          createHistoryMetric("Route", run?.route || "unknown"),
+          createHistoryMetric("Turns", String(participantTurns), "good"),
+          createHistoryMetric("Tool calls", String(toolCallCount), toolCallCount ? "good" : "neutral"),
+          createHistoryMetric("Manager task", run?.manager_task_id || "unknown"),
+          createHistoryMetric("Root task", run?.root_task_id || "unknown")
+        );
+        body.appendChild(overview);
+
+        appendSectionLabel(body, "User request");
+        const requestBlock = document.createElement("pre");
+        requestBlock.textContent = trace.request_message || run?.user_message || "";
+        body.appendChild(requestBlock);
+
+        const seeded = document.createElement("details");
+        seeded.className = "agent-card";
+        const seededSummary = document.createElement("summary");
+        const seededContext = Array.isArray(trace.seeded_context) ? trace.seeded_context : [];
+        seededSummary.textContent = `Shared context before this run (${seededContext.length} messages)`;
+        seeded.appendChild(seededSummary);
+        const seededBody = document.createElement("div");
+        const seededIntro = document.createElement("div");
+        seededIntro.className = "flow-meta section-intro";
+        seededIntro.textContent = "This is the conversation window that was seeded into the runtime before the first manager decision.";
+        seededBody.appendChild(seededIntro);
+        if (seededContext.length) {
+          seededContext.forEach((item) => {
+            const block = document.createElement("div");
+            block.className = `agent-msg ${item.role === "user" ? "user" : "assistant"}`;
+            const meta = document.createElement("div");
+            meta.className = "flow-meta";
+            meta.textContent = buildHistorySummaryLine([
+              item.role || "assistant",
+              item.author_name || "unknown-author",
+            ]);
+            const content = document.createElement("pre");
+            content.textContent = item.text || "";
+            block.append(meta, content);
+            seededBody.appendChild(block);
+          });
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No prior shared context was seeded into this run.";
+          seededBody.appendChild(empty);
+        }
+        seeded.appendChild(seededBody);
+        body.appendChild(seeded);
+
+        const sequence = document.createElement("details");
+        sequence.className = "agent-card";
+        sequence.open = true;
+        const sequenceSummary = document.createElement("summary");
+        sequenceSummary.textContent = `Agent call sequence (${callSequence.length} steps)`;
+        sequence.appendChild(sequenceSummary);
+        const sequenceBody = document.createElement("div");
+        const sequenceTimeline = document.createElement("div");
+        sequenceTimeline.className = "history-timeline";
+        if (callSequence.length) {
+          callSequence.forEach((step) => {
+            const stepCard = document.createElement("div");
+            stepCard.className = `agent-msg history-step ${step.kind === "participant_turn" ? "assistant" : "user"}`;
+            const stepMarker = document.createElement("div");
+            stepMarker.className = "history-step-marker";
+            stepMarker.textContent = String(step.step || "?");
+            stepCard.appendChild(stepMarker);
+            const stepInner = document.createElement("div");
+            stepInner.className = "history-step-inner";
+            const stepMeta = document.createElement("div");
+            stepMeta.className = "flow-meta";
+            if (step.kind === "participant_turn") {
+              stepMeta.textContent = buildHistorySummaryLine([
+                `step ${step.step}`,
+                "participant call",
+                step.agent_name || "Unknown",
+                step.agent_role || "unknown-role",
+                step.prompt_ref || "no-prompt-ref",
+              ]);
+            } else {
+              const decision = step.decision && typeof step.decision === "object" ? step.decision : {};
+              stepMeta.textContent = buildHistorySummaryLine([
+                `step ${step.step}`,
+                "manager decision",
+                decision.action || "unknown-action",
+                decision.selected_agent_name || decision.status || "",
+              ]);
+            }
+            stepInner.appendChild(stepMeta);
+            const callInput = step.kind === "participant_turn"
+              ? (step.participant_call_input && typeof step.participant_call_input === "object" ? step.participant_call_input : {})
+              : (step.manager_call_input && typeof step.manager_call_input === "object" ? step.manager_call_input : {});
+            const callInputMeta = document.createElement("div");
+            callInputMeta.className = "flow-meta";
+            callInputMeta.textContent = `Exact call packet (${Array.isArray(callInput.input_messages) ? callInput.input_messages.length : 0} messages)`;
+            const callInputPre = document.createElement("pre");
+            callInputPre.textContent = JSON.stringify(callInput, null, 2);
+            stepInner.append(callInputMeta, callInputPre);
+            const sharedMeta = document.createElement("div");
+            sharedMeta.className = "flow-meta";
+            sharedMeta.textContent = `Shared context before step (${Array.isArray(step.shared_context_before) ? step.shared_context_before.length : 0} messages)`;
+            const sharedPre = document.createElement("pre");
+            sharedPre.textContent = JSON.stringify(step.shared_context_before || [], null, 2);
+            stepInner.append(sharedMeta, sharedPre);
+            if (step.kind === "participant_turn") {
+              const outputMeta = document.createElement("div");
+              outputMeta.className = "flow-meta";
+              outputMeta.textContent = "Visible output";
+              const outputPre = document.createElement("pre");
+              outputPre.textContent = step.visible_output || "";
+              stepInner.append(outputMeta, outputPre);
+              if (Array.isArray(step.response_messages) && step.response_messages.length) {
+                const responseMeta = document.createElement("div");
+                responseMeta.className = "flow-meta";
+                responseMeta.textContent = "Raw agent response messages";
+                const responsePre = document.createElement("pre");
+                responsePre.textContent = JSON.stringify(step.response_messages, null, 2);
+                stepInner.append(responseMeta, responsePre);
+              }
+              if (Array.isArray(step.tool_traces) && step.tool_traces.length) {
+                const toolMeta = document.createElement("div");
+                toolMeta.className = "flow-meta";
+                toolMeta.textContent = `Tool calls in this turn (${step.tool_traces.length})`;
+                stepInner.appendChild(toolMeta);
+                step.tool_traces.forEach((toolTrace) => {
+                  stepInner.appendChild(renderToolTraceCard(step.agent_name, toolTrace));
+                });
+              }
+            } else {
+              const decisionPre = document.createElement("pre");
+              decisionPre.textContent = JSON.stringify(step.decision || {}, null, 2);
+              stepInner.appendChild(decisionPre);
+              if (Array.isArray(step.response_messages) && step.response_messages.length) {
+                const responseMeta = document.createElement("div");
+                responseMeta.className = "flow-meta";
+                responseMeta.textContent = "Raw manager response messages";
+                const responsePre = document.createElement("pre");
+                responsePre.textContent = JSON.stringify(step.response_messages, null, 2);
+                stepInner.append(responseMeta, responsePre);
+              }
+            }
+            stepCard.appendChild(stepInner);
+            sequenceTimeline.appendChild(stepCard);
+          });
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No group chat sequence captured for this run.";
+          sequenceTimeline.appendChild(empty);
+        }
+        sequenceBody.appendChild(sequenceTimeline);
+        sequence.appendChild(sequenceBody);
+        body.appendChild(sequence);
+
+        const prompts = document.createElement("details");
+        prompts.className = "agent-card";
+        const promptRefs = trace.prompt_refs && typeof trace.prompt_refs === "object" ? trace.prompt_refs : {};
+        const promptKeys = Object.keys(promptRefs);
+        const promptsSummary = document.createElement("summary");
+        promptsSummary.textContent = `LLM prompt packets (${promptKeys.length})`;
+        prompts.appendChild(promptsSummary);
+        const promptsBody = document.createElement("div");
+        const promptGrid = document.createElement("div");
+        promptGrid.className = "history-card-grid";
+        promptKeys.forEach((key) => {
+          promptGrid.appendChild(renderPromptSnapshotCard(promptRefs[key], key));
+        });
+        if (!promptKeys.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No prompt packets captured for this run.";
+          promptGrid.appendChild(empty);
+        }
+        promptsBody.appendChild(promptGrid);
+        prompts.appendChild(promptsBody);
+        body.appendChild(prompts);
+
+        const toolCallsSection = document.createElement("details");
+        toolCallsSection.className = "agent-card";
+        const toolCalls = Array.isArray(trace.tool_calls) ? trace.tool_calls : [];
+        const toolCallsSummary = document.createElement("summary");
+        toolCallsSummary.textContent = `Tool Calls (${toolCalls.reduce((count, item) => count + (Array.isArray(item.tool_traces) ? item.tool_traces.length : 0), 0)})`;
+        toolCallsSection.appendChild(toolCallsSummary);
+        const toolCallsBody = document.createElement("div");
+        const toolGrid = document.createElement("div");
+        toolGrid.className = "history-tool-grid";
+        if (toolCalls.length) {
+          toolCalls.forEach((item) => {
+            const group = document.createElement("div");
+            group.className = "history-tool-group";
+            const header = document.createElement("div");
+            header.className = "flow-meta history-tool-group-title";
+            header.textContent = buildHistorySummaryLine([
+              item.agent_name || "Unknown",
+              item.agent_role || "unknown-role",
+              `turn=${item.turn_index ?? "unknown"}`,
+            ]);
+            group.appendChild(header);
+            (item.tool_traces || []).forEach((toolTrace) => {
+              group.appendChild(renderToolTraceCard(item.agent_name, toolTrace));
+            });
+            toolGrid.appendChild(group);
+          });
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = trace.capture_mode === "runtime_traced"
+            ? "No tool calls were captured for this run."
+            : "Tool-call traces are only available for runs captured after trace instrumentation was added.";
+          toolGrid.appendChild(empty);
+        }
+        toolCallsBody.appendChild(toolGrid);
+        toolCallsSection.appendChild(toolCallsBody);
+        body.appendChild(toolCallsSection);
+
+        details.appendChild(body);
+        return details;
+      }
+
+      function renderLegacySessionHistories(agentHistories) {
+        const host = document.createElement("details");
+        host.className = "section-toggle";
+        const summary = document.createElement("summary");
+        summary.textContent = `Per-agent session mirrors (${agentHistories.length} agents)`;
+        host.appendChild(summary);
+        const body = document.createElement("div");
+        const cards = agentHistories.map((history) => {
+          const card = document.createElement("details");
+          card.className = "agent-card";
+          const title = history.agent_name || history.agent_id;
+          const stats = history.message_stats || {};
+          const header = document.createElement("summary");
+          header.textContent = buildHistorySummaryLine([
+            `${title} (${history.agent_role || "unknown"})`,
+            history.session_id || "no-session",
+            `private=${stats.private_count || 0}`,
+            `mirrored=${stats.mirrored_count || 0}`,
+          ]);
+          card.appendChild(header);
+          const cardBody = document.createElement("div");
+          const preview = document.createElement("div");
+          preview.className = "agent-history-overview";
+          const latestRow = document.createElement("div");
+          const latestLabel = document.createElement("strong");
+          latestLabel.textContent = "Latest:";
+          latestRow.appendChild(latestLabel);
+          latestRow.appendChild(document.createTextNode(` ${history.latest_created_at || "unknown-time"}`));
+          const previewRow = document.createElement("div");
+          const previewLabel = document.createElement("strong");
+          previewLabel.textContent = "Preview:";
+          previewRow.appendChild(previewLabel);
+          previewRow.appendChild(document.createTextNode(` ${history.latest_message_preview || "No messages yet."}`));
+          preview.appendChild(latestRow);
+          preview.appendChild(previewRow);
+          cardBody.appendChild(preview);
+          const metadata = document.createElement("pre");
+          metadata.textContent = JSON.stringify(history.message_stats || {}, null, 2);
+          cardBody.appendChild(metadata);
+          card.appendChild(cardBody);
+          return card;
+        });
+        body.replaceChildren(...cards);
+        host.appendChild(body);
+        return host;
+      }
+
+      function renderMessageSection(conversation, agentHistories, groupChatInspector) {
         const { messageHost } = ensureHistoryHosts();
         const previousSection = messageHost.querySelector("details.section-toggle");
-        const previousOpenAgents = new Set(
-          Array.from(messageHost.querySelectorAll("details.agent-toggle[open]"))
-            .map((node) => node.dataset.agentId)
-            .filter(Boolean)
-        );
         const previousOpen = previousSection ? previousSection.open : false;
+        const runs = Array.isArray(groupChatInspector?.runs) ? groupChatInspector.runs : [];
 
-        if (!agentHistories.length) {
+        if (!agentHistories.length && !runs.length) {
           messageHost.replaceChildren();
           const empty = document.createElement("div");
           empty.className = "empty";
@@ -2673,91 +4008,330 @@
           return;
         }
 
-        const cards = agentHistories.map((history) => {
-          const card = document.createElement("details");
-          card.className = "agent-card agent-toggle";
-          card.dataset.agentId = history.agent_id || "";
-          if (history.agent_id && previousOpenAgents.has(history.agent_id)) {
-            card.open = true;
-          }
-          const summary = document.createElement("summary");
-          const title = history.agent_name || history.agent_id;
-          const messageCount = (history.messages || []).length;
-          summary.textContent = `${title} (${history.agent_role || "unknown"}) | ${history.session_id} | messages=${messageCount}`;
-          card.appendChild(summary);
-          const cardBody = document.createElement("div");
-          const messages = history.messages || [];
-          if (!messages.length) {
-            const empty = document.createElement("div");
-            empty.className = "empty";
-            empty.textContent = "No messages yet.";
-            cardBody.appendChild(empty);
-            card.appendChild(cardBody);
-            return card;
-          }
-          messages.forEach((message) => {
-            const msg = document.createElement("div");
-            const role = message.role === "user" ? "user" : "assistant";
-            msg.className = `agent-msg ${role}`;
-            const meta = document.createElement("div");
-            meta.className = "flow-meta";
-            const createdAt = message.created_at || "unknown-time";
-            const requestId = message.request_id || "no-request";
-            const route = message.route || "no-route";
-            meta.textContent = `${message.role} | ${createdAt} | ${requestId} | ${route}`;
-            const content = document.createElement("pre");
-            content.textContent = formatAsPrettyJSON(message.content || "");
-            msg.appendChild(meta);
-            msg.appendChild(content);
-            if (message.metadata && Object.keys(message.metadata).length > 0) {
-              const metadata = document.createElement("pre");
-              metadata.textContent = `metadata:\n${JSON.stringify(message.metadata, null, 2)}`;
-              msg.appendChild(metadata);
-            }
-            cardBody.appendChild(msg);
-          });
-          card.appendChild(cardBody);
-          return card;
-        });
+        const conversationSummary = document.createElement("div");
+        conversationSummary.className = "agent-history-summary";
+        conversationSummary.innerHTML = `
+          <strong>Shared Conversation</strong>
+          <span>session=${conversation?.session_id || "unknown"}</span>
+          <span>messages=${conversation?.message_count || 0}</span>
+          <span>assistant=${conversation?.assistant_count || 0}</span>
+          <span>user=${conversation?.user_count || 0}</span>
+        `;
 
         const messageSection = document.createElement("details");
         messageSection.className = "section-toggle";
         messageSection.open = previousSection ? previousOpen : false;
         const messageSummary = document.createElement("summary");
-        messageSummary.textContent = `Message Flow (Agent Histories) - ${agentHistories.length} agents`;
+        messageSummary.textContent = `Group Chat Inspector - ${runs.length} runs`;
         messageSection.appendChild(messageSummary);
         const messageBody = document.createElement("div");
-        messageBody.replaceChildren(...cards);
+        const runCards = runs.map((run, index) => renderGroupChatRun(run, index));
+        const children = [conversationSummary, ...runCards];
+        if (agentHistories.length) {
+          children.push(renderLegacySessionHistories(agentHistories));
+        }
+        messageBody.replaceChildren(...children);
         messageSection.appendChild(messageBody);
         messageHost.replaceChildren(messageSection);
       }
 
+      function renderMessageSectionIntoHost(host, conversation, agentHistories, groupChatInspector) {
+        if (!host) {
+          return;
+        }
+        const runs = Array.isArray(groupChatInspector?.runs) ? groupChatInspector.runs : [];
+        if (!agentHistories.length && !runs.length) {
+          host.replaceChildren();
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No agent histories for this work.";
+          host.appendChild(empty);
+          return;
+        }
+        const conversationSummary = document.createElement("div");
+        conversationSummary.className = "agent-history-summary history-hero";
+        conversationSummary.innerHTML = `<strong>Shared Conversation</strong>`;
+        conversationSummary.append(
+          createHistoryMetric("Session", conversation?.session_id || "unknown"),
+          createHistoryMetric("Messages", String(conversation?.message_count || 0), "good"),
+          createHistoryMetric("Assistant", String(conversation?.assistant_count || 0)),
+          createHistoryMetric("User", String(conversation?.user_count || 0))
+        );
+        const messageSection = document.createElement("details");
+        messageSection.className = "section-toggle history-block history-block-primary";
+        messageSection.open = true;
+        const messageSummary = document.createElement("summary");
+        messageSummary.textContent = `Group Chat Inspector - ${runs.length} runs`;
+        messageSection.appendChild(messageSummary);
+        const messageBody = document.createElement("div");
+        const runCards = runs.map((run, index) => renderGroupChatRun(run, index));
+        const children = [conversationSummary, ...runCards];
+        if (agentHistories.length) {
+          children.push(renderLegacySessionHistories(agentHistories));
+        }
+        messageBody.replaceChildren(...children);
+        messageSection.appendChild(messageBody);
+        host.replaceChildren(messageSection);
+      }
+
+      function renderTaskSectionIntoHost(host, taskFlow, tasks, agentHistories, requests) {
+        if (!host) {
+          return;
+        }
+        const slideshow = renderTaskSlideshow(taskFlow, tasks, agentHistories, requests, {
+          state: popupSlideshowState,
+          interactionMarker: markHistoryUiInteraction,
+          historyRoot: host.parentElement || host,
+        });
+        host.replaceChildren(slideshow);
+      }
+
       function renderTaskSection(taskFlow, tasks, agentHistories, requests) {
         const { taskHost } = ensureHistoryHosts();
-        const slideshow = renderTaskSlideshow(taskFlow, tasks, agentHistories, requests);
+        const slideshow = renderTaskSlideshow(taskFlow, tasks, agentHistories, requests, {
+          state: slideshowState,
+          interactionMarker: markTaskUiInteraction,
+          historyRoot: historyList,
+        });
         taskHost.replaceChildren(slideshow);
       }
 
-      function renderChatFromHistory(agentHistories) {
-        const chanakyaHistory = agentHistories.find((item) => item.agent_id === "agent_chanakya");
+      function renderChatFromHistory(conversation, options = {}) {
+        const { preserveScroll = false } = options;
+        const previousScrollTop = chatLog.scrollTop;
+        const previousScrollHeight = chatLog.scrollHeight;
         chatLog.replaceChildren();
-        const messages = chanakyaHistory ? chanakyaHistory.messages || [] : [];
+        const messages = conversation && Array.isArray(conversation.messages) ? conversation.messages : [];
         if (!messages.length) {
           chatLog.innerHTML = '<div class="empty">No messages in this work yet.</div>';
           return;
         }
         messages.forEach((message) => {
-          appendChatMessage(message.role === "user" ? "user" : "assistant", message.content || "");
+          const metadata = message && typeof message.metadata === "object" ? message.metadata : {};
+          appendChatMessage(
+            message.role === "user" ? "user" : "assistant",
+            message.content || "",
+            {
+              shouldScroll: false,
+              agentName: message.role === "assistant"
+                ? (metadata.visible_agent_name || metadata.group_chat_agent_name || "")
+                : "",
+            }
+          );
         });
+        if (preserveScroll) {
+          const heightDelta = chatLog.scrollHeight - previousScrollHeight;
+          chatLog.scrollTop = Math.max(0, previousScrollTop + heightDelta);
+        } else {
+          chatLog.scrollTop = chatLog.scrollHeight;
+        }
+        if (airVoiceController && typeof airVoiceController.setLatestAssistantText === "function") {
+          airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
+        }
       }
 
-      function renderAgentHistories(agentHistories, taskFlow, tasks, requests) {
+      function renderAgentHistories(conversation, agentHistories, groupChatInspector, taskFlow, tasks, requests) {
+        cachedConversation = conversation || { session_id: null, messages: [] };
         cachedAgentHistories = agentHistories || [];
+        cachedGroupChatInspector = groupChatInspector || { workflow_type: "work_group_chat", run_count: 0, runs: [] };
         cachedTaskFlow = taskFlow || [];
         cachedTasks = tasks || [];
         cachedRequests = requests || [];
-        renderMessageSection(cachedAgentHistories);
+        renderMessageSection(cachedConversation, cachedAgentHistories, cachedGroupChatInspector);
         renderTaskSection(cachedTaskFlow, cachedTasks, cachedAgentHistories, cachedRequests);
+        syncHistoryWindowContent();
+      }
+
+      if (historyList) {
+        historyList.addEventListener("pointerdown", () => {
+          markHistoryUiInteraction();
+        });
+        historyList.addEventListener("focusin", () => {
+          markHistoryUiInteraction();
+        });
+        historyList.addEventListener("toggle", () => {
+          markHistoryUiInteraction();
+        }, true);
+      }
+
+      function syncHistoryWindowContent(options = {}) {
+        const { force = false } = options;
+        if (!historiesWindow || historiesWindow.closed) {
+          historiesWindow = null;
+          return;
+        }
+        if (!force && isHistoryUiInteracting()) {
+          return;
+        }
+        const doc = historiesWindow.document;
+        const titleNode = doc.getElementById("historyWindowTitle");
+        const subtitleNode = doc.getElementById("historyWindowSubtitle");
+        const contentNode = doc.getElementById("historyWindowContent");
+        if (!titleNode || !subtitleNode || !contentNode) {
+          return;
+        }
+        const activeWork = works.find((work) => work.id === activeWorkId);
+        titleNode.textContent = activeWork ? activeWork.title : "Agent Histories";
+        subtitleNode.textContent = activeWork
+          ? `${activeWork.id} | group-chat trace, prompt packets, tools, and task flow`
+          : "Select a work to inspect agent histories.";
+        if (!activeWorkId) {
+          contentNode.innerHTML = '<div class="empty-state">No histories yet.</div>';
+          return;
+        }
+        const popupMessageHost = doc.createElement("div");
+        popupMessageHost.id = "historyWindowMessageHost";
+        const popupTaskHost = doc.createElement("div");
+        popupTaskHost.id = "historyWindowTaskHost";
+        contentNode.replaceChildren(popupMessageHost, popupTaskHost);
+        renderMessageSectionIntoHost(
+          popupMessageHost,
+          cachedConversation,
+          cachedAgentHistories,
+          cachedGroupChatInspector
+        );
+        renderTaskSectionIntoHost(
+          popupTaskHost,
+          cachedTaskFlow,
+          cachedTasks,
+          cachedAgentHistories,
+          cachedRequests
+        );
+      }
+
+      function openAgentHistoriesWindow() {
+        if (historiesWindow && !historiesWindow.closed) {
+          historiesWindow.focus();
+          syncHistoryWindowContent({ force: true });
+          return;
+        }
+        historiesWindow = window.open("", "chanakya-work-histories", "width=1200,height=820,scrollbars=yes");
+        if (!historiesWindow) {
+          window.alert("Please allow popups for this site to open the Agent Histories window.");
+          return;
+        }
+        const doc = historiesWindow.document;
+        doc.open();
+        doc.write(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Chanakya Work Histories</title>
+<style>
+  :root {
+    --bg: #08111f;
+    --bg-accent: radial-gradient(circle at top, rgba(80, 166, 255, 0.18), transparent 36%), radial-gradient(circle at 80% 10%, rgba(158, 112, 255, 0.16), transparent 28%), #08111f;
+    --panel: rgba(10, 18, 34, 0.86);
+    --panel-strong: rgba(16, 26, 46, 0.96);
+    --line: rgba(146, 196, 255, 0.18);
+    --line-strong: rgba(146, 196, 255, 0.32);
+    --text: #edf5ff;
+    --muted: #91a7c5;
+    --accent: #7dd3fc;
+    --accent-strong: #8b5cf6;
+    --success: #8ef0ba;
+    --warning: #fbc97f;
+    --danger: #ff8f9f;
+    --shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'IBM Plex Sans','SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color: var(--text); background: var(--bg-accent); }
+  .shell { max-width: 1480px; margin: 0 auto; padding: 24px; display: grid; gap: 18px; }
+  .header { display: grid; gap: 10px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 22px; background: linear-gradient(180deg, rgba(17, 27, 49, 0.96), rgba(9, 15, 28, 0.96)); box-shadow: var(--shadow); }
+  .header h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; }
+  .header p { margin: 0; color: var(--muted); font-size: 13px; }
+  .content { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.95fr); align-items: start; }
+  .content > div { min-width: 0; }
+  .content details, .content .empty, .content .empty-state { border: 1px solid var(--line); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
+  .content summary { cursor: pointer; padding: 14px 16px; font-weight: 700; letter-spacing: -0.01em; }
+  .content details > div { padding: 0 14px 14px; }
+  .content pre { white-space: pre-wrap; word-break: break-word; background: rgba(5, 9, 19, 0.72); border: 1px solid rgba(132, 161, 210, 0.16); border-radius: 14px; padding: 12px 13px; color: #dbe8ff; overflow-x: auto; }
+  .content button { appearance: none; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(26, 39, 66, 0.98), rgba(12, 19, 33, 0.98)); color: var(--text); border-radius: 12px; padding: 10px 12px; font: inherit; cursor: pointer; transition: transform 120ms ease, border-color 120ms ease, background 120ms ease; }
+  .content button:hover { transform: translateY(-1px); border-color: var(--line-strong); background: linear-gradient(180deg, rgba(36, 52, 84, 0.98), rgba(14, 23, 40, 0.98)); }
+  .content select, .content input[type="range"] { width: 100%; }
+  .content select { appearance: none; border: 1px solid var(--line); background: rgba(9, 14, 26, 0.94); color: var(--text); border-radius: 12px; padding: 10px 12px; font: inherit; }
+  .content input[type="range"] { accent-color: var(--accent); }
+  .empty-state, .empty { padding: 18px; color: var(--muted); font-style: italic; }
+  .history-block > summary, .flow-wrap > summary { background: linear-gradient(180deg, rgba(28, 41, 69, 0.92), rgba(14, 20, 34, 0.92)); border-radius: 18px; }
+  .history-hero { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(135deg, rgba(16, 29, 58, 0.96), rgba(12, 19, 34, 0.96)); }
+  .history-hero strong { font-size: 14px; margin-right: 4px; }
+  .run-hero { background: linear-gradient(135deg, rgba(18, 31, 60, 0.98), rgba(11, 18, 34, 0.98)); }
+  .history-metric-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+  .history-metric { display: grid; gap: 4px; min-height: 68px; padding: 11px 12px; border-radius: 14px; border: 1px solid rgba(146, 196, 255, 0.16); background: rgba(10, 18, 34, 0.92); }
+  .history-metric-good { border-color: rgba(142, 240, 186, 0.26); }
+  .history-metric-warn { border-color: rgba(251, 201, 127, 0.28); }
+  .history-metric-label { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .history-metric-value { font-size: 13px; line-height: 1.35; }
+  .history-section-label { margin: 4px 0 8px; color: var(--muted); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
+  .agent-card { overflow: hidden; }
+  .agent-card + .agent-card { margin-top: 12px; }
+  .agent-msg { display: grid; gap: 8px; padding: 12px; border: 1px solid rgba(146, 196, 255, 0.12); border-radius: 16px; background: rgba(10, 16, 28, 0.88); }
+  .agent-msg + .agent-msg { margin-top: 10px; }
+  .agent-msg.user { border-color: rgba(251, 201, 127, 0.18); background: rgba(38, 26, 13, 0.38); }
+  .agent-msg.assistant { border-color: rgba(125, 211, 252, 0.15); }
+  .history-step { position: relative; grid-template-columns: 42px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .history-step-marker { display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 999px; border: 1px solid rgba(146, 196, 255, 0.22); background: rgba(8, 14, 26, 0.94); color: var(--accent); font-weight: 700; }
+  .history-step-inner { display: grid; gap: 8px; min-width: 0; }
+  .history-timeline { display: grid; gap: 12px; position: relative; }
+  .history-card-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .history-tool-grid { display: grid; gap: 12px; }
+  .history-tool-group { display: grid; gap: 10px; padding: 12px; border-radius: 14px; border: 1px solid rgba(146, 196, 255, 0.14); background: rgba(9, 14, 26, 0.68); }
+  .history-tool-group-title { padding-bottom: 2px; }
+  .section-intro { margin-bottom: 8px; }
+  .flow-meta { color: var(--muted); font-size: 12px; line-height: 1.45; text-transform: none; }
+  .slideshow-shell { display: grid; gap: 14px; }
+  .slideshow-controls { display: grid; grid-template-columns: repeat(3, minmax(0, auto)) minmax(120px, 140px) minmax(220px, 1fr); gap: 10px; align-items: center; }
+  .slide-progress { min-height: 40px; display: flex; align-items: center; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(11, 18, 33, 0.88); color: var(--muted); font-size: 12px; }
+  .slide-card { display: grid; gap: 14px; padding: 16px; border-radius: 18px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(10, 17, 30, 0.98), rgba(7, 12, 23, 0.98)); }
+  .slide-header { display: grid; gap: 4px; }
+  .slide-title { margin: 0; font-size: 18px; letter-spacing: -0.02em; }
+  .slide-subtitle { color: var(--muted); font-size: 12px; }
+  .agent-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .agent-chip { border-radius: 999px; padding: 8px 12px; }
+  .pixel-stage { display: grid; gap: 10px; padding: 14px; border-radius: 16px; border: 1px solid rgba(146, 196, 255, 0.12); background: rgba(12, 21, 40, 0.76); }
+  .pixel-stage-title { margin: 0; color: var(--muted); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
+  .pixel-agent-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .pixel-agent { display: grid; gap: 6px; justify-items: start; padding: 12px; border-radius: 16px; }
+  .pixel-agent.working { border-color: rgba(125, 211, 252, 0.32); }
+  .pixel-agent.done { border-color: rgba(142, 240, 186, 0.28); }
+  .pixel-agent.failed { border-color: rgba(255, 143, 159, 0.3); }
+  .pixel-agent-avatar { font-size: 24px; }
+  .pixel-agent-name { font-weight: 700; }
+  .pixel-agent-state { font-size: 11px; letter-spacing: 0.12em; color: var(--muted); }
+  .slide-event { display: grid; gap: 8px; padding: 12px; border-radius: 14px; border: 1px solid rgba(146, 196, 255, 0.1); background: rgba(9, 14, 26, 0.78); }
+  .slide-event-meta { color: var(--muted); font-size: 12px; }
+  @media (max-width: 1120px) {
+    .content { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 760px) {
+    .shell { padding: 14px; }
+    .slideshow-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .slide-progress { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+  <div class="shell">
+    <div class="header">
+      <h1 id="historyWindowTitle">Agent Histories</h1>
+      <p id="historyWindowSubtitle">Select a work to inspect agent histories.</p>
+    </div>
+    <div id="historyWindowContent" class="content"></div>
+  </div>
+</body>
+</html>`);
+        doc.close();
+        historiesWindow.addEventListener("beforeunload", () => {
+          stopSlideshow(popupSlideshowState);
+          historiesWindow = null;
+        });
+        historiesWindow.addEventListener("pointerdown", () => {
+          markHistoryUiInteraction();
+        });
+        historiesWindow.addEventListener("focusin", () => {
+          markHistoryUiInteraction();
+        });
+        syncHistoryWindowContent({ force: true });
       }
 
       async function loadWorks() {
@@ -2795,14 +4369,24 @@
         }
         if (!background) {
           chatTitle.textContent = data.work.title;
-          chatSubtitle.textContent = data.work.description || "Work-scoped chat with Chanakya.";
-          renderChatFromHistory(data.agent_histories || []);
+          renderChatFromHistory(normalizeConversation(data.conversation, data.agent_histories || []));
         }
+        cachedConversation = normalizeConversation(data.conversation, data.agent_histories || []);
+        cachedActiveRuntime = data.active_runtime || null;
         cachedAgentHistories = data.agent_histories || [];
+        cachedGroupChatInspector = data.group_chat_inspector || { workflow_type: "work_group_chat", run_count: 0, runs: [] };
         cachedTaskFlow = data.task_flow || [];
         cachedTasks = data.tasks || [];
         cachedRequests = data.requests || [];
+        syncWorkRuntimeState(cachedActiveRuntime);
         if (background) {
+          const latestAssistantCount = getCachedAssistantMessageCount();
+          const nextChatMessageCount = Number(cachedConversation.message_count || (cachedConversation.messages || []).length || 0);
+          const renderedChatMessageCount = getRenderedChatMessageCount();
+          if (nextChatMessageCount !== renderedChatMessageCount || chatLog.querySelector(".empty")) {
+            renderChatFromHistory(cachedConversation, { preserveScroll: true });
+          }
+          const historyInteractionHold = isHistoryUiInteracting();
           const activeElement = document.activeElement;
           const taskHost = document.getElementById("taskFlowHost");
           const focusInsideTaskHost = Boolean(
@@ -2811,17 +4395,26 @@
             && taskHost.contains(activeElement)
           );
           const interactionHold = Date.now() < taskUiInteractingUntil;
-          if (!focusInsideTaskHost && !interactionHold) {
+          if (!focusInsideTaskHost && !interactionHold && !historyInteractionHold) {
+            renderMessageSection(cachedConversation, cachedAgentHistories, cachedGroupChatInspector);
             renderTaskSection(cachedTaskFlow, cachedTasks, cachedAgentHistories, cachedRequests);
+          }
+          if (pendingReplyWorkId === workId && latestAssistantCount > pendingReplyBaselineAssistantCount) {
+            setConversationQueueStatus("");
+            clearPendingReplyWatcher();
+            startLiveRefresh(2400);
           }
         } else {
           renderAgentHistories(
+            cachedConversation,
             cachedAgentHistories,
+            cachedGroupChatInspector,
             cachedTaskFlow,
             cachedTasks,
             cachedRequests
           );
         }
+        syncHistoryWindowContent();
         if (!background && slideshowState.followLatest && Array.isArray(data.requests) && data.requests.length) {
           slideshowState.requestId = data.requests[data.requests.length - 1].id;
         }
@@ -2833,12 +4426,20 @@
         stopLiveRefresh();
         saveActiveWork(workId);
         renderWorks();
-        sendButton.disabled = false;
         messageInput.disabled = false;
-        deleteWorkButton.disabled = false;
+        if (airMicButton) {
+          airMicButton.disabled = false;
+        }
+        const sttProxy = composerDock?.querySelector(".composer-stt-proxy");
+        if (sttProxy) {
+          sttProxy.disabled = false;
+        }
+        syncDeleteWorkActionState();
         await loadWorkHistory(workId);
         slideshowState.followLatest = true;
         startLiveRefresh(2400);
+        syncComposerInputState();
+        syncMicProxyState();
       }
 
       workForm.addEventListener("submit", async (event) => {
@@ -2864,75 +4465,116 @@
         }
       });
 
+      if (messageInput) {
+        messageInput.addEventListener("input", () => {
+          resizeComposerTextarea();
+          syncComposerInputState();
+        });
+        messageInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            if (!sendButton.disabled) {
+              chatForm.requestSubmit();
+            }
+          }
+        });
+      }
+
+      if (composerMoreButton) {
+        composerMoreButton.addEventListener("click", () => {
+          setComposerMenuOpen(composerMenu.hidden);
+        });
+      }
+
+      document.addEventListener("click", (event) => {
+        if (!composerMenu || composerMenu.hidden) {
+          return;
+        }
+        if (composerMenu.contains(event.target) || composerMoreButton?.contains(event.target)) {
+          return;
+        }
+        setComposerMenuOpen(false);
+      });
+
+      document.querySelectorAll("[data-voice-proxy]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const action = button.dataset.voiceProxy;
+          const mapping = {
+            mic: airMicButton,
+            speak: airSpeakButton,
+            refresh: airRefreshModelsButton,
+          };
+          const target = mapping[action];
+          if (target) {
+            target.click();
+          }
+          setComposerMenuOpen(false);
+        });
+      });
+
       chatForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        if (!activeWorkId) return;
-        const message = messageInput.value.trim();
-        if (!message) return;
-        appendChatMessage("user", message);
-        messageInput.value = "";
-        sendButton.disabled = true;
-        slideshowState.followLatest = true;
-        startLiveRefresh(900);
-        try {
-          await submitWorkChatMessage(message);
-        } catch (error) {
-          appendChatMessage("assistant", error instanceof Error ? error.message : String(error));
-        } finally {
-          startLiveRefresh(2400);
-          sendButton.disabled = false;
+        await sendWorkMessage(messageInput.value);
+      });
+
+      if (composerOpenHistoriesButton) {
+        composerOpenHistoriesButton.addEventListener("click", () => {
+          openAgentHistoriesWindow();
+          setComposerMenuOpen(false);
+        });
+      }
+
+      if (composerDeleteWorkButton) {
+        composerDeleteWorkButton.addEventListener("click", () => {
+          deleteActiveWork();
+          setComposerMenuOpen(false);
+        });
+      }
+
+      if (headerDeleteWorkButton) {
+        headerDeleteWorkButton.addEventListener("click", () => {
+          deleteActiveWork();
+        });
+      }
+
+      if (utilityToggleButton) {
+        utilityToggleButton.addEventListener("click", () => {
+          setUtilityPanelOpen(true);
+        });
+      }
+
+      if (classicChatButton) {
+        classicChatButton.addEventListener("click", () => {
+          window.location.href = "/";
+        });
+      }
+
+      if (utilityCloseButton) {
+        utilityCloseButton.addEventListener("click", () => {
+          setUtilityPanelOpen(false);
+        });
+      }
+
+      if (utilityScrim) {
+        utilityScrim.addEventListener("click", () => {
+          setUtilityPanelOpen(false);
+        });
+      }
+
+      window.addEventListener("resize", () => {
+        resizeComposerTextarea();
+        syncComposerInputState();
+        if (window.innerWidth > 960) {
+          setUtilityPanelOpen(false);
         }
       });
 
-      deleteWorkButton.addEventListener("click", () => {
-        deleteActiveWork();
-      });
-
       async function bootstrap() {
-        airVoiceController = window.createAirVoiceController({
-          baseUrl: AIR_SERVER_URL,
-          llmModelSelect: airLlmModel,
-          sttModelSelect: airSttModel,
-          ttsModelSelect: airTtsModel,
-          recordButton: airMicButton,
-          continuousButton: airVoiceLoopButton,
-          speakButton: airSpeakButton,
-          statusNode: airVoiceStatus,
-          submitText: async (text, options = {}) => {
-            const { onAssistantMessage } = options;
-            appendChatMessage("user", text);
-            const data = await submitWorkChatMessage(text, {
-              voiceMode: true,
-              onAssistantMessage: (content) => {
-                if (typeof onAssistantMessage === "function") {
-                  return onAssistantMessage(content);
-                }
-                return undefined;
-              },
-            });
-            return data.message || "";
-          },
-          getLatestAssistantText: getLatestAssistantMessageText,
-          onTranscript: (text) => {
-            messageInput.value = text;
-          },
-          beforeRecordStart: async ({ isPlaybackActive }) => {
-            if (!isPlaybackActive) {
-              return;
-            }
-            await pauseConversationReplies();
-          },
-        });
-        airRefreshModelsButton.addEventListener("click", () => airVoiceController.fetchModels());
-        airPauseRepliesButton.addEventListener("click", async () => {
-          try {
-            await pauseConversationReplies();
-          } catch (error) {
-            setConversationQueueStatus(error instanceof Error ? error.message : String(error), true);
-          }
-        });
-        await airVoiceController.fetchModels();
         await loadAppliedRuntimeConfig();
+        if (airVoiceController && typeof airVoiceController.fetchModels === "function") {
+          await airVoiceController.fetchModels();
+          syncSpeechStatus(airVoiceStatus?.textContent || "", airVoiceStatus?.dataset.state === "error");
+        }
         resetWorkView();
         await loadWorks();
         await syncActiveWorkFromSession();
@@ -2945,6 +4587,8 @@
         if (saved && works.some((work) => work.id === saved)) {
           await selectWork(saved);
         }
+        resizeComposerTextarea();
+        syncComposerInputState();
       }
 
       bootstrap();

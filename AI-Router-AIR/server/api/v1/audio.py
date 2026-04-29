@@ -1,4 +1,9 @@
-from fastapi import APIRouter, Request, Depends, HTTPException
+"""Audio endpoints for forwarding TTS and STT requests to providers."""
+
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+
 from server.core.proxy_engine import proxy_engine
 from server.core.dependencies import get_provider
 from server.schemas.provider_schema import ProviderConfig
@@ -6,11 +11,10 @@ from server.services.provider_manager import provider_manager
 
 router = APIRouter(tags=["Audio"])
 
-import json
-
 
 @router.post("/speech")
 async def audio_speech(request: Request, provider: ProviderConfig = Depends(get_provider)):
+    """Forward text-to-speech requests to the resolved provider."""
     path = request.url.path.split("/v1/")[-1]
 
     # Try to extract stream from JSON if present
@@ -25,10 +29,12 @@ async def audio_speech(request: Request, provider: ProviderConfig = Depends(get_
 
 
 def _is_uploaded_file(value: object) -> bool:
+    """Return whether a form value looks like an uploaded file object."""
     return all(hasattr(value, attr) for attr in ("filename", "file", "content_type"))
 
 
 async def parse_form_to_multipart(form_data):
+    """Split FastAPI form data into scalar fields and multipart file tuples."""
     files = {}
     data = {}
     for key, value in form_data.items():
@@ -41,6 +47,7 @@ async def parse_form_to_multipart(form_data):
 
 @router.post("/transcriptions")
 async def audio_transcriptions(request: Request):
+    """Forward speech-to-text transcription uploads to an STT provider."""
     path = request.url.path.split("/v1/")[-1]
 
     # For multipart, calling request.form() consumes the stream.
@@ -68,6 +75,7 @@ async def audio_transcriptions(request: Request):
 
 @router.post("/translations")
 async def audio_translations(request: Request):
+    """Forward speech translation uploads to an STT provider."""
     path = request.url.path.split("/v1/")[-1]
 
     form_data = await request.form()

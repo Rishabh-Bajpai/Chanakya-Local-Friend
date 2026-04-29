@@ -1,7 +1,10 @@
+"""Quick proxy connectivity test for the audio speech endpoint."""
+
 import httpx
 import asyncio
 
 async def test():
+    """Send a streaming POST request to the proxy and print the response."""
     try:
         async with httpx.AsyncClient() as client:
             req = client.build_request("POST", "http://127.0.0.1:8969/v1/audio/speech", json={"model": "tts-1", "input": "Hello", "voice": "alloy"})

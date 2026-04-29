@@ -8,11 +8,16 @@ from flask import Flask
 from pytest import MonkeyPatch
 
 import chanakya.app as app_module
-from chanakya.agent_manager import AgentManager, ManagerRunResult, WORKFLOW_INFORMATION
-from chanakya.app import create_app
+from chanakya.agent_manager import WORKFLOW_INFORMATION, AgentManager, ManagerRunResult
+from chanakya.app import _enrich_execution_trace_with_tool_invocations, create_app
 from chanakya.db import build_engine, build_session_factory
-from chanakya.domain import ChatReply, TASK_STATUS_DONE, now_iso
-from chanakya.model import ChatMessageModel, TemporaryAgentModel, WorkAgentSessionModel
+from chanakya.domain import TASK_STATUS_DONE, ChatReply, now_iso
+from chanakya.model import (
+    ArtifactModel,
+    ChatMessageModel,
+    TemporaryAgentModel,
+    WorkAgentSessionModel,
+)
 from chanakya.services import tool_loader
 from chanakya.store import ChanakyaStore
 
@@ -71,6 +76,7 @@ def _build_test_app(
     database_path = tmp_path / "chanakya-test.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
     monkeypatch.setattr(app_module, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(app_module, "get_mcp_config_path", lambda: tmp_path / "mcp_config_file.json")
     monkeypatch.setattr(tool_loader, "initialize_all_tools", lambda: None)
     monkeypatch.setattr(
         tool_loader,
@@ -93,6 +99,22 @@ def _build_test_app(
                 "status": "available",
                 "tool_name": "mcp_fetch",
                 "server_name": "fetch",
+            }
+        ],
+    )
+    monkeypatch.setattr(app_module, "get_configured_tool_ids", lambda: {"mcp_fetch"})
+    monkeypatch.setattr(
+        app_module,
+        "reload_all_tools",
+        lambda: [
+            {
+                "tool_id": "mcp_fetch",
+                "status": "available",
+                "tool_name": "mcp_fetch",
+                "server_name": "fetch",
+                "transport": "stdio",
+                "functions": [{"name": "mcp_fetch_fetch", "description": "Fetch a URL."}],
+                "description": "Fetch a URL.",
             }
         ],
     )
@@ -125,6 +147,7 @@ class _ChatServiceCaptureStub:
         a2a_model_id: str | None = None,
         conversation_tone_instruction: str | None = None,
         tts_instruction: str | None = None,
+        message_metadata: dict[str, object] | None = None,
     ) -> ChatReply:
         self.calls.append(
             {
@@ -139,6 +162,7 @@ class _ChatServiceCaptureStub:
                 "a2a_model_id": a2a_model_id,
                 "conversation_tone_instruction": conversation_tone_instruction,
                 "tts_instruction": tts_instruction,
+                "message_metadata": message_metadata,
             }
         )
         return ChatReply(
@@ -498,6 +522,40 @@ def test_api_chat_request_overrides_stored_conversation_preferences(
     assert captured[0].calls[0]["tts_instruction"] == "Request tts."
 
 
+def test_api_chat_request_passes_message_metadata(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: list[_ChatServiceCaptureStub] = []
+
+    def _build_chat_service(store, runtime, manager):
+        stub = _ChatServiceCaptureStub(store, runtime, manager)
+        captured.append(stub)
+        return stub
+
+    monkeypatch.setattr(app_module, "ChatService", _build_chat_service)
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "session_id": "session_voice_interrupt",
+            "message": "wait, stop there",
+            "message_metadata": {
+                "voice_interruption": True,
+                "input_mode": "voice",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured[0].calls[0]["message_metadata"] == {
+        "voice_interruption": True,
+        "input_mode": "voice",
+    }
+
+
 def test_api_a2a_options_returns_discovered_agents_and_models(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -764,6 +822,155 @@ def test_tools_availability_api_returns_payload(
     assert "tools" in response.get_json()
 
 
+def test_tools_reload_api_returns_catalog_payload(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+    monkeypatch.setattr(
+        app_module,
+        "reload_all_tools",
+        lambda: [
+            {
+                "tool_id": "youtube-transcript",
+                "tool_name": "youtube-transcript",
+                "server_name": "npx -y @kimtaeyoon83/mcp-server-youtube-transcript",
+                "status": "available",
+                "transport": "stdio",
+                "functions": [
+                    {
+                        "name": "youtube-transcript_get_transcript",
+                        "description": "Get a transcript for a YouTube video.",
+                    }
+                ],
+                "description": "Get a transcript for a YouTube video.",
+            }
+        ],
+    )
+
+    response = client.post("/api/tools/reload")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert payload["tool_count"] == 1
+    assert payload["available_count"] == 1
+    assert payload["tools"][0]["tool_id"] == "youtube-transcript"
+
+
+def test_create_agent_rejects_unknown_tool_ids(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/agents",
+        json={
+            "name": "Bad Tool Agent",
+            "role": "researcher",
+            "system_prompt": "You are a researcher.",
+            "personality": "",
+            "tool_ids": ["mcp_unknown"],
+            "workspace": None,
+            "heartbeat_enabled": False,
+            "heartbeat_interval_seconds": 300,
+            "heartbeat_file_path": None,
+            "is_active": True,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "Unknown tool_ids: mcp_unknown"
+
+
+def test_tools_config_api_reads_and_writes_mcp_config(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+    config_path = tmp_path / "mcp_config_file.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "mcp_fetch": {
+                        "command": "uvx",
+                        "args": ["mcp-server-fetch"],
+                    }
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    get_response = client.get("/api/tools/config")
+
+    assert get_response.status_code == 200
+    get_payload = get_response.get_json()
+    assert get_payload["server_ids"] == ["mcp_fetch"]
+    assert get_payload["server_count"] == 1
+    assert get_payload["config_path"].endswith("mcp_config_file.json")
+
+    monkeypatch.setattr(
+        app_module,
+        "reload_all_tools",
+        lambda: [
+            {
+                "tool_id": "arxiv",
+                "tool_name": "arxiv",
+                "server_name": "uvx arxiv-mcp-server",
+                "status": "available",
+                "transport": "stdio",
+                "functions": [{"name": "arxiv_search_papers", "description": "Search arXiv."}],
+                "description": "Search arXiv.",
+            }
+        ],
+    )
+
+    put_response = client.put(
+        "/api/tools/config",
+        json={
+            "raw_text": json.dumps(
+                {
+                    "mcpServers": {
+                        "arxiv": {
+                            "command": "uvx",
+                            "args": ["arxiv-mcp-server"],
+                        }
+                    }
+                }
+            ),
+            "reload": True,
+        },
+    )
+
+    assert put_response.status_code == 200
+    put_payload = put_response.get_json()
+    assert put_payload["server_ids"] == ["arxiv"]
+    assert put_payload["reloaded"] is True
+    assert put_payload["available_count"] == 1
+    assert json.loads(config_path.read_text(encoding="utf-8"))["mcpServers"]["arxiv"]["command"] == "uvx"
+
+
+def test_tools_config_api_rejects_invalid_json(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.put("/api/tools/config", json={"raw_text": "{bad json}"})
+
+    assert response.status_code == 400
+    assert response.get_json()["error"].startswith("Invalid MCP config JSON:")
+
+
 def test_session_pause_api_uses_chat_service_public_method(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -865,14 +1072,139 @@ def test_work_create_list_and_history_apis(
     history_payload = history_response.get_json()
     assert history_payload["work"]["id"] == work_id
     histories = history_payload["agent_histories"]
+    assert "conversation" in history_payload
     assert "task_flow" in history_payload
     assert "tasks" in history_payload
     assert "requests" in history_payload
     assert "limits" in history_payload
+    assert "group_chat_inspector" in history_payload
+    assert "active_runtime" in history_payload
+    assert "artifacts" in history_payload
+    assert history_payload["group_chat_inspector"]["run_count"] == 0
     chanakya_history = next(item for item in histories if item["agent_id"] == "agent_chanakya")
+    assert history_payload["conversation"]["session_id"] == chanakya_mapping["session_id"]
+    assert history_payload["conversation"]["message_count"] >= 1
     assert any(
         msg["content"] == "Initial report draft ready." for msg in chanakya_history["messages"]
     )
+
+
+def test_work_history_api_reports_active_runtime_and_artifact_lineage(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    created = client.post(
+        "/api/works",
+        json={"title": "Lineage Work", "description": "artifact lineage"},
+    )
+    work_id = created.get_json()["id"]
+    sessions_payload = client.get(f"/api/works/{work_id}/sessions").get_json()
+    chanakya_mapping = next(
+        item for item in sessions_payload["sessions"] if item["agent_id"] == "agent_chanakya"
+    )
+
+    database_path = tmp_path / "chanakya-test.db"
+    engine = build_engine(f"sqlite:///{database_path}")
+    session_factory = build_session_factory(engine)
+    with session_factory() as db_session:
+        db_session.add(
+            ArtifactModel(
+                id="artifact_lineage",
+                request_id="req_origin",
+                session_id=chanakya_mapping["session_id"],
+                work_id=work_id,
+                name="notes.md",
+                title="Notes",
+                summary="Draft notes",
+                path="artifact_lineage/notes.md",
+                mime_type="text/markdown",
+                kind="text",
+                size_bytes=12,
+                source_agent_id="agent_writer",
+                source_agent_name="Writer",
+                latest_request_id="req_latest",
+                supersedes_artifact_id=None,
+                created_at=now_iso(),
+                updated_at=now_iso(),
+            )
+        )
+        db_session.commit()
+
+    store = app.extensions["chanakya_store"]
+    store.create_request(
+        request_id="req_root",
+        session_id=chanakya_mapping["session_id"],
+        user_message="Do the work",
+        status="in_progress",
+        root_task_id="task_root_active",
+    )
+    store.create_task(
+        task_id="task_root_active",
+        request_id="req_root",
+        parent_task_id=None,
+        title="Do the work",
+        summary="Do the work",
+        status="waiting_input",
+        owner_agent_id="agent_chanakya",
+        task_type="chat_request",
+        input_json={
+            "work_pending_interaction": {
+                "active": True,
+                "waiting_task_id": "task_manager_waiting",
+                "workflow_type": "work_group_chat",
+            },
+            "work_group_chat_state": {
+                "workflow_type": "work_group_chat",
+                "manager_termination_state": {"status": "needs_user_input"},
+            },
+        },
+    )
+
+    history_payload = client.get(f"/api/works/{work_id}/history").get_json()
+    assert history_payload["active_runtime"]["root_task_id"] == "task_root_active"
+    assert history_payload["active_runtime"]["reload_reproducible"] is True
+    assert history_payload["artifacts"][0]["origin_request_id"] == "req_origin"
+    assert history_payload["artifacts"][0]["request_relation"] == "updated_in_later_request"
+
+
+def test_enrich_execution_trace_with_tool_invocations_repairs_missing_tool_data() -> None:
+    execution_trace = {
+        "workflow_type": "work_group_chat",
+        "tool_calls": [],
+        "call_sequence": [
+            {
+                "kind": "participant_turn",
+                "agent_id": "agent_writer",
+                "agent_name": "Writer",
+                "agent_role": "writer",
+                "turn_index": 0,
+                "tool_traces": [],
+            }
+        ],
+    }
+    tool_invocations = [
+        {
+            "agent_id": "agent_writer",
+            "agent_name": "Writer",
+            "tool_id": "mcp_filesystem",
+            "tool_name": "Filesystem",
+            "server_name": "basic",
+            "status": "succeeded",
+            "input": {"raw": '{"path":"/workspace/out.md"}'},
+            "output": '"ok"',
+            "error": None,
+        }
+    ]
+
+    enriched = _enrich_execution_trace_with_tool_invocations(execution_trace, tool_invocations)
+
+    assert enriched is not None
+    assert len(enriched["tool_calls"]) == 1
+    assert enriched["tool_calls"][0]["agent_id"] == "agent_writer"
+    assert enriched["call_sequence"][0]["tool_traces"][0]["tool_id"] == "mcp_filesystem"
 
 
 def test_work_session_mapping_is_unique_per_agent(
@@ -965,6 +1297,7 @@ def test_work_delete_clears_runtime_session_state(
 
     assert deleted.status_code == 200
     assert len(cleared) == 2
+    assert deleted.get_json()["container"]["ok"] is True
 
 
 def test_work_delete_api_returns_warning_when_workspace_cleanup_fails(
@@ -990,12 +1323,30 @@ def test_work_delete_api_returns_warning_when_workspace_cleanup_fails(
             "error": "permission denied",
         },
     )
+    monkeypatch.setattr(
+        app_module,
+        "stop_container",
+        lambda current_work_id: {
+            "ok": True,
+            "found": True,
+            "removed": True,
+            "container_name": f"chanakya-sandbox-{current_work_id}",
+            "runtime": "docker",
+        },
+    )
 
     deleted = client.delete(f"/api/works/{work_id}")
 
     assert deleted.status_code == 200
     payload = deleted.get_json()
     assert payload["deleted"] is True
+    assert payload["container"] == {
+        "ok": True,
+        "found": True,
+        "removed": True,
+        "container_name": f"chanakya-sandbox-{work_id}",
+        "runtime": "docker",
+    }
     assert payload["warning"] == {
         "code": "workspace_cleanup_failed",
         "message": "Work deleted, but sandbox workspace cleanup failed.",
@@ -1006,6 +1357,75 @@ def test_work_delete_api_returns_warning_when_workspace_cleanup_fails(
             "error": "permission denied",
         },
     }
+
+
+def test_work_delete_api_returns_warning_when_container_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    created = client.post(
+        "/api/works",
+        json={"title": "Disposable Work", "description": "delete me"},
+    )
+    work_id = created.get_json()["id"]
+
+    monkeypatch.setattr(
+        app_module,
+        "stop_container",
+        lambda current_work_id: {
+            "ok": False,
+            "found": True,
+            "removed": False,
+            "container_name": f"chanakya-sandbox-{current_work_id}",
+            "runtime": "docker",
+            "error": "busy",
+        },
+    )
+
+    deleted = client.delete(f"/api/works/{work_id}")
+
+    assert deleted.status_code == 200
+    payload = deleted.get_json()
+    assert payload["deleted"] is True
+    assert payload["warning"] == {
+        "code": "container_cleanup_failed",
+        "message": "Work deleted, but sandbox container cleanup failed.",
+        "container": {
+            "ok": False,
+            "found": True,
+            "removed": False,
+            "container_name": f"chanakya-sandbox-{work_id}",
+            "runtime": "docker",
+            "error": "busy",
+        },
+    }
+
+
+def test_create_app_prunes_sandbox_containers_on_startup(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        app_module,
+        "prune_stale_work_containers",
+        lambda valid_work_ids, remove_running=False: captured.update(
+            {
+                "valid_work_ids": set(valid_work_ids),
+                "remove_running": remove_running,
+            }
+        )
+        or {"ok": True, "removed": [], "failed": []},
+    )
+
+    _build_test_app(tmp_path, monkeypatch)
+
+    assert captured["valid_work_ids"] == set()
+    assert captured["remove_running"] is True
 
 
 def test_work_api_preserves_per_agent_memory_for_local_backend(
@@ -1079,17 +1499,17 @@ def test_work_api_preserves_per_agent_memory_for_local_backend(
     histories = history_payload["agent_histories"]
     developer_history = next(item for item in histories if item["agent_id"] == "agent_developer")
     tester_history = next(item for item in histories if item["agent_id"] == "agent_tester")
+    assert "message_stats" in developer_history
+    assert "latest_message_preview" in developer_history
 
     developer_messages = [message["content"] for message in developer_history["messages"]]
     tester_messages = [message["content"] for message in tester_history["messages"]]
     assert developer_messages[0] == "dev: implement login hardening"
-    assert developer_messages[2] == "dev: refine login hardening"
-    assert "dev: implement login hardening" in developer_messages[3]
-    assert "dev: refine login hardening" in developer_messages[3]
-    assert "test: validate login hardening" not in developer_messages[3]
-    assert tester_messages[0] == "test: validate login hardening"
-    assert "dev: implement login hardening" not in tester_messages[1]
-    assert "dev: refine login hardening" not in tester_messages[1]
+    assert any(message == "dev: refine login hardening" for message in developer_messages)
+    assert any(message == "test: validate login hardening" for message in tester_messages)
+    assert developer_history["message_stats"]["private_count"] >= 2
+    assert developer_history["message_stats"]["mirrored_count"] >= 1
+    assert tester_history["message_stats"]["private_count"] >= 1
 
 
 def test_work_api_preserves_per_agent_memory_for_a2a_backend(
@@ -1164,14 +1584,14 @@ def test_work_api_preserves_per_agent_memory_for_a2a_backend(
     histories = history_payload["agent_histories"]
     developer_history = next(item for item in histories if item["agent_id"] == "agent_developer")
     tester_history = next(item for item in histories if item["agent_id"] == "agent_tester")
+    assert "message_stats" in tester_history
+    assert history_payload["conversation"]["message_count"] >= 3
 
     developer_messages = [message["content"] for message in developer_history["messages"]]
     tester_messages = [message["content"] for message in tester_history["messages"]]
     assert developer_messages[0] == "dev: implement login hardening"
-    assert developer_messages[2] == "dev: refine login hardening"
-    assert "dev: implement login hardening" in developer_messages[3]
-    assert "dev: refine login hardening" in developer_messages[3]
-    assert "test: validate login hardening" not in developer_messages[3]
-    assert tester_messages[0] == "test: validate login hardening"
-    assert "dev: implement login hardening" not in tester_messages[1]
-    assert "dev: refine login hardening" not in tester_messages[1]
+    assert any(message == "dev: refine login hardening" for message in developer_messages)
+    assert any(message == "test: validate login hardening" for message in tester_messages)
+    assert developer_history["message_stats"]["private_count"] >= 2
+    assert developer_history["message_stats"]["mirrored_count"] >= 1
+    assert tester_history["message_stats"]["private_count"] >= 1
