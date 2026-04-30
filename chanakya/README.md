@@ -10,12 +10,14 @@ This is the full implementation tracked in `task.md`.
 
 ```bash
 # Create the environment once
-source /home/rishabh/miniconda3/etc/profile.d/conda.sh
-conda create -n test python=3.11 -y
+python3.11 -m venv .venv
 
 # Activate it for each new shell
-conda activate test
+source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install -e .[dev]
+python -m pip install -e ./AI-Router-AIR
+python -m pip install -e ./chanakya_conversation_layer
 
 # Run Chanakya and AIR together
 ./scripts/start_chanakya_air.sh core
@@ -27,7 +29,9 @@ python -m pip install -e .[dev]
 Open `http://localhost:5513` to access the GUI. AIR runs at `http://localhost:5512`.
 When using `core+a2a`, the A2A bridge runs at `http://127.0.0.1:18770`.
 
-If you already have the `test` environment, skip the `conda create ...` step and just activate it.
+If you already have the virtual environment, skip the creation step and just activate it.
+
+`conda` remains fine for local development, but the `systemd` service installer requires a repo-root `.venv`.
 
 ---
 
@@ -408,7 +412,7 @@ The app loads three seed agents on startup from `chanakya/seeds/agents.json`:
 ### Run the App
 
 ```bash
-conda activate test
+source .venv/bin/activate
 ./scripts/start_chanakya_air.sh
 ```
 
@@ -423,7 +427,7 @@ Stop both services with:
 Chanakya includes a few helper scripts under `scripts/` for working with the app database:
 
 ```bash
-conda activate test
+source .venv/bin/activate
 
 # View Chanakya tables in a local Flask UI
 python scripts/db_viewer.py
@@ -447,7 +451,7 @@ Notes:
 Chanakya includes manual connectivity smoke tests under `scripts/`. These are **not** run automatically in CI — they require external MCP tooling and may be flaky.
 
 ```bash
-conda activate test
+source .venv/bin/activate
 
 # Test full agent runtime with MCP tools (requires calculator server)
 python scripts/run_maf_tools.py
@@ -460,9 +464,50 @@ python scripts/test_mcp_fetch_connectivity.py --mode without-wrapper
 ### Run Lint and Typecheck
 
 ```bash
-conda activate test
+source .venv/bin/activate
 python -m ruff check chanakya/
 python -m mypy chanakya/
+```
+
+### Install As A Systemd Service
+
+The repo includes a `systemd` installer for the Chanakya `core` stack on Ubuntu/Linux.
+
+The installer strictly requires a repo-root `.venv`.
+
+Install:
+
+```bash
+sudo ./scripts/install-autostart-ubuntu.sh
+```
+
+Optional user override:
+
+```bash
+sudo ./scripts/install-autostart-ubuntu.sh --user <username>
+```
+
+Created units:
+
+- `chanakya-air.service`
+- `chanakya-conversation-layer.service`
+- `chanakya-app.service`
+- `chanakya.target`
+
+Useful commands:
+
+```bash
+sudo systemctl status chanakya.target
+sudo journalctl -u chanakya-air.service -f
+sudo journalctl -u chanakya-conversation-layer.service -f
+sudo journalctl -u chanakya-app.service -f
+sudo systemctl restart chanakya.target
+```
+
+Uninstall:
+
+```bash
+sudo ./scripts/uninstall-autostart-ubuntu.sh
 ```
 
 ---
