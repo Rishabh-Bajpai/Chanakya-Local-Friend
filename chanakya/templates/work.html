@@ -2426,8 +2426,8 @@
         }
         workWaitingIndicator.dataset.state = "waiting";
         workWaitingIndicator.hidden = false;
-        rotateWorkWaitingMessage();
         if (!workWaitingMessageTimer) {
+          rotateWorkWaitingMessage();
           workWaitingMessageTimer = window.setInterval(() => {
             rotateWorkWaitingMessage();
           }, 6500);
