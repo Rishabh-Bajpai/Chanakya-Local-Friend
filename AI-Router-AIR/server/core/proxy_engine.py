@@ -433,7 +433,7 @@ class ProxyEngine:
 
     def __init__(self):
         # Long-lived client for connection pooling
-        self._client = httpx.AsyncClient(timeout=60.0)
+        self._client = httpx.AsyncClient(timeout=300.0)
 
     async def forward_request(self, request: Request, provider: ProviderConfig, path: str, body_bytes: bytes | None = None, *, is_stream: bool | None = None):
         """Forward a JSON or raw-byte request to the selected provider."""
