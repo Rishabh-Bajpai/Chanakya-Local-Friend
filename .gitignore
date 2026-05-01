@@ -1,17 +1,48 @@
-# .gitignore
-__pycache__/
-*.pyc
-.DS_Store
-venv/
-.venv/
-*.db # If your sqlite DB is just for local history
-*.sqlite3
+.vscode/
 .env
 mcp_config_file.json
-# Any other local config files or build artifacts
-client_count.txt
-output.wav
-chanakya.log
 
-# Certificates for HTTPS
-certs/
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.py,cover
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env.lock
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Tooling and coverage outputs
+.coverage
+.coverage.*
+htmlcov/
+
+# Project-generated artifacts
+chanakya_data/
+Agent-Framework-Samples/
+.playwright-mcp/
+
+*.log
+*.pid
+.chanakya-app.log
+.chanakya-app.pid
+.*.log
+.*.pid
+
+chanakya-UI
+mobile-opencode-control
+
+# Temporary snapshot/debug artifacts
+mobile-snapshot.md
+worker-mobile-before-open.md

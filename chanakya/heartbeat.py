@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from chanakya.agent.profile_files import FileAccessGuard, default_heartbeat_relative_path
+from chanakya.domain import now_iso
+from chanakya.model import AgentProfileModel
+
+
+def resolve_heartbeat_path(file_path: str, repo_root: Path, *, agent_id: str | None = None) -> Path:
+    raw_path = Path(file_path)
+    if raw_path.is_absolute():
+        raise ValueError("heartbeat_file_path must be relative")
+
+    cleaned_parts = tuple(part for part in raw_path.parts if part not in ("", "."))
+    if not cleaned_parts:
+        raise ValueError("heartbeat_file_path must not be empty")
+    if any(part == ".." for part in cleaned_parts):
+        raise ValueError("heartbeat_file_path must not contain parent traversal")
+
+    guard = FileAccessGuard(repo_root)
+    expected_prefix = ("chanakya_data", "agents")
+    if cleaned_parts[:2] != expected_prefix or len(cleaned_parts) < 4:
+        raise ValueError(
+            "heartbeat_file_path must point to chanakya_data/agents/<agent_id>/heartbeat.md"
+        )
+
+    target_agent_id = cleaned_parts[2]
+    if agent_id and target_agent_id != agent_id:
+        raise PermissionError("heartbeat_file_path must remain inside the owning agent folder")
+    relative = str(Path(*cleaned_parts[3:]))
+    target = guard.resolve_agent_path(target_agent_id, relative)
+    if target.name.lower() != "heartbeat.md":
+        raise ValueError("heartbeat_file_path must end with heartbeat.md")
+    return target
+
+
+@dataclass(slots=True)
+class HeartbeatSnapshot:
+    agent_id: str
+    enabled: bool
+    interval_seconds: int
+    file_path: str | None
+    content_preview: str | None
+    checked_at: str
+
+
+def read_heartbeat(profile: AgentProfileModel, repo_root: Path) -> HeartbeatSnapshot:
+    preview: str | None = None
+    file_path = profile.heartbeat_file_path or default_heartbeat_relative_path(profile.id)
+    if profile.heartbeat_enabled and file_path:
+        resolved = resolve_heartbeat_path(file_path, repo_root, agent_id=profile.id)
+        if resolved.exists():
+            preview = resolved.read_text(encoding="utf-8").strip()[:400] or None
+    return HeartbeatSnapshot(
+        agent_id=profile.id,
+        enabled=profile.heartbeat_enabled,
+        interval_seconds=profile.heartbeat_interval_seconds,
+        file_path=file_path,
+        content_preview=preview,
+        checked_at=now_iso(),
+    )

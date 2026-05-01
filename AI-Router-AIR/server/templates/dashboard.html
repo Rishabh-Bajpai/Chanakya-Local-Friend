@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Router | Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-container">
+        <header class="main-header">
+            <div class="logo">
+                <span class="icon">⚡</span>
+                <h1>AI Router <span class="badge">Server</span></h1>
+            </div>
+            <nav>
+                <a href="/status" class="btn btn-sm">API Status</a>
+                <a href="/docs" target="_blank" class="btn btn-sm">API Docs (Swagger) ↗</a>
+                <a href="http://localhost:5511" target="_blank" class="btn btn-primary">Open Test Client ↗</a>
+            </nav>
+        </header>
+
+        <main class="dashboard-content">
+            <section class="status-cards">
+                <div class="card">
+                    <h3>Providers</h3>
+                    <div class="number" id="provider-count">0</div>
+                </div>
+                <div class="card">
+                    <h3>Available Models</h3>
+                    <div class="number" id="model-count">0</div>
+                </div>
+                <div class="card">
+                    <h3>System Status</h3>
+                    <div class="status-indicator online">
+                        <span class="dot"></span> Online
+                    </div>
+                </div>
+            </section>
+
+            <section class="card wide">
+                <div class="card-header">
+                    <h2><span class="icon">⚙️</span> Configured Providers</h2>
+                    <div class="header-actions">
+                        <button id="add-provider-btn" class="btn btn-primary btn-sm">
+                            <span class="icon-plus">+</span> Add Provider
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <table class="data-table" id="providers-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Base URL</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Populated by JS -->
+                            <tr>
+                                <td colspan="5">Loading providers...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Discovered Providers Section (hidden when empty) -->
+            <section class="card wide discovered-section" id="discovered-section" style="display: none;">
+                <div class="card-header">
+                    <h2><span class="icon">🔍</span> Discovered Providers</h2>
+                    <div class="header-actions">
+                        <button id="scan-btn" class="btn btn-sm btn-secondary" title="Scan for providers">
+                            🔍 Scan Now
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="discovered-hint">
+                        The following providers were detected on your system. Would you like to add them?
+                    </p>
+                    <div id="discovered-list">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </section>
+
+            <section class="models-section">
+                <div class="card-header">
+                    <h2>Unified Model Registry</h2>
+                    <div class="header-actions">
+                        <button id="refresh-models-btn" class="btn btn-sm btn-secondary" title="Refresh Models">
+                            🔄 Refresh List
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tabs -->
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="llm">LLM</button>
+                    <button class="tab-btn" data-tab="tts">TTS</button>
+                    <button class="tab-btn" data-tab="stt">STT</button>
+                </div>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Model ID</th>
+                                <th>Provider</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="models-table-body">
+                            <tr>
+                                <td colspan="4" class="loading">Loading registry...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination-controls">
+                    <div class="rows-per-page">
+                        <label>Rows per page:</label>
+                        <select id="rows-per-page-select">
+                            <option value="10" selected>10</option>
+                            <option value="20">20</option>
+                            <option value="100">100</option>
+                            <option value="all">All</option>
+                        </select>
+                    </div>
+                    <div class="page-nav">
+                        <button id="prev-page" class="btn btn-sm" disabled>&lt; Prev</button>
+                        <span id="page-info">Page 1 of 1</span>
+                        <button id="next-page" class="btn btn-sm" disabled>Next &gt;</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,1179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chanakya Conversation Layer</title>
+    <style>
+      :root {
+        --bg: #f4ecdf;
+        --panel: rgba(255, 251, 244, 0.88);
+        --panel-strong: #fffaf1;
+        --ink: #1e1a16;
+        --muted: #6c6156;
+        --accent: #b45f2e;
+        --accent-deep: #8b3d1d;
+        --line: rgba(86, 61, 45, 0.14);
+        --user: #ead7c0;
+        --assistant: #f7efe2;
+        --shadow: 0 24px 60px rgba(93, 58, 34, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+        background:
+          radial-gradient(circle at top left, rgba(180, 95, 46, 0.16), transparent 28%),
+          radial-gradient(circle at bottom right, rgba(111, 142, 114, 0.12), transparent 24%),
+          linear-gradient(180deg, #f9f3e8 0%, #efe2ce 100%);
+      }
+
+      .shell {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 32px 20px 40px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(14px);
+      }
+
+      .eyebrow {
+        display: inline-block;
+        padding: 7px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: rgba(180, 95, 46, 0.1);
+        color: var(--accent-deep);
+      }
+
+      h1 {
+        margin: 14px 0 10px;
+        font-size: clamp(2rem, 4vw, 3.4rem);
+        line-height: 0.96;
+        letter-spacing: -0.03em;
+      }
+
+      .lead,
+      .mini-copy,
+      .hint,
+      .meta {
+        color: var(--muted);
+      }
+
+      .lead {
+        max-width: 48rem;
+        font-size: 1.03rem;
+        line-height: 1.6;
+      }
+
+      .hero-side h2,
+      .panel h2 {
+        margin: 0 0 10px;
+        font-size: 1.1rem;
+      }
+
+      .stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .stack-card {
+        padding: 14px 16px;
+        background: rgba(255, 255, 255, 0.56);
+        border: 1px solid rgba(86, 61, 45, 0.08);
+        border-radius: 16px;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: 1.3fr 0.9fr;
+        gap: 18px;
+      }
+
+      .panel {
+        padding: 20px;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 0.92rem;
+      }
+
+      input,
+      select,
+      textarea,
+      button {
+        font: inherit;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        padding: 13px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(86, 61, 45, 0.15);
+        background: rgba(255, 255, 255, 0.8);
+        color: var(--ink);
+        transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+      }
+
+      input:focus,
+      textarea:focus {
+        outline: none;
+        border-color: rgba(180, 95, 46, 0.55);
+        box-shadow: 0 0 0 4px rgba(180, 95, 46, 0.12);
+      }
+
+      textarea {
+        min-height: 116px;
+        resize: vertical;
+      }
+
+      .composer {
+        display: grid;
+        gap: 14px;
+      }
+
+      .actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .button-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 11px 18px;
+        cursor: pointer;
+        transition: transform 160ms ease, opacity 160ms ease, box-shadow 160ms ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: wait;
+      }
+
+      .primary {
+        background: linear-gradient(135deg, var(--accent) 0%, #cc7a46 100%);
+        color: #fff7f0;
+        box-shadow: 0 14px 28px rgba(180, 95, 46, 0.24);
+      }
+
+      .secondary {
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--ink);
+        border: 1px solid rgba(86, 61, 45, 0.13);
+      }
+
+      .message-list,
+      .history-list,
+      .memory-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .message-list {
+        min-height: 280px;
+        max-height: 420px;
+        overflow-y: auto;
+        padding-right: 6px;
+      }
+
+      .history-list,
+      .memory-list {
+        max-height: 280px;
+        overflow-y: auto;
+        padding-right: 6px;
+      }
+
+      .bubble,
+      .history-item {
+        border-radius: 18px;
+        border: 1px solid rgba(86, 61, 45, 0.1);
+        padding: 14px 15px;
+        animation: rise 220ms ease;
+      }
+
+      .bubble.user {
+        background: var(--user);
+      }
+
+      .bubble.assistant {
+        background: var(--assistant);
+      }
+
+      .bubble-head,
+      .history-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+        font-size: 0.83rem;
+        color: var(--muted);
+      }
+
+      .bubble-text,
+      .history-text {
+        white-space: pre-wrap;
+        line-height: 1.55;
+      }
+
+      .history-item {
+        background: rgba(255, 255, 255, 0.62);
+      }
+
+      .subpanel {
+        margin-top: 18px;
+        padding-top: 18px;
+        border-top: 1px solid rgba(86, 61, 45, 0.1);
+      }
+
+      .memory-card {
+        border-radius: 18px;
+        border: 1px solid rgba(86, 61, 45, 0.1);
+        background: rgba(255, 255, 255, 0.62);
+        padding: 14px 15px;
+      }
+
+      .memory-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .memory-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+        border-bottom: 1px dashed rgba(86, 61, 45, 0.1);
+        padding-bottom: 8px;
+      }
+
+      .memory-row:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+
+      .memory-label {
+        color: var(--muted);
+        font-size: 0.84rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .memory-value {
+        text-align: right;
+        max-width: 60%;
+        white-space: pre-wrap;
+      }
+
+      .memory-pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .memory-pill {
+        border-radius: 999px;
+        background: rgba(180, 95, 46, 0.1);
+        color: var(--accent-deep);
+        padding: 7px 11px;
+        font-size: 0.88rem;
+      }
+
+      .memory-json {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 0.9rem;
+        line-height: 1.5;
+      }
+
+      .status {
+        min-height: 24px;
+        font-size: 0.92rem;
+        color: var(--accent-deep);
+      }
+
+      .empty {
+        padding: 18px;
+        border-radius: 18px;
+        border: 1px dashed rgba(86, 61, 45, 0.18);
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.38);
+      }
+
+      .examples {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .session-toolbar {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .session-list {
+        display: grid;
+        gap: 8px;
+        max-height: 220px;
+        overflow-y: auto;
+      }
+
+      .session-item {
+        width: 100%;
+        text-align: left;
+        border-radius: 16px;
+        border: 1px solid rgba(86, 61, 45, 0.12);
+        background: rgba(255, 255, 255, 0.64);
+        padding: 12px 14px;
+      }
+
+      .session-item.active {
+        border-color: rgba(180, 95, 46, 0.4);
+        box-shadow: 0 0 0 3px rgba(180, 95, 46, 0.12);
+      }
+
+      .session-item strong,
+      .session-item span {
+        display: block;
+      }
+
+      .session-item span {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .controls-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .chip {
+        border-radius: 999px;
+        border: 1px solid rgba(180, 95, 46, 0.18);
+        background: rgba(255, 255, 255, 0.6);
+        color: var(--accent-deep);
+        padding: 8px 12px;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-width: 920px) {
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+
+        .controls-grid {
+          grid-template-columns: 1fr;
+        }
+
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <span class="eyebrow">Slim Runtime</span>
+              <h1>Chanakya Conversation Layer</h1>
+              <div class="meta">One conversation layer, one core agent backend, one persistent history list.</div>
+            </div>
+          </div>
+
+          <div class="composer">
+            <div>
+              <label for="session-id">Session ID</label>
+              <input id="session-id" name="session-id" value="demo-session" autocomplete="off">
+            </div>
+            <div class="session-toolbar">
+              <button id="new-session-button" class="secondary" type="button">New Session</button>
+              <button id="delete-session-button" class="secondary" type="button">Delete Session</button>
+              <button id="refresh-sessions-button" class="secondary" type="button">Refresh Sessions</button>
+            </div>
+            <div class="controls-grid">
+              <div>
+                <label for="backend-type">Core Backend</label>
+                <select id="backend-type" name="backend-type"></select>
+              </div>
+              <div>
+                <label for="backend-target">Backend Target</label>
+                <select id="backend-target" name="backend-target"></select>
+              </div>
+            </div>
+            <div id="a2a-options" class="controls-grid" style="display: none;">
+              <div>
+                <label for="a2a-remote-agent">A2A Agent</label>
+                <select id="a2a-remote-agent" name="a2a-remote-agent"></select>
+              </div>
+              <div>
+                <label for="a2a-model">A2A Model</label>
+                <select id="a2a-model" name="a2a-model"></select>
+              </div>
+            </div>
+            <div class="controls-grid">
+              <div>
+                <label for="conversation-orchestration-model">Orchestration Model</label>
+                <select id="conversation-orchestration-model" name="conversation-orchestration-model"></select>
+              </div>
+            </div>
+            <div class="controls-grid">
+              <div>
+                <label for="conversation-tone-instruction">Conversation Tone Instruction</label>
+                <textarea id="conversation-tone-instruction" name="conversation-tone-instruction" placeholder="Example: The user likes playful, lightly sarcastic replies."></textarea>
+              </div>
+              <div>
+                <label for="tts-instruction">TTS Instruction</label>
+                <textarea id="tts-instruction" name="tts-instruction" placeholder="Example: Use expressive tags like <laugh> sparingly when they improve delivery."></textarea>
+              </div>
+            </div>
+            <div class="actions">
+              <div class="mini-copy">These settings are sent by the core app as `metadata.conversation_preferences`.</div>
+              <div class="button-row">
+                <button id="reset-prompt-controls-button" class="secondary" type="button">Reset Delivery Prompts</button>
+              </div>
+            </div>
+            <div>
+              <label for="message">Message</label>
+              <textarea id="message" name="message" placeholder="Try: What time is it?"></textarea>
+            </div>
+            <div class="examples">
+              <button class="chip" type="button" data-prompt="What time is it?">Ask the time</button>
+              <button class="chip" type="button" data-prompt="Search the web for the latest Python release and summarize it.">Web search</button>
+              <button class="chip" type="button" data-prompt="Fetch https://example.com and tell me what it says.">Fetch URL</button>
+              <button class="chip" type="button" data-prompt="Explain recursion with a simple example.">Explain concept</button>
+            </div>
+            <div class="actions">
+              <div class="button-row">
+                <button id="send-button" class="primary" type="button">Send Message</button>
+                <button id="pause-button" class="secondary" type="button">Pause Next Delivery</button>
+                <button id="history-button" class="secondary" type="button">Refresh History</button>
+                <button id="clear-button" class="secondary" type="button">Clear Local View</button>
+              </div>
+              <div id="status" class="status"></div>
+            </div>
+          </div>
+
+          <div class="panel-head" style="margin-top: 22px;">
+            <div>
+              <h2>Live Conversation</h2>
+              <div class="meta">Local browser view of the current exchange.</div>
+            </div>
+          </div>
+          <div id="message-list" class="message-list">
+            <div class="empty">No messages yet. Start with a session id and a prompt.</div>
+          </div>
+
+          <section class="subpanel">
+            <div class="panel-head">
+              <div>
+                <h2>Current Raw Core Response</h2>
+                <div class="meta">The latest direct core-agent answer before the conversation layer delivery is applied.</div>
+              </div>
+            </div>
+            <div id="core-response" class="history-list">
+              <div class="empty">The latest raw core-agent response will appear here after the first request.</div>
+            </div>
+          </section>
+        </section>
+
+        <aside class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Sessions</h2>
+              <div class="meta">Select an existing session or create a new local one.</div>
+            </div>
+          </div>
+          <div id="session-list" class="session-list">
+            <div class="empty">Sessions will appear here after the first saved message.</div>
+          </div>
+
+          <div class="panel-head">
+            <div>
+              <h2>Working Memory</h2>
+              <div class="meta">Current-response state only. It refreshes on every new response.</div>
+            </div>
+          </div>
+          <div id="memory-list" class="memory-list">
+            <div class="empty">Working memory will appear here after the first request.</div>
+          </div>
+          <section class="subpanel">
+            <div class="panel-head">
+              <div>
+                <h2>Transcript History</h2>
+                <div class="meta">Stored core-agent history after the conversation layer rewrites the visible assistant turn.</div>
+              </div>
+            </div>
+            <div id="history-list" class="history-list">
+              <div class="empty">History will appear here after the first request.</div>
+            </div>
+          </section>
+          <p class="hint">Tip: change the session id to inspect a different conversation thread.</p>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const sessionInput = document.getElementById("session-id");
+      const messageInput = document.getElementById("message");
+      const sendButton = document.getElementById("send-button");
+      const pauseButton = document.getElementById("pause-button");
+      const newSessionButton = document.getElementById("new-session-button");
+      const deleteSessionButton = document.getElementById("delete-session-button");
+      const refreshSessionsButton = document.getElementById("refresh-sessions-button");
+      const historyButton = document.getElementById("history-button");
+      const clearButton = document.getElementById("clear-button");
+      const backendTypeSelect = document.getElementById("backend-type");
+      const backendTargetSelect = document.getElementById("backend-target");
+      const a2aOptionsNode = document.getElementById("a2a-options");
+      const a2aRemoteAgentSelect = document.getElementById("a2a-remote-agent");
+      const a2aModelSelect = document.getElementById("a2a-model");
+      const conversationOrchestrationModelSelect = document.getElementById("conversation-orchestration-model");
+      const conversationToneInstructionInput = document.getElementById("conversation-tone-instruction");
+      const ttsInstructionInput = document.getElementById("tts-instruction");
+      const resetPromptControlsButton = document.getElementById("reset-prompt-controls-button");
+      const messageList = document.getElementById("message-list");
+      const coreResponseNode = document.getElementById("core-response");
+      const historyList = document.getElementById("history-list");
+      const memoryList = document.getElementById("memory-list");
+      const sessionList = document.getElementById("session-list");
+      const statusNode = document.getElementById("status");
+      const conversationPreferencesStorageKey = "chanakya.conversationPreferences";
+      let deliveryPollToken = 0;
+      let runtimeOptions = {
+        core_agent: {
+          default_backend: "openai_compatible",
+          default_target: "default",
+          targets: [],
+        },
+        conversation_orchestration: {
+          default_model_id: "",
+          models: [],
+        },
+        conversation_layer: {
+          conversation_preferences: {
+            defaults: {},
+          },
+        },
+      };
+
+      function setStatus(text) {
+        statusNode.textContent = text;
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function renderEmpty(container, text) {
+        container.innerHTML = `<div class="empty">${escapeHtml(text)}</div>`;
+      }
+
+      function conversationPreferenceDefaults() {
+        return runtimeOptions?.conversation_layer?.conversation_preferences?.defaults || {};
+      }
+
+      function loadStoredConversationPreferences() {
+        try {
+          const raw = window.localStorage.getItem(conversationPreferencesStorageKey);
+          return raw ? JSON.parse(raw) : {};
+        } catch (error) {
+          return {};
+        }
+      }
+
+      function saveConversationPreferences() {
+        const value = {
+          conversation_tone_instruction: conversationToneInstructionInput.value,
+          tts_instruction: ttsInstructionInput.value,
+        };
+        window.localStorage.setItem(conversationPreferencesStorageKey, JSON.stringify(value));
+      }
+
+      function applyConversationPreferenceInputs(preferences, { persist = false } = {}) {
+        const defaults = conversationPreferenceDefaults();
+        conversationToneInstructionInput.value = preferences.conversation_tone_instruction || defaults.conversation_tone_instruction || "";
+        ttsInstructionInput.value = preferences.tts_instruction || defaults.tts_instruction || "";
+        if (persist) {
+          saveConversationPreferences();
+        }
+      }
+
+      function initializeConversationPreferenceInputs() {
+        const stored = loadStoredConversationPreferences();
+        applyConversationPreferenceInputs(stored, { persist: false });
+      }
+
+      function backendTargets(backendType) {
+        return (runtimeOptions?.core_agent?.targets || []).filter((target) => target.backend === backendType);
+      }
+
+      function renderBackendTypeOptions() {
+        const availableTargets = runtimeOptions?.core_agent?.targets || [];
+        const backendTypes = [...new Set(availableTargets.map((target) => target.backend))];
+        const defaultBackend = runtimeOptions?.core_agent?.default_backend || backendTypes[0] || "openai_compatible";
+        backendTypeSelect.innerHTML = (backendTypes.length ? backendTypes : [defaultBackend]).map((backend) => `
+          <option value="${escapeHtml(backend)}" ${backend === defaultBackend ? "selected" : ""}>${escapeHtml(backend)}</option>
+        `).join("");
+      }
+
+      function renderBackendTargetOptions() {
+        const backendType = backendTypeSelect.value || runtimeOptions?.core_agent?.default_backend || "openai_compatible";
+        const targets = backendTargets(backendType);
+        const configuredDefaultBackend = runtimeOptions?.core_agent?.default_backend || "openai_compatible";
+        const configuredDefaultTarget = runtimeOptions?.core_agent?.default_target || "default";
+        const selectedTarget = (backendType === configuredDefaultBackend && targets.some((target) => target.key === configuredDefaultTarget))
+          ? configuredDefaultTarget
+          : (targets[0]?.key || "default");
+        backendTargetSelect.innerHTML = (targets.length ? targets : [{ key: "default", label: "default" }]).map((target) => `
+          <option value="${escapeHtml(target.key)}" ${target.key === selectedTarget ? "selected" : ""}>${escapeHtml(target.label || target.key)}</option>
+        `).join("");
+        renderA2AOptions();
+      }
+
+      function selectedBackendTargetConfig() {
+        const backendType = backendTypeSelect.value || runtimeOptions?.core_agent?.default_backend || "openai_compatible";
+        const targetKey = backendTargetSelect.value || runtimeOptions?.core_agent?.default_target || "default";
+        return (runtimeOptions?.core_agent?.targets || []).find((target) => target.backend === backendType && target.key === targetKey) || null;
+      }
+
+      function renderA2AOptions() {
+        const target = selectedBackendTargetConfig();
+        const isA2A = backendTypeSelect.value === "a2a" && !!target;
+        a2aOptionsNode.style.display = isA2A ? "grid" : "none";
+        if (!isA2A) {
+          return;
+        }
+
+        const remoteAgents = target.remote_agents || [];
+        const defaultRemoteAgent = target.default_remote_agent || remoteAgents[0] || "default";
+        a2aRemoteAgentSelect.innerHTML = (remoteAgents.length ? remoteAgents : [defaultRemoteAgent]).map((agent) => `
+          <option value="${escapeHtml(agent)}" ${agent === defaultRemoteAgent ? "selected" : ""}>${escapeHtml(agent)}</option>
+        `).join("");
+
+        const models = target.models || [];
+        const defaultModelKey = `${target.default_model_provider || ""}::${target.default_model_id || ""}`;
+        const defaultModelOption = defaultModelKey !== "::" ? defaultModelKey : "default";
+        a2aModelSelect.innerHTML = [`<option value="default">Target default</option>`, ...models.map((model) => {
+          const value = `${model.provider}::${model.id}`;
+          const label = model.label || `${model.provider}/${model.id}`;
+          return `<option value="${escapeHtml(value)}" ${value === defaultModelOption ? "selected" : ""}>${escapeHtml(label)}</option>`;
+        })].join("");
+        if (defaultModelOption !== "default") {
+          a2aModelSelect.value = defaultModelOption;
+        }
+      }
+
+      function renderOrchestrationOptions() {
+        const options = runtimeOptions?.conversation_orchestration || {};
+        const models = options.models || [];
+        const defaultModelId = options.default_model_id || "";
+        conversationOrchestrationModelSelect.innerHTML = [
+          `<option value="">Configured default${defaultModelId ? ` (${escapeHtml(defaultModelId)})` : ""}</option>`,
+          ...models.map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.label || model.id)}</option>`),
+        ].join("");
+      }
+
+      function appendBubble(role, text, detail) {
+        if (messageList.querySelector(".empty")) {
+          messageList.innerHTML = "";
+        }
+        const bubble = document.createElement("article");
+        bubble.className = `bubble ${role}`;
+        bubble.innerHTML = `
+          <div class="bubble-head">
+            <strong>${role === "user" ? "You" : "Assistant"}</strong>
+            <span>${escapeHtml(detail || "")}</span>
+          </div>
+          <div class="bubble-text">${escapeHtml(text)}</div>
+        `;
+        messageList.appendChild(bubble);
+        messageList.scrollTop = messageList.scrollHeight;
+      }
+
+      function deliverAssistantMessages(messages, detail) {
+        const items = Array.isArray(messages) ? messages : [];
+        if (!items.length) {
+          return;
+        }
+
+        for (let index = 0; index < items.length; index += 1) {
+          const item = items[index] || {};
+          appendBubble("assistant", item.text || "", detail);
+        }
+      }
+
+      async function pollNextMessages(sessionId, detail, token) {
+        while (token === deliveryPollToken) {
+          const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}/next-message`);
+          const payload = await response.json();
+          if (token !== deliveryPollToken) {
+            return;
+          }
+
+          if (payload.working_memory) {
+            renderMemory(payload.working_memory);
+          }
+
+          if (payload.status === "delivered" && payload.message) {
+            appendBubble("assistant", payload.message.text || "", detail);
+            await refreshSessionState();
+            continue;
+          }
+
+          if (payload.status === "waiting") {
+            const retryMs = Math.max(Number(payload.retry_after_ms || 1000), 300);
+            setStatus(`Assistant is pausing for ${Math.round(retryMs / 100) / 10}s...`);
+            await new Promise((resolve) => window.setTimeout(resolve, Math.min(retryMs, 1000)));
+            continue;
+          }
+
+          if (payload.status === "paused") {
+            setStatus("Next delivery is paused. Send a new message when ready.");
+            return;
+          }
+
+          setStatus("Response received.");
+          return;
+        }
+      }
+
+      function renderHistory(messages) {
+        if (!messages.length) {
+          renderEmpty(historyList, "No stored messages for this session yet.");
+          return;
+        }
+
+        historyList.innerHTML = messages.map((message) => `
+          <article class="history-item">
+            <div class="history-head">
+              <strong>${escapeHtml(message.role)}</strong>
+              <span>${escapeHtml(message.created_at || "")}</span>
+            </div>
+            <div class="history-text">${escapeHtml(message.text || "")}</div>
+          </article>
+        `).join("");
+        historyList.scrollTop = historyList.scrollHeight;
+      }
+
+      function renderSessions(sessions) {
+        if (!Array.isArray(sessions) || !sessions.length) {
+          renderEmpty(sessionList, "Sessions will appear here after the first saved message.");
+          return;
+        }
+
+        const activeSessionId = sessionInput.value.trim();
+        sessionList.innerHTML = sessions.map((session) => `
+          <button
+            class="session-item ${session.session_id === activeSessionId ? "active" : ""}"
+            type="button"
+            data-session-id="${escapeHtml(session.session_id)}"
+          >
+            <strong>${escapeHtml(session.session_id)}</strong>
+            <span>${escapeHtml(session.last_message_role || "message")}: ${escapeHtml(session.last_message_preview || "")}</span>
+            <span>${escapeHtml(session.updated_at || "")}</span>
+          </button>
+        `).join("");
+
+        sessionList.querySelectorAll("[data-session-id]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            sessionInput.value = button.dataset.sessionId || "";
+            renderSessions(sessions);
+            await refreshSessionState();
+            setStatus(`Loaded session ${button.dataset.sessionId}.`);
+          });
+        });
+      }
+
+      function renderCoreResponse(text, metadata) {
+        if (!text) {
+          renderEmpty(coreResponseNode, "The latest raw core-agent response will appear here after the first request.");
+          return;
+        }
+
+        coreResponseNode.innerHTML = `
+          <article class="history-item">
+            <div class="history-head">
+              <strong>Core Agent</strong>
+              <span>${escapeHtml(metadata?.core_agent_backend || metadata?.source || "current turn")}</span>
+            </div>
+            <div class="history-text">${escapeHtml(text)}</div>
+          </article>
+        `;
+      }
+
+      function stringifyValue(value) {
+        if (value === null || value === undefined || value === "") {
+          return "-";
+        }
+        if (typeof value === "object") {
+          return JSON.stringify(value, null, 2);
+        }
+        return String(value);
+      }
+
+      function renderMemory(memory) {
+        if (!memory) {
+          renderEmpty(memoryList, "No working memory for this session yet.");
+          return;
+        }
+
+        memoryList.innerHTML = `
+          <article class="memory-card">
+            <div class="memory-grid">
+              <div class="memory-row">
+                <span class="memory-label">Topic Label</span>
+                <strong class="memory-value">${escapeHtml(stringifyValue(memory.topic_label))}</strong>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Latest User Message</span>
+                <strong class="memory-value">${escapeHtml(stringifyValue(memory.latest_user_message || memory.current_user_message))}</strong>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Latest User Intent</span>
+                <span class="memory-value">${escapeHtml(stringifyValue(memory.latest_user_intent))}</span>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Topic Continuity</span>
+                <span class="memory-value">${escapeHtml(stringifyValue(memory.topic_continuity_confidence))}</span>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Core Agent Called</span>
+                <span class="memory-value">${escapeHtml(stringifyValue(memory.core_agent_called))}</span>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Latest Core Response</span>
+                <span class="memory-value">${escapeHtml(stringifyValue(memory.latest_core_response))}</span>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Interrupted</span>
+                <span class="memory-value">${escapeHtml(stringifyValue(memory.interrupted))}</span>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Manual Pause Requested</span>
+                <span class="memory-value">${escapeHtml(stringifyValue(memory.manual_pause_requested))}</span>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Queue Cleared Reason</span>
+                <span class="memory-value">${escapeHtml(stringifyValue(memory.queue_cleared_reason))}</span>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Cancelled Pending Count</span>
+                <span class="memory-value">${escapeHtml(stringifyValue(memory.cancelled_pending_count))}</span>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Delivered Summary</span>
+                <span class="memory-value">${escapeHtml(stringifyValue(memory.delivered_summary))}</span>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Remaining Summary</span>
+                <span class="memory-value">${escapeHtml(stringifyValue(memory.remaining_summary))}</span>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Planned Messages</span>
+                <div class="memory-value memory-pill-row">
+                  ${(memory.planned_messages || []).length ? (memory.planned_messages || []).map((item) => `<span class="memory-pill">${escapeHtml(item.text || "")}</span>`).join("") : "-"}
+                </div>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Pending Messages</span>
+                <div class="memory-value memory-pill-row">
+                  ${(memory.pending_messages || []).length ? (memory.pending_messages || []).map((item) => `<span class="memory-pill">${escapeHtml(item.text || "")}</span>`).join("") : "-"}
+                </div>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Delivered Messages</span>
+                <div class="memory-value memory-pill-row">
+                  ${(memory.delivered_messages || []).length ? (memory.delivered_messages || []).map((item) => `<span class="memory-pill">${escapeHtml(item.text || "")}</span>`).join("") : "-"}
+                </div>
+              </div>
+              <div class="memory-row">
+                <span class="memory-label">Raw Memory</span>
+                <span class="memory-value"></span>
+              </div>
+              <pre class="memory-json">${escapeHtml(JSON.stringify(memory, null, 2))}</pre>
+            </div>
+          </article>
+        `;
+      }
+
+      async function loadHistory() {
+        const sessionId = sessionInput.value.trim();
+        if (!sessionId) {
+          setStatus("Enter a session id first.");
+          return;
+        }
+
+        setStatus("Loading transcript history...");
+        const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}/history`);
+        const payload = await response.json();
+        renderHistory(payload.messages || []);
+        setStatus(`Loaded ${payload.messages.length} stored message(s).`);
+      }
+
+      async function loadSessions() {
+        const response = await fetch("/sessions");
+        const payload = await response.json();
+        renderSessions(payload.sessions || []);
+      }
+
+      async function loadRuntimeOptions() {
+        const response = await fetch("/runtime/options");
+        const payload = await response.json();
+        runtimeOptions = payload || runtimeOptions;
+        renderBackendTypeOptions();
+        renderBackendTargetOptions();
+        renderOrchestrationOptions();
+        initializeConversationPreferenceInputs();
+      }
+
+      async function loadWorkingMemory() {
+        const sessionId = sessionInput.value.trim();
+        if (!sessionId) {
+          setStatus("Enter a session id first.");
+          return;
+        }
+
+        const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}/working-memory`);
+        const payload = await response.json();
+        renderMemory(payload.working_memory || null);
+      }
+
+      async function refreshSessionState() {
+        await Promise.all([loadHistory(), loadWorkingMemory(), loadSessions()]);
+      }
+
+      async function sendMessage() {
+        const sessionId = sessionInput.value.trim();
+        const message = messageInput.value.trim();
+
+        if (!sessionId || !message) {
+          setStatus("Session id and message are both required.");
+          return;
+        }
+
+        sendButton.disabled = true;
+        historyButton.disabled = true;
+        setStatus("Sending request...");
+        deliveryPollToken += 1;
+        appendBubble("user", message, sessionId);
+
+        try {
+          const metadata = {
+            core_agent_backend: backendTypeSelect.value,
+            core_agent_target: backendTargetSelect.value,
+          };
+          if (backendTypeSelect.value === "a2a") {
+            metadata.a2a_remote_agent = a2aRemoteAgentSelect.value;
+            if (a2aModelSelect.value && a2aModelSelect.value !== "default") {
+              const [provider, modelId] = a2aModelSelect.value.split("::", 2);
+              metadata.a2a_model_provider = provider;
+              metadata.a2a_model_id = modelId;
+            }
+          }
+          if (conversationOrchestrationModelSelect.value) {
+            metadata.conversation_orchestration_model_id = conversationOrchestrationModelSelect.value;
+          }
+          metadata.conversation_preferences = {
+            conversation_tone_instruction: conversationToneInstructionInput.value.trim(),
+            tts_instruction: ttsInstructionInput.value.trim(),
+          };
+          const response = await fetch("/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: sessionId,
+              message,
+              metadata,
+            }),
+          });
+
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || "Request failed.");
+          }
+
+          const responseDetail = payload.metadata?.source || "conversation_layer";
+          renderCoreResponse(payload.metadata?.core_agent_response || "", payload.metadata || {});
+          deliverAssistantMessages(payload.messages || [], responseDetail);
+          messageInput.value = "";
+          await refreshSessionState();
+          if (Number(payload.metadata?.pending_delivery_count || 0) > 0) {
+            const pollToken = deliveryPollToken;
+            void pollNextMessages(sessionId, responseDetail, pollToken);
+          } else {
+            setStatus("Response received.");
+          }
+        } catch (error) {
+          appendBubble("assistant", `Error: ${error.message}`, "client");
+          setStatus("Request failed.");
+        } finally {
+          sendButton.disabled = false;
+          historyButton.disabled = false;
+          messageInput.focus();
+        }
+      }
+
+      document.querySelectorAll("[data-prompt]").forEach((button) => {
+        button.addEventListener("click", () => {
+          messageInput.value = button.dataset.prompt;
+          messageInput.focus();
+        });
+      });
+
+      newSessionButton.addEventListener("click", () => {
+        const newSessionId = `session-${Date.now()}`;
+        deliveryPollToken += 1;
+        sessionInput.value = newSessionId;
+        renderEmpty(messageList, "No messages yet. Start with a session id and a prompt.");
+        renderEmpty(coreResponseNode, "The latest raw core-agent response will appear here after the first request.");
+        renderEmpty(historyList, "History will appear here after the first request.");
+        renderEmpty(memoryList, "Working memory will appear here after the first request.");
+        void loadSessions();
+        setStatus(`Created new session ${newSessionId}.`);
+      });
+
+      deleteSessionButton.addEventListener("click", async () => {
+        const sessionId = sessionInput.value.trim();
+        if (!sessionId) {
+          setStatus("Enter a session id first.");
+          return;
+        }
+
+        const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}`, {
+          method: "DELETE",
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          setStatus(payload.error || "Failed to delete session.");
+          return;
+        }
+
+        deliveryPollToken += 1;
+        const replacementSessionId = `session-${Date.now()}`;
+        sessionInput.value = replacementSessionId;
+        renderEmpty(messageList, "No messages yet. Start with a session id and a prompt.");
+        renderEmpty(coreResponseNode, "The latest raw core-agent response will appear here after the first request.");
+        renderEmpty(historyList, "History will appear here after the first request.");
+        renderEmpty(memoryList, "Working memory will appear here after the first request.");
+        await loadSessions();
+        setStatus(`Deleted session ${payload.session_id}.`);
+      });
+
+      refreshSessionsButton.addEventListener("click", async () => {
+        await loadSessions();
+        setStatus("Session list refreshed.");
+      });
+
+      backendTypeSelect.addEventListener("change", () => {
+        renderBackendTargetOptions();
+        setStatus(`Backend changed to ${backendTypeSelect.value}.`);
+      });
+      backendTargetSelect.addEventListener("change", () => {
+        renderA2AOptions();
+      });
+      conversationToneInstructionInput.addEventListener("change", saveConversationPreferences);
+      ttsInstructionInput.addEventListener("change", saveConversationPreferences);
+      resetPromptControlsButton.addEventListener("click", () => {
+        applyConversationPreferenceInputs({}, { persist: true });
+        setStatus("Reset delivery prompt controls to runtime defaults.");
+      });
+
+      sendButton.addEventListener("click", sendMessage);
+      pauseButton.addEventListener("click", async () => {
+        const sessionId = sessionInput.value.trim();
+        if (!sessionId) {
+          setStatus("Enter a session id first.");
+          return;
+        }
+
+        const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}/pause`, {
+          method: "POST",
+        });
+        const payload = await response.json();
+        renderMemory(payload.working_memory || null);
+        setStatus("Paused the next queued delivery.");
+      });
+      historyButton.addEventListener("click", async () => {
+        await refreshSessionState();
+        setStatus("History and working memory refreshed.");
+      });
+      clearButton.addEventListener("click", () => {
+        deliveryPollToken += 1;
+        renderEmpty(messageList, "No messages yet. Start with a session id and a prompt.");
+        renderEmpty(coreResponseNode, "The latest raw core-agent response will appear here after the first request.");
+        renderEmpty(historyList, "History will appear here after the first request.");
+        renderEmpty(memoryList, "Working memory will appear here after the first request.");
+        setStatus("Cleared local browser view.");
+      });
+      messageInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+          sendMessage();
+        }
+      });
+      sessionInput.addEventListener("change", () => {
+        deliveryPollToken += 1;
+        renderEmpty(coreResponseNode, "The latest raw core-agent response will appear here after the first request.");
+        renderEmpty(historyList, "History will appear here after the first request.");
+        renderEmpty(memoryList, "Working memory will appear here after the first request.");
+        void loadSessions();
+        setStatus("Session changed. Refresh history when ready.");
+      });
+
+      void Promise.all([loadRuntimeOptions(), loadSessions()]);
+    </script>
+  </body>
+</html>

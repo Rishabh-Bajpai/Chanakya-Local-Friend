@@ -1,1 +1,0 @@
-Use Name as shown in GetLiveContext for Home assistant tools (like HassTurnOn and HassTurnOff) to control the devices not "entity_id" or "entity". Example: "Action: HassTurnOn Action Input: {"name": "light switch"}"

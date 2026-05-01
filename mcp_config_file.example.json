@@ -1,0 +1,136 @@
+{
+  "mcpServers": {
+    "mcp_websearch": {
+      "command": "uvx",
+      "args": [
+        "duckduckgo-mcp-server",
+        "--transport",
+        "stdio"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_fetch": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_calculator": {
+      "command": "uvx",
+      "args": [
+        "calculator-mcp-server"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_code_execution": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_sandbox_exec_server"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_filesystem": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "filesystem"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_git": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "git"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_http": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "http"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_json": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "json"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_shell_utils": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "shell_utils"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_weather": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "weather"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_map": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_basic_tools_server",
+        "map"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_timer": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_scheduler_launcher"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_work_tools": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_work_tools_server"
+      ],
+      "transport": "stdio",
+      "env": {}
+    },
+    "mcp_artifact_tools": {
+      "command": "python",
+      "args": [
+        "-m",
+        "chanakya.services.mcp_artifact_tools_server"
+      ],
+      "transport": "stdio",
+      "env": {}
+    }
+  }
+}

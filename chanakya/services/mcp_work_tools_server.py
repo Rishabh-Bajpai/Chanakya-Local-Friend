@@ -1,0 +1,390 @@
+"""MCP server exposing work-management tools for classic chat.
+
+Tools let the Chanakya assistant list works, check status,
+send messages into work sessions, and read pending notifications
+— all without automatic delegation.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+import threading
+from typing import Any
+
+from mcp.server.fastmcp import FastMCP
+from sqlalchemy.orm import Session, sessionmaker
+
+from chanakya.agent.runtime import MAFRuntime
+from chanakya.agent_manager import AgentManager
+from chanakya.chat_service import ChatService
+from chanakya.config import get_database_url
+from chanakya.db import build_engine, build_session_factory, init_database
+from chanakya.debug import debug_log
+from chanakya.domain import make_id
+from chanakya.seed import load_agent_seeds
+from chanakya.services.mcp_feedback import (
+    build_missing_argument_payload,
+    build_wrong_id_payload,
+)
+from chanakya.store import ChanakyaStore
+
+
+def _build_store() -> tuple[ChanakyaStore, sessionmaker[Session]]:
+    engine = build_engine(get_database_url())
+    init_database(engine)
+    session_factory = build_session_factory(engine)
+    return ChanakyaStore(session_factory), session_factory
+
+
+def _ensure_agent_profiles(store: ChanakyaStore) -> None:
+    try:
+        store.get_agent_profile("agent_chanakya")
+        store.get_agent_profile("agent_manager")
+        return
+    except KeyError:
+        repo_root = Path(__file__).resolve().parents[2]
+        load_agent_seeds(store, repo_root / "chanakya" / "seeds" / "agents.json")
+
+
+def _build_chat_service(
+    store: ChanakyaStore, session_factory: sessionmaker[Session]
+) -> ChatService:
+    _ensure_agent_profiles(store)
+    chanakya_profile = store.get_agent_profile("agent_chanakya")
+    manager_profile = store.get_agent_profile("agent_manager")
+    runtime = MAFRuntime(chanakya_profile, session_factory)
+    manager = AgentManager(store, session_factory, manager_profile)
+    return ChatService(store, runtime, manager)
+
+
+def _work_summary(work: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": work.get("id"),
+        "title": work.get("title"),
+        "description": work.get("description"),
+        "status": work.get("status"),
+    }
+
+
+def _work_not_found_payload(store: ChanakyaStore, *, work_id: str) -> dict[str, Any]:
+    candidates = [_work_summary(item) for item in store.list_works(limit=10, status=None)]
+    return build_wrong_id_payload(
+        object_name="work",
+        bad_id=work_id,
+        candidates_key="available_works",
+        candidates=candidates,
+        retry_hint="Call list_works to inspect valid work IDs, then retry with one of those IDs.",
+        empty_scope_message="No works are currently available.",
+    )
+
+
+def _create_work(
+    store: ChanakyaStore,
+    *,
+    title: str,
+    description: str | None = None,
+) -> dict[str, Any]:
+    cleaned_title = title.strip()
+    if not cleaned_title:
+        return build_missing_argument_payload(
+            argument="title",
+            hint="Retry with a short concrete work title such as 'Research pricing options' or 'Build landing page draft'.",
+        )
+
+    cleaned_description = (description or "").strip() or None
+    work_id = make_id("work")
+    store.create_work(
+        work_id=work_id,
+        title=cleaned_title,
+        description=cleaned_description,
+        status="active",
+    )
+    active_profiles = [profile for profile in store.list_agent_profiles() if profile.is_active]
+    for profile in active_profiles:
+        store.ensure_work_agent_session(
+            work_id=work_id,
+            agent_id=profile.id,
+            session_id=make_id("session"),
+            session_title=f"{cleaned_title} - {profile.name}",
+        )
+    store.log_event(
+        "work_created",
+        {
+            "work_id": work_id,
+            "title": cleaned_title,
+            "description": cleaned_description,
+            "agent_session_count": len(active_profiles),
+            "source": "mcp_work_tools",
+        },
+    )
+    return {
+        "ok": True,
+        "id": work_id,
+        "title": cleaned_title,
+        "description": cleaned_description,
+        "status": "active",
+        "agent_session_count": len(active_profiles),
+    }
+
+
+def _send_message_to_work(
+    store: ChanakyaStore,
+    chat_service: Any,
+    *,
+    work_id: str,
+    message: str,
+) -> dict[str, Any]:
+    cleaned_message = message.strip()
+    if not cleaned_message:
+        return build_missing_argument_payload(
+            argument="message",
+            hint="Retry with the exact message you want to send into the existing work.",
+        )
+
+    try:
+        work = store.get_work(work_id)
+    except KeyError:
+        return _work_not_found_payload(store, work_id=work_id)
+
+    session_id = store.ensure_work_agent_session(
+        work_id=work_id,
+        agent_id="agent_chanakya",
+        session_id=make_id("session"),
+        session_title=f"{work.title} - Chanakya",
+    )
+
+    def _run_in_background() -> None:
+        try:
+            chat_service.chat(session_id, cleaned_message, work_id=work_id)
+        except Exception as exc:
+            debug_log(
+                "mcp_work_message_background_failed",
+                {
+                    "work_id": work_id,
+                    "session_id": session_id,
+                    "error": str(exc),
+                },
+            )
+
+    threading.Thread(
+        target=_run_in_background,
+        daemon=True,
+        name=f"work-msg-{work_id}",
+    ).start()
+
+    return {
+        "ok": True,
+        "work_id": work_id,
+        "work_title": work.title,
+        "session_id": session_id,
+        "message": f'Message sent successfully to "{work.title}".',
+    }
+
+
+def _create_work_with_message(
+    store: ChanakyaStore,
+    chat_service: Any,
+    *,
+    title: str,
+    description: str | None = None,
+    message: str,
+) -> dict[str, Any]:
+    if not message.strip():
+        return build_missing_argument_payload(
+            argument="message",
+            hint="Retry with the exact initial request to send after creating the work.",
+        )
+
+    create_result = _create_work(store, title=title, description=description)
+    if not create_result.get("ok"):
+        return create_result
+
+    send_result = _send_message_to_work(
+        store,
+        chat_service,
+        work_id=str(create_result["id"]),
+        message=message,
+    )
+    if not send_result.get("ok"):
+        return send_result
+
+    return {
+        "ok": True,
+        "id": create_result["id"],
+        "title": create_result["title"],
+        "description": create_result["description"],
+        "status": create_result["status"],
+        "agent_session_count": create_result["agent_session_count"],
+        "session_id": send_result["session_id"],
+        "message": (
+            f'Created work "{create_result["title"]}" and sent the initial request successfully.'
+        ),
+    }
+
+
+def _get_pending_work_messages(
+    store: ChanakyaStore,
+    *,
+    work_id: str = "",
+    include_acknowledged: bool = False,
+) -> dict[str, Any]:
+    notifications = store.work_notifications.list_pending(
+        work_id=work_id if work_id.strip() else None,
+        include_acknowledged=include_acknowledged,
+    )
+    return {
+        "ok": True,
+        "notifications": notifications,
+        "count": len(notifications),
+    }
+
+
+def _build_work_tools_server() -> FastMCP:
+    mcp = FastMCP("Chanakya Work Tools", json_response=True)
+    store, session_factory = _build_store()
+    chat_service = _build_chat_service(store, session_factory)
+
+    @mcp.tool()
+    def create_work_with_message(title: str, description: str = "", message: str = "") -> dict[str, Any]:
+        """Create a new work item and send the initial user request to it.
+
+        Use this when the user explicitly asks to create or start a new work
+        for a specific request and you already know the initial message to send.
+
+        Do not use this for referential follow-ups to an existing work. For
+        follow-ups like save it, continue it, update it, or put it in the
+        workspace, reuse the existing work and call send_message_to_work.
+        """
+        return _create_work_with_message(
+            store,
+            chat_service,
+            title=title,
+            description=description,
+            message=message,
+        )
+
+    @mcp.tool()
+    def list_works(limit: int = 20, status: str = "active") -> dict[str, Any]:
+        """List work items with their current status.
+
+        By default this returns active works so classic chat can inspect the
+        currently available work queue. Pass an empty status to list all works.
+
+        Use the returned work_id values to continue or update existing work via
+        send_message_to_work rather than creating duplicate work items.
+
+        Returns a list of works sorted by creation time (newest first).
+        Each work includes id, title, description, status, and timestamps.
+        """
+        bounded = max(1, min(limit, 100))
+        filtered_status = status.strip() or None
+        works = store.list_works(limit=bounded, status=filtered_status)
+        return {"ok": True, "works": works, "count": len(works)}
+
+    @mcp.tool()
+    def get_work_status(work_id: str) -> dict[str, Any]:
+        """Get detailed status of a specific work item.
+
+        Returns the work metadata, associated agent sessions,
+        and recent tasks with their statuses.
+        """
+        try:
+            work = store.get_work(work_id)
+        except KeyError:
+            return _work_not_found_payload(store, work_id=work_id)
+
+        sessions = store.list_work_agent_sessions(work_id)
+        session_ids = store.list_session_ids_for_work(work_id)
+
+        tasks: list[dict[str, Any]] = []
+        for sid in session_ids:
+            tasks.extend(store.list_tasks(session_id=sid, limit=20))
+
+        task_summary = [
+            {
+                "id": t["id"],
+                "title": t.get("title", ""),
+                "status": t.get("status", ""),
+                "type": t.get("task_type", ""),
+            }
+            for t in tasks
+        ]
+
+        return {
+            "ok": True,
+            "work": {
+                "id": work.id,
+                "title": work.title,
+                "description": work.description,
+                "status": work.status,
+                "created_at": work.created_at,
+                "updated_at": work.updated_at,
+            },
+            "agent_sessions": sessions,
+            "tasks": task_summary,
+        }
+
+    @mcp.tool()
+    def send_message_to_work(work_id: str, message: str) -> dict[str, Any]:
+        """Send a message into an existing work's chat session.
+
+        The message is appended to the Chanakya agent session for this work and
+        processing is started in the background.
+
+        Use this when the user explicitly asks to communicate with an ongoing
+        work item from classic chat, including when the user refers to a
+        recently listed or notified work by title or work_id.
+
+        Never tell the user the message was sent unless this tool call succeeds.
+        """
+        return _send_message_to_work(
+            store,
+            chat_service,
+            work_id=work_id,
+            message=message,
+        )
+
+    @mcp.tool()
+    def get_pending_work_messages(
+        work_id: str = "",
+        include_acknowledged: bool = False,
+    ) -> dict[str, Any]:
+        """Get pending notification messages from work items.
+
+        Returns unacknowledged work notifications (completed tasks,
+        input-required prompts, failures). Optionally filter by work_id.
+        """
+        return _get_pending_work_messages(
+            store,
+            work_id=work_id,
+            include_acknowledged=include_acknowledged,
+        )
+
+    @mcp.tool()
+    def list_work_notifications(
+        work_id: str = "",
+        include_acknowledged: bool = False,
+    ) -> dict[str, Any]:
+        """List pending work notifications for completed, failed, or blocked work.
+
+        Use this when the user asks for work updates, completed items, pending
+        input requests, or failures across active works. The returned items
+        include work_id values that should be reused when the user asks to send
+        a follow-up message to one of those works.
+        """
+        return _get_pending_work_messages(
+            store,
+            work_id=work_id,
+            include_acknowledged=include_acknowledged,
+        )
+
+    return mcp
+
+
+def main() -> None:
+    mcp = _build_work_tools_server()
+    mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()

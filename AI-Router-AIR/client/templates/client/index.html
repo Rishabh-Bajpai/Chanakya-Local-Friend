@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Router | Test Client</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+
+<body>
+  <div class="app-container">
+    <header class="main-header">
+      <div class="logo">
+        <span class="icon">🧪</span>
+        <h1>AI Router <span class="badge">Test Client</span></h1>
+      </div>
+    </header>
+
+    <main class="workbench">
+      <div class="controls-bar">
+        <div class="model-selector">
+          <label for="model-select">Select Model / Service</label>
+          <div class="selector-controls">
+            <select id="model-select">
+              <option value="" disabled selected>Loading models...</option>
+            </select>
+            <div class="checkbox-group">
+              <input type="checkbox" id="stream-checkbox" checked />
+              <label for="stream-checkbox">Stream Response</label>
+            </div>
+          </div>
+        </div>
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="chat">Chat (LLM)</button>
+          <button class="tab-btn" data-tab="stt">Speech-to-Text</button>
+          <button class="tab-btn" data-tab="tts">Text-to-Speech</button>
+          <button class="tab-btn" data-tab="voice" aria-label="Voice Mode">Voice Mode 📞</button>
+        </div>
+      </div>
+
+      <!-- CHAT TAB -->
+      <div id="tab-chat" class="tab-content active">
+        <div class="chat-container">
+          <div id="chat-messages" class="chat-messages">
+            <div class="message system">
+              <div class="text">Select a model and start chatting!</div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <textarea id="chat-input" placeholder="Type your message here..." rows="3"></textarea>
+            <button id="send-btn" class="btn btn-primary">Send</button>
+            <button id="clear-chat-btn" class="btn btn-sm btn-secondary" title="Clear History"
+              aria-label="Clear Chat History">
+              🗑️
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STT TAB -->
+      <div id="tab-stt" class="tab-content">
+        <div class="stt-container">
+          <div class="stt-controls">
+            <div class="control-group">
+              <label for="stt-language">Language (Optional):</label>
+              <select id="stt-language">
+                <option value="">Auto-detect</option>
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="it">Italian</option>
+                <option value="pt">Portuguese</option>
+                <option value="nl">Dutch</option>
+                <option value="ja">Japanese</option>
+                <option value="zh">Chinese</option>
+                <option value="hi">Hindi</option>
+              </select>
+            </div>
+            <button id="record-btn" class="btn btn-primary">
+              <span class="icon">🎙</span> Record Audio
+            </button>
+            <span id="recording-status" class="hidden"></span>
+          </div>
+          <div class="stt-output">
+            <h3>Transcription Result:</h3>
+            <textarea id="stt-result" readonly placeholder="Transcription will appear here..."></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- TTS TAB -->
+      <div id="tab-tts" class="tab-content">
+        <div class="tts-container">
+          <div class="tts-controls">
+            <div class="control-group">
+              <label for="tts-voice">Select Voice:</label>
+              <select id="tts-voice">
+                <option value="alloy">Alloy (Default)</option>
+                <!-- Populated dynamically -->
+              </select>
+            </div>
+          </div>
+          <div class="tts-input-area">
+            <textarea id="tts-input" placeholder="Enter text to convert to speech..." rows="5"></textarea>
+            <button id="speak-btn" class="btn btn-primary">
+              Generate Speech
+            </button>
+          </div>
+          <div class="tts-output">
+            <h3>Audio Output:</h3>
+            <audio id="tts-audio" controls></audio>
+          </div>
+        </div>
+      </div>
+      <!-- VOICE MODE TAB -->
+      <div id="tab-voice" class="tab-content">
+        <div class="voice-mode-container">
+          <div class="voice-settings">
+            <div class="control-group">
+              <label for="voice-stt-model">STT:</label>
+              <select id="voice-stt-model">
+                <option value="" disabled selected>Loading...</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label for="voice-stt-lang">Lang:</label>
+              <select id="voice-stt-lang">
+                <option value="">Auto (Default)</option>
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="it">Italian</option>
+                <option value="pt">Portuguese</option>
+                <option value="nl">Dutch</option>
+                <option value="ja">Japanese</option>
+                <option value="zh">Chinese</option>
+                <option value="hi">Hindi</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label for="voice-llm-model">LLM:</label>
+              <select id="voice-llm-model">
+                <option value="" disabled selected>Loading...</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label for="voice-tts-model">TTS:</label>
+              <select id="voice-tts-model">
+                <option value="" disabled selected>Loading...</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label for="voice-tts-voice">Voice:</label>
+              <select id="voice-tts-voice">
+                <option value="alloy">Alloy (Default)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="voice-visualizer">
+            <div class="circles">
+              <div class="circle c1"></div>
+              <div class="circle c2"></div>
+              <div class="circle c3"></div>
+            </div>
+            <div class="status-indicator" id="voice-status">Ready to Call</div>
+          </div>
+
+          <div class="voice-controls">
+            <button id="voice-call-btn" class="btn btn-call" aria-label="Start Voice Mode">
+              <span class="icon">📞</span> Start Voice Mode
+            </button>
+          </div>
+
+          <div class="voice-transcript-log" id="voice-transcript">
+            <!-- Real-time transcriptions appear here -->
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- We reuse the server static files directly since we are serving from same app -->
+  <!-- Inject Configuration -->
+  <script>
+    window.AIR_SERVER_URL = "{{ air_server_url }}";
+  </script>
+  <script src="/static/js/app.js"></script>
+</body>
+
+</html>

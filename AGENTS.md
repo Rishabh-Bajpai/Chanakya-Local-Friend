@@ -1,136 +1,56 @@
-# AGENTS.md - Chanakya-Local-Friend Development Guide
+# AGENTS.md
 
-Essential information for agentic coding agents working on this Flask-based chatbot with MCP tool integration.
+## Workspace Shape
 
-## Build & Dev Commands
+- Primary app is `chanakya/`. Most active product work, tests, and Flask routes live there.
+- `AI-Router-AIR/` is a separate FastAPI service used by the local stack on `:5512`.
+- `chanakya_conversation_layer/` is a separate prototype package with its own `pyproject.toml` and tests; do not assume its commands or Python version match the root package.
 
-### Application
-```bash
-python chanakya.py  # HTTP server
-python -m src.chanakya.services.generate_cert  # HTTPS certs
-docker build -t chanakya-assistant . && docker run --restart=always -d --network="host" --env-file .env --name chanakya chanakya-assistant
-```
+## Startup / Runtime
 
-### Dependencies
-```bash
-# Using pip
-pip install -e .[dev]  # Python 3.11+ required
+- Preferred local stack entrypoint is `./scripts/start_chanakya_air.sh core` from repo root.
+- `core+a2a` also starts OpenCode and the A2A bridge: `./scripts/start_chanakya_air.sh core+a2a`.
+- Stop everything with `./scripts/stop_chanakya_air.sh`.
+- Runtime logs and PID files go to `build/runtime/`.
+- The startup script sources the repo-root `.env` automatically and exports `ENV_FILE_PATH`; do not manually duplicate env wiring unless you are bypassing the script.
 
-# Using conda (if environment 'chanakya' exists)
-conda activate chanakya
-pip install -e .[dev]
-```
+## Environment / Setup
 
-### Testing (pytest)
-```bash
-pytest                              # All tests
-pytest tests/test_config.py         # Single file
-pytest tests/test_config.py::TestGetEnvCleanStandalone::test_returns_plain_string_unchanged  # Single test
-pytest -k "test_plain" --verbose    # Keyword match
-pytest --cov=src/chanakya --cov-report=html  # With coverage
-```
-Tests use `unittest.TestCase` with `pytest-flask`; async tests use `pytest-asyncio`. Mock with `unittest.mock.patch`.
+- Root package expects Python `>=3.10`; `chanakya_conversation_layer/` expects `>=3.11`.
+- Standard setup in docs uses the `test` conda env:
+  - `source /home/rishabh/miniconda3/etc/profile.d/conda.sh`
+  - `conda activate test`
+  - `python -m pip install -e .[dev]`
+- Local runtime config is expected in root `.env` and `mcp_config_file.json`; both are gitignored.
 
-### Code Quality
-```bash
-ruff check .   # Lint
-ruff format .  # Format
-mypy src/      # Type check (if available)
-```
+## Verification Commands
 
-## Code Style
+- Root app checks (run from repo root):
+  - `python -m ruff check chanakya/`
+  - `python -m mypy chanakya/`
+  - `pytest chanakya/test`
+- Root pytest is already scoped to `chanakya/test` by `pyproject.toml`; use focused runs like `pytest chanakya/test/test_agent_manager.py -q`.
+- `AI-Router-AIR/` has its own pytest config under `AI-Router-AIR/tests`.
+- `chanakya_conversation_layer/` has its own pytest config under `chanakya_conversation_layer/tests`.
 
-### Imports
-Order: stdlib → third-party → local. One per line, blank lines between groups.
+## Repo-Specific Gotchas
 
-### Formatting
-- 4 spaces, ~100 char lines
-- Single quotes for strings, double for docstrings
-- Trailing commas in multi-line collections
+- `chanakya/seed.py` always refreshes seeded agent profiles on load. Editing `chanakya/seeds/agents.json` updates existing DB rows for matching seeded profiles; current behavior is overwrite, not merge, while preserving each profile's original `created_at`.
+- `chanakya_data/` is runtime state, not source of truth. It contains the SQLite DB and shared sandbox workspace and is ignored by git.
+- Sandboxed code execution writes only under `chanakya_data/shared_workspace/`; host project files may be mounted read-only.
 
-### Naming
-- `snake_case`: variables, functions, modules
-- `UPPER_SNAKE_CASE`: constants
-- `PascalCase`: classes
+## Architecture Shortcuts
 
-### Error Handling
-```python
-try:
-    # operation
-except RuntimeError as e:
-    if "Event loop is closed" in str(e):
-        app.logger.error(f"EVENT LOOP CLOSED: {e}", exc_info=True)
-        return jsonify({"response": "Internal server error"}), 500
-    raise
-except Exception as e:
-    app.logger.error(f"Error: {e}", exc_info=True)
-    return jsonify({"response": "Sorry, an error occurred"}), 500
-finally:
-    # cleanup resources
-```
+- Main Flask app factory and startup wiring: `chanakya/app.py`.
+- Chat orchestration and classic/delegated routing: `chanakya/chat_service.py`.
+- Persistence layer and task/session/work records: `chanakya/store.py`.
+- MAF runtime integration: `chanakya/agent/runtime.py`.
+- Main classic/work UI is in `chanakya/templates/`; shared voice logic is in `chanakya/static/js/air_voice.js`.
 
-### Type Hints
-Add for new functions/public APIs. Import from `typing` as needed.
+## When Editing Behavior
 
-### Project Structure
-```
-src/chanakya/
-├── config.py    # Env & config helpers
-├── core/        # Agents, memory, chat history
-├── services/    # STT, TTS, MCP tools
-├── utils/       # Utilities
-├── web/         # Flask app, routes, templates
-└── prompts/     # Prompt templates
-```
-Frontend: `src/frontend/templates/` | `src/frontend/static/`
-
-## Flask Guidelines
-- Routes: `@app.route("/path", methods=['GET', 'POST'])`
-- Async routes: `async def` with `await`
-- Test client: `app.test_client()`
-- No blueprints; routes registered directly
-
-## Environment
-- `.env` (local) & `.env.example` (template)
-- Required: `APP_SECRET_KEY`, `DATABASE_PATH`, `LLM_PROVIDER`
-- Config: `config.py` with `get_env_clean()`
-- MCP tools: `mcp_config_file.json` (copy from example)
-
-## Tool Integration (MCP)
-- Tool names: `snake_case` in MCP config
-- Loading: async via `tool_loader.load_all_mcp_tools_async()`
-- See `tool_specific_instructions.txt` for Home Assistant
-- Tools injected into LangChain agent via `tools` parameter
-
-## Documentation
-- Docstrings: triple quotes, brief
-- Inline comments: explain non-obvious logic only
-- Update `README.md` for user-facing changes
-
-## Security
-- Never commit: `.env`, `mcp_config_file.json` (with secrets), SSL certs
-- Validate user input in routes
-- No stack traces in production responses
-- Specify minimum lower bounds (`>=`) for all deps in `pyproject.toml`; avoid bare unpinned names
-
-## Workflow
-1. `python chanakya.py`
-2. Access `http://localhost:5001`
-3. Test via web UI & API (`/chat`, `/record`, `/memory`)
-4. Check Flask logs
-5. `ruff check .` before committing
-6. `pytest` to verify
-
-## Common Issues
-- `TemplateNotFound`: check `src/frontend/templates/`
-- Async errors: ensure `nest_asyncio.apply()` in `chanakya.py`
-- MCP failures: validate `mcp_config_file.json` syntax
-- SSL/HTTPS for mic: run `generate_cert.py` first
-
-## Notes
-- Flask with async/await; `nest_asyncio` required
-- MCP for external tools (Home Assistant, etc.)
-- SQLite for memory (`DATABASE_PATH`)
-- STT/TTS services must be running
-- Privacy focus: local processing preferred
-- Tests use mocking; follow `tests/` patterns
+- Check whether behavior is coming from:
+  - backend routing/state in `chat_service.py`
+  - persisted state in `store.py` / `chanakya_data/chanakya.db`
+  - frontend delivery logic in `templates/index.html`, `templates/work.html`, and `static/js/air_voice.js`
+- For delegated-work bugs, inspect both the main classic session and the linked `classic_active_works` / work session state before changing prompts; many failures here are state-flow bugs, not pure prompt bugs.
