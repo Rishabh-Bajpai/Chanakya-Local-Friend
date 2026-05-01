@@ -10,6 +10,7 @@
 
 - Preferred local stack entrypoint is `./scripts/start_chanakya_air.sh core` from repo root.
 - `core+a2a` also starts OpenCode and the A2A bridge: `./scripts/start_chanakya_air.sh core+a2a`.
+- Before running either startup mode, create repo-root `.env` from `.env.example` and repo-root `mcp_config_file.json` from `mcp_config_file.example.json`.
 - Stop everything with `./scripts/stop_chanakya_air.sh`.
 - Runtime logs and PID files go to `build/runtime/`.
 - The startup script sources the repo-root `.env` automatically and exports `ENV_FILE_PATH`; do not manually duplicate env wiring unless you are bypassing the script.
@@ -17,11 +18,14 @@
 ## Environment / Setup
 
 - Root package expects Python `>=3.10`; `chanakya_conversation_layer/` expects `>=3.11`.
-- Standard setup in docs uses the `test` conda env:
-  - `source /home/rishabh/miniconda3/etc/profile.d/conda.sh`
-  - `conda activate test`
+- Default local setup in docs uses a repo-root `.venv`:
+  - `python3.11 -m venv .venv`
+  - `source .venv/bin/activate`
   - `python -m pip install -e .[dev]`
-- Local runtime config is expected in root `.env` and `mcp_config_file.json`; both are gitignored.
+  - `python -m pip install -e ./AI-Router-AIR`
+  - `python -m pip install -e ./chanakya_conversation_layer`
+- Conda is still acceptable for local development, but the `systemd` installer expects a repo-root `.venv`.
+- Local runtime config is expected in root `.env` and `mcp_config_file.json`; create them from `.env.example` and `mcp_config_file.example.json` before startup.
 
 ## Verification Commands
 

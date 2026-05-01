@@ -1,501 +1,213 @@
-# Chanakya — Personal Multi-Agent Operating System
+# Chanakya
 
 Chanakya is a **task orchestration system powered by Microsoft Agent Framework**. It provides a single user-facing assistant while a network of intelligent agents collaborates in the background to complete tasks, provide insights, and maintain ongoing workflows.
 
-This is the full implementation tracked in `task.md`.
+- Chanakya Flask app on `http://127.0.0.1:5513`
+- AIR service on `http://127.0.0.1:5512`
+- Conversation layer on `http://127.0.0.1:5514`
+- Optional A2A bridge on `http://127.0.0.1:18770`
 
----
+The most important setup rule is simple: create the repo-root `.env` and `mcp_config_file.json` before starting the stack. The startup scripts read those files immediately.
 
 ## Quick Start
 
-```bash
-# Create the environment once
-python3.11 -m venv .venv
+### 1. Prerequisites
 
-# Activate it for each new shell
+- Python 3.11 is the safest default for local development.
+- `python3.11 -m venv` available on your machine.
+- `uvx` available if you use the example MCP config as-is.
+- An OpenAI-compatible API key and base URL.
+
+### 2. Create the virtual environment
+
+From the repo root:
+
+```bash
+python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .[dev]
 python -m pip install -e ./AI-Router-AIR
 python -m pip install -e ./chanakya_conversation_layer
+```
 
-# Run Chanakya and AIR together
+If you prefer conda for day-to-day development, that is still fine. The only hard requirement is that the `systemd` installer expects a repo-root `.venv`.
+
+### 3. Create `.env` before starting anything
+
+Start from the checked-in template:
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` for your machine and credentials. Use `.env.example` as the source of truth for supported variables.
+
+The startup scripts source this file automatically and export `ENV_FILE_PATH` for child processes. If this file is missing, the services start without your intended runtime configuration.
+
+### 4. Create `mcp_config_file.json` before starting anything
+
+The app expects a repo-root `mcp_config_file.json`.
+
+Start from the example:
+
+```bash
+cp mcp_config_file.example.json mcp_config_file.json
+```
+
+Then edit it for your environment if needed. Use `mcp_config_file.example.json` as the source of truth for the default MCP server layout. The checked-in example includes both local Python-backed MCP servers and `uvx`-launched servers.
+
+### 5. Start the stack
+
+Core stack:
+
+```bash
 ./scripts/start_chanakya_air.sh core
+```
 
-# Run Chanakya, AIR, and the A2A stack together
+Core stack plus A2A components:
+
+```bash
 ./scripts/start_chanakya_air.sh core+a2a
 ```
 
-Open `http://localhost:5513` to access the GUI. AIR runs at `http://localhost:5512`.
-When using `core+a2a`, the A2A bridge runs at `http://127.0.0.1:18770`.
+Open the main UI at `http://127.0.0.1:5513`.
 
-If you already have the virtual environment, skip the creation step and just activate it.
-
-`conda` remains fine for local development, but the `systemd` service installer requires a repo-root `.venv`.
-
----
-
-## What Is Chanakya?
-
-Chanakya is **not a chatbot**. It is a task-driven operating system where:
-
-- **Tasks are the source of truth** — not conversations
-- **Agents are workers** — not decision-makers
-- **The system controls orchestration** — not agents
-- **Execution is delegated** — but control is centralized
-
-### Core Principles
-
-- Single interface, many agents
-- Tasks persist; chat messages are supporting artifacts
-- Domain layer owns state; MAF handles execution
-- Every routing decision is logged for observability
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────┐
-│           Flask GUI/API             │
-│  (app.py — routes, templates)        │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────┐
-│        ChatService                  │
-│  (chat_service.py — routing)        │
-└──────────────┬──────────────────────┘
-               │
-        ┌──────┴──────┐
-        ▼             ▼
-┌───────────┐  ┌───────────────┐
-│ Direct    │  │ Tool /        │
-│ Response  │  │ Delegation    │
-└───────────┘  │ (future)      │
-               └───────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│         MAFRuntime                  │
-│  (agent/runtime.py — agent exec)    │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────┐
-│    Microsoft Agent Framework       │
-│    (agent_framework package)       │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│        ChanakyaStore                │
-│  (store.py — SQLite persistence)    │
-└─────────────────────────────────────┘
-```
-
-### Layer Responsibilities
-
-| Layer         | Responsibility                                                        |
-| ------------- | --------------------------------------------------------------------- |
-| Flask GUI/API | User interaction, request intake, response rendering                  |
-| ChatService   | Request classification, routing, event logging                        |
-| MAFRuntime    | Agent execution via Microsoft Agent Framework                         |
-| ChanakyaStore | SQLAlchemy persistence for sessions, messages, events, agent profiles |
-
----
-
-## Project Structure
-
-```
-chanakya/
-├── __init__.py           # Package marker
-├── agent/
-│   ├── prompt.py         # Tool-aware system prompt augmentation
-│   └── runtime.py        # Unified MAF runtime
-├── app.py                # Flask app factory, routes, startup logic
-├── chat_service.py       # Request handling and routing logic
-├── config.py             # Environment and configuration utilities
-├── heartbeat.py          # Heartbeat file reading
-├── mcp_runtime.py        # MCP tool trace extraction helpers
-├── domain.py             # Non-ORM app domain types and helpers
-├── model.py              # SQLAlchemy ORM models
-├── seed.py               # Agent seed loading from JSON
-├── services/
-│   ├── async_loop.py     # Shared async loop for background tool/runtime work
-│   ├── config_loader.py  # MCP config loading and env merge helpers
-│   ├── mcp_wrapper.py    # Stdout sanitizer for MCP JSON-RPC streams
-│   └── tool_loader.py    # MCP tool initialization and connection caching
-├── store.py              # SQLAlchemy persistence layer
-├── templates/
-│   └── index.html        # GUI template
-├── seeds/
-│   └── agents.json       # Seed agent definitions
-└── (runtime-created)
-    ├── chanakya_data/    # Data directory (created at runtime)
-    │   ├── chanakya.db   # SQLite database
-    │   └── heartbeats/  # Heartbeat control files
-```
-
----
-
-## API Endpoints
-
-| Endpoint                       | Method | Description                                    |
-| ------------------------------ | ------ | ---------------------------------------------- |
-| `/`                          | GET    | Render the GUI                                 |
-| `/api/chat`                  | POST   | Send a chat message `{session_id?, message}` |
-| `/api/sessions/<session_id>` | GET    | Get all messages in a session                  |
-| `/api/events`                | GET    | Get recent app events                          |
-| `/api/agents`                | GET    | Get all agent profiles with heartbeat previews |
-| `/api/tool-traces`           | GET    | Get persisted MCP tool invocation traces       |
-
----
-
-## Database Schema
-
-### `chat_sessions`
-
-| Column     | Type | Description   |
-| ---------- | ---- | ------------- |
-| id         | TEXT | Session ID    |
-| title      | TEXT | Session title |
-| created_at | TEXT | ISO timestamp |
-| updated_at | TEXT | ISO timestamp |
-
-### `chat_messages`
-
-| Column     | Type | Description               |
-| ---------- | ---- | ------------------------- |
-| session_id | TEXT | FK to session             |
-| role       | TEXT | `user` or `assistant` |
-| content    | TEXT | Message text              |
-| request_id | TEXT | Request ID                |
-| route      | TEXT | Routing decision          |
-| metadata   | TEXT | JSON blob                 |
-| created_at | TEXT | ISO timestamp             |
-
-### `app_events`
-
-| Column     | Type | Description                                             |
-| ---------- | ---- | ------------------------------------------------------- |
-| event_type | TEXT | Event type (e.g.,`route_decision`, `chat_response`) |
-| payload    | TEXT | JSON blob                                               |
-| created_at | TEXT | ISO timestamp                                           |
-
-### `agent_profiles`
-
-| Column                     | Type    | Description                                              |
-| -------------------------- | ------- | -------------------------------------------------------- |
-| id                         | TEXT    | Agent ID                                                 |
-| name                       | TEXT    | Display name                                             |
-| role                       | TEXT    | Role (`personal_assistant`, `developer`, `tester`) |
-| system_prompt              | TEXT    | Agent instructions                                       |
-| personality                | TEXT    | Personality description                                  |
-| tool_ids                   | TEXT    | JSON array                                               |
-| workspace                  | TEXT    | Workspace identifier                                     |
-| heartbeat_enabled          | INTEGER | Boolean                                                  |
-| heartbeat_interval_seconds | INTEGER | Interval                                                 |
-| heartbeat_file_path        | TEXT    | Path to control file                                     |
-| is_active                  | INTEGER | Boolean                                                  |
-
-### `tool_invocations`
-
-| Column        | Type | Description                                   |
-| ------------- | ---- | --------------------------------------------- |
-| invocation_id | TEXT | Unique invocation id                          |
-| request_id    | TEXT | Request id for the tool call                  |
-| session_id    | TEXT | Chat session id                               |
-| agent_name    | TEXT | Agent that triggered the call                 |
-| tool_id       | TEXT | MCP server id (for example `mcp_fetch`)       |
-| tool_name     | TEXT | Tool/function name                            |
-| server_name   | TEXT | Server command descriptor                     |
-| status        | TEXT | `succeeded` or `failed`                       |
-| input         | JSON | Captured input payload                        |
-| output        | TEXT | Captured output text                          |
-| error         | TEXT | Captured error text                           |
-| started_at    | TEXT | ISO timestamp                                 |
-| finished_at   | TEXT | ISO timestamp                                 |
-
----
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file in the repo root:
-
-```bash
-# OpenAI-compatible endpoint
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_API_KEY=sk-...
-
-# Model (any of these work — first found is used)
-OPENAI_CHAT_MODEL_ID=gpt-4o
-OPENAI_MODEL=gpt-4
-MODEL=gpt-4
-```
-
-The app reads `.env` automatically via `config.py`.
-
-Optional chat backend configuration:
-
-```bash
-# Default backend for new page loads: local or a2a
-CHANAKYA_CORE_AGENT_BACKEND=local
-
-# Required when using the A2A backend from the UI
-A2A_AGENT_URL=http://127.0.0.1:18770
-```
-
-The UI now includes a collapsible `Chat Runtime` panel in both chat screens. Changing the backend there applies on the next message without restarting the app.
-
-### Data Directory
-
-The app creates `chanakya_data/` in the repo root on first run:
-
-```
-chanakya_data/
-├── chanakya.db       # SQLite database
-└── heartbeats/       # Heartbeat control files
-    ├── chanakya.md
-    ├── developer.md
-    └── tester.md
-```
-
-### Adding New MCP Servers
-
-Use this flow to add a new MCP server:
-
-1. Add a server entry in `mcp_config_file.json` under `mcpServers`.
-2. Set `command`, `args`, `transport: "stdio"`, and optional `env`.
-3. Add the server id to the relevant agent in `chanakya/seeds/agents.json` using `tool_ids`.
-4. Restart the Flask app so `initialize_all_tools()` reconnects and caches the new tools.
-5. Validate by triggering the tool from chat and checking Tool Traces (`/api/tool-traces`).
-
-Example:
-
-```json
-{
-  "mcpServers": {
-    "mcp_websearch": {
-      "command": "uvx",
-      "args": ["duckduckgo-mcp-server", "--transport", "stdio"],
-      "transport": "stdio",
-      "env": {}
-    },
-    "mcp_fetch": {
-      "command": "uvx",
-      "args": ["mcp-server-fetch"],
-      "transport": "stdio",
-      "env": {}
-    },
-    "mcp_calculator": {
-      "command": "uvx",
-      "args": ["calculator-mcp-server"],
-      "transport": "stdio",
-      "env": {}
-    },
-    "mcp_code_execution": {
-      "command": "python",
-      "args": ["-m", "chanakya.services.mcp_sandbox_exec_server"],
-      "transport": "stdio",
-      "env": {}
-    },
-    "mcp_filesystem": {
-      "command": "python",
-      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "filesystem"],
-      "transport": "stdio",
-      "env": {}
-    },
-    "mcp_git": {
-      "command": "python",
-      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "git"],
-      "transport": "stdio",
-      "env": {}
-    },
-    "mcp_http": {
-      "command": "python",
-      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "http"],
-      "transport": "stdio",
-      "env": {}
-    },
-    "mcp_json": {
-      "command": "python",
-      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "json"],
-      "transport": "stdio",
-      "env": {}
-    },
-    "mcp_shell_utils": {
-      "command": "python",
-      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "shell_utils"],
-      "transport": "stdio",
-      "env": {}
-    },
-    "mcp_weather": {
-      "command": "python",
-      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "weather"],
-      "transport": "stdio",
-      "env": {}
-    },
-    "mcp_map": {
-      "command": "python",
-      "args": ["-m", "chanakya.services.mcp_basic_tools_server", "map"],
-      "transport": "stdio",
-      "env": {}
-    },
-    "mcp_timer": {
-      "command": "python",
-      "args": ["-m", "chanakya.services.mcp_scheduler_launcher"],
-      "transport": "stdio",
-      "env": {}
-    }
-  }
-}
-```
-
-Notes:
-
-- `mcp_map` uses free OpenStreetMap services through Nominatim and OSRM. Keep usage light and set a real `User-Agent` if you fork this project for broader use.
-- `mcp_timer` bootstraps the public `PhialsBasement/scheduler-mcp` server into `chanakya_data/external_tools/scheduler_mcp` on first launch, then runs it over stdio.
-
-### Sandboxed Code Execution
-
-- Developer and Tester can run code only through `mcp_code_execution`.
-- Execution is restricted to container runtime (`docker` or `podman`) and never runs user commands on the host shell.
-- Shared persistent sandbox workspace paths are:
-  - `chanakya_data/shared_workspace/<work_id>`
-  - `chanakya_data/shared_workspace/temp`
-
-Available features:
-
-- Execute Python snippets and shell commands inside the containerized sandbox
-- Persist generated files in the shared work directory across multiple agent turns
-- Read host project data through read-only mounts at `/host/repo` and `/host/chanakya_data`
-- Write only inside `/workspace`, which maps to the shared work directory
-- Use bounded resources with live network access for external fetches and site mirroring
-
-Unavailable features:
-
-- Writing to host files outside `/workspace`
-- Direct host command execution
-- Escaping the shared workspace via path traversal or absolute host writes
-
-Permission model:
-
-- `/workspace` is writable and persistent for the current `work_id`
-- Host files are readable but read-only
-- If a worker sees `Permission denied` or `Read-only file system`, it should copy the needed file into `/workspace` and retry there
-
-Implementation references:
-
-- Tool loader: `chanakya/services/tool_loader.py`
-- Config loader: `chanakya/services/config_loader.py`
-- MCP stdout wrapper: `chanakya/services/mcp_wrapper.py`
-
----
-
-## Seed Agents
-
-The app loads three seed agents on startup from `chanakya/seeds/agents.json`:
-
-| Agent ID            | Name      | Role                                     |
-| ------------------- | --------- | ---------------------------------------- |
-| `agent_chanakya`  | Chanakya  | Personal assistant (main user interface) |
-| `agent_developer` | Developer | Worker for implementation tasks          |
-| `agent_tester`    | Tester    | Worker for validation tasks              |
-
----
-
-## Development
-
-### Run the App
-
-```bash
-source .venv/bin/activate
-./scripts/start_chanakya_air.sh
-```
-
-Stop both services with:
+### 6. Stop the stack
 
 ```bash
 ./scripts/stop_chanakya_air.sh
 ```
 
-### Database Utilities
+## What The Startup Script Does
 
-Chanakya includes a few helper scripts under `scripts/` for working with the app database:
+`./scripts/start_chanakya_air.sh` starts the current local stack in this order:
+
+1. AIR service
+2. Chanakya conversation layer
+3. Optional A2A services for `core+a2a`
+4. Chanakya Flask app
+
+It also:
+
+- reads `.env` from the repo root unless `ENV_FILE_PATH` is already set
+- writes PID files and logs under `build/runtime/`
+- prints the service URLs after startup
+
+Use `./scripts/stop_chanakya_air.sh` to stop everything cleanly.
+
+## Required Configuration
+
+### `.env`
+
+Start from `.env.example` and copy it into place:
 
 ```bash
-source .venv/bin/activate
+cp .env.example .env
+```
 
-# View Chanakya tables in a local Flask UI
+At minimum, make sure your local `.env` has working model endpoint and credential values. The exact defaults live in `.env.example`.
+
+Common variables used in local development include:
+
+```bash
+CHANAKYA_CORE_AGENT_BACKEND=local
+A2A_AGENT_URL=http://127.0.0.1:18770
+AIR_SERVER_PORT=5512
+CHANAKYA_PORT=5513
+CONVERSATION_LAYER_PORT=5514
+```
+
+### `mcp_config_file.json`
+
+Start from the checked-in template:
+
+```bash
+cp mcp_config_file.example.json mcp_config_file.json
+```
+
+This file defines the MCP servers Chanakya can connect to. The example file already includes entries for:
+
+- `mcp_websearch`
+- `mcp_fetch`
+- `mcp_calculator`
+- `mcp_code_execution`
+- `mcp_filesystem`
+- `mcp_git`
+- `mcp_http`
+- `mcp_json`
+- `mcp_shell_utils`
+- `mcp_weather`
+- `mcp_map`
+- `mcp_timer`
+- `mcp_work_tools`
+- `mcp_artifact_tools`
+
+If you add or remove MCP servers, restart the stack afterward so the tool loader reconnects using the updated config.
+
+## Local Development
+
+### Test, lint, and type-check
+
+From the repo root with the environment activated:
+
+```bash
+pytest chanakya/test
+python -m ruff check chanakya/
+python -m mypy chanakya/
+```
+
+For a focused test run:
+
+```bash
+pytest chanakya/test/test_agent_manager.py -q
+```
+
+### Database utilities
+
+```bash
 python scripts/db_viewer.py
-
-# Create missing Chanakya tables and columns
 python scripts/update_database.py
-
-# Drop and recreate the full Chanakya schema
 python scripts/clear_database.py
 ```
 
 Notes:
 
-- These scripts use `DATABASE_URL` if set, otherwise they default to `chanakya_data/chanakya.db`.
-- `scripts/db_viewer.py` exposes core tables (`RequestModel`, `TaskModel`, `TaskEventModel`, `ToolInvocationModel`, `TemporaryAgentModel`, `ChatMessageModel`, etc.) at `http://localhost:5014`.
-- `scripts/db_viewer.py` supports `session_id`, `request_id`, and `agent_id` filters in the UI to inspect delegation flows.
-- `scripts/clear_database.py` is destructive and prompts twice before deleting data.
+- `scripts/clear_database.py` is destructive.
+- If `DATABASE_URL` is unset, the default SQLite database is `chanakya_data/chanakya.db`.
 
-### Smoke Tests
+### Manual smoke checks
 
-Chanakya includes manual connectivity smoke tests under `scripts/`. These are **not** run automatically in CI — they require external MCP tooling and may be flaky.
+These rely on external tooling and are not the default verification path:
 
 ```bash
-source .venv/bin/activate
-
-# Test full agent runtime with MCP tools (requires calculator server)
 python scripts/run_maf_tools.py
-
-# Test MCP fetch connectivity (with or without JSON wrapper)
 python scripts/test_mcp_fetch_connectivity.py --mode with-wrapper
 python scripts/test_mcp_fetch_connectivity.py --mode without-wrapper
 ```
 
-### Run Lint and Typecheck
+## Runtime Files
 
-```bash
-source .venv/bin/activate
-python -m ruff check chanakya/
-python -m mypy chanakya/
-```
+Runtime state is written under `chanakya_data/` and `build/runtime/`.
 
-### Install As A Systemd Service
+- `chanakya_data/` holds application state such as the SQLite database and shared workspace data.
+- `build/runtime/` holds PID files and service logs from the startup scripts.
 
-The repo includes a `systemd` installer for the Chanakya `core` stack on Ubuntu/Linux.
+If something fails to boot, check the recent logs in `build/runtime/` first.
 
-The installer strictly requires a repo-root `.venv`.
+## Service Installation On Ubuntu
 
-Install:
+The repo includes a `systemd` installer for the core stack:
 
 ```bash
 sudo ./scripts/install-autostart-ubuntu.sh
 ```
 
-The installer runs the services as the invoking non-root user by default when you use `sudo` from a normal shell.
-If you run the installer from a root shell, pass `--user <username>` explicitly so the stack does not install as `root` unless that is intentional.
+Important details:
 
-Optional user override:
-
-```bash
-sudo ./scripts/install-autostart-ubuntu.sh --user <username>
-```
-
-Created units:
-
-- `chanakya-air.service`
-- `chanakya-conversation-layer.service`
-- `chanakya-app.service`
-- `chanakya.target`
+- it requires a repo-root `.venv`
+- it passes `ENV_FILE_PATH` pointing at the repo-root `.env`
+- it installs services for the invoking non-root user by default
 
 Useful commands:
 
@@ -513,29 +225,50 @@ Uninstall:
 sudo ./scripts/uninstall-autostart-ubuntu.sh
 ```
 
----
+## Repository Layout
 
-## Milestones
+This workspace contains a few related codebases. The main ones are:
 
-| Milestone | Description                                  | Status   |
-| --------- | -------------------------------------------- | -------- |
-| 1         | Simple Chanakya chat                         | Complete |
-| 2         | Tool routing (calculator, fetch)             | In progress (validation pending) |
-| 3         | Domain foundation (tasks, events, lifecycle) | Next     |
-| 4         | Agent Manager v1 (delegation, decomposition) | Pending  |
-| 5         | Persistent agent configuration               | Pending  |
-| 6         | Temporary subagents                          | Pending  |
-| 7         | User input loop (pause/resume)               | Pending  |
-| 8         | Social and isolated agents                   | Pending  |
-| 9         | Scheduling and heartbeat                     | Pending  |
-| 10        | Hardening and demo flow                      | Pending  |
+- `chanakya/`: primary Flask app, routes, templates, core state, tests
+- `AI-Router-AIR/`: FastAPI service used by the local stack on port 5512
+- `chanakya_conversation_layer/`: separate conversation-layer package and tests
+- `scripts/`: startup, shutdown, database, and service-management scripts
 
-Full milestone details in `task.md`.
+If you are changing runtime behavior, the most relevant files are usually:
 
----
+- `chanakya/app.py`
+- `chanakya/chat_service.py`
+- `chanakya/store.py`
+- `chanakya/agent/runtime.py`
+- `chanakya/templates/`
+- `chanakya/static/js/air_voice.js`
+
+## Common Problems
+
+### The stack starts but behaves incorrectly
+
+Check these first:
+
+1. `.env` exists at the repo root and has the expected model credentials.
+2. `mcp_config_file.json` exists at the repo root.
+3. The virtual environment includes all three editable installs.
+4. `build/runtime/*.log` shows all services stayed up after startup.
+
+### A service starts with the wrong environment
+
+The startup scripts source the repo-root `.env` automatically. If you want a different env file, set `ENV_FILE_PATH` before invoking the script.
+
+### MCP tools are missing
+
+Confirm that:
+
+1. the tool exists in `mcp_config_file.json`
+2. its command is installed on your machine
+3. you restarted the stack after editing the MCP config
 
 ## Related Files
 
-- `task.md` — Execution tracker with milestones, risks, and delivery rules
-- `tasks/prd-chanakya-full-system.md` — Product Requirements Document
-- `README.md` — Repo-level quick start for the full app
+- `mcp_config_file.example.json`: starting point for MCP server configuration
+- `scripts/start_chanakya_air.sh`: standard local stack entrypoint
+- `scripts/stop_chanakya_air.sh`: standard shutdown entrypoint
+- `scripts/install-autostart-ubuntu.sh`: `systemd` installer for Linux
