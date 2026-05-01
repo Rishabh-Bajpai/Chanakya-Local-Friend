@@ -1425,12 +1425,12 @@
         <div id="chatLog" class="chat-log"><div class="empty">No work selected.</div></div>
         <div id="composerDock" class="composer-dock">
           <div id="workWaitingIndicator" class="work-waiting-indicator" hidden></div>
-          <form id="chatForm" class="composer">
+          <form id="chatForm" class="composer" autocomplete="off">
             <div class="composer-row">
               <button id="composerMoreButton" class="composer-aux-button" type="button" title="More controls" aria-label="More controls" aria-expanded="false" aria-controls="composerMenu">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
               </button>
-              <textarea id="messageInput" class="composer-textarea" placeholder="Send update request for this work..." rows="1" required></textarea>
+              <textarea id="messageInput" class="composer-textarea" placeholder="Send update request for this work..." rows="1" required autocomplete="off"></textarea>
               <button class="composer-aux-button composer-stt-proxy" type="button" data-voice-proxy="mic" title="Send voice note" aria-label="Send voice note">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2.5 2.5 0 0 0-2.5 2.5v5a2.5 2.5 0 1 0 5 0v-5A2.5 2.5 0 0 0 12 4Z" /><path d="M7 11.5a5 5 0 0 0 10 0" /><path d="M12 16.5V20" /><path d="M9 20h6" /></svg>
               </button>
