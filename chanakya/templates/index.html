@@ -223,7 +223,7 @@
 
     .sidebar-panel-body {
       padding: 0 16px 14px;
-      overflow: hidden;
+      overflow: clip;
       transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.2s ease;
     }
 
@@ -2043,8 +2043,7 @@
       background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
       border: 1px solid rgba(255, 255, 255, 0.09);
       border-radius: 28px;
-      overflow: hidden;
-      backdrop-filter: blur(18px);
+      overflow: clip;
       box-shadow:
         0 24px 60px rgba(0, 0, 0, 0.44),
         inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -2056,6 +2055,9 @@
       position: absolute;
       inset: 0;
       pointer-events: none;
+      border-radius: inherit;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
       background:
         radial-gradient(circle at top, rgba(79, 215, 255, 0.10), transparent 34%),
         linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 30%);
@@ -2455,7 +2457,7 @@
         radial-gradient(circle at top right, rgba(79, 215, 255, 0.10), transparent 26%),
         radial-gradient(circle at top left, rgba(216, 107, 74, 0.08), transparent 24%),
         linear-gradient(180deg, rgba(9, 12, 20, 0.94), rgba(14, 18, 28, 0.8));
-      overflow: hidden;
+      overflow: clip;
       box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.04),
         0 22px 54px rgba(0, 0, 0, 0.24);
@@ -2536,7 +2538,7 @@
       background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
         rgba(16, 20, 34, 0.76);
-      overflow: hidden;
+      overflow: clip;
       box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.04),
         0 12px 30px rgba(0, 0, 0, 0.16);
@@ -3484,12 +3486,12 @@
               <div id="wnItems" class="wn-items"></div>
             </div>
             <div id="composerDock" class="composer-dock">
-              <form id="chatForm" class="composer">
+              <form id="chatForm" class="composer" autocomplete="off">
                 <div class="composer-row">
                   <button id="composerMoreButton" class="composer-more-button composer-aux-button" type="button" title="More controls" aria-label="More controls" aria-expanded="false" aria-controls="composerMenu">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
                   </button>
-                  <textarea id="messageInput" class="composer-textarea" placeholder="Ask Chanakya anything" rows="1" required></textarea>
+                  <textarea id="messageInput" class="composer-textarea" placeholder="Ask Chanakya anything" rows="1" required autocomplete="off"></textarea>
                   <button class="composer-proxy-button composer-loop-proxy" type="button" data-voice-proxy="loop" title="Start or stop voice mode" aria-label="Start or stop voice mode">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 7.5l-3 3 3 3" /><path d="M11.5 16.5A6.5 6.5 0 1 0 11.5 3.5" /><path d="M15 7.5a5 5 0 0 1 0 9" /></svg>
                   </button>
@@ -6877,7 +6879,12 @@
       syncHeroState();
     }
 
+    let _cachedTraceDataStr = "";
     function renderTrace(data) {
+      const newStr = JSON.stringify(data);
+      if (newStr === _cachedTraceDataStr) return;
+      _cachedTraceDataStr = newStr;
+
       if (!data) {
         requestTrace.innerHTML = `<div class="empty-state">No request metadata for this session yet.</div>`;
         return;
@@ -7066,7 +7073,12 @@
       replaceChildren(toolTraceList, nodes);
     }
 
+    let _cachedAgentsStr = "";
     function renderAgents(items) {
+      const newStr = JSON.stringify(items);
+      if (newStr === _cachedAgentsStr) return;
+      _cachedAgentsStr = newStr;
+      
       allAgents = Array.isArray(items) ? items.slice() : [];
       renderWorkerFilters(allAgents);
       const filteredItems = allAgents.filter(matchesAgentFilter);
@@ -7144,7 +7156,12 @@
       replaceChildren(agentList, nodes);
     }
 
+    let _cachedSubagentsStr = "";
     function renderSubagents(items) {
+      const newStr = JSON.stringify(items);
+      if (newStr === _cachedSubagentsStr) return;
+      _cachedSubagentsStr = newStr;
+
       if (!items.length) {
         subagentList.innerHTML = `<div class="empty-state">No temporary subagents created for this session yet.</div>`;
         return;
@@ -7368,7 +7385,12 @@
       }
     }
 
+    let _cachedTasksStr = "";
     function renderTasks(items) {
+      const newStr = JSON.stringify(items);
+      if (newStr === _cachedTasksStr) return;
+      _cachedTasksStr = newStr;
+
       if (!items.length) {
         taskList.innerHTML = `<div class="empty-state">No tasks created for this session yet.</div>`;
         return;
@@ -7480,7 +7502,12 @@
       replaceChildren(taskList, nodes);
     }
 
+    let _cachedTimelineStr = "";
     function renderTaskTimeline(items) {
+      const newStr = JSON.stringify(items);
+      if (newStr === _cachedTimelineStr) return;
+      _cachedTimelineStr = newStr;
+
       if (!items.length) {
         taskTimeline.innerHTML = `<div class="empty-state">No task events recorded for this session yet.</div>`;
         return;
@@ -7517,10 +7544,14 @@
       replaceChildren(taskTimeline, nodes);
     }
 
+    let _cachedTaskProgressArgsStr = "";
     function renderTaskProgress(tasks, events, rootTaskId) {
       if (!taskProgress || !taskProgressSummary) {
         return;
       }
+      const newStr = JSON.stringify({tasks, events, rootTaskId});
+      if (newStr === _cachedTaskProgressArgsStr) return;
+      _cachedTaskProgressArgsStr = newStr;
       if ((!tasks || !tasks.length) && (!events || !events.length)) {
         taskProgress.innerHTML = '<div class="progress-empty">No active task sequence yet. Send a message to see progress.</div>';
         taskProgressSummary.innerHTML = '';
@@ -8056,11 +8087,16 @@
       }
     }
 
+    let _cachedWnStr = "";
     function renderWorkNotifications(notifications) {
       const bar = document.getElementById("workNotificationsBar");
       const badge = document.getElementById("wnBadge");
       const container = document.getElementById("wnItems");
       if (!bar || !badge || !container) return;
+
+      const newStr = JSON.stringify(notifications);
+      if (newStr === _cachedWnStr) return;
+      _cachedWnStr = newStr;
 
       if (!notifications.length) {
         bar.classList.remove("has-notifications");
