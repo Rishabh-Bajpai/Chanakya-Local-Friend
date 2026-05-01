@@ -1,0 +1,69 @@
+name: Issues Cleanup
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main, development]
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  close-issues:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body;
+            if (!body) {
+              console.log("No PR body found.");
+              return;
+            }
+            const keywords = ['Fixes', 'Closes', 'Resolves'];
+            const regex = new RegExp(`(?:${keywords.join('|')})\\s+(?:#\\d+\\s*,?\\s*)+`, 'gi');
+            const issueNumbers = new Set();
+            let match;
+
+            while ((match = regex.exec(body)) !== null) {
+              const issues = match[0].match(/#\d+/g) || [];
+              issues.forEach(issue => {
+                issueNumbers.add(Number(issue.slice(1)));
+              });
+            }
+
+            let hasError = false;
+
+            for (const issueNumber of issueNumbers) {
+              try {
+                // Fetch the issue to check if it's actually a pull request
+                const { data: issue } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                });
+
+                if (issue.pull_request) {
+                  console.log(`Skipping #${issueNumber} because it is a pull request, not an issue.`);
+                  continue;
+                }
+
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  state: 'closed'
+                });
+                console.log(`Successfully closed issue #${issueNumber} referenced by PR #${pr.number}.`);
+              } catch (error) {
+                console.error(`Failed to close issue #${issueNumber} referenced by PR #${pr.number}:`, error);
+                hasError = true;
+              }
+            }
+
+            if (hasError) {
+              core.setFailed("Failed to close one or more issues. Check logs for details.");
+            }

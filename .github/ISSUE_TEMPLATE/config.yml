@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation
+    url: https://github.com/Rishabh-Bajpai/Chanakya-Local-Friend/tree/main/docs
+    about: Please check the docs before opening a new issue.
+  - name: 💬 Discussions
+    url: https://github.com/Rishabh-Bajpai/Chanakya-Local-Friend/discussions
+    about: For general questions and community help, use GitHub Discussions.
