@@ -9,7 +9,7 @@ APP_USER="${SUDO_USER:-$USER}"
 APP_USER_EXPLICIT=false
 
 systemd_escape_value() {
-  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+  printf '%s' "$1" | sed -e 's/%/%%/g' -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
 SYSTEMD_ROOT_DIR="$(systemd_escape_value "$ROOT_DIR")"
