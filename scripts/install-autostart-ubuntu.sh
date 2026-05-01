@@ -6,6 +6,13 @@ PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 SYSTEMD_DIR="/etc/systemd/system"
 SERVICE_PREFIX="chanakya"
 APP_USER="${SUDO_USER:-$USER}"
+APP_USER_EXPLICIT=false
+
+systemd_escape_value() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+SYSTEMD_ROOT_DIR="$(systemd_escape_value "$ROOT_DIR")"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "This installer is intended for Ubuntu/Linux with systemd."
@@ -31,6 +38,7 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       APP_USER="$2"
+      APP_USER_EXPLICIT=true
       shift 2
       ;;
     *)
@@ -40,6 +48,12 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$APP_USER" == "root" && "$APP_USER_EXPLICIT" != true ]]; then
+  echo "Refusing to install services as root by default."
+  echo "Re-run with: sudo ./scripts/install-autostart-ubuntu.sh --user <username>"
+  exit 1
+fi
 
 if ! id "$APP_USER" >/dev/null 2>&1; then
   echo "User '$APP_USER' does not exist on this machine."
@@ -65,6 +79,7 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
 fi
 
 COMMON_PATH="$ROOT_DIR/.venv/bin:$APP_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+SYSTEMD_COMMON_PATH="$(systemd_escape_value "$COMMON_PATH")"
 
 cat >"$SYSTEMD_DIR/${SERVICE_PREFIX}-air.service" <<EOF
 [Unit]
@@ -76,10 +91,9 @@ PartOf=${SERVICE_PREFIX}.target
 [Service]
 Type=simple
 User=$APP_USER
-WorkingDirectory=$ROOT_DIR
-Environment=PATH=$COMMON_PATH
-Environment=ENV_FILE_PATH=$ROOT_DIR/.env
-ExecStart=$ROOT_DIR/scripts/run-air-service.sh
+Environment="PATH=$SYSTEMD_COMMON_PATH"
+Environment=ENV_FILE_PATH="$SYSTEMD_ROOT_DIR/.env"
+ExecStart="$SYSTEMD_ROOT_DIR/scripts/run-air-service.sh"
 Restart=always
 RestartSec=2
 
@@ -97,10 +111,9 @@ PartOf=${SERVICE_PREFIX}.target
 [Service]
 Type=simple
 User=$APP_USER
-WorkingDirectory=$ROOT_DIR
-Environment=PATH=$COMMON_PATH
-Environment=ENV_FILE_PATH=$ROOT_DIR/.env
-ExecStart=$ROOT_DIR/scripts/run-conversation-layer-service.sh
+Environment="PATH=$SYSTEMD_COMMON_PATH"
+Environment=ENV_FILE_PATH="$SYSTEMD_ROOT_DIR/.env"
+ExecStart="$SYSTEMD_ROOT_DIR/scripts/run-conversation-layer-service.sh"
 Restart=always
 RestartSec=2
 
@@ -118,10 +131,9 @@ PartOf=${SERVICE_PREFIX}.target
 [Service]
 Type=simple
 User=$APP_USER
-WorkingDirectory=$ROOT_DIR
-Environment=PATH=$COMMON_PATH
-Environment=ENV_FILE_PATH=$ROOT_DIR/.env
-ExecStart=$ROOT_DIR/scripts/run-chanakya-service.sh
+Environment="PATH=$SYSTEMD_COMMON_PATH"
+Environment=ENV_FILE_PATH="$SYSTEMD_ROOT_DIR/.env"
+ExecStart="$SYSTEMD_ROOT_DIR/scripts/run-chanakya-service.sh"
 Restart=always
 RestartSec=2
 

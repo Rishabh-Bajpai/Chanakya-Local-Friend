@@ -481,6 +481,9 @@ Install:
 sudo ./scripts/install-autostart-ubuntu.sh
 ```
 
+The installer runs the services as the invoking non-root user by default when you use `sudo` from a normal shell.
+If you run the installer from a root shell, pass `--user <username>` explicitly so the stack does not install as `root` unless that is intentional.
+
 Optional user override:
 
 ```bash
