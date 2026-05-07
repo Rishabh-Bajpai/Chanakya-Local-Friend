@@ -35,6 +35,28 @@ The AI Router is a self-hosted API gateway functioning as a strict drop-in repla
 **Routing Logic and Interception:**
 The AIR uses FastAPI to define routes that mimic OpenAI's schema. When a request hits an endpoint (e.g., `/v1/chat/completions`), it passes through a dependency injection layer (`dependencies.py`). The `get_provider` function extracts the target model from the request body. If a model is specified, the `ProviderManager` dynamically routes the request to the matching configured provider. If no model is explicitly requested, it falls back to the first available provider of the required type (e.g., `llm`, `stt`, `tts`).
 
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant FastAPI_Router
+    participant ProviderManager
+    participant ProxyEngine
+    participant Upstream_LLM_TTS_STT
+
+    Client->>FastAPI_Router: POST /v1/chat/completions (Payload: Model XYZ)
+    FastAPI_Router->>ProviderManager: get_provider_for_model(XYZ)
+    ProviderManager-->>FastAPI_Router: ProviderConfig (URL, API Key)
+    FastAPI_Router->>ProxyEngine: forward_request(Request, ProviderConfig)
+    ProxyEngine->>ProxyEngine: Normalize Headers & Redact Secrets
+    ProxyEngine->>Upstream_LLM_TTS_STT: httpx.AsyncClient.send(stream=True)
+    Upstream_LLM_TTS_STT-->>ProxyEngine: Yield Byte Chunks
+    ProxyEngine-->>Client: StreamingResponse (Zero-buffer)
+```
+
+**Innovative Portability:**
+What makes the AI Router remarkably innovative is its strict adherence to the OpenAI OpenAPI specification combined with its algorithmic inference capabilities. Because it requires zero custom SDKs, any application—whether built on MAF, LangChain, or a simple `curl` script—can utilize AIR instantly. If a developer has an existing MAF agent ecosystem hardcoded to OpenAI, they only need to change the `base_url` to point to AIR (`http://127.0.0.1:5512/v1`). AIR seamlessly intercepts the traffic, evaluates the requested model against its dynamic `.env` configurations, and proxies the traffic. This effectively turns a single application into a multi-provider powerhouse without altering a single line of business logic.
+
 **Framework-Agnostic Algorithm:**
 The router operates independently of the client framework by utilizing a robust `ProxyEngine`. Instead of parsing and rebuilding every response, it forwards requests using `httpx` and streams the bytes back to the client (`StreamingResponse`). It intercepts multi-part form data and Server-Sent Events identically, logging request and response snapshots for observability while redacting sensitive API keys. To classify models generically, it employs an algorithmic inference mechanism (`infer_model_type` in `provider_manager.py`) that analyzes model metadata (e.g., "task" fields or "voices" arrays) and tokenizes model IDs to apply heuristic matching (e.g., checking for keywords like "whisper" or "kokoro").
 
@@ -47,6 +69,24 @@ The core of this package is the `ConversationWrapper`. When a client submits a m
 - `topic_state` and `topic_label`
 - `pending_messages` and `delivered_messages` (to manage chunked responses or interruptions)
 - `topic_continuity_confidence`
+
+
+```mermaid
+stateDiagram-v2
+    [*] --> idle: User Connected
+    idle --> processing: User Speaks (Input Received)
+    processing --> delivering: Core Agent Yields Response
+    delivering --> idle: Delivery Complete
+    delivering --> interrupted: User Speaks (During TTS)
+    interrupted --> processing: Flush Queue & Re-evaluate Context
+    delivering --> paused: Manual Pause
+    paused --> delivering: Manual Resume
+```
+
+**Pluggable Orchestration for MAF Agents:**
+The innovation of the `chanakya-conversation-layer` lies in its abstraction of temporal state. Managing conversational pacing, chunking long LLM outputs for TTS generation, and handling human interruptions are notoriously difficult to implement in stateless AI applications.
+
+This package decouples those challenges completely. Because it relies on the `AgentInterface` protocol, it is trivially compatible with any other application built on the Microsoft Agent Framework (MAF). A developer can take an existing, highly complex MAF Group Chat—which might consist of five specialized agents debating a topic—and simply wrap the orchestrator in the `ConversationWrapper`. Instantly, the complex MAF ecosystem inherits robust topic continuity tracking, chunked message delivery, and real-time interruption handling, transforming a static text-based bot into a fluid, voice-ready conversational agent.
 
 A planner agent (`MAFOrchestrationAgent`) evaluates the incoming message against the existing memory to deduce if the topic has shifted, if the user is interrupting, or if they are acknowledging a previous message. It then formulates a delivery plan, deciding whether to append to the queue, clear working memory, or query the underlying "core agent" for a fresh response.
 
