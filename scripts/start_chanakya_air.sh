@@ -30,7 +30,28 @@ fi
 
 export ENV_FILE_PATH="$ROOT_ENV_FILE"
 
-PYTHON_BIN="${PYTHON_BIN:-python}"
+# Auto-detect Python binary — prefer .venv, then chanakya conda env, then active conda, then PATH
+PYTHON_SOURCE=""
+if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
+    PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+    PYTHON_SOURCE="repo .venv"
+elif command -v conda &>/dev/null; then
+    CONDA_BASE="$(conda info --base 2>/dev/null || true)"
+    if [[ -n "$CONDA_BASE" && -x "$CONDA_BASE/envs/chanakya/bin/python" ]]; then
+        PYTHON_BIN="$CONDA_BASE/envs/chanakya/bin/python"
+        PYTHON_SOURCE="conda env 'chanakya'"
+    elif [[ -n "${CONDA_DEFAULT_ENV:-}" ]]; then
+        PYTHON_BIN="python"
+        PYTHON_SOURCE="active conda env '$CONDA_DEFAULT_ENV'"
+    else
+        PYTHON_BIN="${PYTHON_BIN:-python}"
+        PYTHON_SOURCE="PATH (fallback)"
+    fi
+else
+    PYTHON_BIN="${PYTHON_BIN:-python}"
+    PYTHON_SOURCE="PATH (fallback)"
+fi
+printf 'Using Python from %s: %s\n' "$PYTHON_SOURCE" "$("$PYTHON_BIN" --version 2>/dev/null || echo "$PYTHON_BIN")"
 AIR_PORT="${AIR_SERVER_PORT:-5512}"
 CHANAKYA_PORT="${CHANAKYA_PORT:-5513}"
 CONVERSATION_LAYER_HOST="${CONVERSATION_LAYER_HOST:-127.0.0.1}"

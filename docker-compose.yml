@@ -1,0 +1,11 @@
+services:
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    ports:
+      - "8969:8000"
+    volumes:
+      - speaches-data:/data
+    profiles: [tts, stt]
+
+volumes:
+  speaches-data:
