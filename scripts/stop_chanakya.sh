@@ -33,5 +33,5 @@ stop_process "AIR server" "$RUNTIME_DIR/air_server.pid"
 # Stop TTS/STT Docker containers if docker-compose.yml exists
 if [[ -f "$ROOT_DIR/docker-compose.yml" ]] && command -v docker &>/dev/null && docker compose version &>/dev/null; then
     printf 'Stopping TTS/STT Docker containers...\n'
-    docker compose --profile tts down 2>/dev/null || true
+    docker compose --profile tts stop 2>/dev/null || true
 fi
