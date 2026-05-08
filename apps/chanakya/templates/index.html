@@ -1467,10 +1467,26 @@
     }
 
     .mcp-editor-card textarea {
-      min-height: 320px;
+      min-height: 640px;
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
       font-size: 13px;
       line-height: 1.55;
+      background: #0b0e16;
+      color: #dce2ed;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 14px;
+      resize: vertical;
+    }
+
+    .mcp-editor-card textarea:focus {
+      outline: none;
+      border-color: rgba(79, 215, 255, 0.3);
+      box-shadow: 0 0 0 2px rgba(79, 215, 255, 0.06);
+    }
+
+    .mcp-editor-card textarea::placeholder {
+      color: #5a677a;
     }
 
     .mcp-preview-list {
