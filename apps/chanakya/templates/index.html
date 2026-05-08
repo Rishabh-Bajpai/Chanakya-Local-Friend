@@ -2798,78 +2798,79 @@
       opacity: 0.45;
     }
 
-    .composer-submit svg {
-      width: 20px;
-      height: 20px;
-    }
-
-    .composer-menu {
-      position: absolute;
-      left: 16px;
-      bottom: calc(100% + 8px);
-      min-width: 220px;
-      padding: 8px;
-      border-radius: 20px;
-      background: rgba(34, 36, 43, 0.97);
-      border: 1px solid rgba(255, 255, 255, 0.09);
-      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
-      display: grid;
-      gap: 4px;
-      z-index: 12;
-    }
-
-    .composer-menu button {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      width: 100%;
-      min-height: 42px;
-      padding: 0 12px;
-      border-radius: 14px;
-      border: 1px solid transparent;
-      background: transparent;
-      color: var(--text);
-      font: inherit;
-      font-size: 13px;
-      justify-content: flex-start;
-    }
-
-    .composer-menu button:hover {
-      background: rgba(255, 255, 255, 0.06);
-      border-color: rgba(255, 255, 255, 0.08);
-      transform: none;
-    }
-
-    .dock-actions {
-      display: none;
-    }
-
-    .dock-actions button {
-      width: auto;
-      min-height: 34px;
-      padding: 0 12px;
-      border-radius: 999px;
+    .composer-image-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      color: #dbe4f0;
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.01em;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      min-height: 40px;
+      width: 40px;
+      padding: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: #6b7280;
+      border: none;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .composer-image-btn:hover {
+      background: #f3f4f7;
+      color: #16181f;
+    }
+    .composer-image-btn svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
-    .dock-actions button:hover {
-      background: rgba(255, 255, 255, 0.09);
-      border-color: rgba(79, 215, 255, 0.24);
-      transform: none;
+    .image-preview-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: #f3f4f7;
+      border-radius: 8px;
+      margin: 4px 42px 0 42px;
+    }
+    .image-preview-container img {
+      max-height: 80px;
+      max-width: 120px;
+      border-radius: 6px;
+      object-fit: cover;
+    }
+    .image-preview-container .remove-image-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border-radius: 50%;
+      border: none;
+      background: #e5e7eb;
+      color: #6b7280;
+      cursor: pointer;
+      flex-shrink: 0;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .image-preview-container .remove-image-btn:hover {
+      background: #ef4444;
+      color: #fff;
     }
 
-    .dock-actions button[data-state="recording"] {
-      background: rgba(124, 51, 38, 0.92);
-      border-color: rgba(255, 168, 146, 0.34);
+    .chat-image {
+      max-width: 280px;
+      max-height: 200px;
+      border-radius: 10px;
+      margin-top: 6px;
+      display: block;
+    }
+    .message.user .chat-image {
+      border: 1px solid rgba(255,255,255,0.15);
     }
 
     .composer-dock.voice-mode-active .composer-loop-proxy,
@@ -3491,7 +3492,11 @@
                   <button id="composerMoreButton" class="composer-more-button composer-aux-button" type="button" title="More controls" aria-label="More controls" aria-expanded="false" aria-controls="composerMenu">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
                   </button>
-                  <textarea id="messageInput" class="composer-textarea" placeholder="Ask Chanakya anything" rows="1" required autocomplete="off"></textarea>
+                  <textarea id="messageInput" class="composer-textarea" placeholder="Ask Chanakya anything" rows="1" autocomplete="off"></textarea>
+                  <button id="composerImageBtn" class="composer-image-btn" type="button" title="Attach image" aria-label="Attach image">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m22 16-5-5-5 5" /><path d="m17 19-3-3-4 4" /></svg>
+                  </button>
+                  <input type="file" id="imageInput" accept="image/*" hidden>
                   <button class="composer-proxy-button composer-loop-proxy" type="button" data-voice-proxy="loop" title="Start or stop voice mode" aria-label="Start or stop voice mode">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 7.5l-3 3 3 3" /><path d="M11.5 16.5A6.5 6.5 0 1 0 11.5 3.5" /><path d="M15 7.5a5 5 0 0 1 0 9" /></svg>
                   </button>
@@ -3501,6 +3506,10 @@
                   <button type="submit" class="composer-submit" aria-label="Send message">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="m18 11-6-6-6 6" /></svg>
                   </button>
+                </div>
+                <div id="imagePreviewContainer" class="image-preview-container" hidden>
+                  <img id="previewImg" alt="Attached image">
+                  <button id="removeImageBtn" class="remove-image-btn" type="button" title="Remove image">&times;</button>
                 </div>
               </form>
               <div id="composerMenu" class="composer-menu" hidden>
@@ -4238,6 +4247,43 @@
       });
     }
 
+    const composerImageBtn = document.getElementById("composerImageBtn");
+    const imageInput = document.getElementById("imageInput");
+    const imagePreviewContainer = document.getElementById("imagePreviewContainer");
+    const previewImg = document.getElementById("previewImg");
+    const removeImageBtn = document.getElementById("removeImageBtn");
+
+    if (composerImageBtn && imageInput) {
+      composerImageBtn.addEventListener("click", () => imageInput.click());
+      imageInput.addEventListener("change", () => {
+        const file = imageInput.files?.[0];
+        if (!file) return;
+        if (file.size > 50 * 1024 * 1024) {
+          alert("Image is too large. Maximum size is 50 MB.");
+          imageInput.value = "";
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          currentImageData = e.target?.result;
+          if (previewImg) previewImg.src = currentImageData;
+          if (imagePreviewContainer) imagePreviewContainer.hidden = false;
+          syncComposerInputState();
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    if (removeImageBtn) {
+      removeImageBtn.addEventListener("click", () => {
+        currentImageData = null;
+        if (imagePreviewContainer) imagePreviewContainer.hidden = true;
+        if (previewImg) previewImg.src = "";
+        if (imageInput) imageInput.value = "";
+        syncComposerInputState();
+      });
+    }
+
     if (composerMemoryButton) {
       composerMemoryButton.addEventListener("click", () => {
         setComposerMenuOpen(false);
@@ -4282,6 +4328,7 @@
 
     preferredCallModeView = loadStoredCallModeView();
     let sessionId = null;
+    let currentImageData = null;
     let selectedAgentId = null;
     let agentFilter = "all";
     let allAgents = [];
@@ -5605,7 +5652,7 @@
     }
 
     function appendMessage(role, text, meta, options = {}) {
-      const { badge, artifacts = [] } = options;
+      const { badge, artifacts = [], imageData = null } = options;
       const node = document.createElement("div");
       node.className = `message ${role}`;
       if (badge) {
@@ -5616,7 +5663,16 @@
       }
       const bodyNode = document.createElement("div");
       bodyNode.className = "message-body";
-      bodyNode.appendChild(renderMarkdownContent(text));
+      if (imageData) {
+        const img = document.createElement("img");
+        img.className = "chat-image";
+        img.src = imageData;
+        img.alt = "Attached image";
+        bodyNode.appendChild(img);
+      }
+      if (text) {
+        bodyNode.appendChild(renderMarkdownContent(text));
+      }
       node.appendChild(bodyNode);
       const artifactNode = renderArtifactLinks(artifacts);
       if (artifactNode) {
@@ -6147,7 +6203,7 @@
     }
 
     async function submitChatMessage(message, options = {}) {
-      const { onAssistantMessage, voiceMode = false, messageMetadata = null } = options;
+      const { onAssistantMessage, voiceMode = false, messageMetadata = null, imageData = null } = options;
       if (voiceMode) {
         resetVoiceQueueState();
       }
@@ -6170,6 +6226,7 @@
           body: JSON.stringify({
             session_id: targetSessionId,
             message,
+            image_data: imageData || undefined,
             model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
             backend: runtimeConfig.backend,
             a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
@@ -6868,6 +6925,7 @@
       }
       setChatExpanded(true);
       messages.forEach((item) => {
+        const imageUrls = Array.isArray(item.metadata?.image_urls) ? item.metadata.image_urls : [];
         appendMessage(
           item.role === "user" ? "user" : "assistant",
           item.content,
@@ -6875,6 +6933,7 @@
           {
             badge: messageBadgeForHistoryItem(item),
             artifacts: Array.isArray(item.metadata?.artifacts) ? item.metadata.artifacts : [],
+            imageData: imageUrls.length > 0 ? imageUrls[0] : undefined,
           }
         );
       });
@@ -7821,16 +7880,22 @@
     chatForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const message = messageInput.value.trim();
-      if (!message) return;
+      const hasImage = Boolean(currentImageData);
+      if (!message && !hasImage) return;
       setComposerMenuOpen(false);
-      appendMessage("user", message);
-      renderPendingInlineProgress(message);
+      appendMessage("user", message, null, { imageData: currentImageData || undefined });
+      renderPendingInlineProgress(message || "Sent an image");
       messageInput.value = "";
       resizeComposerTextarea();
+      const imageDataToSend = currentImageData;
+      currentImageData = null;
+      if (imagePreviewContainer) imagePreviewContainer.hidden = true;
+      if (previewImg) previewImg.src = "";
+      if (imageInput) imageInput.value = "";
       syncComposerInputState();
 
       try {
-        await submitChatMessage(message);
+        await submitChatMessage(message, { imageData: imageDataToSend || undefined });
       } catch (error) {
         removeInlineProgressNode();
         appendMessage("assistant", error instanceof Error ? error.message : String(error));

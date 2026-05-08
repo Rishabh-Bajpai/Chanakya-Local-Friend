@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import mimetypes
 import re
@@ -12,7 +13,7 @@ from typing import Any
 
 from chanakya.agent.runtime import MAFRuntime, normalize_runtime_backend
 from chanakya.agent_manager import AgentManager
-from chanakya.config import get_long_term_memory_enabled
+from chanakya.config import get_data_dir, get_long_term_memory_enabled
 from chanakya.conversation_layer_support import ConversationLayerResult, ConversationLayerSupport
 from chanakya.debug import debug_log
 from chanakya.domain import (
@@ -379,6 +380,7 @@ class ChatService:
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
         prompt_addendum: str | None = None,
+        image_data: str | None = None,
     ) -> Any:
         runtime_kwargs: dict[str, Any] = {"request_id": request_id}
         if model_id is not None:
@@ -395,6 +397,8 @@ class ChatService:
             runtime_kwargs["a2a_model_id"] = a2a_model_id
         if prompt_addendum is not None:
             runtime_kwargs["prompt_addendum"] = prompt_addendum
+        if image_data is not None:
+            runtime_kwargs["image_data"] = image_data
         try:
             return self.runtime.run(session_id, message, **runtime_kwargs)
         except TypeError:
@@ -1287,6 +1291,7 @@ class ChatService:
         conversation_tone_instruction: str | None = None,
         tts_instruction: str | None = None,
         message_metadata: dict[str, Any] | None = None,
+        image_data: str | None = None,
     ) -> ChatReply:
         backend = normalize_runtime_backend(backend)
 
@@ -1305,6 +1310,7 @@ class ChatService:
                     conversation_tone_instruction=conversation_tone_instruction,
                     tts_instruction=tts_instruction,
                     message_metadata=message_metadata,
+                    image_data=image_data,
                 )
         return self._chat_locked(
             session_id,
@@ -1319,6 +1325,7 @@ class ChatService:
             conversation_tone_instruction=conversation_tone_instruction,
             tts_instruction=tts_instruction,
             message_metadata=message_metadata,
+            image_data=image_data,
         )
 
     def _chat_locked(
@@ -1336,6 +1343,7 @@ class ChatService:
         conversation_tone_instruction: str | None = None,
         tts_instruction: str | None = None,
         message_metadata: dict[str, Any] | None = None,
+        image_data: str | None = None,
     ) -> ChatReply:
 
         # In /work, resume from the explicit active pending interaction marker rather than
@@ -1381,6 +1389,7 @@ class ChatService:
             conversation_tone_instruction=conversation_tone_instruction,
             tts_instruction=tts_instruction,
             message_metadata=message_metadata,
+            image_data=image_data,
         )
 
     def _find_active_work_pending_task(
@@ -1579,6 +1588,7 @@ class ChatService:
         conversation_tone_instruction: str | None = None,
         tts_instruction: str | None = None,
         message_metadata: dict[str, Any] | None = None,
+        image_data: str | None = None,
     ) -> ChatReply:
         request_id = make_id("req")
         root_task_id = make_id("task")
@@ -1592,12 +1602,37 @@ class ChatService:
         )
         runtime_snapshot = self._runtime_snapshot_from_metadata(runtime_meta)
         prior_messages = self.store.list_messages(session_id)[-8:]
+
+        metadata = dict(message_metadata or {})
+        active_image_data = image_data
+        if image_data:
+            img_match = re.match(r"^data:(image/\w+);base64,(.+)$", image_data)
+            if img_match:
+                media_type = img_match.group(1)
+                raw_b64 = img_match.group(2)
+                ext = mimetypes.guess_extension(media_type) or ".img"
+                img_dir = get_data_dir() / "images" / session_id
+                img_dir.mkdir(parents=True, exist_ok=True)
+                img_filename = f"{request_id}{ext}"
+                img_path = img_dir / img_filename
+                try:
+                    with open(img_path, "wb") as f:
+                        f.write(base64.b64decode(raw_b64))
+                    image_files = metadata.get("image_files", [])
+                    image_files.append({
+                        "path": str(img_path.relative_to(get_data_dir())),
+                        "media_type": media_type,
+                    })
+                    metadata["image_files"] = image_files
+                except Exception:
+                    pass
+
         self.store.add_message(
             session_id,
             "user",
             message,
             request_id=request_id,
-            metadata=dict(message_metadata or {}),
+            metadata=metadata,
         )
         self._mirror_work_conversation_to_agent_sessions(
             visible_session_id=session_id,
@@ -1823,6 +1858,7 @@ class ChatService:
                         work_id=work_id,
                         current_message=message,
                     ),
+                    image_data=active_image_data,
                 )
                 manager_invoked = False
         except Exception as exc:

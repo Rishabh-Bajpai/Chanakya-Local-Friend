@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
 from collections.abc import Sequence
 from typing import Any
 
-from agent_framework import HistoryProvider, Message
+from agent_framework import Content, HistoryProvider, Message
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.config import (
+    get_data_dir,
     get_history_max_chars,
     get_history_max_message_chars,
     get_history_max_messages,
@@ -96,13 +98,27 @@ class SQLAlchemyHistoryProvider(HistoryProvider):
             )
 
         return [
-            Message(
-                role=row.role,
-                contents=[content],
-                additional_properties=dict(row.metadata_json or {}),
-            )
+            self._build_message_with_images(row, content)
             for row, content in selected
         ]
+
+    @staticmethod
+    def _build_message_with_images(row: ChatMessageModel, text_content: str) -> Message:
+        metadata = dict(row.metadata_json or {})
+        image_files: list[dict[str, str]] = metadata.pop("image_files", []) or []
+        contents: list[str | Content] = [text_content]
+        for img_info in image_files:
+            img_path = get_data_dir() / img_info["path"]
+            if img_path.exists():
+                with open(img_path, "rb") as f:
+                    raw = base64.b64encode(f.read()).decode("ascii")
+                data_uri = f"data:{img_info['media_type']};base64,{raw}"
+                contents.append(Content.from_uri(data_uri))
+        return Message(
+            role=row.role,
+            contents=contents,
+            additional_properties=metadata,
+        )
 
     @staticmethod
     def _compress_history_rows(

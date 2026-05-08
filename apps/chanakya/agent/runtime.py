@@ -9,7 +9,7 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
 
-from agent_framework import Agent, AgentResponse, Message
+from agent_framework import Agent, AgentResponse, Content, Message
 from agent_framework.openai import OpenAIChatCompletionClient
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -258,6 +258,7 @@ class MAFRuntime:
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
         prompt_addendum: str | None = None,
+        image_data: str | None = None,
     ) -> RunResult:
         """Run the agent, bridging Sync Flask to Background Async Event Loop."""
         return run_in_maf_loop(
@@ -272,6 +273,7 @@ class MAFRuntime:
                 a2a_model_provider=a2a_model_provider,
                 a2a_model_id=a2a_model_id,
                 prompt_addendum=prompt_addendum,
+                image_data=image_data,
             )
         )
 
@@ -297,6 +299,7 @@ class MAFRuntime:
         a2a_model_provider: str | None = None,
         a2a_model_id: str | None = None,
         prompt_addendum: str | None = None,
+        image_data: str | None = None,
     ) -> RunResult:
         self._refresh_profile_and_tools()
         selected_backend = normalize_runtime_backend(backend or self.default_backend)
@@ -317,6 +320,7 @@ class MAFRuntime:
             request_id=request_id,
             model_id=model_id,
             prompt_addendum=prompt_addendum,
+            image_data=image_data,
         )
 
     async def _run_async_local_in_loop(
@@ -327,6 +331,7 @@ class MAFRuntime:
         request_id: str,
         model_id: str | None = None,
         prompt_addendum: str | None = None,
+        image_data: str | None = None,
     ) -> RunResult:
         tool_traces: list[ToolExecutionTrace] = []
 
@@ -345,6 +350,7 @@ class MAFRuntime:
                 "request_id": request_id,
                 "input": text,
                 "tool_count": len(self.cached_tools),
+                "has_image": bool(image_data),
             },
         )
 
@@ -357,6 +363,7 @@ class MAFRuntime:
                 include_history=True,
                 history_query_text=text,
                 prompt_addendum=prompt_addendum,
+                image_data=image_data,
             )
             local_fallback_used = False
         except Exception as exc:
@@ -374,6 +381,7 @@ class MAFRuntime:
                 include_history=False,
                 history_query_text=text,
                 prompt_addendum=prompt_addendum,
+                image_data=image_data,
             )
             local_fallback_used = True
 
@@ -479,6 +487,7 @@ class MAFRuntime:
         include_history: bool,
         history_query_text: str,
         prompt_addendum: str | None,
+        image_data: str | None = None,
     ) -> AgentResponse[Any]:
         run_agent, _ = build_profile_agent(
             self.profile,
@@ -494,11 +503,14 @@ class MAFRuntime:
         session = run_agent.create_session(session_id=session_id)
         session.state["request_id"] = request_id
         session.state["history_query_text"] = history_query_text
+        contents: list = [prompt_text]
+        if image_data:
+            contents.append(Content.from_uri(image_data))
         return await asyncio.wait_for(
             run_agent.run(
                 Message(
                     "user",
-                    [prompt_text],
+                    contents,
                     additional_properties={"request_id": request_id},
                 ),
                 session=session,

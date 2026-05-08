@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import base64
 import json
 import queue
 import re
@@ -345,6 +346,7 @@ def create_app() -> Flask:
         template_folder=str(BASE_DIR / "templates"),
         static_folder=str(BASE_DIR / "static"),
     )
+    app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 
     data_dir = get_data_dir()
     project_root = data_dir.parent
@@ -512,6 +514,12 @@ def create_app() -> Flask:
         else:
             session_id = str(raw_session_id or make_id("session"))
         message = str(payload.get("message", "")).strip()
+        raw_image_data = payload.get("image_data")
+        image_data = str(raw_image_data).strip() if raw_image_data is not None else None
+        if image_data == "":
+            image_data = None
+        if not message and not image_data:
+            return jsonify({"error": "message or image_data is required"}), 400
         runtime_config = get_runtime_config()
         raw_model_id = payload.get("model_id")
         model_id = (
@@ -593,11 +601,10 @@ def create_app() -> Flask:
                 "tts_instruction": tts_instruction,
                 "message_metadata": message_metadata,
                 "message": message,
+                "has_image": bool(image_data),
                 "has_existing_session": bool(payload.get("session_id")),
             },
         )
-        if not message:
-            return jsonify({"error": "message is required"}), 400
         store.ensure_session(session_id, title=message[:60] or "New chat")
         try:
             reply = chat_service.chat(
@@ -613,6 +620,7 @@ def create_app() -> Flask:
                 conversation_tone_instruction=conversation_tone_instruction,
                 tts_instruction=tts_instruction,
                 message_metadata=message_metadata,
+                image_data=image_data,
             )
         except Exception as exc:
             debug_log(
@@ -679,6 +687,18 @@ def create_app() -> Flask:
     @app.get("/api/sessions/<session_id>")
     def api_session(session_id: str) -> Any:
         messages = store.list_messages(session_id)
+        data_dir = get_data_dir()
+        for msg in messages:
+            image_files = (msg.get("metadata") or {}).get("image_files", [])
+            if image_files:
+                image_urls = []
+                for img_info in image_files:
+                    img_path = data_dir / img_info["path"]
+                    if img_path.exists():
+                        with open(img_path, "rb") as f:
+                            raw = base64.b64encode(f.read()).decode("ascii")
+                        image_urls.append(f"data:{img_info['media_type']};base64,{raw}")
+                msg.setdefault("metadata", {})["image_urls"] = image_urls
         debug_log(
             "api_session_request",
             {
