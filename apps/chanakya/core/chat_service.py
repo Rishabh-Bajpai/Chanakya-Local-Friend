@@ -934,6 +934,7 @@ class ChatService:
             return None
         if not self._conversation_layer.enabled:
             return None
+        user_message = user_message.strip() or "[User attached an image]"
         conversation_runtime = dict(runtime_metadata or {})
         conversation_runtime.pop("artifacts", None)
         selected_backend = normalize_runtime_backend(
