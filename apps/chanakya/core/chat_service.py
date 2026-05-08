@@ -1624,7 +1624,7 @@ class ChatService:
             if not img_match:
                 raise InvalidChatRequestError("invalid_image_data_format")
             media_type = img_match.group(1)
-            raw_b64 = img_match.group(2)
+            raw_b64 = re.sub(r"\s+", "", img_match.group(2))
             try:
                 image_bytes = base64.b64decode(raw_b64, validate=True)
             except (ValueError, binascii.Error) as exc:

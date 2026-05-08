@@ -124,9 +124,11 @@ class AgentFrameworkCoreAgentAdapter(CoreAgentAdapter):
 
         contents: list = []
         metadata = chat_request.metadata or {}
-        image_files = metadata.get("image_files") if isinstance(metadata, dict) else []
-        if not isinstance(image_files, list):
-            image_files = []
+        image_files = (
+            metadata.get("image_files", [])
+            if isinstance(metadata, dict) and isinstance(metadata.get("image_files"), list)
+            else []
+        )
         if image_files:
             image_addendum = (
                 "Important: The user has attached a new image in this message. "
