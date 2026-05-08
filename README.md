@@ -36,7 +36,7 @@ The script will walk you through:
 ### 2. Start the stack
 
 ```bash
-./scripts/start_chanakya_air.sh
+./scripts/start_chanakya.sh
 ```
 
 Open the main UI at `http://127.0.0.1:5513`.
@@ -44,14 +44,14 @@ Open the main UI at `http://127.0.0.1:5513`.
 ### 3. Stop the stack
 
 ```bash
-./scripts/stop_chanakya_air.sh
+./scripts/stop_chanakya.sh
 ```
 
 This stops all services and (if set up) the TTS/STT Docker containers.
 
 ## What The Startup Script Does
 
-`./scripts/start_chanakya_air.sh` starts the current local stack in this order:
+`./scripts/start_chanakya.sh` starts the current local stack in this order:
 
 1. AIR service
 2. Chanakya conversation layer
@@ -66,7 +66,7 @@ It also:
 
 The stop script also stops TTS/STT Docker containers if `docker-compose.yml` is present.
 
-Use `./scripts/stop_chanakya_air.sh` to stop everything cleanly.
+Use `./scripts/stop_chanakya.sh` to stop everything cleanly.
 
 ## Required Configuration
 
@@ -249,6 +249,6 @@ Confirm that:
 ## Related Files
 
 - `mcp_config_file.example.json`: starting point for MCP server configuration
-- `scripts/start_chanakya_air.sh`: standard local stack entrypoint
-- `scripts/stop_chanakya_air.sh`: standard shutdown entrypoint
+- `scripts/start_chanakya.sh`: standard local stack entrypoint
+- `scripts/stop_chanakya.sh`: standard shutdown entrypoint
 - `scripts/install-autostart-ubuntu.sh`: `systemd` installer for Linux

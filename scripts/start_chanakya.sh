@@ -149,5 +149,5 @@ if [[ "$MODE" == "a2a" || "$MODE" == "core+a2a" ]]; then
   printf 'A2A bridge:          http://%s:%s\n' "$A2A_HOST" "$A2A_PORT"
 fi
 printf 'Chanakya app:  http://localhost:%s\n' "$CHANAKYA_PORT"
-printf 'Usage: scripts/start_chanakya_air.sh [core|a2a|core+a2a]\n'
-printf 'Use scripts/stop_chanakya_air.sh to stop all services.\n'
+printf 'Usage: scripts/start_chanakya.sh [core|a2a|core+a2a]\n'
+printf 'Use scripts/stop_chanakya.sh to stop all services.\n'

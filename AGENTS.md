@@ -8,10 +8,10 @@
 
 ## Startup / Runtime
 
-- Preferred local stack entrypoint is `./scripts/start_chanakya_air.sh core` from repo root.
-- `core+a2a` also starts OpenCode and the A2A bridge: `./scripts/start_chanakya_air.sh core+a2a`.
+- Preferred local stack entrypoint is `./scripts/start_chanakya.sh core` from repo root.
+- `core+a2a` also starts OpenCode and the A2A bridge: `./scripts/start_chanakya.sh core+a2a`.
 - Before running either startup mode, create repo-root `.env` from `.env.example` and repo-root `mcp_config_file.json` from `mcp_config_file.example.json`.
-- Stop everything with `./scripts/stop_chanakya_air.sh`.
+- Stop everything with `./scripts/stop_chanakya.sh`.
 - Runtime logs and PID files go to `build/runtime/`.
 - The startup script sources the repo-root `.env` automatically and exports `ENV_FILE_PATH`; do not manually duplicate env wiring unless you are bypassing the script.
 
