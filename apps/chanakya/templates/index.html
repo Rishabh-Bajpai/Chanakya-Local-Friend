@@ -2845,8 +2845,7 @@
       border: 1px solid rgba(255,255,255,0.15);
     }
 
-    .composer-dock.voice-mode-active .composer-loop-proxy,
-    .composer-dock.voice-mode-active .dock-actions [data-voice-proxy="loop"] {
+    .composer-dock.voice-mode-active .composer-loop-proxy {
       background: rgba(79, 215, 255, 0.12);
       border-color: rgba(79, 215, 255, 0.26);
       color: #eef9ff;
@@ -2896,7 +2895,6 @@
         rgba(8, 10, 18, 0.88);
     }
 
-    body.call-mode .dock-actions,
     body.call-mode .composer-menu {
       display: none;
     }
@@ -3247,8 +3245,7 @@
       }
 
       .composer-dock.has-text .composer-loop-proxy,
-      .composer-dock.has-text .composer-mic-proxy,
-      .dock-actions {
+      .composer-dock.has-text .composer-mic-proxy {
         display: none;
       }
 
@@ -3303,6 +3300,69 @@
 
     .composer-dock.has-text .composer-submit {
       display: inline-flex;
+    }
+
+    .composer-menu {
+      position: absolute;
+      bottom: calc(100% + 12px);
+      left: 16px;
+      min-width: 240px;
+      max-width: 320px;
+      padding: 8px;
+      border-radius: 16px;
+      background: #2d2d2d;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      z-index: 100;
+    }
+
+    .composer-menu button {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 400;
+      cursor: pointer;
+      text-align: left;
+      width: 100%;
+      transition: background 0.15s ease;
+    }
+
+    .composer-menu button:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .composer-menu button svg {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .composer-menu::before {
+      content: '';
+      position: absolute;
+      bottom: -6px;
+      left: 24px;
+      width: 12px;
+      height: 12px;
+      background: #2d2d2d;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      transform: rotate(45deg);
+      z-index: -1;
     }
   </style>
 </head>
@@ -3506,11 +3566,6 @@
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M7.5 16A7 7 0 0 0 19 11" /><path d="M16.5 8A7 7 0 0 0 5 13" /></svg>
                   Refresh models
                 </button>
-              </div>
-              <div class="dock-actions" role="toolbar" aria-label="Voice controls">
-                <button class="air-button" type="button" data-voice-proxy="loop">Voice</button>
-                <button class="air-button" type="button" data-voice-proxy="speak">Speak Reply</button>
-                <button class="air-button" type="button" data-voice-proxy="refresh">Refresh Models</button>
               </div>
               <div class="call-control-bar" aria-label="Call controls">
                 <button class="call-control-button call-primary" type="button" data-voice-proxy="loop">
