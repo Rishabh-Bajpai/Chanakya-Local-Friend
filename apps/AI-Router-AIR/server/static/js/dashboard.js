@@ -330,7 +330,7 @@ function enableInlineEdit(row) {
 
     // Attach listeners
     row.querySelector('.cancel-btn').onclick = () => {
-        // Just refresh to restore
+        row.classList.remove('editing-row');
         fetchProviders();
     };
 

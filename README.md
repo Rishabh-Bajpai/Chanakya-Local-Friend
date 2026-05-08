@@ -5,96 +5,68 @@ Chanakya is an **advanced, open-source, and self-hostable voice assistant** desi
 - Chanakya Flask app on `http://127.0.0.1:5513`
 - AIR service on `http://127.0.0.1:5512`
 - Conversation layer on `http://127.0.0.1:5514`
-- Optional A2A bridge on `http://127.0.0.1:18770`
+- Optional A2A bridge on `http://127.0.0.1:18770` (future feature)
 
 The most important setup rule is simple: create the repo-root `.env` and `mcp_config_file.json` before starting the stack. The startup scripts read those files immediately.
 
 ## Quick Start
 
-### 1. Prerequisites
+### Prerequisites
 
-- Python 3.11 is the safest default for local development.
-- `python3.11 -m venv` available on your machine.
-- `uvx` available if you use the example MCP config as-is.
-- An OpenAI-compatible API key and base URL.
+- **Python 3.11+** or conda — required by all services
+- **Docker** with `docker compose` plugin — required for:
+  - Sandboxed code execution (artifact generation, work sandboxing)
+  - Local TTS/STT via Speaches/Kokoro (optional)
+- `uvx` — only needed if you use the example MCP config as-is
 
-### 2. Create the virtual environment
-
-From the repo root:
+### 1. Run the setup script
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e .[dev]
-python -m pip install -e ./apps/AI-Router-AIR
-python -m pip install -e ./apps/chanakya_conversation_layer
+./scripts/setup.sh
 ```
 
-If you prefer conda for day-to-day development, that is still fine. The only hard requirement is that the `systemd` installer expects a repo-root `.venv`.
+The script will walk you through:
 
-### 3. Create `.env` before starting anything
+- **Environment** — asks whether to use `conda` or `.venv`, then creates/activates it
+- **Dependencies** — installs all packages (`pip install -e .[dev]`, AIR, conversation layer)
+- **Config files** — creates `.env` and `mcp_config_file.json` from examples if they don't exist
+- **LLM provider** — prompts for your LLM backend URL (e.g. `http://localhost:11434/v1`) and API key
+- **TTS/STT (optional)** — if you choose yes, it pulls the Speaches Docker image, downloads Kokoro-82M (TTS) and Faster-Whisper (STT) models, and auto-configures the AIR `.env`
 
-Start from the checked-in template:
-
-```bash
-cp .env.example .env
-```
-
-Then edit `.env` for your machine and credentials. Use `.env.example` as the source of truth for supported variables.
-
-The startup scripts source this file automatically and export `ENV_FILE_PATH` for child processes. If this file is missing, the services start without your intended runtime configuration.
-
-### 4. Create `mcp_config_file.json` before starting anything
-
-The app expects a repo-root `mcp_config_file.json`.
-
-Start from the example:
+### 2. Start the stack
 
 ```bash
-cp mcp_config_file.example.json mcp_config_file.json
-```
-
-Then edit it for your environment if needed. Use `mcp_config_file.example.json` as the source of truth for the default MCP server layout. The checked-in example includes both local Python-backed MCP servers and `uvx`-launched servers.
-
-### 5. Start the stack
-
-Core stack:
-
-```bash
-./scripts/start_chanakya_air.sh core
-```
-
-Core stack plus A2A components:
-
-```bash
-./scripts/start_chanakya_air.sh core+a2a
+./scripts/start_chanakya.sh
 ```
 
 Open the main UI at `http://127.0.0.1:5513`.
 
-### 6. Stop the stack
+### 3. Stop the stack
 
 ```bash
-./scripts/stop_chanakya_air.sh
+./scripts/stop_chanakya.sh
 ```
+
+This stops all services and (if set up) the TTS/STT Docker containers.
 
 ## What The Startup Script Does
 
-`./scripts/start_chanakya_air.sh` starts the current local stack in this order:
+`./scripts/start_chanakya.sh` starts the current local stack in this order:
 
 1. AIR service
 2. Chanakya conversation layer
-3. Optional A2A services for `core+a2a`
-4. Chanakya Flask app
+3. Chanakya Flask app
 
 It also:
 
 - reads `.env` from the repo root unless `ENV_FILE_PATH` is already set
+- auto-detects the Python binary (`.venv/bin/python` → conda → PATH)
 - writes PID files and logs under `build/runtime/`
 - prints the service URLs after startup
 
-Use `./scripts/stop_chanakya_air.sh` to stop everything cleanly.
+The stop script also stops TTS/STT Docker containers if `docker-compose.yml` is present.
+
+Use `./scripts/stop_chanakya.sh` to stop everything cleanly.
 
 ## Required Configuration
 
@@ -277,6 +249,6 @@ Confirm that:
 ## Related Files
 
 - `mcp_config_file.example.json`: starting point for MCP server configuration
-- `scripts/start_chanakya_air.sh`: standard local stack entrypoint
-- `scripts/stop_chanakya_air.sh`: standard shutdown entrypoint
+- `scripts/start_chanakya.sh`: standard local stack entrypoint
+- `scripts/stop_chanakya.sh`: standard shutdown entrypoint
 - `scripts/install-autostart-ubuntu.sh`: `systemd` installer for Linux

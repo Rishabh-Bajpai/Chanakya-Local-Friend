@@ -1,9 +1,18 @@
 """FastAPI entrypoint for the AIR server and dashboard views."""
 
+import asyncio
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+# Load .env into os.environ BEFORE any local imports that may trigger
+# Settings() (which calls load_providers() → os.getenv()).  Without this
+# the provider vars saved in apps/AI-Router-AIR/.env are invisible and
+# settings.PROVIDERS will be empty on every restart.
+load_dotenv()
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,9 +21,6 @@ from fastapi.templating import Jinja2Templates
 from server.api import router as api_router
 from server.core.exceptions import global_exception_handler
 from server.core.logging import LOG_FILE_PATH, logger as air_logger
-
-# Load environment variables
-load_dotenv()
 
 app = FastAPI(
     title="AI Router (AIR)", description="Unified API for LLM, STT, and TTS", version="0.1.0"
@@ -44,11 +50,36 @@ app.include_router(api_router.router)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
+async def _refresh_with_retry(
+    provider_manager,
+    logger: logging.Logger,
+    max_retries: int = 5,
+    delay: float = 1.0,
+):
+    """Refresh the model cache with exponential backoff retries."""
+    for attempt in range(max_retries):
+        try:
+            await provider_manager.refresh_models()
+            return
+        except Exception as e:  # noqa: BLE001 — catch any provider error to enable retry
+            if attempt < max_retries - 1:
+                logger.warning(
+                    "Model cache refresh attempt %d/%d failed: %s. Retrying in %.1fs…",
+                    attempt + 1, max_retries, e, delay,
+                )
+                await asyncio.sleep(delay)
+                delay *= 2
+            else:
+                logger.warning(
+                    "Model cache refresh failed after %d attempts: %s",
+                    max_retries, e,
+                )
+                raise
+
+
 @app.on_event("startup")
 async def startup_discovery():
     """Run provider discovery on startup as a background task."""
-    import logging
-    import asyncio
     from server.core.config import settings
     from server.services.discovery import discovery_service
     from server.services.provider_manager import provider_manager
@@ -74,9 +105,9 @@ async def startup_discovery():
                 logging.info("No new providers discovered beyond what is already configured.")
 
             # Also refresh the provider manager's model cache
-            await provider_manager.refresh_models()
-        except Exception as e:
-            logging.warning(f"Background auto-discovery/refresh failed: {e}")
+            await _refresh_with_retry(provider_manager, air_logger)
+        except Exception as e:  # noqa: BLE001 — catch all to keep startup non-blocking
+            air_logger.warning("Background auto-discovery/refresh failed: %s", e)
 
     if not settings.DISCOVERY_ENABLED:
         logging.info("Auto-discovery is disabled (DISCOVERY_ENABLED=false)")
@@ -85,9 +116,9 @@ async def startup_discovery():
         async def refresh_only():
             """Refresh configured provider models when discovery is disabled."""
             try:
-                await provider_manager.refresh_models()
-            except Exception as e:
-                logging.warning(f"Background model refresh failed: {e}")
+                await _refresh_with_retry(provider_manager, air_logger)
+            except Exception:  # noqa: BLE001 — retries already logged, suppress task crash
+                pass
 
         asyncio.create_task(refresh_only())
         return

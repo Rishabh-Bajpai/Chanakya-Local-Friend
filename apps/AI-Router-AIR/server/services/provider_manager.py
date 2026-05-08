@@ -161,15 +161,16 @@ class ProviderManager:
             if provider_name in configured_provider_names
         }
 
-        # Deduplicate models by ID to ensure a clean Unified Registry
+        # Deduplicate by (provider_name, id) so models with the same ID
+        # from different providers (e.g. two LM Studio instances linked
+        # via LM Link) are all kept in the registry.
         unique_models = {}
         for model in all_models:
             m_id = model.get("id")
-            if m_id and m_id not in unique_models:
-                unique_models[m_id] = model
-            # Optional: Allow duplicates if from different providers?
-            # User specifically asked why they see duplicates when only one is there.
-            # So strict deduplication by ID is preferred.
+            provider = model.get("provider_name", "unknown")
+            key = (provider, m_id)
+            if m_id and key not in unique_models:
+                unique_models[key] = model
 
         self.models_cache["by_provider"] = provider_models_cache
         self.models_cache["all"] = list(unique_models.values())
