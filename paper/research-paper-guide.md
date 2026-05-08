@@ -103,15 +103,15 @@ The sandboxed MCP wrapper ensures device control commands are validated before e
 
 ### b) Comparative Analysis
 
-| System | Privacy | Voice-Ready | Multi-Modal | Modular | Multi-Agent | MCP Tools | Developer API |
-|--------|---------|-------------|-------------|---------|-------------|-----------|---------------|
-| **Alexa** | ❌ Cloud | ✅ | ✅ | ❌ Closed | ❌ | ❌ | ❌ |
-| **Google Assistant** | ❌ Cloud | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Mycroft / OVOS** | ✅ Local | ✅ | ⚠️ Limited | ⚠️ Plugins | ❌ | ❌ | ⚠️ |
-| **Hermes (Nous)** | ✅ Local | ❌ CLI | ❌ | ⚠️ | ✅ | ❌ | ❌ |
-| **OpenClaw** | ✅ Local | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| **Home Assistant** | ✅ Local | ⚠️ Alexa/Google bridge | ⚠️ | ✅ | ❌ | ❌ | ⚠️ |
-| **Chanakya** | ✅ Local | ✅ | ✅ (text+voice+code) | ✅ (AIR + ConvLayer + MAF) | ✅ | ✅ | ✅ (OpenAI drop-in) |
+| System | Privacy | Voice-Ready | Multi-Modal | Memory (LT/ST/WM) | Code/File Editing | Modular | Multi-Agent | MCP Tools | Developer API |
+|--------|---------|-------------|-------------|---------------------|-------------------|---------|-------------|-----------|---------------|
+| **Alexa** | ❌ Cloud | ✅ | ✅ (text+voice+image) | ❌ Session-only | ❌ | ❌ Closed | ❌ | ❌ | ❌ |
+| **Google Assistant** | ❌ Cloud | ✅ | ✅ (text+voice+image) | ❌ Session-only | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Mycroft / OVOS** | ✅ Local | ✅ | ⚠️ Limited | ⚠️ Basic history | ❌ | ⚠️ Plugins | ❌ | ❌ | ⚠️ |
+| **Hermes (Nous)** | ✅ Local | ❌ CLI | ❌ | ✅ (project memory) | ✅ | ⚠️ | ✅ | ❌ | ❌ |
+| **OpenClaw** | ✅ Local | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| **Home Assistant Assist** | ✅ Local | ✅ | ❌ | ❌ No LT memory | ❌ | ✅ | ❌ | ❌ | ⚠️ |
+| **Chanakya** | ✅ Local | ✅ | ✅ (text+voice+image+code) | ✅ (SQLAlchemy LT + ConvLayer WM + topic ST) | ✅ (MCP sandboxed write) | ✅ (AIR + ConvLayer + MAF) | ✅ | ✅ | ✅ (OpenAI drop-in) |
 
 Also include a **qualitative architecture comparison** showing monolithic vs. modular decomposition — the key insight from Chanakya's A2A pivot.
 
@@ -160,18 +160,35 @@ If the AIR proxy overhead is under 5ms (which it should be with FastAPI's zero-b
 
 ## 7. Recommended Paper Structure
 
-1. **Introduction** — The privacy vs. convenience paradox; voice assistants today are either cloud-dependent or lack agentic capability
-2. **Motivation & Lessons Learned: The Event-Loop Contention Problem** — The OpenClaw integration failure; why tight coupling breaks voice assistants. Name the problem formally: a slow browser-automation task in a monolithic event loop starves the real-time voice pipeline, causing stuttering and unresponsiveness. This frames modularity as a correctness guarantee, not just a design preference.
-3. **System Architecture** — Modular decomposition (AIR, Conversation Layer, MAF Orchestrator, MCP)
-4. **Design Innovations** — Deep dives into each innovation (architecture diagrams, code snippets)
-5. **Evaluation**
-   - RQ1: System performance (latency, throughput, resource usage)
-   - RQ2: Comparison with existing systems (feature matrix + architecture analysis)
-   - RQ3: Task completion capability (GAIA / SWE-bench / HumanEval)
-   - RQ4: Overhead of modularity (how much does the conversation layer or AIR proxy add?)
-6. **Extensibility** — Case study: Home Assistant MCP integration for IoT voice control
-7. **Related Work** — Thematic literature review
-8. **Conclusion & Future Work**
+### 1. Introduction
+
+**a) Background & Literature Review** — The privacy vs. convenience paradox; voice assistants today are either cloud-dependent or lack agentic capability. Thematic survey across local AI systems, voice architectures, multi-agent frameworks, AI gateways, MCP ecosystem, A2A protocol, and IoT voice integration.
+
+**b) Motivation & Lessons Learned: The Event-Loop Contention Problem** — The OpenClaw integration failure; why tight coupling breaks voice assistants. Name the problem formally: a slow browser-automation task in a monolithic event loop starves the real-time voice pipeline, causing stuttering and unresponsiveness. This frames modularity as a correctness guarantee, not just a design preference.
+
+### 2. Methods
+
+**a) System Architecture** — Modular decomposition (AIR, Conversation Layer, MAF Orchestrator, MCP, Persistence Layer). Architecture diagrams showing component isolation and data flow.
+
+**b) Design Innovations** — Deep dives into each innovation: Modular Decomposition, Framework-Agnostic AI Router (AIR), Temporal State Management for Voice, MCP Wrapper + Sandboxed Execution, A2A Protocol for Safe Delegation, Traced Group Chat Orchestration, IoT Extensibility via MCP.
+
+### 3. Results
+
+**a) RQ1: System Performance** — End-to-end latency, TTFT, interruption responsiveness, multi-provider failover, concurrency scaling, resource footprint, subagent creation cost.
+
+**b) RQ2: Comparison with Existing Systems** — Feature matrix (privacy, voice, multi-modal, memory, code editing, modularity, multi-agent, MCP, developer API) + qualitative architecture analysis.
+
+**c) RQ3: Task Completion Capability** — GAIA (agentic decomposition), SWE-bench Lite (multi-agent code generation), HumanEval / MBPP (code correctness via sandboxed execution).
+
+**d) RQ4: Modularity Overhead** — Measured delta between direct LLM call, AIR-proxied call, and full-stack voice pipeline. Network isolation audit proving zero-leak local operation.
+
+**e) Extensibility: Home Assistant MCP Integration** — Case study demonstrating IoT voice control, clinical assistive technology workflow (WashU gait recording), and the reactive→proactive roadmap.
+
+### 4. Discussion
+
+**a) Related Work** — Thematic literature review situating Chanakya against prior art across all pillars.
+
+**b) Conclusion & Future Work** — Summary of contributions (modular decomposition, verifiable privacy, temporal voice state, secure MCP/A2A delegation). Future directions: proactive state-polling, multi-modal image understanding, expanded clinical deployment studies.
 
 ## 8. Venue Strategy
 
