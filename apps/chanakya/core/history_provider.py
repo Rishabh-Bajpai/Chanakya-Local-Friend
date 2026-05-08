@@ -51,12 +51,16 @@ class SQLAlchemyHistoryProvider(HistoryProvider):
         if not session_id:
             return []
 
+        request_id = state.get("request_id") if isinstance(state, dict) else None
         with session_scope(self.session_factory) as session:
-            rows = session.scalars(
+            query = (
                 select(ChatMessageModel)
                 .where(ChatMessageModel.session_id == session_id)
                 .order_by(ChatMessageModel.id.asc())
-            ).all()
+            )
+            if request_id:
+                query = query.where(ChatMessageModel.request_id != request_id)
+            rows = session.scalars(query).all()
 
         rows = [row for row in rows if not self._is_control_history_row(row)]
         query_text = ""
