@@ -489,6 +489,18 @@ class MAFRuntime:
         prompt_addendum: str | None,
         image_data: str | None = None,
     ) -> AgentResponse[Any]:
+        combined_addendum = str(prompt_addendum or "").strip()
+        if image_data:
+            image_addendum = (
+                "Important: The user has attached a new image in this message. "
+                "Do not assume this image is the same as, similar to, or a duplicate of any previous images "
+                "unless the user explicitly states so. Treat each attached image as distinct and unique."
+            )
+            if combined_addendum:
+                combined_addendum = f"{combined_addendum}\n\n{image_addendum}"
+            else:
+                combined_addendum = image_addendum
+
         run_agent, _ = build_profile_agent(
             self.profile,
             self.session_factory,
@@ -497,7 +509,7 @@ class MAFRuntime:
             store_inputs=False,
             store_outputs=False,
             usage_text=prompt_text,
-            prompt_addendum=prompt_addendum,
+            prompt_addendum=combined_addendum or None,
             repo_root=self.repo_root,
         )
         session = run_agent.create_session(session_id=session_id)

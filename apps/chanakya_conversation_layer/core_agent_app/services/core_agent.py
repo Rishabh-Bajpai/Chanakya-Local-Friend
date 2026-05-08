@@ -111,8 +111,41 @@ class AgentFrameworkCoreAgentAdapter(CoreAgentAdapter):
 
     async def _run_agent(self, chat_request: ChatRequest):
         session = self._agent.create_session(session_id=chat_request.session_id)
-        prompt = self._build_agent_prompt(chat_request)
-        return await self._agent.run([Message("user", [prompt])], session=session)
+        contents = self._build_message_contents(chat_request)
+        return await self._agent.run([Message("user", contents)], session=session)
+
+    def _build_message_contents(self, chat_request: ChatRequest) -> list:
+        from agent_framework import Content
+        contents: list = []
+        metadata = chat_request.metadata or {}
+        image_files = metadata.get("image_files", []) or []
+        if image_files:
+            image_addendum = (
+                "Important: The user has attached a new image in this message. "
+                "Do not assume this image is the same as, similar to, or a duplicate of any previous images "
+                "unless the user explicitly states so. Treat each attached image as distinct and unique."
+            )
+            contents.append(image_addendum)
+        text = self._build_agent_prompt(chat_request)
+        if text:
+            contents.append(text)
+        for img_info in image_files:
+            img_path = self._resolve_image_path(img_info)
+            if img_path and img_path.exists():
+                import base64
+                with open(img_path, "rb") as f:
+                    raw = base64.b64encode(f.read()).decode("ascii")
+                data_uri = f"data:{img_info.get('media_type', 'image/png')};base64,{raw}"
+                contents.append(Content.from_uri(data_uri))
+        return contents
+
+    def _resolve_image_path(self, img_info: dict) -> Any:
+        from pathlib import Path
+        path_str = img_info.get("path", "")
+        if not path_str:
+            return None
+        data_dir = Path(__file__).resolve().parents[4] / "chanakya_data"
+        return data_dir / path_str
 
     def _build_agent_prompt(self, chat_request: ChatRequest) -> str:
         return chat_request.message
