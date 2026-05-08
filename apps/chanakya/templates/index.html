@@ -5667,7 +5667,7 @@
     }
 
     function appendMessage(role, text, meta, options = {}) {
-      const { badge, artifacts = [], imageData = null } = options;
+      const { badge, artifacts = [], images = [] } = options;
       const node = document.createElement("div");
       node.className = `message ${role}`;
       if (badge) {
@@ -5678,11 +5678,13 @@
       }
       const bodyNode = document.createElement("div");
       bodyNode.className = "message-body";
-      if (imageData) {
+      for (const src of images) {
         const img = document.createElement("img");
         img.className = "chat-image";
-        img.src = imageData;
+        img.src = src;
         img.alt = "Attached image";
+        img.loading = "lazy";
+        img.onerror = () => { img.alt = "[image unavailable]"; img.style.opacity = "0.4"; };
         bodyNode.appendChild(img);
       }
       if (text) {
@@ -6948,7 +6950,7 @@
           {
             badge: messageBadgeForHistoryItem(item),
             artifacts: Array.isArray(item.metadata?.artifacts) ? item.metadata.artifacts : [],
-            imageData: imageUrls.length > 0 ? imageUrls[0] : undefined,
+            images: imageUrls,
           }
         );
       });
@@ -7898,7 +7900,7 @@
       const hasImage = Boolean(currentImageData);
       if (!message && !hasImage) return;
       setComposerMenuOpen(false);
-      appendMessage("user", message, null, { imageData: currentImageData || undefined });
+      appendMessage("user", message, null, { images: currentImageData ? [currentImageData] : [] });
       renderPendingInlineProgress(message || "Sent an image");
       messageInput.value = "";
       resizeComposerTextarea();

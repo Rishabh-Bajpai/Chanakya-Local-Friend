@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import atexit
-import base64
 import json
+import mimetypes
 import queue
 import re
 import signal
@@ -687,17 +687,13 @@ def create_app() -> Flask:
     @app.get("/api/sessions/<session_id>")
     def api_session(session_id: str) -> Any:
         messages = store.list_messages(session_id)
-        data_dir = get_data_dir()
         for msg in messages:
             image_files = (msg.get("metadata") or {}).get("image_files", [])
             if image_files:
-                image_urls = []
-                for img_info in image_files:
-                    img_path = data_dir / img_info["path"]
-                    if img_path.exists():
-                        with open(img_path, "rb") as f:
-                            raw = base64.b64encode(f.read()).decode("ascii")
-                        image_urls.append(f"data:{img_info['media_type']};base64,{raw}")
+                image_urls = [
+                    f"/api/images/{session_id}/{Path(info['path']).name}"
+                    for info in image_files
+                ]
                 msg.setdefault("metadata", {})["image_urls"] = image_urls
         debug_log(
             "api_session_request",
@@ -707,6 +703,14 @@ def create_app() -> Flask:
             },
         )
         return jsonify({"session_id": session_id, "messages": messages})
+
+    @app.get("/api/images/<session_id>/<filename>")
+    def api_session_image(session_id: str, filename: str) -> Any:
+        img_path = get_data_dir() / "images" / session_id / filename
+        if not img_path.exists() or not img_path.is_file():
+            return jsonify({"error": "Image not found"}), 404
+        media_type = mimetypes.guess_type(str(img_path))[0] or "application/octet-stream"
+        return send_file(str(img_path), mimetype=media_type)
 
     @app.get("/api/sessions/<session_id>/active-work")
     def api_session_active_work(session_id: str) -> Any:
