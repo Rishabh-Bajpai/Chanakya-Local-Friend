@@ -90,6 +90,14 @@ _WAITING_INPUT_CANCEL_MARKERS = (
     "leave it",
     "ignore it",
 )
+
+
+class InvalidChatRequestError(ValueError):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 _WORK_PENDING_INTERACTION_KEY = "work_pending_interaction"
 _WORK_GROUP_CHAT_STATE_KEY = "work_group_chat_state"
 
@@ -1614,17 +1622,13 @@ class ChatService:
                 re.DOTALL,
             )
             if not img_match:
-                raise ValueError(
-                    "Invalid image_data format. Expected a base64-encoded image data URL."
-                )
+                raise InvalidChatRequestError("invalid_image_data_format")
             media_type = img_match.group(1)
             raw_b64 = img_match.group(2)
             try:
                 image_bytes = base64.b64decode(raw_b64, validate=True)
             except (ValueError, binascii.Error) as exc:
-                raise ValueError(
-                    "Invalid image_data payload. Could not decode base64 image."
-                ) from exc
+                raise InvalidChatRequestError("invalid_image_data_payload") from exc
             ext = mimetypes.guess_extension(media_type) or ".img"
             img_dir = get_data_dir() / "images" / session_id
             img_dir.mkdir(parents=True, exist_ok=True)
@@ -1653,7 +1657,7 @@ class ChatService:
                         "error": str(exc),
                     },
                 )
-                raise ValueError("Failed to persist uploaded image.") from exc
+                raise InvalidChatRequestError("image_persist_failed") from exc
 
         self.store.add_message(
             session_id,

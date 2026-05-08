@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 
 from agent_framework import Message
@@ -13,6 +14,12 @@ from core_agent_app.services.core_agent import (
     CORE_AGENT_INSTRUCTIONS,
 )
 from core_agent_app.services.history_provider import SQLAlchemyHistoryProvider
+
+
+@dataclass
+class _RequestStub:
+    message: str
+    metadata: dict[str, object]
 
 
 def test_core_agent_instructions_cover_shorthand_followups():
@@ -141,7 +148,15 @@ def test_agent_framework_adapter_resolves_image_path_from_shared_data_dir(
     monkeypatch, tmp_path: Path
 ):
     monkeypatch.setattr(core_agent_module, "get_data_dir", lambda: tmp_path)
-    adapter = object.__new__(AgentFrameworkCoreAgentAdapter)
+    monkeypatch.setattr(AgentFrameworkCoreAgentAdapter, "__post_init__", lambda self: None)
+    adapter = AgentFrameworkCoreAgentAdapter(
+        model="test-model",
+        base_url="http://test",
+        api_key="test-key",
+        debug=True,
+        env_file_path="",
+        history_provider=None,
+    )
 
     assert adapter._resolve_image_path({"path": "images/test.png"}) == (
         tmp_path / "images/test.png"
@@ -156,20 +171,24 @@ def test_agent_framework_adapter_limits_inlined_images(monkeypatch, tmp_path: Pa
     (image_dir / "two.png").write_bytes(b"def")
     monkeypatch.setattr(core_agent_module, "get_data_dir", lambda: tmp_path)
     monkeypatch.setattr(core_agent_module, "_MAX_INLINE_IMAGE_COUNT", 1)
-    adapter = object.__new__(AgentFrameworkCoreAgentAdapter)
-    request = type(
-        "Req",
-        (),
-        {
-            "message": "",
-            "metadata": {
-                "image_files": [
-                    {"path": "images/one.png", "media_type": "image/png"},
-                    {"path": "images/two.png", "media_type": "image/png"},
-                ]
-            },
+    monkeypatch.setattr(AgentFrameworkCoreAgentAdapter, "__post_init__", lambda self: None)
+    adapter = AgentFrameworkCoreAgentAdapter(
+        model="test-model",
+        base_url="http://test",
+        api_key="test-key",
+        debug=True,
+        env_file_path="",
+        history_provider=None,
+    )
+    request = _RequestStub(
+        message="",
+        metadata={
+            "image_files": [
+                {"path": "images/one.png", "media_type": "image/png"},
+                {"path": "images/two.png", "media_type": "image/png"},
+            ]
         },
-    )()
+    )
 
     contents = asyncio.run(adapter._build_message_contents(request))
 

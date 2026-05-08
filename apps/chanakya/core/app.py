@@ -16,7 +16,7 @@ from flask import Flask, Response, jsonify, render_template, request, send_file
 from chanakya.agent.profile_files import default_heartbeat_relative_path, ensure_agent_profile_files
 from chanakya.agent.runtime import MAFRuntime, normalize_runtime_backend
 from chanakya.agent_manager import AgentManager
-from chanakya.chat_service import ChatService
+from chanakya.chat_service import ChatService, InvalidChatRequestError
 from chanakya.config import (
     force_subagents_enabled,
     get_a2a_agent_url,
@@ -622,8 +622,25 @@ def create_app() -> Flask:
                 message_metadata=message_metadata,
                 image_data=image_data,
             )
-        except ValueError as exc:
-            return jsonify({"error": str(exc), "session_id": session_id}), 400
+        except InvalidChatRequestError as exc:
+            safe_errors = {
+                "invalid_image_data_format": (
+                    "Invalid image_data format. Expected a base64-encoded image data URL."
+                ),
+                "invalid_image_data_payload": (
+                    "Invalid image_data payload. Could not decode base64 image."
+                ),
+                "image_persist_failed": "Failed to persist uploaded image.",
+            }
+            return (
+                jsonify(
+                    {
+                        "error": safe_errors.get(exc.code, "Invalid chat request."),
+                        "session_id": session_id,
+                    }
+                ),
+                400,
+            )
         except Exception as exc:
             debug_log(
                 "api_chat_error",

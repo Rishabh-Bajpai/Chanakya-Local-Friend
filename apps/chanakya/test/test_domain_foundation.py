@@ -45,6 +45,12 @@ class _RunResult:
     tool_traces: list[_Trace]
 
 
+@dataclass
+class _HistoryImageRow:
+    role: str
+    metadata_json: dict[str, object]
+
+
 class _RuntimeStub:
     def __init__(self, *, should_fail: bool = False) -> None:
         self.profile = AgentProfileModel(
@@ -1117,21 +1123,17 @@ def test_history_context_stats_are_persisted_in_message_metadata() -> None:
 
 def test_history_provider_skips_malformed_image_entries(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(history_provider_module, "get_data_dir", lambda: tmp_path)
-    row = type(
-        "Row",
-        (),
-        {
-            "role": "user",
-            "metadata_json": {
-                "image_files": [
-                    "bad-entry",
-                    {},
-                    {"path": "missing.png"},
-                    {"media_type": "image/png"},
-                ]
-            },
+    row = _HistoryImageRow(
+        role="user",
+        metadata_json={
+            "image_files": [
+                "bad-entry",
+                {},
+                {"path": "missing.png"},
+                {"media_type": "image/png"},
+            ]
         },
-    )()
+    )
 
     message = SQLAlchemyHistoryProvider._build_message_with_images(
         row,
@@ -1152,19 +1154,15 @@ def test_history_provider_respects_inline_image_budget(
     (image_dir / "one.png").write_bytes(b"abc")
     (image_dir / "two.png").write_bytes(b"def")
     monkeypatch.setattr(history_provider_module, "get_data_dir", lambda: tmp_path)
-    row = type(
-        "Row",
-        (),
-        {
-            "role": "user",
-            "metadata_json": {
-                "image_files": [
-                    {"path": "images/one.png", "media_type": "image/png"},
-                    {"path": "images/two.png", "media_type": "image/png"},
-                ]
-            },
+    row = _HistoryImageRow(
+        role="user",
+        metadata_json={
+            "image_files": [
+                {"path": "images/one.png", "media_type": "image/png"},
+                {"path": "images/two.png", "media_type": "image/png"},
+            ]
         },
-    )()
+    )
 
     message = SQLAlchemyHistoryProvider._build_message_with_images(
         row,
