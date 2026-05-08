@@ -936,6 +936,24 @@ class ConversationWrapper:
                 "preserve_pending_messages": False,
             }
 
+        if self._is_non_text_content_message(chat_request.message):
+            return {
+                **wm_decision,
+                "interrupt_type": "reset_and_new_query",
+                "same_topic": True,
+                "topic_continuity_confidence": 0.95,
+                "use_core_agent": True,
+                "reasoning": (
+                    "User attached non-text content (image, file, audio, etc.); "
+                    "core agent must be called to process the content from conversation history."
+                ),
+                "message_for_core_agent": chat_request.message,
+                "queue_action": "replace",
+                "clear_working_memory": False,
+                "preserve_delivered_messages": True,
+                "preserve_pending_messages": False,
+            }
+
         interrupt_type = str(wm_decision.get("interrupt_type") or "")
         has_pending = bool(prior_memory.pending_messages)
         preserve_pending = bool(wm_decision.get("preserve_pending_messages", False))
@@ -1086,6 +1104,17 @@ class ConversationWrapper:
             "thanks",
             "thank you",
         }
+
+    def _is_non_text_content_message(self, message: str) -> bool:
+        normalized = (message or "").strip().lower()
+        non_text_patterns = (
+            "[user attached",
+            "[image",
+            "[file",
+            "[audio",
+            "[video",
+        )
+        return any(normalized.startswith(pattern) for pattern in non_text_patterns)
 
     def _fallback_wm_decision(
         self, prior_memory: ResponseScopedWorkingMemory, user_message: str
