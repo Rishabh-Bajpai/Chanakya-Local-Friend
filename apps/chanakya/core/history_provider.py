@@ -105,7 +105,7 @@ class SQLAlchemyHistoryProvider(HistoryProvider):
     @staticmethod
     def _build_message_with_images(row: ChatMessageModel, text_content: str) -> Message:
         metadata = dict(row.metadata_json or {})
-        image_files: list[dict[str, str]] = metadata.pop("image_files", []) or []
+        image_files: list[dict[str, str]] = metadata.get("image_files", []) or []
         contents: list[str | Content] = [text_content]
         for img_info in image_files:
             img_path = get_data_dir() / img_info["path"]
@@ -200,13 +200,18 @@ class SQLAlchemyHistoryProvider(HistoryProvider):
         truncated_messages = 0
         for idx in sorted(selected_indices):
             row = rows[idx]
+            metadata = dict(row.metadata_json or {})
+            image_files = metadata.get("image_files", []) or []
+            has_images = len(image_files) > 0
             bounded = SQLAlchemyHistoryProvider._bounded_text(
                 str(row.content or ""), max_message_chars
             )
+            if not bounded and not has_images:
+                continue
+            if not bounded and has_images:
+                bounded = "[Image attached]"
             if len(str(row.content or "").replace("\x00", "").strip()) > len(bounded):
                 truncated_messages += 1
-            if not bounded:
-                continue
             remaining = max_chars - used_chars
             if remaining <= 0:
                 break
