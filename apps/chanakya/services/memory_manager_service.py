@@ -8,7 +8,6 @@ from typing import Any
 
 from agent_framework import Message
 
-from chanakya.agent.runtime import MAFRuntime, build_profile_agent, create_openai_chat_client
 from chanakya.config import get_long_term_memory_default_owner_id
 from chanakya.debug import debug_log
 from chanakya.domain import make_id, now_iso
@@ -191,6 +190,7 @@ class MemoryManagerService:
         return self._parse_manager_result(raw)
 
     def _run_memory_manager_text(self, *, prompt_text: str, session_id: str) -> str:
+        from chanakya.agent.runtime import MAFRuntime, build_profile_agent, create_openai_chat_client
         profile = AgentProfileModel(
             id="agent_memory_manager",
             name="Memory Manager",

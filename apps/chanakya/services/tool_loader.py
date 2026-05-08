@@ -19,6 +19,8 @@ _tools_initialized = False
 def _wrap_command(command: str, args: list[str]) -> tuple[str, list[str]]:
     """Wrap a command so its stdout is strictly valid JSON."""
     wrapper_path = Path(__file__).resolve().parent / "mcp_wrapper.py"
+    if command == "python":
+        command = sys.executable
     return sys.executable, ["-u", str(wrapper_path), command] + args
 
 
