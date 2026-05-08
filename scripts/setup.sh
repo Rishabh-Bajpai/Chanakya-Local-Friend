@@ -21,15 +21,15 @@ for candidate in python3.11 python3.12 python3.10 python3; do
 done
 
 if [[ -z "$PYTHON" ]]; then
-    echo "❌ No Python 3.10+ found. Please install Python 3.11 first."
+    echo "❌ No Python 3.11+ found. Please install Python 3.11 first."
     exit 1
 fi
 
-ver=$("$PYTHON" --version 2>&1 | grep -oP '\d+\.\d+')
+ver=$("$PYTHON" --version 2>&1 | grep -E -o '[0-9]+\.[0-9]+' | head -1)
 major="${ver%.*}"
 minor="${ver#*.}"
-if [[ "$major" -lt 3 ]] || { [[ "$major" -eq 3 ]] && [[ "$minor" -lt 10 ]]; }; then
-    echo "❌ Python $("$PYTHON" --version) is too old. Need 3.10+."
+if [[ "$major" -lt 3 ]] || { [[ "$major" -eq 3 ]] && [[ "$minor" -lt 11 ]]; }; then
+    echo "❌ Python $("$PYTHON" --version) is too old. Need 3.11+."
     exit 1
 fi
 
@@ -92,7 +92,7 @@ fi
 echo ""
 echo "Installing project dependencies..."
 "$PYTHON_BIN" -m pip install --quiet --upgrade pip
-"$PYTHON_BIN" -m pip install --quiet -e "$ROOT_DIR[dev]"
+"$PYTHON_BIN" -m pip install --quiet -e "${ROOT_DIR}[dev]"
 "$PYTHON_BIN" -m pip install --quiet -e "$AIR_DIR"
 "$PYTHON_BIN" -m pip install --quiet -e "$ROOT_DIR/apps/chanakya_conversation_layer"
 echo "✓ Dependencies installed"
@@ -199,8 +199,24 @@ if [[ "$run_tts" =~ ^[Yy]$ ]]; then
         echo "🎤 Starting Speaches (TTS/STT)..."
         docker compose --profile tts up -d speaches
 
-        echo "⏳ Waiting for TTS Server to start (15s)..."
-        sleep 15
+        echo "⏳ Waiting for TTS Server to start..."
+        timeout=60
+        elapsed=0
+        while true; do
+            if curl -s -o /dev/null -w '%{http_code}' http://localhost:8969/v1/models 2>/dev/null | grep -q 200; then
+                echo "✓ TTS/STT server is ready (${elapsed}s)"
+                break
+            fi
+            if [[ "$elapsed" -ge "$timeout" ]]; then
+                echo "❌ TTS/STT server failed to start within ${timeout}s."
+                echo "   Check logs:  docker compose logs speaches"
+                exit 1
+            fi
+            sleep 1
+            elapsed=$((elapsed + 1))
+            printf "."
+        done
+        echo ""
 
         echo "⬇️  Downloading Kokoro-82M model (TTS)..."
         docker compose exec speaches uv tool run speaches-cli model download speaches-ai/Kokoro-82M-v1.0-ONNX || echo "⚠ Model download had issues — continuing"

@@ -61,7 +61,7 @@ async def _refresh_with_retry(
         try:
             await provider_manager.refresh_models()
             return
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — catch any provider error to enable retry
             if attempt < max_retries - 1:
                 logger.warning(
                     "Model cache refresh attempt %d/%d failed: %s. Retrying in %.1fs…",
@@ -74,6 +74,7 @@ async def _refresh_with_retry(
                     "Model cache refresh failed after %d attempts: %s",
                     max_retries, e,
                 )
+                raise
 
 
 @app.on_event("startup")
@@ -104,9 +105,9 @@ async def startup_discovery():
                 logging.info("No new providers discovered beyond what is already configured.")
 
             # Also refresh the provider manager's model cache
-            await _refresh_with_retry(provider_manager, logging)
-        except Exception as e:
-            logging.warning(f"Background auto-discovery/refresh failed: {e}")
+            await _refresh_with_retry(provider_manager, air_logger)
+        except Exception as e:  # noqa: BLE001 — catch all to keep startup non-blocking
+            air_logger.warning("Background auto-discovery/refresh failed: %s", e)
 
     if not settings.DISCOVERY_ENABLED:
         logging.info("Auto-discovery is disabled (DISCOVERY_ENABLED=false)")
@@ -114,7 +115,10 @@ async def startup_discovery():
         # Even if discovery is off, we still want to refresh configured models in background
         async def refresh_only():
             """Refresh configured provider models when discovery is disabled."""
-            await _refresh_with_retry(provider_manager, logging)
+            try:
+                await _refresh_with_retry(provider_manager, air_logger)
+            except Exception:  # noqa: BLE001 — retries already logged, suppress task crash
+                pass
 
         asyncio.create_task(refresh_only())
         return
