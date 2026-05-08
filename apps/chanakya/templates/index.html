@@ -4334,8 +4334,8 @@
       imageInput.addEventListener("change", async () => {
         const file = imageInput.files?.[0];
         if (!file) return;
-        if (file.size > 50 * 1024 * 1024) {
-          alert("Image is too large. Maximum size is 50 MB.");
+        if (file.size > 36 * 1024 * 1024) {
+          alert("Image is too large. Maximum size is 36 MB.");
           imageInput.value = "";
           return;
         }

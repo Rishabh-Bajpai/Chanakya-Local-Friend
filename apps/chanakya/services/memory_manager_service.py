@@ -140,10 +140,7 @@ class MemoryManagerService:
         messages: list[dict[str, Any]],
         active_memories: list[dict[str, Any]],
     ) -> str:
-        recent_messages = [
-            self._prepare_message_for_prompt(item)
-            for item in messages[-8:]
-        ]
+        recent_messages = [self._prepare_message_for_prompt(item) for item in messages[-8:]]
         payload = {
             "mode": "background_turn_update",
             "owner_id": self.owner_id,
@@ -190,7 +187,12 @@ class MemoryManagerService:
         return self._parse_manager_result(raw)
 
     def _run_memory_manager_text(self, *, prompt_text: str, session_id: str) -> str:
-        from chanakya.agent.runtime import MAFRuntime, build_profile_agent, create_openai_chat_client
+        from chanakya.agent.runtime import (
+            MAFRuntime,
+            build_profile_agent,
+            create_openai_chat_client,
+        )
+
         profile = AgentProfileModel(
             id="agent_memory_manager",
             name="Memory Manager",

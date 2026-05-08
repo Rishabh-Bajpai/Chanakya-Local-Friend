@@ -25,8 +25,15 @@ class ChatRequest:
     def validate(self) -> None:
         if not self.session_id:
             raise ValueError("session_id is required")
-        if not self.message:
+        if not self.message and not self._has_non_text_content():
             raise ValueError("message is required")
+
+    def _has_non_text_content(self) -> bool:
+        metadata = self.metadata or {}
+        image_files = metadata.get("image_files")
+        if isinstance(image_files, list) and any(image_files):
+            return True
+        return bool(metadata.get("image_data"))
 
 
 @dataclass(slots=True)

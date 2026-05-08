@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import mimetypes
 import re
@@ -1605,28 +1606,54 @@ class ChatService:
         prior_messages = self.store.list_messages(session_id)[-8:]
 
         metadata = dict(message_metadata or {})
-        active_image_data = image_data
+        active_image_data: str | None = None
         if image_data:
-            img_match = re.match(r"^data:(image/\w+);base64,(.+)$", image_data)
-            if img_match:
-                media_type = img_match.group(1)
-                raw_b64 = img_match.group(2)
-                ext = mimetypes.guess_extension(media_type) or ".img"
-                img_dir = get_data_dir() / "images" / session_id
-                img_dir.mkdir(parents=True, exist_ok=True)
-                img_filename = f"{request_id}{ext}"
-                img_path = img_dir / img_filename
-                try:
-                    with open(img_path, "wb") as f:
-                        f.write(base64.b64decode(raw_b64))
-                    image_files = metadata.get("image_files", [])
-                    image_files.append({
+            img_match = re.match(
+                r"^data:(image/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$",
+                image_data,
+                re.DOTALL,
+            )
+            if not img_match:
+                raise ValueError(
+                    "Invalid image_data format. Expected a base64-encoded image data URL."
+                )
+            media_type = img_match.group(1)
+            raw_b64 = img_match.group(2)
+            try:
+                image_bytes = base64.b64decode(raw_b64, validate=True)
+            except (ValueError, binascii.Error) as exc:
+                raise ValueError(
+                    "Invalid image_data payload. Could not decode base64 image."
+                ) from exc
+            ext = mimetypes.guess_extension(media_type) or ".img"
+            img_dir = get_data_dir() / "images" / session_id
+            img_dir.mkdir(parents=True, exist_ok=True)
+            img_filename = f"{request_id}{ext}"
+            img_path = img_dir / img_filename
+            image_files_raw = metadata.get("image_files")
+            image_files = list(image_files_raw) if isinstance(image_files_raw, list) else []
+            try:
+                with open(img_path, "wb") as f:
+                    f.write(image_bytes)
+                image_files.append(
+                    {
                         "path": str(img_path.relative_to(get_data_dir())),
                         "media_type": media_type,
-                    })
-                    metadata["image_files"] = image_files
-                except Exception:
-                    pass
+                    }
+                )
+                metadata["image_files"] = image_files
+                active_image_data = image_data
+            except Exception as exc:
+                img_path.unlink(missing_ok=True)
+                debug_log(
+                    "chat_image_store_failed",
+                    {
+                        "session_id": session_id,
+                        "request_id": request_id,
+                        "error": str(exc),
+                    },
+                )
+                raise ValueError("Failed to persist uploaded image.") from exc
 
         self.store.add_message(
             session_id,

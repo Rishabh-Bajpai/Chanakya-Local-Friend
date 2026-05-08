@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from agent_framework import Agent, Message, tool
 from agent_framework.openai import OpenAIChatClient
+from chanakya.config import get_data_dir
 
 from conversation_layer.schemas import ChatRequest, ChatResponse
 from conversation_layer.services.agent_interface import AgentInterface
@@ -26,6 +28,9 @@ CORE_AGENT_INSTRUCTIONS = (
     "Examples include messages like '+6?', 'add 4 to it', 'subtract 2 from that', or similar follow-ups that refer to the most recent result or subject. "
     "Only ask for clarification when the reference is genuinely ambiguous after considering the recent conversation."
 )
+
+_MAX_INLINE_IMAGE_COUNT = 4
+_MAX_INLINE_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 @tool(description="Get the current UTC time.")
@@ -111,14 +116,17 @@ class AgentFrameworkCoreAgentAdapter(CoreAgentAdapter):
 
     async def _run_agent(self, chat_request: ChatRequest):
         session = self._agent.create_session(session_id=chat_request.session_id)
-        contents = self._build_message_contents(chat_request)
+        contents = await self._build_message_contents(chat_request)
         return await self._agent.run([Message("user", contents)], session=session)
 
-    def _build_message_contents(self, chat_request: ChatRequest) -> list:
+    async def _build_message_contents(self, chat_request: ChatRequest) -> list:
         from agent_framework import Content
+
         contents: list = []
         metadata = chat_request.metadata or {}
-        image_files = metadata.get("image_files", []) or []
+        image_files = metadata.get("image_files") if isinstance(metadata, dict) else []
+        if not isinstance(image_files, list):
+            image_files = []
         if image_files:
             image_addendum = (
                 "Important: The user has attached a new image in this message. "
@@ -129,23 +137,45 @@ class AgentFrameworkCoreAgentAdapter(CoreAgentAdapter):
         text = self._build_agent_prompt(chat_request)
         if text:
             contents.append(text)
+        total_image_bytes = 0
+        attached_images = 0
         for img_info in image_files:
+            if attached_images >= _MAX_INLINE_IMAGE_COUNT:
+                break
             img_path = self._resolve_image_path(img_info)
             if img_path and img_path.exists():
-                import base64
-                with open(img_path, "rb") as f:
-                    raw = base64.b64encode(f.read()).decode("ascii")
-                data_uri = f"data:{img_info.get('media_type', 'image/png')};base64,{raw}"
+                file_size = img_path.stat().st_size
+                if (
+                    file_size <= 0
+                    or total_image_bytes + file_size > _MAX_INLINE_IMAGE_BYTES
+                ):
+                    continue
+                media_type = str(img_info.get("media_type") or "image/png")
+                data_uri = await asyncio.to_thread(
+                    self._read_image_data_uri,
+                    img_path,
+                    media_type,
+                )
                 contents.append(Content.from_uri(data_uri))
+                total_image_bytes += file_size
+                attached_images += 1
         return contents
 
-    def _resolve_image_path(self, img_info: dict) -> Any:
-        from pathlib import Path
-        path_str = img_info.get("path", "")
+    @staticmethod
+    def _read_image_data_uri(img_path: Path, media_type: str) -> str:
+        import base64
+
+        with img_path.open("rb") as image_file:
+            raw = base64.b64encode(image_file.read()).decode("ascii")
+        return f"data:{media_type};base64,{raw}"
+
+    def _resolve_image_path(self, img_info: dict[str, Any]) -> Path | None:
+        if not isinstance(img_info, dict):
+            return None
+        path_str = str(img_info.get("path") or "").strip()
         if not path_str:
             return None
-        data_dir = Path(__file__).resolve().parents[4] / "chanakya_data"
-        return data_dir / path_str
+        return get_data_dir() / path_str
 
     def _build_agent_prompt(self, chat_request: ChatRequest) -> str:
         return chat_request.message

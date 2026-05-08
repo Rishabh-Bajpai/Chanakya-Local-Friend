@@ -22,6 +22,9 @@ from chanakya.debug import debug_log
 from chanakya.domain import now_iso
 from chanakya.model import ChatMessageModel, ChatSessionModel
 
+_MAX_CONTEXT_IMAGE_COUNT = 4
+_MAX_CONTEXT_IMAGE_BYTES = 4 * 1024 * 1024
+
 
 class SQLAlchemyHistoryProvider(HistoryProvider):
     def __init__(
@@ -101,23 +104,50 @@ class SQLAlchemyHistoryProvider(HistoryProvider):
                 },
             )
 
+        image_budget = {
+            "remaining_images": _MAX_CONTEXT_IMAGE_COUNT,
+            "remaining_bytes": _MAX_CONTEXT_IMAGE_BYTES,
+        }
         return [
-            self._build_message_with_images(row, content)
-            for row, content in selected
+            self._build_message_with_images(row, content, image_budget) for row, content in selected
         ]
 
     @staticmethod
-    def _build_message_with_images(row: ChatMessageModel, text_content: str) -> Message:
+    def _build_message_with_images(
+        row: ChatMessageModel,
+        text_content: str,
+        image_budget: dict[str, int] | None = None,
+    ) -> Message:
         metadata = dict(row.metadata_json or {})
-        image_files: list[dict[str, str]] = metadata.get("image_files", []) or []
+        image_files_raw = metadata.get("image_files")
+        image_files = image_files_raw if isinstance(image_files_raw, list) else []
         contents: list[str | Content] = [text_content]
         for img_info in image_files:
-            img_path = get_data_dir() / img_info["path"]
-            if img_path.exists():
-                with open(img_path, "rb") as f:
-                    raw = base64.b64encode(f.read()).decode("ascii")
-                data_uri = f"data:{img_info['media_type']};base64,{raw}"
-                contents.append(Content.from_uri(data_uri))
+            if not isinstance(img_info, dict):
+                continue
+            if image_budget is not None and (
+                image_budget["remaining_images"] <= 0 or image_budget["remaining_bytes"] <= 0
+            ):
+                break
+            path_str = str(img_info.get("path") or "").strip()
+            media_type = str(img_info.get("media_type") or "").strip()
+            if not path_str or not media_type:
+                continue
+            img_path = get_data_dir() / path_str
+            if not img_path.exists() or not img_path.is_file():
+                continue
+            file_size = img_path.stat().st_size
+            if file_size <= 0:
+                continue
+            if image_budget is not None and file_size > image_budget["remaining_bytes"]:
+                continue
+            with open(img_path, "rb") as f:
+                raw = base64.b64encode(f.read()).decode("ascii")
+            data_uri = f"data:{media_type};base64,{raw}"
+            contents.append(Content.from_uri(data_uri))
+            if image_budget is not None:
+                image_budget["remaining_images"] -= 1
+                image_budget["remaining_bytes"] -= file_size
         return Message(
             role=row.role,
             contents=contents,

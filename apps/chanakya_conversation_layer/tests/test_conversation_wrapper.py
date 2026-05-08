@@ -988,6 +988,47 @@ def test_numbered_core_response_uses_planner_delivery_plan(tmp_path):
     )
 
 
+def test_image_only_request_routes_as_non_text_content(tmp_path):
+    wrapper, core_agent, planner, _ = _build_wrapper(
+        tmp_path,
+        core_text="I can help with that image.",
+        planner_responses=[
+            {
+                "interrupt_type": "ack_continue",
+                "same_topic": False,
+                "topic_continuity_confidence": 0.0,
+                "use_core_agent": False,
+                "reasoning": "Incorrectly treat as text.",
+                "message_for_core_agent": "",
+                "queue_action": "preserve_pending",
+                "clear_working_memory": False,
+                "preserve_delivered_messages": False,
+                "preserve_pending_messages": True,
+            },
+            {
+                "reasoning": "Single response.",
+                "messages": [{"text": "I can help with that image.", "delay_ms": 0}],
+            },
+        ],
+    )
+
+    response = wrapper.handle(
+        ChatRequest(
+            session_id="s1",
+            message="",
+            metadata={
+                "image_files": [
+                    {"path": "images/s1/example.png", "media_type": "image/png"}
+                ]
+            },
+        )
+    )
+
+    assert response.metadata["interrupt_type"] == "reset_and_new_query"
+    assert response.metadata["core_agent_called"] is True
+    assert core_agent.calls[0].metadata["image_files"][0]["path"] == "images/s1/example.png"
+
+
 def test_incomplete_numbered_plan_restores_full_core_response(tmp_path):
     core_text = (
         'Here are 8 short answers to "What is life?":\n\n'

@@ -622,6 +622,8 @@ def create_app() -> Flask:
                 message_metadata=message_metadata,
                 image_data=image_data,
             )
+        except ValueError as exc:
+            return jsonify({"error": str(exc), "session_id": session_id}), 400
         except Exception as exc:
             debug_log(
                 "api_chat_error",
@@ -691,8 +693,7 @@ def create_app() -> Flask:
             image_files = (msg.get("metadata") or {}).get("image_files", [])
             if image_files:
                 image_urls = [
-                    f"/api/images/{session_id}/{Path(info['path']).name}"
-                    for info in image_files
+                    f"/api/images/{session_id}/{Path(info['path']).name}" for info in image_files
                 ]
                 msg.setdefault("metadata", {})["image_urls"] = image_urls
         debug_log(

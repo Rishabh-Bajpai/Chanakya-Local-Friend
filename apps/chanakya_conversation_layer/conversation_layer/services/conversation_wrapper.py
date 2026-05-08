@@ -936,7 +936,7 @@ class ConversationWrapper:
                 "preserve_pending_messages": False,
             }
 
-        if self._is_non_text_content_message(chat_request.message):
+        if self._request_has_non_text_content(chat_request):
             return {
                 **wm_decision,
                 "interrupt_type": "reset_and_new_query",
@@ -1115,6 +1115,15 @@ class ConversationWrapper:
             "[video",
         )
         return any(normalized.startswith(pattern) for pattern in non_text_patterns)
+
+    def _request_has_non_text_content(self, chat_request: ChatRequest) -> bool:
+        if self._is_non_text_content_message(chat_request.message):
+            return True
+        metadata = chat_request.metadata or {}
+        image_files = metadata.get("image_files")
+        if isinstance(image_files, list) and any(image_files):
+            return True
+        return bool(metadata.get("image_data"))
 
     def _fallback_wm_decision(
         self, prior_memory: ResponseScopedWorkingMemory, user_message: str
