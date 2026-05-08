@@ -30,6 +30,12 @@ fi
 
 export ENV_FILE_PATH="$ROOT_ENV_FILE"
 
+# Start TTS/STT Docker containers if docker-compose.yml exists
+if [[ -f "$ROOT_DIR/docker-compose.yml" ]] && command -v docker &>/dev/null && docker compose version &>/dev/null; then
+    printf 'Starting TTS/STT Docker containers...\n'
+    docker compose --profile tts up -d 2>/dev/null || true
+fi
+
 # Auto-detect Python binary — prefer .venv, then chanakya conda env, then active conda, then PATH
 PYTHON_SOURCE=""
 if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then

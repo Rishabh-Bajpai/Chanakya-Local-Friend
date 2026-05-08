@@ -1,15 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
+from pathlib import Path
 
 from agent_framework import Message
 
+import core_agent_app.services.core_agent as core_agent_module
 from core_agent_app.db import create_session_factory
 from core_agent_app.services.core_agent import (
     A2ACoreAgentAdapter,
+    AgentFrameworkCoreAgentAdapter,
     CORE_AGENT_INSTRUCTIONS,
 )
 from core_agent_app.services.history_provider import SQLAlchemyHistoryProvider
+
+
+@dataclass
+class _RequestStub:
+    message: str
+    metadata: dict[str, object]
 
 
 def test_core_agent_instructions_cover_shorthand_followups():
@@ -132,3 +142,54 @@ def test_a2a_seeded_prompt_preserves_opencode_header_on_first_line(tmp_path):
         "[[opencode-options:agent=plan;model_provider=lmstudio;model_id=qwen/qwen3.5-9b;ephemeral_session=true]]"
     )
     assert "User: What is 8 minus 5?" in combined
+
+
+def test_agent_framework_adapter_resolves_image_path_from_shared_data_dir(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setattr(core_agent_module, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(AgentFrameworkCoreAgentAdapter, "__post_init__", lambda self: None)
+    adapter = AgentFrameworkCoreAgentAdapter(
+        model="test-model",
+        base_url="http://test",
+        api_key="test-key",
+        debug=True,
+        env_file_path="",
+        history_provider=None,
+    )
+
+    assert adapter._resolve_image_path({"path": "images/test.png"}) == (
+        tmp_path / "images/test.png"
+    )
+    assert adapter._resolve_image_path({}) is None
+
+
+def test_agent_framework_adapter_limits_inlined_images(monkeypatch, tmp_path: Path):
+    image_dir = tmp_path / "images"
+    image_dir.mkdir()
+    (image_dir / "one.png").write_bytes(b"abc")
+    (image_dir / "two.png").write_bytes(b"def")
+    monkeypatch.setattr(core_agent_module, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(core_agent_module, "_MAX_INLINE_IMAGE_COUNT", 1)
+    monkeypatch.setattr(AgentFrameworkCoreAgentAdapter, "__post_init__", lambda self: None)
+    adapter = AgentFrameworkCoreAgentAdapter(
+        model="test-model",
+        base_url="http://test",
+        api_key="test-key",
+        debug=True,
+        env_file_path="",
+        history_provider=None,
+    )
+    request = _RequestStub(
+        message="",
+        metadata={
+            "image_files": [
+                {"path": "images/one.png", "media_type": "image/png"},
+                {"path": "images/two.png", "media_type": "image/png"},
+            ]
+        },
+    )
+
+    contents = asyncio.run(adapter._build_message_contents(request))
+
+    assert len(contents) == 2

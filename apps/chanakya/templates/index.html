@@ -1467,10 +1467,26 @@
     }
 
     .mcp-editor-card textarea {
-      min-height: 320px;
+      min-height: 640px;
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
       font-size: 13px;
       line-height: 1.55;
+      background: #0b0e16;
+      color: #dce2ed;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 14px;
+      resize: vertical;
+    }
+
+    .mcp-editor-card textarea:focus {
+      outline: none;
+      border-color: rgba(79, 215, 255, 0.3);
+      box-shadow: 0 0 0 2px rgba(79, 215, 255, 0.06);
+    }
+
+    .mcp-editor-card textarea::placeholder {
+      color: #5a677a;
     }
 
     .mcp-preview-list {
@@ -2798,82 +2814,57 @@
       opacity: 0.45;
     }
 
-    .composer-submit svg {
-      width: 20px;
-      height: 20px;
-    }
-
-    .composer-menu {
-      position: absolute;
-      left: 16px;
-      bottom: calc(100% + 8px);
-      min-width: 220px;
-      padding: 8px;
-      border-radius: 20px;
-      background: rgba(34, 36, 43, 0.97);
-      border: 1px solid rgba(255, 255, 255, 0.09);
-      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
-      display: grid;
-      gap: 4px;
-      z-index: 12;
-    }
-
-    .composer-menu button {
-      display: inline-flex;
+    .image-preview-container {
+      display: flex;
       align-items: center;
-      gap: 10px;
-      width: 100%;
-      min-height: 42px;
-      padding: 0 12px;
-      border-radius: 14px;
-      border: 1px solid transparent;
-      background: transparent;
-      color: var(--text);
-      font: inherit;
-      font-size: 13px;
-      justify-content: flex-start;
+      gap: 8px;
+      padding: 6px 12px;
+      background: #f3f4f7;
+      border-radius: 8px;
+      margin: 4px 42px 0 42px;
     }
-
-    .composer-menu button:hover {
-      background: rgba(255, 255, 255, 0.06);
-      border-color: rgba(255, 255, 255, 0.08);
-      transform: none;
+    .image-preview-container img {
+      max-height: 80px;
+      max-width: 120px;
+      border-radius: 6px;
+      object-fit: cover;
     }
-
-    .dock-actions {
-      display: none;
-    }
-
-    .dock-actions button {
-      width: auto;
-      min-height: 34px;
-      padding: 0 12px;
-      border-radius: 999px;
+    .image-preview-container .remove-image-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      color: #dbe4f0;
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.01em;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border-radius: 50%;
+      border: none;
+      background: #e5e7eb;
+      color: #6b7280;
+      cursor: pointer;
+      flex-shrink: 0;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .image-preview-container .remove-image-btn:hover {
+      background: #ef4444;
+      color: #fff;
     }
 
-    .dock-actions button:hover {
-      background: rgba(255, 255, 255, 0.09);
-      border-color: rgba(79, 215, 255, 0.24);
-      transform: none;
+    .chat-image {
+      max-width: 280px;
+      max-height: 200px;
+      width: 100%;
+      height: auto;
+      object-fit: contain;
+      border-radius: 10px;
+      margin-top: 6px;
+      display: block;
+    }
+    .message.user .chat-image {
+      border: 1px solid rgba(255,255,255,0.15);
     }
 
-    .dock-actions button[data-state="recording"] {
-      background: rgba(124, 51, 38, 0.92);
-      border-color: rgba(255, 168, 146, 0.34);
-    }
-
-    .composer-dock.voice-mode-active .composer-loop-proxy,
-    .composer-dock.voice-mode-active .dock-actions [data-voice-proxy="loop"] {
+    .composer-dock.voice-mode-active .composer-loop-proxy {
       background: rgba(79, 215, 255, 0.12);
       border-color: rgba(79, 215, 255, 0.26);
       color: #eef9ff;
@@ -2923,7 +2914,6 @@
         rgba(8, 10, 18, 0.88);
     }
 
-    body.call-mode .dock-actions,
     body.call-mode .composer-menu {
       display: none;
     }
@@ -3274,8 +3264,7 @@
       }
 
       .composer-dock.has-text .composer-loop-proxy,
-      .composer-dock.has-text .composer-mic-proxy,
-      .dock-actions {
+      .composer-dock.has-text .composer-mic-proxy {
         display: none;
       }
 
@@ -3330,6 +3319,69 @@
 
     .composer-dock.has-text .composer-submit {
       display: inline-flex;
+    }
+
+    .composer-menu {
+      position: absolute;
+      bottom: calc(100% + 12px);
+      left: 16px;
+      min-width: 240px;
+      max-width: 320px;
+      padding: 8px;
+      border-radius: 16px;
+      background: #2d2d2d;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      z-index: 100;
+    }
+
+    .composer-menu button {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 400;
+      cursor: pointer;
+      text-align: left;
+      width: 100%;
+      transition: background 0.15s ease;
+    }
+
+    .composer-menu button:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .composer-menu button svg {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .composer-menu::before {
+      content: '';
+      position: absolute;
+      bottom: -6px;
+      left: 24px;
+      width: 12px;
+      height: 12px;
+      background: #2d2d2d;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      transform: rotate(45deg);
+      z-index: -1;
     }
   </style>
 </head>
@@ -3491,7 +3543,8 @@
                   <button id="composerMoreButton" class="composer-more-button composer-aux-button" type="button" title="More controls" aria-label="More controls" aria-expanded="false" aria-controls="composerMenu">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
                   </button>
-                  <textarea id="messageInput" class="composer-textarea" placeholder="Ask Chanakya anything" rows="1" required autocomplete="off"></textarea>
+                  <textarea id="messageInput" class="composer-textarea" placeholder="Ask Chanakya anything" rows="1" autocomplete="off"></textarea>
+                  <input type="file" id="imageInput" accept="image/*,.svg" hidden>
                   <button class="composer-proxy-button composer-loop-proxy" type="button" data-voice-proxy="loop" title="Start or stop voice mode" aria-label="Start or stop voice mode">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 7.5l-3 3 3 3" /><path d="M11.5 16.5A6.5 6.5 0 1 0 11.5 3.5" /><path d="M15 7.5a5 5 0 0 1 0 9" /></svg>
                   </button>
@@ -3502,8 +3555,16 @@
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="m18 11-6-6-6 6" /></svg>
                   </button>
                 </div>
+                <div id="imagePreviewContainer" class="image-preview-container" hidden>
+                  <img id="previewImg" alt="Attached image">
+                  <button id="removeImageBtn" class="remove-image-btn" type="button" title="Remove image">&times;</button>
+                </div>
               </form>
               <div id="composerMenu" class="composer-menu" hidden>
+                <button id="composerImageMenuItem" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m22 16-5-5-5 5" /><path d="m17 19-3-3-4 4" /></svg>
+                  Image
+                </button>
                 <button id="composerCharacterButton" type="button">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M5 20a7 7 0 0 1 14 0" /></svg>
                   Character
@@ -3524,11 +3585,6 @@
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M7.5 16A7 7 0 0 0 19 11" /><path d="M16.5 8A7 7 0 0 0 5 13" /></svg>
                   Refresh models
                 </button>
-              </div>
-              <div class="dock-actions" role="toolbar" aria-label="Voice controls">
-                <button class="air-button" type="button" data-voice-proxy="loop">Voice</button>
-                <button class="air-button" type="button" data-voice-proxy="speak">Speak Reply</button>
-                <button class="air-button" type="button" data-voice-proxy="refresh">Refresh Models</button>
               </div>
               <div class="call-control-bar" aria-label="Call controls">
                 <button class="call-control-button call-primary" type="button" data-voice-proxy="loop">
@@ -4127,11 +4183,37 @@
       composerMoreButton.setAttribute("aria-expanded", nextValue ? "true" : "false");
     }
 
+    let currentImageData = null;
+
+    async function svgToPngDataUrl(file) {
+      const text = await file.text();
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      const img = new Image();
+      const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+      return new Promise((resolve, reject) => {
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          const w = img.naturalWidth || 800;
+          const h = img.naturalHeight || 600;
+          canvas.width = w;
+          canvas.height = h;
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("SVG render failed"));
+        };
+        img.src = url;
+      });
+    }
+
     function syncComposerInputState() {
       if (!composerDock || !messageInput) {
         return;
       }
-      const hasText = messageInput.value.trim().length > 0;
+      const hasText = messageInput.value.trim().length > 0 || Boolean(currentImageData);
       composerDock.classList.toggle("has-text", hasText);
       composerDock.classList.toggle("show-desktop-controls", !isCompactComposerViewport() && !hasText);
       if (composerSubmitButton) {
@@ -4235,6 +4317,60 @@
       composerCharacterButton.addEventListener("click", () => {
         setComposerMenuOpen(false);
         openVoiceCharacterSettings();
+      });
+    }
+
+    const composerImageMenuItem = document.getElementById("composerImageMenuItem");
+    const imageInput = document.getElementById("imageInput");
+    const imagePreviewContainer = document.getElementById("imagePreviewContainer");
+    const previewImg = document.getElementById("previewImg");
+    const removeImageBtn = document.getElementById("removeImageBtn");
+
+    if (composerImageMenuItem && imageInput) {
+      composerImageMenuItem.addEventListener("click", () => {
+        setComposerMenuOpen(false);
+        imageInput.click();
+      });
+      imageInput.addEventListener("change", async () => {
+        const file = imageInput.files?.[0];
+        if (!file) return;
+        if (file.size > 36 * 1024 * 1024) {
+          alert("Image is too large. Maximum size is 36 MB.");
+          imageInput.value = "";
+          return;
+        }
+        let dataUrl;
+        const isSvg = file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg");
+        if (isSvg) {
+          try {
+            dataUrl = await svgToPngDataUrl(file);
+          } catch {
+            alert("Could not process this SVG. Try a different image format.");
+            imageInput.value = "";
+            return;
+          }
+        } else {
+          dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target?.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+        }
+        currentImageData = dataUrl;
+        if (previewImg) previewImg.src = dataUrl;
+        if (imagePreviewContainer) imagePreviewContainer.hidden = false;
+        syncComposerInputState();
+      });
+    }
+
+    if (removeImageBtn) {
+      removeImageBtn.addEventListener("click", () => {
+        currentImageData = null;
+        if (imagePreviewContainer) imagePreviewContainer.hidden = true;
+        if (previewImg) previewImg.src = "";
+        if (imageInput) imageInput.value = "";
+        syncComposerInputState();
       });
     }
 
@@ -5605,7 +5741,7 @@
     }
 
     function appendMessage(role, text, meta, options = {}) {
-      const { badge, artifacts = [] } = options;
+      const { badge, artifacts = [], images = [] } = options;
       const node = document.createElement("div");
       node.className = `message ${role}`;
       if (badge) {
@@ -5616,7 +5752,18 @@
       }
       const bodyNode = document.createElement("div");
       bodyNode.className = "message-body";
-      bodyNode.appendChild(renderMarkdownContent(text));
+      for (const src of images) {
+        const img = document.createElement("img");
+        img.className = "chat-image";
+        img.src = src;
+        img.alt = "Attached image";
+        img.loading = "lazy";
+        img.onerror = () => { img.alt = "[image unavailable]"; img.style.opacity = "0.4"; };
+        bodyNode.appendChild(img);
+      }
+      if (text) {
+        bodyNode.appendChild(renderMarkdownContent(text));
+      }
       node.appendChild(bodyNode);
       const artifactNode = renderArtifactLinks(artifacts);
       if (artifactNode) {
@@ -6147,7 +6294,7 @@
     }
 
     async function submitChatMessage(message, options = {}) {
-      const { onAssistantMessage, voiceMode = false, messageMetadata = null } = options;
+      const { onAssistantMessage, voiceMode = false, messageMetadata = null, imageData = null } = options;
       if (voiceMode) {
         resetVoiceQueueState();
       }
@@ -6170,6 +6317,7 @@
           body: JSON.stringify({
             session_id: targetSessionId,
             message,
+            image_data: imageData || undefined,
             model_id: runtimeConfig.backend === "local" ? runtimeConfig.model_id : null,
             backend: runtimeConfig.backend,
             a2a_url: runtimeConfig.backend === "a2a" ? runtimeConfig.a2a_url : null,
@@ -6868,6 +7016,7 @@
       }
       setChatExpanded(true);
       messages.forEach((item) => {
+        const imageUrls = Array.isArray(item.metadata?.image_urls) ? item.metadata.image_urls : [];
         appendMessage(
           item.role === "user" ? "user" : "assistant",
           item.content,
@@ -6875,6 +7024,7 @@
           {
             badge: messageBadgeForHistoryItem(item),
             artifacts: Array.isArray(item.metadata?.artifacts) ? item.metadata.artifacts : [],
+            images: imageUrls,
           }
         );
       });
@@ -7821,16 +7971,22 @@
     chatForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const message = messageInput.value.trim();
-      if (!message) return;
+      const hasImage = Boolean(currentImageData);
+      if (!message && !hasImage) return;
       setComposerMenuOpen(false);
-      appendMessage("user", message);
-      renderPendingInlineProgress(message);
+      appendMessage("user", message, null, { images: currentImageData ? [currentImageData] : [] });
+      renderPendingInlineProgress(message || "Sent an image");
       messageInput.value = "";
       resizeComposerTextarea();
+      const imageDataToSend = currentImageData;
+      currentImageData = null;
+      if (imagePreviewContainer) imagePreviewContainer.hidden = true;
+      if (previewImg) previewImg.src = "";
+      if (imageInput) imageInput.value = "";
       syncComposerInputState();
 
       try {
-        await submitChatMessage(message);
+        await submitChatMessage(message, { imageData: imageDataToSend || undefined });
       } catch (error) {
         removeInlineProgressNode();
         appendMessage("assistant", error instanceof Error ? error.message : String(error));

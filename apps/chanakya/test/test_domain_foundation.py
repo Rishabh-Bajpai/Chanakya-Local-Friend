@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import cast
 
 from agent_framework import Message
 
+import chanakya.core.history_provider as history_provider_module
 from chanakya.agent.runtime import MAFRuntime
 from chanakya.chat_service import ChatService
 from chanakya.db import build_engine, build_session_factory, init_database
@@ -41,6 +43,12 @@ class _RunResult:
     text: str
     response_mode: str
     tool_traces: list[_Trace]
+
+
+@dataclass
+class _HistoryImageRow:
+    role: str
+    metadata_json: dict[str, object]
 
 
 class _RuntimeStub:
@@ -1111,3 +1119,55 @@ def test_history_context_stats_are_persisted_in_message_metadata() -> None:
     assert "history_context" in metadata
     assert metadata["history_context"]["selected_messages"] == 5
     assert metadata["history_context"]["relevance_hits"] == 2
+
+
+def test_history_provider_skips_malformed_image_entries(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(history_provider_module, "get_data_dir", lambda: tmp_path)
+    row = _HistoryImageRow(
+        role="user",
+        metadata_json={
+            "image_files": [
+                "bad-entry",
+                {},
+                {"path": "missing.png"},
+                {"media_type": "image/png"},
+            ]
+        },
+    )
+
+    message = SQLAlchemyHistoryProvider._build_message_with_images(
+        row,
+        "hello",
+        {"remaining_images": 2, "remaining_bytes": 1024},
+    )
+
+    assert message.text == "hello"
+    assert len(message.contents) == 1
+
+
+def test_history_provider_respects_inline_image_budget(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    image_dir = tmp_path / "images"
+    image_dir.mkdir()
+    (image_dir / "one.png").write_bytes(b"abc")
+    (image_dir / "two.png").write_bytes(b"def")
+    monkeypatch.setattr(history_provider_module, "get_data_dir", lambda: tmp_path)
+    row = _HistoryImageRow(
+        role="user",
+        metadata_json={
+            "image_files": [
+                {"path": "images/one.png", "media_type": "image/png"},
+                {"path": "images/two.png", "media_type": "image/png"},
+            ]
+        },
+    )
+
+    message = SQLAlchemyHistoryProvider._build_message_with_images(
+        row,
+        "hello",
+        {"remaining_images": 1, "remaining_bytes": 1024},
+    )
+
+    assert len(message.contents) == 2
