@@ -1,5 +1,7 @@
 """FastAPI entrypoint for the AIR server and dashboard views."""
 
+import asyncio
+import logging
 import os
 from pathlib import Path
 
@@ -48,11 +50,35 @@ app.include_router(api_router.router)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
+async def _refresh_with_retry(
+    provider_manager,
+    logger: logging.Logger,
+    max_retries: int = 5,
+    delay: float = 1.0,
+):
+    """Refresh the model cache with exponential backoff retries."""
+    for attempt in range(max_retries):
+        try:
+            await provider_manager.refresh_models()
+            return
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(
+                    "Model cache refresh attempt %d/%d failed: %s. Retrying in %.1fs…",
+                    attempt + 1, max_retries, e, delay,
+                )
+                await asyncio.sleep(delay)
+                delay *= 2
+            else:
+                logger.warning(
+                    "Model cache refresh failed after %d attempts: %s",
+                    max_retries, e,
+                )
+
+
 @app.on_event("startup")
 async def startup_discovery():
     """Run provider discovery on startup as a background task."""
-    import logging
-    import asyncio
     from server.core.config import settings
     from server.services.discovery import discovery_service
     from server.services.provider_manager import provider_manager
@@ -78,7 +104,7 @@ async def startup_discovery():
                 logging.info("No new providers discovered beyond what is already configured.")
 
             # Also refresh the provider manager's model cache
-            await provider_manager.refresh_models()
+            await _refresh_with_retry(provider_manager, logging)
         except Exception as e:
             logging.warning(f"Background auto-discovery/refresh failed: {e}")
 
@@ -88,10 +114,7 @@ async def startup_discovery():
         # Even if discovery is off, we still want to refresh configured models in background
         async def refresh_only():
             """Refresh configured provider models when discovery is disabled."""
-            try:
-                await provider_manager.refresh_models()
-            except Exception as e:
-                logging.warning(f"Background model refresh failed: {e}")
+            await _refresh_with_retry(provider_manager, logging)
 
         asyncio.create_task(refresh_only())
         return
