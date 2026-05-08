@@ -4,6 +4,13 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+# Load .env into os.environ BEFORE any local imports that may trigger
+# Settings() (which calls load_providers() → os.getenv()).  Without this
+# the provider vars saved in apps/AI-Router-AIR/.env are invisible and
+# settings.PROVIDERS will be empty on every restart.
+load_dotenv()
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,9 +19,6 @@ from fastapi.templating import Jinja2Templates
 from server.api import router as api_router
 from server.core.exceptions import global_exception_handler
 from server.core.logging import LOG_FILE_PATH, logger as air_logger
-
-# Load environment variables
-load_dotenv()
 
 app = FastAPI(
     title="AI Router (AIR)", description="Unified API for LLM, STT, and TTS", version="0.1.0"
