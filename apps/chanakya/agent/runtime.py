@@ -503,7 +503,9 @@ class MAFRuntime:
         session = run_agent.create_session(session_id=session_id)
         session.state["request_id"] = request_id
         session.state["history_query_text"] = history_query_text
-        contents: list = [prompt_text]
+        contents: list = []
+        if prompt_text:
+            contents.append(prompt_text)
         if image_data:
             contents.append(Content.from_uri(image_data))
         return await asyncio.wait_for(

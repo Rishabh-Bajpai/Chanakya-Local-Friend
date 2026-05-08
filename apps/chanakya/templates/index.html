@@ -2798,34 +2798,6 @@
       opacity: 0.45;
     }
 
-    .composer-image-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 40px;
-      width: 40px;
-      padding: 0;
-      border-radius: 50%;
-      background: transparent;
-      color: #6b7280;
-      border: none;
-      cursor: pointer;
-      flex-shrink: 0;
-    }
-    .composer-image-btn:hover {
-      background: #f3f4f7;
-      color: #16181f;
-    }
-    .composer-image-btn svg {
-      width: 20px;
-      height: 20px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 1.8;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
     .image-preview-container {
       display: flex;
       align-items: center;
@@ -3493,10 +3465,7 @@
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
                   </button>
                   <textarea id="messageInput" class="composer-textarea" placeholder="Ask Chanakya anything" rows="1" autocomplete="off"></textarea>
-                  <button id="composerImageBtn" class="composer-image-btn" type="button" title="Attach image" aria-label="Attach image">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m22 16-5-5-5 5" /><path d="m17 19-3-3-4 4" /></svg>
-                  </button>
-                  <input type="file" id="imageInput" accept="image/*" hidden>
+                  <input type="file" id="imageInput" accept="image/*,.svg" hidden>
                   <button class="composer-proxy-button composer-loop-proxy" type="button" data-voice-proxy="loop" title="Start or stop voice mode" aria-label="Start or stop voice mode">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 7.5l-3 3 3 3" /><path d="M11.5 16.5A6.5 6.5 0 1 0 11.5 3.5" /><path d="M15 7.5a5 5 0 0 1 0 9" /></svg>
                   </button>
@@ -3513,6 +3482,10 @@
                 </div>
               </form>
               <div id="composerMenu" class="composer-menu" hidden>
+                <button id="composerImageMenuItem" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m22 16-5-5-5 5" /><path d="m17 19-3-3-4 4" /></svg>
+                  Image
+                </button>
                 <button id="composerCharacterButton" type="button">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M5 20a7 7 0 0 1 14 0" /></svg>
                   Character
@@ -4136,11 +4109,37 @@
       composerMoreButton.setAttribute("aria-expanded", nextValue ? "true" : "false");
     }
 
+    let currentImageData = null;
+
+    async function svgToPngDataUrl(file) {
+      const text = await file.text();
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      const img = new Image();
+      const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+      return new Promise((resolve, reject) => {
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          const w = img.naturalWidth || 800;
+          const h = img.naturalHeight || 600;
+          canvas.width = w;
+          canvas.height = h;
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("SVG render failed"));
+        };
+        img.src = url;
+      });
+    }
+
     function syncComposerInputState() {
       if (!composerDock || !messageInput) {
         return;
       }
-      const hasText = messageInput.value.trim().length > 0;
+      const hasText = messageInput.value.trim().length > 0 || Boolean(currentImageData);
       composerDock.classList.toggle("has-text", hasText);
       composerDock.classList.toggle("show-desktop-controls", !isCompactComposerViewport() && !hasText);
       if (composerSubmitButton) {
@@ -4247,15 +4246,18 @@
       });
     }
 
-    const composerImageBtn = document.getElementById("composerImageBtn");
+    const composerImageMenuItem = document.getElementById("composerImageMenuItem");
     const imageInput = document.getElementById("imageInput");
     const imagePreviewContainer = document.getElementById("imagePreviewContainer");
     const previewImg = document.getElementById("previewImg");
     const removeImageBtn = document.getElementById("removeImageBtn");
 
-    if (composerImageBtn && imageInput) {
-      composerImageBtn.addEventListener("click", () => imageInput.click());
-      imageInput.addEventListener("change", () => {
+    if (composerImageMenuItem && imageInput) {
+      composerImageMenuItem.addEventListener("click", () => {
+        setComposerMenuOpen(false);
+        imageInput.click();
+      });
+      imageInput.addEventListener("change", async () => {
         const file = imageInput.files?.[0];
         if (!file) return;
         if (file.size > 50 * 1024 * 1024) {
@@ -4263,14 +4265,28 @@
           imageInput.value = "";
           return;
         }
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          currentImageData = e.target?.result;
-          if (previewImg) previewImg.src = currentImageData;
-          if (imagePreviewContainer) imagePreviewContainer.hidden = false;
-          syncComposerInputState();
-        };
-        reader.readAsDataURL(file);
+        let dataUrl;
+        const isSvg = file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg");
+        if (isSvg) {
+          try {
+            dataUrl = await svgToPngDataUrl(file);
+          } catch {
+            alert("Could not process this SVG. Try a different image format.");
+            imageInput.value = "";
+            return;
+          }
+        } else {
+          dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target?.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+        }
+        currentImageData = dataUrl;
+        if (previewImg) previewImg.src = dataUrl;
+        if (imagePreviewContainer) imagePreviewContainer.hidden = false;
+        syncComposerInputState();
       });
     }
 
@@ -4328,7 +4344,6 @@
 
     preferredCallModeView = loadStoredCallModeView();
     let sessionId = null;
-    let currentImageData = null;
     let selectedAgentId = null;
     let agentFilter = "all";
     let allAgents = [];
