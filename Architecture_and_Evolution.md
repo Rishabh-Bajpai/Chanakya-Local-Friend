@@ -88,6 +88,30 @@ The innovation of the `chanakya-conversation-layer` lies in its abstraction of t
 
 This package decouples those challenges completely. Because it relies on the `AgentInterface` protocol, it is trivially compatible with any other application built on the Microsoft Agent Framework (MAF). A developer can take an existing, highly complex MAF Group Chat—which might consist of five specialized agents debating a topic—and simply wrap the orchestrator in the `ConversationWrapper`. Instantly, the complex MAF ecosystem inherits robust topic continuity tracking, chunked message delivery, and real-time interruption handling, transforming a static text-based bot into a fluid, voice-ready conversational agent.
 
+
+### Humanizing Core Responses: The Delivery Flow
+
+One of the most critical functions of the Conversation Layer is its ability to take a dense, robotic response from a core reasoning agent and transform it into a natural, human-friendly conversational flow. This is achieved through a specialized processing pipeline that manipulates the output without altering the underlying semantic meaning.
+
+```mermaid
+flowchart TD
+    A[Core Reasoning Agent] -->|Dense JSON/Text Output| B(Working Memory - WM)
+    B --> C{MAF Orchestration Agent}
+    C -->|Analyze Intent & Context| D[Prompt Processing & Splitting]
+    D -->|Chunking Strategy| E[Delivery Plan Generation]
+    E -->|Create DeliveryMessage objects| F(Message Queue - Pending)
+    F -->|Sequential TTS Dispatch| G[Client UI / Speaker]
+    G -.->|Interruption detected| B
+```
+
+**The Transformation Process:**
+1. **Raw Ingestion:** The `Core Reasoning Agent` (e.g., a complex MAF group chat determining the steps to deploy a server) emits a massive block of text or structured data.
+2. **Contextual Evaluation:** The `MAFOrchestrationAgent` evaluates this raw output against the `ResponseScopedWorkingMemory`. It looks at the user's original request, the current topic, and any specific conversational preferences (like requested brevity or specific TTS instructions).
+3. **Prompt Processing & Splitting:** Instead of passing the 500-word block directly to the TTS engine, the orchestrator applies splitting logic (`_split_into_chunks`). It intelligently breaks the text at natural conversational pauses—sentences, paragraphs, or bullet points—ensuring the meaning is perfectly preserved while the pacing feels natural.
+4. **Delivery Queueing:** These refined chunks are encapsulated into `DeliveryMessage` objects, complete with calculated `delay_ms` values (e.g., waiting 500ms between sentences). These are placed into the `pending_messages` queue.
+5. **Fluid Dispatch:** The frontend sequentially pulls these chunks. This allows the system to begin speaking the first sentence almost immediately (lowering perceived latency), while subsequent sentences are still being processed or queued. If the user interrupts, the queue is flushed, preventing the assistant from talking over the user.
+
+
 A planner agent (`MAFOrchestrationAgent`) evaluates the incoming message against the existing memory to deduce if the topic has shifted, if the user is interrupting, or if they are acknowledging a previous message. It then formulates a delivery plan, deciding whether to append to the queue, clear working memory, or query the underlying "core agent" for a fresh response.
 
 ### Modularity
