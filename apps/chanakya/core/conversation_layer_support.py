@@ -165,6 +165,7 @@ class ConversationLayerSupport:
                     "conversation_preferences": {
                         "tone": "warm, natural, human",
                         "verbosity": "medium",
+                        "delay_between_messages_ms": 2000,
                         **(
                             {"conversation_tone_instruction": conversation_tone_instruction}
                             if conversation_tone_instruction

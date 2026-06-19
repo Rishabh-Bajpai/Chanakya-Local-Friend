@@ -3,6 +3,9 @@ services:
     image: ghcr.io/speaches-ai/speaches:latest-cpu
     ports:
       - "8969:8000"
+    environment:
+      - HUGGINGFACE_HUB_CACHE=/data
+      - HF_HOME=/data
     volumes:
       - speaches-data:/data
     profiles: [tts, stt]
