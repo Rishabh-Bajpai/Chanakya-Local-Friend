@@ -44,6 +44,50 @@ def normalize_runtime_backend(backend: str | None) -> str:
     return "local"
 
 
+def _fetch_air_models(base_url: str | None) -> list[dict[str, Any]] | None:
+    if not base_url:
+        return None
+    try:
+        with urlopen(f"{base_url}/models/", timeout=1.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, TimeoutError, ValueError, URLError):
+        return None
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return data if isinstance(data, list) else None
+
+
+def _resolve_air_model(
+    *,
+    base_url: str | None,
+    model_id: str | None,
+) -> str | None:
+    models = _fetch_air_models(base_url)
+    if not isinstance(models, list):
+        return model_id or None
+    available_ids = {str(m.get("id") or "").strip() for m in models if isinstance(m, dict)}
+    candidate = str(model_id or "").strip() or None
+    if candidate is not None and candidate not in available_ids:
+        candidate = None
+    if candidate is None:
+        for item in models:
+            if not isinstance(item, dict):
+                continue
+            provider_type = str(item.get("provider_type") or "").strip().lower()
+            m_id = str(item.get("id") or "").strip()
+            if m_id and provider_type == "llm":
+                candidate = m_id
+                break
+        if candidate is None:
+            for item in models:
+                if not isinstance(item, dict):
+                    continue
+                m_id = str(item.get("id") or "").strip()
+                if m_id:
+                    candidate = m_id
+                    break
+    return candidate
+
+
 def create_openai_chat_client(
     *,
     model_id: str | None = None,
@@ -52,31 +96,10 @@ def create_openai_chat_client(
 ) -> OpenAIChatCompletionClient:
     cfg = get_openai_compatible_config()
     resolved_api_key = str(cfg.get("api_key") or "").strip() or None
-    resolved_model = str(model_id or cfg.get("model") or "").strip() or None
-    if resolved_model is None:
-        try:
-            with urlopen(f"{cfg.get('base_url')}/models/", timeout=1.0) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except (OSError, TimeoutError, ValueError, URLError):
-            payload = None
-        models = payload.get("data") if isinstance(payload, dict) else None
-        if isinstance(models, list):
-            for item in models:
-                if not isinstance(item, dict):
-                    continue
-                provider_type = str(item.get("provider_type") or "").strip().lower()
-                candidate = str(item.get("id") or "").strip()
-                if candidate and provider_type == "llm":
-                    resolved_model = candidate
-                    break
-            if resolved_model is None:
-                for item in models:
-                    if not isinstance(item, dict):
-                        continue
-                    candidate = str(item.get("id") or "").strip()
-                    if candidate:
-                        resolved_model = candidate
-                        break
+    resolved_model = _resolve_air_model(
+        base_url=cfg.get("base_url"),
+        model_id=model_id,
+    )
     if resolved_api_key is None and str(cfg.get("base_url") or "").strip():
         resolved_api_key = "air-local-placeholder"
     return OpenAIChatCompletionClient(
@@ -341,7 +364,11 @@ class MAFRuntime:
             "x-session-id": session_id,
         }
 
-        run_client: OpenAIChatCompletionClient | None = None
+        run_client: OpenAIChatCompletionClient | None = (
+            create_openai_chat_client(model_id=model_id)
+            if model_id is not None
+            else None
+        )
 
         debug_log(
             "maf_runtime_before_run",
@@ -349,6 +376,7 @@ class MAFRuntime:
                 "session_id": session_id,
                 "request_id": request_id,
                 "input": text,
+                "model_id": model_id,
                 "tool_count": len(self.cached_tools),
                 "has_image": bool(image_data),
             },
@@ -807,7 +835,7 @@ class MAFRuntime:
                 "a2a_model_provider": str(a2a_model_provider or "").strip() or None,
             }
         return {
-            "model": model_id or cfg.get("model"),
+            "model": model_id,
             "endpoint": cfg.get("base_url"),
             "runtime": "maf_agent",
             "backend": "local",

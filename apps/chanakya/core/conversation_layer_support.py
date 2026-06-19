@@ -102,7 +102,7 @@ class ConversationLayerSupport:
             )
         base_url = str(self._openai_config.get("base_url") or "").strip()
         api_key = str(self._openai_config.get("api_key") or "").strip()
-        resolved_model_id = str(model_id or self._openai_config.get("model") or "").strip()
+        resolved_model_id = str(model_id or "").strip()
         if not (base_url and api_key and resolved_model_id):
             return None
         return MAFOrchestrationAgent(

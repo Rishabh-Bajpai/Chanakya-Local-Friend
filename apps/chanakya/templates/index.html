@@ -4970,6 +4970,26 @@
       return appliedRuntimeConfig;
     }
 
+    async function autoPersistRuntimeConfig() {
+      const pendingConfig = collectPendingRuntimeConfig();
+      if (runtimeConfigsEqual(appliedRuntimeConfig, pendingConfig)) {
+        return;
+      }
+      try {
+        const response = await fetch("/api/runtime-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pendingConfig),
+        });
+        if (response.ok) {
+          const payload = await readJsonResponse(response);
+          appliedRuntimeConfig = normalizeRuntimeConfig(payload);
+          updateRuntimeConfigDirtyState();
+        }
+      } catch {
+      }
+    }
+
     function updateRuntimeConfigState() {
       const runtimeGroup = chatBackendSelect ? chatBackendSelect.closest(".control-group") : null;
       const usingA2A = getSelectedChatBackend() === "a2a";
@@ -6301,7 +6321,7 @@
       setConversationQueueStatus("");
       beginAssistantTurn();
       renderInlineProgressStatus('Chanakya is processing the request', { requestId: activeInlineProgressRequestId || 'pending' });
-      const runtimeConfig = normalizeRuntimeConfig(appliedRuntimeConfig || collectPendingRuntimeConfig());
+      const runtimeConfig = normalizeRuntimeConfig(collectPendingRuntimeConfig());
       if (runtimeConfig.backend === "a2a" && !canUseA2A()) {
         throw new Error(getA2AUnavailableMessage());
       }
@@ -6388,6 +6408,7 @@
           setConversationQueueStatus("");
         }
         await refreshSidePanels();
+        autoPersistRuntimeConfig().catch(() => {});
         if (airVoiceController) {
           airVoiceController.setLatestAssistantText(getLatestAssistantMessageText());
         }

@@ -88,6 +88,12 @@ Then edit `.env` with your local values. Replace all placeholder values marked w
 
 The defaults in `.env.example` use placeholder values and will not work out of the box.
 
+> **Model selection** is managed through the Chanakya UI, not via `.env` variables.
+> Use the model dropdown in the settings panel to pick any model available on
+> your AIR server. The selection is persisted in the database and survives
+> restarts automatically. If no model has been selected, the first available
+> LLM from the AIR server's model list is used.
+
 Common variables used in local development include:
 
 ```bash
@@ -229,7 +235,7 @@ If you are changing runtime behavior, the most relevant files are usually:
 
 Check these first:
 
-1. `.env` exists at the repo root and has the expected model credentials.
+1. `.env` exists at the repo root and has the expected API/connection credentials.
 2. `mcp_config_file.json` exists at the repo root.
 3. The virtual environment includes all three editable installs.
 4. `build/runtime/*.log` shows all services stayed up after startup.
