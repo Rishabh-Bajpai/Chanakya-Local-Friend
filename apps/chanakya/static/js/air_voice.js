@@ -58,6 +58,8 @@
     let recordingLastVoiceAt = 0;
     let recordingConsecutiveVoiceFrames = 0;
     let recordingSubmitInFlight = false;
+    let playbackAudioCtx = null;
+    let playbackSource = null;
 
     function setStatus(text, isError = false) {
       if (!statusNode) {
@@ -140,6 +142,10 @@
       }
       audioQueue = [];
       isPlayingQueue = false;
+      if (playbackSource) {
+        try { playbackSource.stop(); } catch (e) {}
+        playbackSource = null;
+      }
       if (activeAudio) {
         activeAudio.pause();
         activeAudio.src = "";
@@ -565,6 +571,64 @@
       return contentType.includes("audio/mp3") ? "audio/mpeg" : contentType;
     }
 
+    function initPlaybackAudioCtx() {
+      if (playbackAudioCtx) {
+        if (playbackAudioCtx.state === "suspended") {
+          playbackAudioCtx.resume().catch(function() {});
+        }
+        return;
+      }
+      playbackAudioCtx = new AudioContext();
+      playbackAudioCtx.addEventListener("statechange", function() {
+        if (playbackAudioCtx && playbackAudioCtx.state === "suspended") {
+          isBackgroundTab = true;
+        }
+      });
+      playbackAudioCtx.resume().catch(function() {});
+    }
+
+    function cleanupPlaybackAudioCtx() {
+      if (playbackSource) {
+        try { playbackSource.stop(); } catch (e) {}
+        playbackSource = null;
+      }
+      if (playbackAudioCtx) {
+        try { playbackAudioCtx.close(); } catch (e) {}
+        playbackAudioCtx = null;
+      }
+    }
+
+    async function tryAudioCtxPlayback(chunk) {
+      try {
+        if (!playbackAudioCtx) initPlaybackAudioCtx();
+        if (playbackAudioCtx.state === "suspended") {
+          playbackAudioCtx.resume().catch(function() {});
+        }
+        var audioBuffer = await playbackAudioCtx.decodeAudioData(chunk.rawData.slice(0));
+        var source = playbackAudioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(playbackAudioCtx.destination);
+        playbackSource = source;
+        var ended = false;
+        await new Promise(function(resolve) {
+          source.onended = function() {
+            ended = true;
+            resolve();
+          };
+          source.start(0);
+          var timeoutMs = Math.max(500, audioBuffer.duration * 1000 + 2000);
+          setTimeout(function() {
+            if (!ended) resolve();
+          }, timeoutMs);
+        });
+        playbackSource = null;
+        return ended ? "ok" : "timeout";
+      } catch (e) {
+        console.debug("[air-voice] AudioContext playback failed:", e);
+        return "error";
+      }
+    }
+
     function playNextAudioChunk() {
       if (nextAudioTimer) {
         window.clearTimeout(nextAudioTimer);
@@ -576,7 +640,7 @@
         return;
       }
 
-      const nextChunk = audioQueue[0];
+      var nextChunk = audioQueue[0];
       if (nextChunk.status === "pending") {
         isPlayingQueue = false;
         return;
@@ -587,46 +651,80 @@
         return;
       }
 
+      var chunk = audioQueue.shift();
       isPlayingQueue = true;
-      const currentChunk = audioQueue.shift();
-      activeAudio = new Audio(currentChunk.url);
-      const scheduleNextChunk = async () => {
+
+      if (chunk.rawData) {
+        void tryAudioCtxChunk(chunk);
+        return;
+      }
+
+      playLegacyChunk(chunk);
+    }
+
+    async function tryAudioCtxChunk(chunk) {
+      var ctxResult = await tryAudioCtxPlayback(chunk);
+      if (ctxResult === "ok" || ctxResult === "timeout") {
         if (voiceTurnActive && !stopRequested && selectedValue(sttModelSelect)) {
-          try {
-            const result = await waitForInterruptionWindow();
+          var windowResult = await waitForInterruptionWindow();
+          if (windowResult && windowResult.interrupted) {
+            isPlayingQueue = false;
+            return;
+          }
+        }
+        playNextAudioChunk();
+        return;
+      }
+      if (chunk.url) {
+        playLegacyChunk(chunk);
+      } else {
+        playNextAudioChunk();
+      }
+    }
+
+    function playLegacyChunk(chunk) {
+      activeAudio = new Audio(chunk.url);
+      var scheduleNext = function() {
+        if (voiceTurnActive && !stopRequested && selectedValue(sttModelSelect)) {
+          waitForInterruptionWindow().then(function(result) {
             if (result && result.interrupted) {
               isPlayingQueue = false;
               return;
             }
-          } catch (err) {
+            nextAudioTimer = window.setTimeout(function() {
+              nextAudioTimer = null;
+              playNextAudioChunk();
+            }, 0);
+          }).catch(function(err) {
             console.debug("Interruption window check failed:", err);
-          }
+          });
+        } else {
+          nextAudioTimer = window.setTimeout(function() {
+            nextAudioTimer = null;
+            playNextAudioChunk();
+          }, 0);
         }
-        nextAudioTimer = window.setTimeout(() => {
-          nextAudioTimer = null;
-          playNextAudioChunk();
-        }, 0);
       };
-      activeAudio.onended = () => {
-        URL.revokeObjectURL(currentChunk.url);
+      activeAudio.onended = function() {
+        URL.revokeObjectURL(chunk.url);
         activeAudio = null;
-        scheduleNextChunk();
+        scheduleNext();
       };
-      activeAudio.onerror = () => {
-        URL.revokeObjectURL(currentChunk.url);
+      activeAudio.onerror = function() {
+        URL.revokeObjectURL(chunk.url);
         activeAudio = null;
-        scheduleNextChunk();
+        scheduleNext();
       };
       activeAudio.play().catch(function() {
         if (isBackgroundTab) {
-          deferredAudioQueue.push({ url: currentChunk.url });
+          deferredAudioQueue.push({ url: chunk.url });
           activeAudio = null;
-          scheduleNextChunk();
+          scheduleNext();
           return;
         }
-        URL.revokeObjectURL(currentChunk.url);
+        URL.revokeObjectURL(chunk.url);
         activeAudio = null;
-        scheduleNextChunk();
+        scheduleNext();
       });
     }
 
@@ -655,6 +753,7 @@
           return;
         }
         placeholder.url = URL.createObjectURL(new Blob([blob], { type: contentType }));
+        placeholder.rawData = await blob.arrayBuffer();
         placeholder.status = "ready";
         if (!isPlayingQueue) {
           playNextAudioChunk();
@@ -859,6 +958,7 @@
     }
 
     recordButton.addEventListener("click", async () => {
+      initPlaybackAudioCtx();
       try {
         if (recordButton.dataset.state === "recording") {
           await stopRecordingAndProcess();
@@ -876,6 +976,7 @@
 
     if (continuousButton) {
       continuousButton.addEventListener("click", async () => {
+        initPlaybackAudioCtx();
         if (continuousMode) {
           await stopVoiceMode();
           return;
@@ -886,6 +987,7 @@
 
     if (speakButton) {
       speakButton.addEventListener("click", async () => {
+        initPlaybackAudioCtx();
         try {
           const text = (typeof getLatestAssistantText === "function" && getLatestAssistantText()) || latestAssistantText;
           await speakText(text);
@@ -947,6 +1049,9 @@
       }
       if (recordingAudioContext && recordingAudioContext.state === "suspended") {
         recordingAudioContext.resume().catch(function() {});
+      }
+      if (playbackAudioCtx && playbackAudioCtx.state === "suspended") {
+        playbackAudioCtx.resume().catch(function() {});
       }
     }
 
