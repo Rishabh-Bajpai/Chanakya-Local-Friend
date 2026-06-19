@@ -74,7 +74,7 @@ class ProviderManager:
         """Always return the current list from settings (allows dynamic reload)."""
         return settings.PROVIDERS
 
-    async def _fetch_models_from_provider(self, provider: ProviderConfig) -> List[Dict[str, Any]]:
+    async def _fetch_models_from_provider(self, provider: ProviderConfig, _retry: int = 0) -> List[Dict[str, Any]]:
         """Fetch and annotate the model list exposed by a single provider."""
         url = f"{provider.base_url.rstrip('/')}/models"
         headers = {
@@ -84,7 +84,7 @@ class ProviderManager:
             headers["Authorization"] = f"Bearer {provider.api_key}"
 
         try:
-            async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
                 logger.info(f"Querying models from {url}")
                 response = await client.get(url, headers=headers)
                 response.raise_for_status()
@@ -104,7 +104,21 @@ class ProviderManager:
                 logger.info(f"Successfully fetched {len(models)} models from {provider.name}")
                 return models
         except Exception as e:
-            logger.error(f"Failed to fetch models from {provider.name} ({url}): {e}")
+            err_str = str(e)
+            # Retry on transient connection errors (Speaches is known to drop
+            # connections intermittently — see air_server.log).
+            if _retry < 3 and any(kw in err_str for kw in (
+                "disconnected", "Connection refused", "Connection reset",
+                "RemoteProtocolError", "ReadTimeout", "RemoteDisconnected",
+            )):
+                delay = 2 ** _retry
+                logger.warning(
+                    "Transient error fetching models from %s: %s. Retry %d/3 in %ds…",
+                    provider.name, err_str, _retry + 1, delay,
+                )
+                await asyncio.sleep(delay)
+                return await self._fetch_models_from_provider(provider, _retry=_retry + 1)
+
             # Try 127.0.0.1 if localhost failed
             if "localhost" in url:
                 alt_url = url.replace("localhost", "127.0.0.1")
@@ -127,6 +141,7 @@ class ProviderManager:
                 except Exception as e2:
                      logger.error(f"Retry failed for {provider.name}: {e2}")
 
+            logger.error(f"Failed to fetch models from {provider.name} ({url}): {e}")
             return []
 
     async def refresh_models(self) -> List[Dict[str, Any]]:

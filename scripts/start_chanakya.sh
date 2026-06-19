@@ -34,6 +34,24 @@ export ENV_FILE_PATH="$ROOT_ENV_FILE"
 if [[ -f "$ROOT_DIR/docker-compose.yml" ]] && command -v docker &>/dev/null && docker compose version &>/dev/null; then
     printf 'Starting TTS/STT Docker containers...\n'
     docker compose --profile tts up -d 2>/dev/null || true
+
+    # Wait for Speaches to be ready before starting downstream services.
+    # Without this guard the AIR provider manager often sees a disconnected
+    # Speaches during its startup refresh and never caches the TTS/STT models.
+    printf 'Waiting for Speaches (TTS/STT) to become ready...'
+    SPEACHES_READY=false
+    for attempt in $(seq 1 30); do
+        if curl -sf http://127.0.0.1:8969/v1/models >/dev/null 2>&1; then
+            SPEACHES_READY=true
+            printf ' ready (%ds)\n' "$attempt"
+            break
+        fi
+        printf '.'
+        sleep 1
+    done
+    if [[ "$SPEACHES_READY" != "true" ]]; then
+        printf ' NOT ready after 30s — continuing anyway\n'
+    fi
 fi
 
 # Auto-detect Python binary — prefer .venv, then chanakya conda env, then active conda, then PATH

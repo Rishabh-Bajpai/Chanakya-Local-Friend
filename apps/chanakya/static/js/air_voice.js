@@ -28,11 +28,13 @@
     let ttsInFlightCount = 0;
     let spokenAssistantSegments = [];
     let nextAudioTimer = null;
-    const interruptionListeningWindowMs = 3000;
+    const interruptionListeningWindowMs = 2000;
     const interruptionVoiceThreshold = 0.045;
     const interruptionVoiceFrames = 3;
     const activeRecordingSilenceMs = 3000;
     const activeRecordingPollMs = 120;
+    let isBackgroundTab = false;
+    let deferredAudioQueue = [];
     let speechSequenceId = 0;
     let voiceTurnActive = false;
     let interruptionStream = null;
@@ -143,6 +145,10 @@
         activeAudio.src = "";
         activeAudio = null;
       }
+      deferredAudioQueue.forEach(function(item) {
+        URL.revokeObjectURL(item.url);
+      });
+      deferredAudioQueue = [];
     }
 
     function stopInterruptionMonitorTimers() {
@@ -323,6 +329,11 @@
         return;
       }
       recordingAudioContext = new AudioContext();
+      recordingAudioContext.addEventListener("statechange", function() {
+        if (recordingAudioContext && recordingAudioContext.state === "suspended") {
+          isBackgroundTab = true;
+        }
+      });
       recordingSource = recordingAudioContext.createMediaStreamSource(stream);
       recordingAnalyser = recordingAudioContext.createAnalyser();
       recordingAnalyser.fftSize = 2048;
@@ -460,10 +471,17 @@
       interruptionTriggerInFlight = false;
       interruptionConsecutiveVoiceFrames = 0;
       setStatus("Listening for interruption...");
-      return new Promise((resolve) => {
+      return new Promise(function(resolve) {
         interruptionResolve = resolve;
-        interruptionListenTimer = window.setTimeout(() => {
+        interruptionListenTimer = window.setTimeout(async function() {
           interruptionListenTimer = null;
+          if (isBackgroundTab) {
+            var detected = await checkBackgroundVAD();
+            if (detected && !interruptionTriggerInFlight && interruptionWindowActive && token === interruptionWindowToken) {
+              void triggerInterruptionRecording(token);
+              return;
+            }
+          }
           void finishInterruptionWindow({ interrupted: false });
         }, interruptionListeningWindowMs);
 
@@ -495,6 +513,11 @@
 
         function startRmsMonitor(currentToken) {
           interruptionAudioContext = new AudioContext();
+          interruptionAudioContext.addEventListener("statechange", function() {
+            if (interruptionAudioContext && interruptionAudioContext.state === "suspended") {
+              isBackgroundTab = true;
+            }
+          });
           interruptionSource = interruptionAudioContext.createMediaStreamSource(stream);
           interruptionAnalyser = interruptionAudioContext.createAnalyser();
           interruptionAnalyser.fftSize = 2048;
@@ -594,7 +617,13 @@
         activeAudio = null;
         scheduleNextChunk();
       };
-      activeAudio.play().catch(() => {
+      activeAudio.play().catch(function() {
+        if (isBackgroundTab) {
+          deferredAudioQueue.push({ url: currentChunk.url });
+          activeAudio = null;
+          scheduleNextChunk();
+          return;
+        }
         URL.revokeObjectURL(currentChunk.url);
         activeAudio = null;
         scheduleNextChunk();
@@ -867,9 +896,67 @@
       });
     }
 
-    document.addEventListener("visibilitychange", () => {
+    async function checkBackgroundVAD() {
+      var chunks = audioChunks.slice();
+      if (chunks.length === 0) {
+        return false;
+      }
+      for (var ci = 0; ci < chunks.length; ci++) {
+        try {
+          var arrayBuffer = await chunks[ci].arrayBuffer();
+          var offlineCtx = new OfflineAudioContext(1, 1, 48000);
+          var audioBuffer = await offlineCtx.decodeAudioData(arrayBuffer);
+          var data = audioBuffer.getChannelData(0);
+          var sum = 0;
+          for (var si = 0; si < data.length; si++) {
+            sum += data[si] * data[si];
+          }
+          var rms = Math.sqrt(sum / data.length);
+          if (rms >= interruptionVoiceThreshold) {
+            return true;
+          }
+        } catch (e) {
+        }
+      }
+      return false;
+    }
+
+    async function flushDeferredAudioQueue() {
+      while (deferredAudioQueue.length > 0) {
+        var item = deferredAudioQueue.shift();
+        if (stopRequested) {
+          URL.revokeObjectURL(item.url);
+          continue;
+        }
+        try {
+          var audio = new Audio(item.url);
+          await new Promise(function(resolve) {
+            audio.onended = function() { resolve(); };
+            audio.onerror = function() { URL.revokeObjectURL(item.url); resolve(); };
+            audio.play().catch(function() { URL.revokeObjectURL(item.url); resolve(); });
+          });
+        } catch (e) {
+          URL.revokeObjectURL(item.url);
+        }
+      }
+    }
+
+    function resumeAudioContexts() {
+      if (interruptionAudioContext && interruptionAudioContext.state === "suspended") {
+        interruptionAudioContext.resume().catch(function() {});
+      }
+      if (recordingAudioContext && recordingAudioContext.state === "suspended") {
+        recordingAudioContext.resume().catch(function() {});
+      }
+    }
+
+    document.addEventListener("visibilitychange", function() {
       if (document.hidden) {
-        stopPlayback();
+        isBackgroundTab = true;
+      } else {
+        isBackgroundTab = false;
+        void flushDeferredAudioQueue();
+        resumeAudioContexts();
       }
     });
 
