@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
 from collections.abc import Sequence
 from typing import Any
 
-from agent_framework import HistoryProvider, Message
+from agent_framework import Content, HistoryProvider, Message
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from chanakya.config import (
+    get_data_dir,
     get_history_max_chars,
     get_history_max_message_chars,
     get_history_max_messages,
@@ -19,6 +21,9 @@ from chanakya.db import session_scope
 from chanakya.debug import debug_log
 from chanakya.domain import now_iso
 from chanakya.model import ChatMessageModel, ChatSessionModel
+
+_MAX_CONTEXT_IMAGE_COUNT = 4
+_MAX_CONTEXT_IMAGE_BYTES = 4 * 1024 * 1024
 
 
 class SQLAlchemyHistoryProvider(HistoryProvider):
@@ -49,12 +54,16 @@ class SQLAlchemyHistoryProvider(HistoryProvider):
         if not session_id:
             return []
 
+        request_id = state.get("request_id") if isinstance(state, dict) else None
         with session_scope(self.session_factory) as session:
-            rows = session.scalars(
+            query = (
                 select(ChatMessageModel)
                 .where(ChatMessageModel.session_id == session_id)
                 .order_by(ChatMessageModel.id.asc())
-            ).all()
+            )
+            if request_id:
+                query = query.where(ChatMessageModel.request_id != request_id)
+            rows = session.scalars(query).all()
 
         rows = [row for row in rows if not self._is_control_history_row(row)]
         query_text = ""
@@ -95,14 +104,55 @@ class SQLAlchemyHistoryProvider(HistoryProvider):
                 },
             )
 
+        image_budget = {
+            "remaining_images": _MAX_CONTEXT_IMAGE_COUNT,
+            "remaining_bytes": _MAX_CONTEXT_IMAGE_BYTES,
+        }
         return [
-            Message(
-                role=row.role,
-                contents=[content],
-                additional_properties=dict(row.metadata_json or {}),
-            )
-            for row, content in selected
+            self._build_message_with_images(row, content, image_budget) for row, content in selected
         ]
+
+    @staticmethod
+    def _build_message_with_images(
+        row: ChatMessageModel,
+        text_content: str,
+        image_budget: dict[str, int] | None = None,
+    ) -> Message:
+        metadata = dict(row.metadata_json or {})
+        image_files_raw = metadata.get("image_files")
+        image_files = image_files_raw if isinstance(image_files_raw, list) else []
+        contents: list[str | Content] = [text_content]
+        for img_info in image_files:
+            if not isinstance(img_info, dict):
+                continue
+            if image_budget is not None and (
+                image_budget["remaining_images"] <= 0 or image_budget["remaining_bytes"] <= 0
+            ):
+                break
+            path_str = str(img_info.get("path") or "").strip()
+            media_type = str(img_info.get("media_type") or "").strip()
+            if not path_str or not media_type:
+                continue
+            img_path = get_data_dir() / path_str
+            if not img_path.exists() or not img_path.is_file():
+                continue
+            file_size = img_path.stat().st_size
+            if file_size <= 0:
+                continue
+            if image_budget is not None and file_size > image_budget["remaining_bytes"]:
+                continue
+            with open(img_path, "rb") as f:
+                raw = base64.b64encode(f.read()).decode("ascii")
+            data_uri = f"data:{media_type};base64,{raw}"
+            contents.append(Content.from_uri(data_uri))
+            if image_budget is not None:
+                image_budget["remaining_images"] -= 1
+                image_budget["remaining_bytes"] -= file_size
+        return Message(
+            role=row.role,
+            contents=contents,
+            additional_properties=metadata,
+        )
 
     @staticmethod
     def _compress_history_rows(
@@ -184,13 +234,18 @@ class SQLAlchemyHistoryProvider(HistoryProvider):
         truncated_messages = 0
         for idx in sorted(selected_indices):
             row = rows[idx]
+            metadata = dict(row.metadata_json or {})
+            image_files = metadata.get("image_files", []) or []
+            has_images = len(image_files) > 0
             bounded = SQLAlchemyHistoryProvider._bounded_text(
                 str(row.content or ""), max_message_chars
             )
+            if not bounded and not has_images:
+                continue
+            if not bounded and has_images:
+                bounded = "[Image attached]"
             if len(str(row.content or "").replace("\x00", "").strip()) > len(bounded):
                 truncated_messages += 1
-            if not bounded:
-                continue
             remaining = max_chars - used_chars
             if remaining <= 0:
                 break

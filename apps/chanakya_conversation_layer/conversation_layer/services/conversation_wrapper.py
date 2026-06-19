@@ -6,7 +6,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from conversation_layer.schemas import ChatRequest, ChatResponse, DeliveryMessage
+from conversation_layer.schemas import (
+    ChatRequest,
+    ChatResponse,
+    DeliveryMessage,
+    has_non_text_content,
+)
 from conversation_layer.services.agent_interface import AgentInterface
 from conversation_layer.services.orchestration_agent import MAFOrchestrationAgent
 from conversation_layer.services.working_memory import (
@@ -933,6 +938,24 @@ class ConversationWrapper:
                 "queue_action": "replace",
                 "clear_working_memory": True,
                 "preserve_delivered_messages": False,
+                "preserve_pending_messages": False,
+            }
+
+        if has_non_text_content(chat_request.message, chat_request.metadata):
+            return {
+                **wm_decision,
+                "interrupt_type": "reset_and_new_query",
+                "same_topic": True,
+                "topic_continuity_confidence": 0.95,
+                "use_core_agent": True,
+                "reasoning": (
+                    "User attached non-text content (image, file, audio, etc.); "
+                    "core agent must be called to process the content from conversation history."
+                ),
+                "message_for_core_agent": chat_request.message,
+                "queue_action": "replace",
+                "clear_working_memory": False,
+                "preserve_delivered_messages": True,
                 "preserve_pending_messages": False,
             }
 

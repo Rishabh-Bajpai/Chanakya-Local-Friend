@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import atexit
 import json
+import mimetypes
 import queue
 import re
 import signal
@@ -15,7 +16,7 @@ from flask import Flask, Response, jsonify, render_template, request, send_file
 from chanakya.agent.profile_files import default_heartbeat_relative_path, ensure_agent_profile_files
 from chanakya.agent.runtime import MAFRuntime, normalize_runtime_backend
 from chanakya.agent_manager import AgentManager
-from chanakya.chat_service import ChatService
+from chanakya.chat_service import ChatService, InvalidChatRequestError
 from chanakya.config import (
     force_subagents_enabled,
     get_a2a_agent_url,
@@ -345,6 +346,7 @@ def create_app() -> Flask:
         template_folder=str(BASE_DIR / "templates"),
         static_folder=str(BASE_DIR / "static"),
     )
+    app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 
     data_dir = get_data_dir()
     project_root = data_dir.parent
@@ -512,6 +514,12 @@ def create_app() -> Flask:
         else:
             session_id = str(raw_session_id or make_id("session"))
         message = str(payload.get("message", "")).strip()
+        raw_image_data = payload.get("image_data")
+        image_data = str(raw_image_data).strip() if raw_image_data is not None else None
+        if image_data == "":
+            image_data = None
+        if not message and not image_data:
+            return jsonify({"error": "message or image_data is required"}), 400
         runtime_config = get_runtime_config()
         raw_model_id = payload.get("model_id")
         model_id = (
@@ -593,11 +601,10 @@ def create_app() -> Flask:
                 "tts_instruction": tts_instruction,
                 "message_metadata": message_metadata,
                 "message": message,
+                "has_image": bool(image_data),
                 "has_existing_session": bool(payload.get("session_id")),
             },
         )
-        if not message:
-            return jsonify({"error": "message is required"}), 400
         store.ensure_session(session_id, title=message[:60] or "New chat")
         try:
             reply = chat_service.chat(
@@ -613,6 +620,26 @@ def create_app() -> Flask:
                 conversation_tone_instruction=conversation_tone_instruction,
                 tts_instruction=tts_instruction,
                 message_metadata=message_metadata,
+                image_data=image_data,
+            )
+        except InvalidChatRequestError as exc:
+            safe_errors = {
+                "invalid_image_data_format": (
+                    "Invalid image_data format. Expected a base64-encoded image data URL."
+                ),
+                "invalid_image_data_payload": (
+                    "Invalid image_data payload. Could not decode base64 image."
+                ),
+                "image_persist_failed": "Failed to persist uploaded image.",
+            }
+            return (
+                jsonify(
+                    {
+                        "error": safe_errors.get(exc.code, "Invalid chat request."),
+                        "session_id": session_id,
+                    }
+                ),
+                400,
             )
         except Exception as exc:
             debug_log(
@@ -679,6 +706,13 @@ def create_app() -> Flask:
     @app.get("/api/sessions/<session_id>")
     def api_session(session_id: str) -> Any:
         messages = store.list_messages(session_id)
+        for msg in messages:
+            image_files = (msg.get("metadata") or {}).get("image_files", [])
+            if image_files:
+                image_urls = [
+                    f"/api/images/{session_id}/{Path(info['path']).name}" for info in image_files
+                ]
+                msg.setdefault("metadata", {})["image_urls"] = image_urls
         debug_log(
             "api_session_request",
             {
@@ -687,6 +721,14 @@ def create_app() -> Flask:
             },
         )
         return jsonify({"session_id": session_id, "messages": messages})
+
+    @app.get("/api/images/<session_id>/<filename>")
+    def api_session_image(session_id: str, filename: str) -> Any:
+        img_path = get_data_dir() / "images" / session_id / filename
+        if not img_path.exists() or not img_path.is_file():
+            return jsonify({"error": "Image not found"}), 404
+        media_type = mimetypes.guess_type(str(img_path))[0] or "application/octet-stream"
+        return send_file(str(img_path), mimetype=media_type)
 
     @app.get("/api/sessions/<session_id>/active-work")
     def api_session_active_work(session_id: str) -> Any:

@@ -62,6 +62,7 @@ class _ChatServiceCaptureStub:
         conversation_tone_instruction: str | None = None,
         tts_instruction: str | None = None,
         message_metadata: dict[str, object] | None = None,
+        image_data: str | None = None,
     ) -> ChatReply:
         self.calls.append(
             {
@@ -77,6 +78,7 @@ class _ChatServiceCaptureStub:
                 "conversation_tone_instruction": conversation_tone_instruction,
                 "tts_instruction": tts_instruction,
                 "message_metadata": message_metadata,
+                "image_data": image_data,
             }
         )
         return ChatReply(

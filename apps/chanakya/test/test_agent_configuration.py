@@ -28,6 +28,25 @@ class _ManagerStub:
 
 
 class _RuntimeAppStub:
+    def runtime_metadata(
+        self,
+        model_id: str | None = None,
+        backend: str | None = None,
+        a2a_url: str | None = None,
+        a2a_remote_agent: str | None = None,
+        a2a_model_provider: str | None = None,
+        a2a_model_id: str | None = None,
+    ) -> dict[str, str | None]:
+        return {
+            "model": a2a_model_id or model_id,
+            "endpoint": a2a_url or "http://test",
+            "runtime": "maf_agent",
+            "backend": backend or "local",
+            "a2a_remote_agent": a2a_remote_agent,
+            "a2a_model_provider": a2a_model_provider,
+            "a2a_model_id": a2a_model_id,
+        }
+
     def clear_session_state(self, session_id: str) -> None:
         return None
 
@@ -151,6 +170,7 @@ class _ChatServiceCaptureStub:
         conversation_tone_instruction: str | None = None,
         tts_instruction: str | None = None,
         message_metadata: dict[str, object] | None = None,
+        image_data: str | None = None,
     ) -> ChatReply:
         self.calls.append(
             {
@@ -166,6 +186,7 @@ class _ChatServiceCaptureStub:
                 "conversation_tone_instruction": conversation_tone_instruction,
                 "tts_instruction": tts_instruction,
                 "message_metadata": message_metadata,
+                "image_data": image_data,
             }
         )
         return ChatReply(
@@ -561,6 +582,55 @@ def test_api_chat_request_passes_message_metadata(
         "voice_interruption": True,
         "input_mode": "voice",
     }
+
+
+def test_api_chat_request_passes_image_data(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: list[_ChatServiceCaptureStub] = []
+
+    def _build_chat_service(store, runtime, manager):
+        stub = _ChatServiceCaptureStub(store, runtime, manager)
+        captured.append(stub)
+        return stub
+
+    monkeypatch.setattr(app_module, "ChatService", _build_chat_service)
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+    image_data = "data:image/png;base64,QUJD"
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "session_id": "session_image_only",
+            "message": "",
+            "image_data": image_data,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured[0].calls[0]["image_data"] == image_data
+
+
+def test_api_chat_rejects_invalid_image_data(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    app = _build_test_app(tmp_path, monkeypatch)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "session_id": "session_bad_image",
+            "message": "",
+            "image_data": "not-a-data-url",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Invalid image_data format" in response.get_json()["error"]
 
 
 def test_api_a2a_options_returns_discovered_agents_and_models(

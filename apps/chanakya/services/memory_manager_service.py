@@ -8,7 +8,6 @@ from typing import Any
 
 from agent_framework import Message
 
-from chanakya.agent.runtime import MAFRuntime, build_profile_agent, create_openai_chat_client
 from chanakya.config import get_long_term_memory_default_owner_id
 from chanakya.debug import debug_log
 from chanakya.domain import make_id, now_iso
@@ -95,9 +94,15 @@ class MemoryManagerService:
         )
         recent_messages: list[dict[str, Any]] = []
         if effective_request_id:
-            recent_messages = self.store.list_messages_for_request(effective_request_id)[-8:]
+            recent_messages = [
+                self._prepare_message_for_prompt(item)
+                for item in self.store.list_messages_for_request(effective_request_id)[-8:]
+            ]
         elif effective_session_id:
-            recent_messages = self.store.list_messages(effective_session_id)[-8:]
+            recent_messages = [
+                self._prepare_message_for_prompt(item)
+                for item in self.store.list_messages(effective_session_id)[-8:]
+            ]
         prompt = self._build_user_request_prompt(
             user_request=user_request,
             session_id=effective_session_id,
@@ -135,15 +140,7 @@ class MemoryManagerService:
         messages: list[dict[str, Any]],
         active_memories: list[dict[str, Any]],
     ) -> str:
-        recent_messages = [
-            {
-                "id": item.get("id"),
-                "role": item.get("role"),
-                "content": item.get("content"),
-                "created_at": item.get("created_at"),
-            }
-            for item in messages[-8:]
-        ]
+        recent_messages = [self._prepare_message_for_prompt(item) for item in messages[-8:]]
         payload = {
             "mode": "background_turn_update",
             "owner_id": self.owner_id,
@@ -190,6 +187,12 @@ class MemoryManagerService:
         return self._parse_manager_result(raw)
 
     def _run_memory_manager_text(self, *, prompt_text: str, session_id: str) -> str:
+        from chanakya.agent.runtime import (
+            MAFRuntime,
+            build_profile_agent,
+            create_openai_chat_client,
+        )
+
         profile = AgentProfileModel(
             id="agent_memory_manager",
             name="Memory Manager",
@@ -740,6 +743,21 @@ class MemoryManagerService:
         except (TypeError, ValueError):
             return 0.85
         return max(0.0, min(parsed, 1.0))
+
+    @staticmethod
+    def _prepare_message_for_prompt(item: dict[str, Any]) -> dict[str, Any]:
+        content = str(item.get("content") or "").strip()
+        metadata = item.get("metadata") or {}
+        image_files = metadata.get("image_files", []) if isinstance(metadata, dict) else []
+        if not content and image_files:
+            content = "[Image attached]"
+        return {
+            "id": item.get("id"),
+            "role": item.get("role"),
+            "content": content,
+            "metadata": metadata,
+            "created_at": item.get("created_at"),
+        }
 
     @staticmethod
     def _normalize_text(text: str) -> str:

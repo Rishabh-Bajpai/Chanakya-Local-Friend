@@ -3,6 +3,26 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+_NON_TEXT_MESSAGE_PREFIXES = (
+    "[user attached",
+    "[image",
+    "[file",
+    "[audio",
+    "[video",
+)
+
+
+def has_non_text_content(message: str, metadata: dict[str, Any] | None) -> bool:
+    normalized = (message or "").strip().lower()
+    if any(normalized.startswith(prefix) for prefix in _NON_TEXT_MESSAGE_PREFIXES):
+        return True
+    if not isinstance(metadata, dict):
+        return False
+    image_files = metadata.get("image_files")
+    if isinstance(image_files, list) and any(image_files):
+        return True
+    return bool(metadata.get("image_data"))
+
 
 @dataclass(slots=True)
 class DeliveryMessage:
@@ -25,7 +45,7 @@ class ChatRequest:
     def validate(self) -> None:
         if not self.session_id:
             raise ValueError("session_id is required")
-        if not self.message:
+        if not self.message and not has_non_text_content(self.message, self.metadata):
             raise ValueError("message is required")
 
 
