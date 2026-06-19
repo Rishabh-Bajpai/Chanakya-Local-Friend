@@ -1331,6 +1331,7 @@
         }
       }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/config_shell.css') }}" />
   </head>
   <body>
     <div class="shell">
@@ -1345,9 +1346,9 @@
           </div>
           <p>Create and reopen long-running work contexts without crowding the main chat pane.</p>
         </div>
-        <div class="body">
+        <div class="body work-config">
           <section class="sidebar-block">
-            <details class="control-deck">
+            <details class="control-deck" open>
               <summary>
                 <div class="control-deck-titlebar">
                   <div>
@@ -1360,10 +1361,12 @@
               </summary>
               <div class="control-deck-body">
                 <form id="workForm" class="work-form">
+                  <label for="workTitle" class="visually-hidden">Work title</label>
                   <input id="workTitle" type="text" placeholder="Work title" required />
+                  <label for="workDescription" class="visually-hidden">Work description</label>
                   <textarea id="workDescription" placeholder="Describe the objective (optional)"></textarea>
-                  <button id="createWorkButton" type="submit">Create Work</button>
-                  <div id="workStatus" class="status"></div>
+                  <button id="createWorkButton" type="submit" class="air-button">Create Work</button>
+                  <div id="workStatus" class="status-text" aria-live="polite"></div>
                 </form>
               </div>
             </details>
@@ -1375,25 +1378,94 @@
             </div>
             <div id="workList" class="work-list"></div>
           </section>
-          <div hidden aria-hidden="true">
-            <select id="chatBackendSelect">
-              <option value="local">Local OpenAI-compatible via AIR</option>
-              {% if a2a_gui_enabled %}
-              <option value="a2a">A2A</option>
-              {% endif %}
-            </select>
-            <select id="airLlmModel"></select>
-            {% if a2a_gui_enabled %}
-            <button id="a2aRefreshOptionsButton" type="button">Refresh A2A Options</button>
-            {% endif %}
-            <select id="a2aAgentInput"></select>
-            <select id="a2aModelProviderInput"></select>
-            <select id="a2aModelIdInput"></select>
-            <button id="runtimeConfigApplyButton" type="button">Apply Changes</button>
-            <p id="runtimeConfigStatus"></p>
-            <p id="a2aDiscoveryStatus"></p>
-            <select id="airSttModel"></select>
-            <select id="airTtsModel"></select>
+          <section class="sidebar-block">
+            <details class="control-deck">
+              <summary>
+                <div class="control-deck-titlebar">
+                  <div>
+                    <p class="control-deck-kicker">Configuration</p>
+                    <h3>Runtime Settings</h3>
+                    <p>Switch the AI backend, pick a model, and tune conversation defaults. Changes apply to new turns in this work.</p>
+                  </div>
+                  <span class="control-deck-toggle" aria-hidden="true"></span>
+                </div>
+              </summary>
+              <div class="control-deck-body">
+                <div class="control-group">
+                  <div class="air-links">
+                    <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AI Router</a>
+                  </div>
+                  <div class="runtime-models">
+                    <label for="chatBackendSelect">
+                      <span class="label-row">Backend <span class="label-help" title="Local uses your AI Router; A2A delegates to a remote worker.">?</span></span>
+                      <select id="chatBackendSelect">
+                        <option value="local">Local OpenAI-compatible via AIR</option>
+                        {% if a2a_gui_enabled %}
+                        <option value="a2a">A2A</option>
+                        {% endif %}
+                      </select>
+                    </label>
+                    <label for="airLlmModel">
+                      <span class="label-row">Chanakya Model</span>
+                      <select id="airLlmModel"></select>
+                    </label>
+                    {% if a2a_gui_enabled %}
+                    <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
+                    <label for="a2aAgentInput">
+                      <span class="label-row">A2A Worker Override</span>
+                      <select id="a2aAgentInput"></select>
+                    </label>
+                    <label for="a2aModelProviderInput">
+                      <span class="label-row">A2A Model Provider</span>
+                      <select id="a2aModelProviderInput"></select>
+                    </label>
+                    <label for="a2aModelIdInput">
+                      <span class="label-row">A2A Model</span>
+                      <select id="a2aModelIdInput"></select>
+                    </label>
+                    {% endif %}
+                  </div>
+                  <div class="form-actions">
+                    <button id="runtimeConfigApplyButton" class="air-button" type="button">Apply Changes</button>
+                    <button id="runtimeConfigResetButton" class="button-secondary" type="button" title="Clear pending changes and reload the saved values">Reset</button>
+                  </div>
+                  <p id="runtimeConfigStatus" class="control-field-hint" aria-live="polite"></p>
+                  {% if a2a_gui_enabled %}
+                  <p id="a2aDiscoveryStatus" class="control-field-hint" aria-live="polite"></p>
+                  {% endif %}
+                </div>
+              </div>
+            </details>
+          </section>
+          <section class="sidebar-block">
+            <details class="control-deck">
+              <summary>
+                <div class="control-deck-titlebar">
+                  <div>
+                    <p class="control-deck-kicker">Configuration</p>
+                    <h3>Voice</h3>
+                    <p>Pick the speech-to-text and text-to-speech models used when talking to Chanakya.</p>
+                  </div>
+                  <span class="control-deck-toggle" aria-hidden="true"></span>
+                </div>
+              </summary>
+              <div class="control-deck-body">
+                <div class="control-group">
+                  <div class="air-models">
+                    <label for="airSttModel">
+                      <span class="label-row">STT Model</span>
+                      <select id="airSttModel"></select>
+                    </label>
+                    <label for="airTtsModel">
+                      <span class="label-row">TTS Model</span>
+                      <select id="airTtsModel"></select>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </section>
+          <div class="legacy-runtime-config" aria-hidden="true">
             <p id="airVoiceStatus"></p>
             <div id="conversationQueueStatus"></div>
           </div>
@@ -1492,6 +1564,7 @@
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-rust.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markdown.min.js"></script>
     <script src="{{ url_for('static', filename='js/air_voice.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/config_shell.js') }}"></script>
     <script>
       const AIR_SERVER_URL = {{ air_server_url | tojson }};
       const workForm = document.getElementById("workForm");
@@ -3009,6 +3082,21 @@
           runtimeConfigApplyButton.addEventListener("click", async () => {
             try {
               await applyRuntimeConfigChanges();
+            } catch (error) {
+              setRuntimeConfigStatus(String(error && error.message ? error.message : error), true);
+            }
+          });
+        }
+        const runtimeConfigResetButton = document.getElementById("runtimeConfigResetButton");
+        if (runtimeConfigResetButton) {
+          runtimeConfigResetButton.addEventListener("click", async () => {
+            try {
+              setRuntimeConfigStatus("Reloading saved settings...");
+              await loadAppliedRuntimeConfig({ silent: true });
+              setRuntimeConfigStatus("Settings reset to saved values.");
+              if (window.cfgToast) {
+                window.cfgToast("Settings reset to saved values.", { level: "info" });
+              }
             } catch (error) {
               setRuntimeConfigStatus(String(error && error.message ? error.message : error), true);
             }

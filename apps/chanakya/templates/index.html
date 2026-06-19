@@ -3384,6 +3384,7 @@
       z-index: -1;
     }
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/config_shell.css') }}" />
 </head>
 
 <body>
@@ -3612,12 +3613,31 @@
             </div>
           </section>
 
-          <section id="configShell" class="config-shell">
+          <section id="configShell" class="config-shell" aria-label="Chanakya configuration">
             <div class="config-shell-header">
               <div>
                 <h2 class="config-shell-title">Configuration</h2>
                 <p class="config-shell-copy">Settings, voice, workers, and notifications in one scrollable control deck.</p>
               </div>
+              <button id="configShellBackButton" type="button" class="config-shell-back" aria-label="Back to chat">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
+                <span>Back to chat</span>
+              </button>
+            </div>
+            <div class="config-subnav-wrap" id="configSubnavWrap">
+              <button type="button" class="config-subnav-arrow config-subnav-arrow--prev" id="configSubnavPrev" aria-label="Scroll sections left" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
+              </button>
+              <nav class="config-subnav" id="configSubnav" aria-label="Configuration sections">
+                <a class="config-subnav-link" href="#panel-settings"><span class="panel-icon" aria-hidden="true">⚙️</span><span class="panel-label">Settings</span></a>
+                <a class="config-subnav-link" href="#panel-voice"><span class="panel-icon" aria-hidden="true">🎙️</span><span class="panel-label">Voice</span></a>
+                <a class="config-subnav-link" href="#panel-agents"><span class="panel-icon" aria-hidden="true">🤖</span><span class="panel-label">Workers</span></a>
+                <a class="config-subnav-link" href="#panel-mcps"><span class="panel-icon" aria-hidden="true">🧩</span><span class="panel-label">MCPs</span></a>
+                <a class="config-subnav-link" href="#panel-notifications"><span class="panel-icon" aria-hidden="true">📱</span><span class="panel-label">Notifications</span></a>
+              </nav>
+              <button type="button" class="config-subnav-arrow config-subnav-arrow--next" id="configSubnavNext" aria-label="Scroll sections right" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+              </button>
             </div>
             <div id="configShellBody" class="config-shell-body"></div>
           </section>
@@ -3633,7 +3653,7 @@
         <button id="utilityCloseButton" type="button" class="utility-close">✕</button>
       </div>
       <!-- Settings Panel -->
-      <div class="sidebar-panel" data-sidebar-panel="settings">
+      <div class="sidebar-panel" data-sidebar-panel="settings" id="panel-settings">
         <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
           <div class="sidebar-panel-title">
             <span class="panel-icon">⚙️</span>
@@ -3647,8 +3667,8 @@
               <a class="air-link" href="{{ air_dashboard_url }}" target="_blank" rel="noopener noreferrer">Open AI Router</a>
             </div>
             <div class="runtime-models">
-              <label>
-                Backend
+              <label for="chatBackendSelect">
+                <span class="label-row">Backend <span class="label-help" title="Local uses your AI Router; A2A delegates to a remote worker.">?</span></span>
                 <select id="chatBackendSelect">
                   <option value="local">Local OpenAI-compatible via AIR</option>
                   {% if a2a_gui_enabled %}
@@ -3656,22 +3676,22 @@
                   {% endif %}
                 </select>
               </label>
-              <label>
-                Chanakya Model
+              <label for="airLlmModel">
+                <span class="label-row">Chanakya Model</span>
                 <select id="airLlmModel"></select>
               </label>
               {% if a2a_gui_enabled %}
               <button id="a2aRefreshOptionsButton" class="air-button" type="button">Refresh A2A Options</button>
-              <label>
-                A2A Worker Override
+              <label for="a2aAgentInput">
+                <span class="label-row">A2A Worker Override <span class="label-help" title="Pin a specific remote agent when more than one is published.">?</span></span>
                 <select id="a2aAgentInput"></select>
               </label>
-              <label>
-                A2A Model Provider
+              <label for="a2aModelProviderInput">
+                <span class="label-row">A2A Model Provider</span>
                 <select id="a2aModelProviderInput"></select>
               </label>
-              <label>
-                A2A Model
+              <label for="a2aModelIdInput">
+                <span class="label-row">A2A Model</span>
                 <select id="a2aModelIdInput"></select>
               </label>
               {% endif %}
@@ -3681,28 +3701,33 @@
                 <div class="runtime-pref-head">
                   <p class="runtime-pref-title">Conversation Tone</p>
                 </div>
+                <p class="runtime-pref-copy">Sets the default persona, vocabulary, and style for new conversations.</p>
+                <label for="conversationToneInstructionInput" class="visually-hidden">Conversation tone instruction</label>
                 <textarea id="conversationToneInstructionInput" placeholder="Tone and style instruction..."></textarea>
               </div>
               <div class="runtime-pref-card">
                 <div class="runtime-pref-head">
                   <p class="runtime-pref-title">TTS Instruction</p>
                 </div>
+                <p class="runtime-pref-copy">Tell Chanakya how to read its replies out loud (e.g. "use short sentences, no markdown").</p>
+                <label for="ttsInstructionInput" class="visually-hidden">TTS instruction</label>
                 <textarea id="ttsInstructionInput" placeholder="TTS formatting instruction..."></textarea>
               </div>
             </div>
             <div class="air-controls">
               <button id="runtimeConfigApplyButton" class="air-button" type="button">Apply Changes</button>
+              <button id="runtimeConfigResetButton" class="button-secondary" type="button" title="Clear pending changes and reload the saved values">Reset</button>
             </div>
-            <p id="runtimeConfigStatus" class="control-field-hint"></p>
+            <p id="runtimeConfigStatus" class="control-field-hint" aria-live="polite"></p>
             {% if a2a_gui_enabled %}
-            <p id="a2aDiscoveryStatus" class="control-field-hint"></p>
+            <p id="a2aDiscoveryStatus" class="control-field-hint" aria-live="polite"></p>
             {% endif %}
           </div>
         </div>
       </div>
 
       <!-- Voice Panel -->
-      <div class="sidebar-panel" data-sidebar-panel="voice">
+      <div class="sidebar-panel" data-sidebar-panel="voice" id="panel-voice">
         <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
           <div class="sidebar-panel-title">
             <span class="panel-icon">🎙️</span>
@@ -3717,31 +3742,45 @@
               <a class="air-link" href="{{ air_status_url }}" target="_blank" rel="noopener noreferrer">AIR Status</a>
             </div>
             <div class="air-models">
-              <label>
-                STT Model
+              <label for="airSttModel">
+                <span class="label-row">STT Model <span class="label-help" title="Speech-to-text model used for voice input.">?</span></span>
                 <select id="airSttModel"></select>
               </label>
-              <label>
-                TTS Model
+              <label for="airTtsModel">
+                <span class="label-row">TTS Model</span>
                 <select id="airTtsModel"></select>
               </label>
-              <label class="character-select-label">
-                Character Presence
+              <div class="character-select-label">
+                <span class="label-row">Character Presence <span id="voiceCharacterCurrent" class="character-select-value">Current: Eyes-Driven</span></span>
+                <label for="voiceCharacterSelect" class="visually-hidden">Character presence</label>
                 <select id="voiceCharacterSelect">
                   <option value="eyes">Eyes-Driven</option>
                   <option value="mythic">Mythic Indian</option>
                   <option value="character">Character</option>
                   <option value="komi">Komi Live2D</option>
                 </select>
-                <span id="voiceCharacterCurrent" class="character-select-value">Current: Eyes-Driven</span>
-              </label>
+                <div class="character-grid" role="group" aria-label="Quick-pick character">
+                  <button type="button" class="character-swatch" data-character="eyes" aria-pressed="true">
+                    <span class="character-swatch-label">👁 Eyes <span class="character-swatch-meta">Driven</span></span>
+                  </button>
+                  <button type="button" class="character-swatch" data-character="mythic" aria-pressed="false">
+                    <span class="character-swatch-label">🪷 Mythic <span class="character-swatch-meta">Indian</span></span>
+                  </button>
+                  <button type="button" class="character-swatch" data-character="character" aria-pressed="false">
+                    <span class="character-swatch-label">🎭 Character <span class="character-swatch-meta">Avatar</span></span>
+                  </button>
+                  <button type="button" class="character-swatch" data-character="komi" aria-pressed="false">
+                    <span class="character-swatch-label">🌸 Komi <span class="character-swatch-meta">Live2D</span></span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Workers Panel -->
-      <div class="sidebar-panel collapsed" data-sidebar-panel="agents">
+      <div class="sidebar-panel collapsed" data-sidebar-panel="agents" id="panel-agents">
         <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
           <div class="sidebar-panel-title">
             <span class="panel-icon">🤖</span>
@@ -3834,7 +3873,7 @@
         </div>
       </div>
 
-      <div class="sidebar-panel collapsed" data-sidebar-panel="mcps">
+      <div class="sidebar-panel collapsed" data-sidebar-panel="mcps" id="panel-mcps">
         <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
           <div class="sidebar-panel-title">
             <span class="panel-icon">🧩</span>
@@ -3879,7 +3918,7 @@
       </div>
 
       <!-- Notifications Panel -->
-      <div class="sidebar-panel collapsed" data-sidebar-panel="notifications">
+      <div class="sidebar-panel collapsed" data-sidebar-panel="notifications" id="panel-notifications">
         <div class="sidebar-panel-header" onclick="toggleSidebarPanel(this)">
           <div class="sidebar-panel-title">
             <span class="panel-icon">📱</span>
@@ -3893,22 +3932,43 @@
               <label><input id="notificationEnabled" type="checkbox" /> Enable phone notifications</label>
               <label><input id="notificationIncludePreview" type="checkbox" checked /> Include short result summary</label>
             </div>
-            <label>
-              Server URL
-              <input id="notificationServerUrl" type="text" placeholder="https://ntfy.sh" />
-            </label>
-            <label>
-              Topic
-              <input id="notificationTopic" type="text" placeholder="chanakya-..." />
-            </label>
-            <p class="status-text">Install the ntfy app, subscribe to this topic once on your phone, then send a test notification.</p>
-            <div class="form-actions">
-              <button id="notificationSaveButton" type="submit">Save Settings</button>
-              <button id="notificationGenerateButton" type="button" class="button-secondary">Generate Topic</button>
-              <button id="notificationDeleteButton" type="button" class="button-secondary">Delete Topic</button>
-              <button id="notificationTestButton" type="button" class="button-secondary">Send Test</button>
-              <span id="notificationStatus" class="status-text"></span>
+            <div class="notification-onboarding">
+              <div class="onboard-step">
+                <span class="onboard-step-num" aria-hidden="true">1</span>
+                <div>
+                  <p class="onboard-step-title">Install the ntfy app</p>
+                  <p class="onboard-step-copy">Get the free ntfy app for <a class="notification-link" href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener noreferrer">Android</a> or <a class="notification-link" href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener noreferrer">iOS</a>. You only need it installed once.</p>
+                </div>
+              </div>
+              <div class="onboard-step">
+                <span class="onboard-step-num" aria-hidden="true">2</span>
+                <div>
+                  <p class="onboard-step-title">Save your topic</p>
+                  <p class="onboard-step-copy">Pick a server, generate a unique topic, and save.</p>
+                  <div class="topic-row">
+                    <label for="notificationServerUrl" class="visually-hidden">Notification server URL</label>
+                    <input id="notificationServerUrl" type="url" placeholder="https://ntfy.sh" />
+                    <label for="notificationTopic" class="visually-hidden">Notification topic</label>
+                    <input id="notificationTopic" type="text" placeholder="chanakya-..." />
+                    <span id="notificationTopicDisplay" class="topic-value" hidden></span>
+                  </div>
+                </div>
+              </div>
+              <div class="onboard-step">
+                <span class="onboard-step-num" aria-hidden="true">3</span>
+                <div>
+                  <p class="onboard-step-title">Test it on your phone</p>
+                  <p class="onboard-step-copy">Send a test notification to make sure everything is wired up.</p>
+                  <div class="form-actions">
+                    <button id="notificationSaveButton" type="submit" class="air-button">Save Settings</button>
+                    <button id="notificationGenerateButton" type="button" class="button-secondary">Generate Topic</button>
+                    <button id="notificationDeleteButton" type="button" class="button-secondary">Delete Topic</button>
+                    <button id="notificationTestButton" type="button" class="button-secondary">Send Test</button>
+                  </div>
+                </div>
+              </div>
             </div>
+            <p id="notificationStatus" class="status-text" aria-live="polite"></p>
             <div id="notificationQrCard" class="notification-qr" hidden>
               <div>
                 <strong>Android onboarding QR</strong>
@@ -4044,9 +4104,10 @@
   <script src="{{ url_for('static', filename='live2d/live2dcubismcore.min.js') }}"></script>
   <script src="{{ url_for('static', filename='vendor/pixi.min.js') }}"></script>
   <script src="{{ url_for('static', filename='vendor/pixi-live2d-display-cubism4.min.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/voice_stage.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/air_voice.js') }}"></script>
-  <script>
+    <script src="{{ url_for('static', filename='js/voice_stage.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/air_voice.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/config_shell.js') }}"></script>
+    <script>
     const AIR_SERVER_URL = {{ air_server_url | tojson }};
     const chatForm = document.getElementById("chatForm");
     const messageInput = document.getElementById("messageInput");
@@ -6510,6 +6571,21 @@
           }
         });
       }
+      const runtimeConfigResetButton = document.getElementById("runtimeConfigResetButton");
+      if (runtimeConfigResetButton) {
+        runtimeConfigResetButton.addEventListener("click", async () => {
+          try {
+            setRuntimeConfigStatus("Reloading saved settings...");
+            await loadAppliedRuntimeConfig({ silent: true });
+            setRuntimeConfigStatus("Settings reset to saved values.");
+            if (window.cfgToast) {
+              window.cfgToast("Settings reset to saved values.", { level: "info" });
+            }
+          } catch (error) {
+            setRuntimeConfigStatus(String(error && error.message ? error.message : error), true);
+          }
+        });
+      }
       if (airLlmModel) {
         airLlmModel.addEventListener("change", updateRuntimeConfigDirtyState);
       }
@@ -7895,6 +7971,36 @@
     if (modeBackButton) {
       modeBackButton.addEventListener("click", () => {
         setMainMode("chat");
+      });
+    }
+
+    const configShellBackButton = document.getElementById("configShellBackButton");
+    if (configShellBackButton) {
+      configShellBackButton.addEventListener("click", () => {
+        setMainMode("chat");
+      });
+    }
+
+    // Character swatch quick-pick (Voice panel)
+    const characterSwatches = document.querySelectorAll(".character-swatch[data-character]");
+    characterSwatches.forEach((swatch) => {
+      swatch.addEventListener("click", () => {
+        const value = swatch.getAttribute("data-character");
+        if (!value || !voiceCharacterSelect) return;
+        if (voiceCharacterSelect.value !== value) {
+          voiceCharacterSelect.value = value;
+          voiceCharacterSelect.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      });
+    });
+
+    if (voiceCharacterSelect) {
+      voiceCharacterSelect.addEventListener("change", () => {
+        const value = voiceCharacterSelect.value;
+        characterSwatches.forEach((swatch) => {
+          const match = swatch.getAttribute("data-character") === value;
+          swatch.setAttribute("aria-pressed", match ? "true" : "false");
+        });
       });
     }
 
