@@ -60,6 +60,7 @@
     let recordingSubmitInFlight = false;
     let playbackAudioCtx = null;
     let playbackSource = null;
+    const activeTtsAbortControllers = new Set();
 
     function setStatus(text, isError = false) {
       if (!statusNode) {
@@ -140,6 +141,11 @@
         window.clearTimeout(nextAudioTimer);
         nextAudioTimer = null;
       }
+      activeTtsAbortControllers.forEach(function(controller) {
+        try { controller.abort(); } catch (e) {}
+      });
+      activeTtsAbortControllers.clear();
+      audioQueue.forEach(cleanupChunkUrl);
       audioQueue = [];
       isPlayingQueue = false;
       if (playbackSource) {
@@ -148,6 +154,7 @@
       }
       if (activeAudio) {
         activeAudio.pause();
+        cleanupActiveAudioUrl();
         activeAudio.src = "";
         activeAudio = null;
       }
@@ -571,6 +578,43 @@
       return contentType.includes("audio/mp3") ? "audio/mpeg" : contentType;
     }
 
+    function mediaSourceMimeType(contentType) {
+      const normalized = normalizeAudioContentType(contentType || "audio/mpeg");
+      return normalized.split(";")[0].trim() || "audio/mpeg";
+    }
+
+    function canUseMediaSourceAudio(contentType) {
+      if (!window.MediaSource || typeof MediaSource.isTypeSupported !== "function") {
+        return false;
+      }
+      const mimeType = mediaSourceMimeType(contentType);
+      try {
+        return MediaSource.isTypeSupported(mimeType);
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function cleanupChunkUrl(chunk) {
+      if (!chunk || !chunk.url) {
+        return;
+      }
+      try {
+        URL.revokeObjectURL(chunk.url);
+      } catch (e) {}
+      chunk.url = null;
+    }
+
+    function cleanupActiveAudioUrl() {
+      if (!activeAudio || !activeAudio._airVoiceObjectUrl) {
+        return;
+      }
+      try {
+        URL.revokeObjectURL(activeAudio._airVoiceObjectUrl);
+      } catch (e) {}
+      activeAudio._airVoiceObjectUrl = null;
+    }
+
     function initPlaybackAudioCtx() {
       if (playbackAudioCtx) {
         if (playbackAudioCtx.state === "suspended") {
@@ -683,7 +727,9 @@
     }
 
     function playLegacyChunk(chunk) {
+      chunk.playbackStarted = true;
       activeAudio = new Audio(chunk.url);
+      activeAudio._airVoiceObjectUrl = chunk.url;
       var scheduleNext = function() {
         if (voiceTurnActive && !stopRequested && selectedValue(sttModelSelect)) {
           waitForInterruptionWindow().then(function(result) {
@@ -706,12 +752,12 @@
         }
       };
       activeAudio.onended = function() {
-        URL.revokeObjectURL(chunk.url);
+        cleanupActiveAudioUrl();
         activeAudio = null;
         scheduleNext();
       };
       activeAudio.onerror = function() {
-        URL.revokeObjectURL(chunk.url);
+        cleanupActiveAudioUrl();
         activeAudio = null;
         scheduleNext();
       };
@@ -722,46 +768,184 @@
           scheduleNext();
           return;
         }
-        URL.revokeObjectURL(chunk.url);
+        cleanupActiveAudioUrl();
         activeAudio = null;
         scheduleNext();
       });
     }
 
+    async function waitForMediaSourceOpen(mediaSource) {
+      if (mediaSource.readyState === "open") {
+        return;
+      }
+      await new Promise(function(resolve, reject) {
+        mediaSource.addEventListener("sourceopen", resolve, { once: true });
+        mediaSource.addEventListener("error", reject, { once: true });
+      });
+    }
+
+    function appendStreamChunk(sourceBuffer, state, chunk) {
+      if (state.failed || !chunk || !chunk.byteLength) {
+        return;
+      }
+      state.queue.push(chunk);
+      drainMediaSourceQueue(sourceBuffer, state);
+    }
+
+    function drainMediaSourceQueue(sourceBuffer, state) {
+      if (state.failed || sourceBuffer.updating || !state.queue.length) {
+        return;
+      }
+      try {
+        sourceBuffer.appendBuffer(state.queue.shift());
+      } catch (error) {
+        state.failed = true;
+        throw error;
+      }
+    }
+
+    async function waitForMediaSourceDrain(sourceBuffer, state) {
+      while (!state.failed && (sourceBuffer.updating || state.queue.length)) {
+        await new Promise(function(resolve) {
+          if (!sourceBuffer.updating && !state.queue.length) {
+            resolve(null);
+            return;
+          }
+          sourceBuffer.addEventListener("updateend", resolve, { once: true });
+        });
+      }
+    }
+
+    async function synthesizeSpeechChunkStreaming(text, placeholder, model, controller) {
+      const response = await fetch(`${baseUrl}/v1/audio/speech`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          input: text,
+          voice: "alloy",
+          response_format: "mp3",
+          stream: true,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`TTS failed (${response.status})`);
+      }
+      if (!response.body) {
+        throw new Error("TTS stream body is unavailable");
+      }
+
+      const contentType = normalizeAudioContentType(response.headers.get("content-type") || "audio/mpeg");
+      if (!canUseMediaSourceAudio(contentType)) {
+        throw new Error(`Streaming TTS playback is unsupported for ${contentType}`);
+      }
+
+      const mediaSource = new MediaSource();
+      const objectUrl = URL.createObjectURL(mediaSource);
+      placeholder.url = objectUrl;
+      placeholder.streaming = true;
+
+      await waitForMediaSourceOpen(mediaSource);
+      if (controller.signal.aborted) {
+        throw new DOMException("TTS aborted", "AbortError");
+      }
+
+      const sourceBuffer = mediaSource.addSourceBuffer(mediaSourceMimeType(contentType));
+      const appendState = { queue: [], failed: false };
+      sourceBuffer.mode = "sequence";
+      sourceBuffer.addEventListener("updateend", function() {
+        try {
+          drainMediaSourceQueue(sourceBuffer, appendState);
+        } catch (error) {
+          console.debug("[air-voice] MediaSource append failed:", error);
+        }
+      });
+
+      placeholder.status = "ready";
+      if (!isPlayingQueue) {
+        playNextAudioChunk();
+      }
+
+      const reader = response.body.getReader();
+      try {
+        while (true) {
+          const result = await reader.read();
+          if (result.done) {
+            break;
+          }
+          appendStreamChunk(sourceBuffer, appendState, result.value);
+        }
+        await waitForMediaSourceDrain(sourceBuffer, appendState);
+        if (mediaSource.readyState === "open") {
+          mediaSource.endOfStream();
+        }
+      } catch (error) {
+        if (mediaSource.readyState === "open") {
+          try { mediaSource.endOfStream("decode"); } catch (e) {}
+        }
+        throw error;
+      } finally {
+        reader.releaseLock();
+      }
+    }
+
+    async function synthesizeSpeechChunkBlob(text, placeholder, model, controller) {
+      const response = await fetch(`${baseUrl}/v1/audio/speech`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          input: text,
+          voice: "alloy",
+          response_format: "mp3",
+          stream: false,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`TTS failed (${response.status})`);
+      }
+      const contentType = normalizeAudioContentType(response.headers.get("content-type") || "audio/mpeg");
+      const blob = await response.blob();
+      if (blob.size < 200) {
+        placeholder.status = "error";
+        return;
+      }
+      placeholder.url = URL.createObjectURL(new Blob([blob], { type: contentType }));
+      placeholder.rawData = await blob.arrayBuffer();
+      placeholder.status = "ready";
+      if (!isPlayingQueue) {
+        playNextAudioChunk();
+      }
+    }
+
     async function synthesizeSpeechChunk(text, placeholder) {
       const model = selectedValue(ttsModelSelect);
+      const controller = new AbortController();
+      activeTtsAbortControllers.add(controller);
       ttsInFlightCount += 1;
       try {
-        const response = await fetch(`${baseUrl}/v1/audio/speech`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model,
-            input: text,
-            voice: "alloy",
-            response_format: "mp3",
-            stream: false,
-          }),
-        });
-        if (!response.ok) {
-          throw new Error(`TTS failed (${response.status})`);
-        }
-        const contentType = normalizeAudioContentType(response.headers.get("content-type") || "audio/mpeg");
-        const blob = await response.blob();
-        if (blob.size < 200) {
-          placeholder.status = "error";
-          return;
-        }
-        placeholder.url = URL.createObjectURL(new Blob([blob], { type: contentType }));
-        placeholder.rawData = await blob.arrayBuffer();
-        placeholder.status = "ready";
-        if (!isPlayingQueue) {
-          playNextAudioChunk();
+        try {
+          await synthesizeSpeechChunkStreaming(text, placeholder, model, controller);
+        } catch (streamError) {
+          if (controller.signal.aborted) {
+            placeholder.status = "error";
+            return;
+          }
+          if (placeholder.playbackStarted || placeholder.status === "ready") {
+            console.debug("[air-voice] Streaming TTS ended after playback started:", streamError);
+            return;
+          }
+          cleanupChunkUrl(placeholder);
+          console.debug("[air-voice] Streaming TTS unavailable, falling back to blob playback:", streamError);
+          await synthesizeSpeechChunkBlob(text, placeholder, model, controller);
         }
       } catch (error) {
         placeholder.status = "error";
         throw error;
       } finally {
+        activeTtsAbortControllers.delete(controller);
         ttsInFlightCount -= 1;
         if (!isPlayingQueue) {
           playNextAudioChunk();
