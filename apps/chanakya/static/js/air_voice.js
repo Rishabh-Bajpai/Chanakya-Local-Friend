@@ -1239,6 +1239,33 @@
       }
     }
 
+    var audioUnlocked = false;
+
+    function unlockAudioOnFirstGesture() {
+      var unlock = function() {
+        if (audioUnlocked) return;
+        initPlaybackAudioCtx();
+        audioUnlocked = true;
+        document.removeEventListener("click", unlock);
+        document.removeEventListener("touchstart", unlock);
+        document.removeEventListener("keydown", unlock);
+        document.dispatchEvent(new CustomEvent("air-audio-unlocked"));
+      };
+      document.addEventListener("click", unlock, { once: true });
+      document.addEventListener("touchstart", unlock, { once: true });
+      document.addEventListener("keydown", unlock, { once: true });
+    }
+    unlockAudioOnFirstGesture();
+
+    function ensurePlaybackAudioCtx() {
+      if (!playbackAudioCtx || playbackAudioCtx.state === "closed") {
+        initPlaybackAudioCtx();
+      }
+      if (playbackAudioCtx && playbackAudioCtx.state === "suspended") {
+        playbackAudioCtx.resume().catch(function() {});
+      }
+    }
+
     document.addEventListener("visibilitychange", function() {
       if (document.hidden) {
         isBackgroundTab = true;
@@ -1274,6 +1301,11 @@
           || nextAudioTimer
         );
       },
+      isAudioUnlocked() {
+        return audioUnlocked;
+      },
+      ensurePlaybackAudioCtx,
+      initPlaybackAudioCtx,
       stopSpeechAndInvalidate() {
         speechSequenceId += 1;
         stopPlayback();

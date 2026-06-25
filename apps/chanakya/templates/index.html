@@ -501,6 +501,68 @@
       box-shadow: 0 0 8px rgba(243, 156, 18, 0.5);
     }
 
+    .api-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.04);
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      cursor: default;
+      transition: border-color 200ms ease, background 200ms ease, color 200ms ease;
+    }
+    .api-badge::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      transition: background 200ms ease, box-shadow 200ms ease;
+    }
+    .api-badge.activated {
+      border-color: rgba(76, 217, 100, 0.4);
+      background: rgba(76, 217, 100, 0.1);
+      color: #a0f0b0;
+    }
+    .api-badge.activated::before {
+      background: #4cd964;
+      box-shadow: 0 0 8px rgba(76, 217, 100, 0.5);
+    }
+
+    .api-bind-button {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.04);
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: border-color 200ms ease, background 200ms ease, color 200ms ease;
+      font-family: inherit;
+    }
+    .api-bind-button:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(79, 215, 255, 0.24);
+      color: #ffffff;
+    }
+    .api-bind-button.bound {
+      border-color: rgba(76, 217, 100, 0.4);
+      background: rgba(76, 217, 100, 0.1);
+      color: #a0f0b0;
+    }
+
     .chat {
       display: flex;
       flex-direction: column;
@@ -3206,7 +3268,9 @@
         gap: 8px;
       }
 
-      .debug-badge {
+      .debug-badge,
+      .api-badge,
+      .api-bind-button {
         display: none;
       }
 
@@ -3403,6 +3467,8 @@
             {% if force_subagents_enabled %}
             <span class="debug-badge">Force Subagents: ON</span>
             {% endif %}
+            <span id="apiBadge" class="api-badge" title="POST /api/voice-command">API</span>
+            <button id="apiBindButton" class="api-bind-button" title="Bind current chat session as the API target">Bind API</button>
           </div>
           <div class="top-bar-right">
             <button id="workspacesButton" type="button" class="stage-toggle" title="Open workspaces" aria-label="Open workspaces">
@@ -8349,6 +8415,37 @@
     });
     loadSessionHistory();
 
+    // ---------- External API indicator ----------
+    function updateApiBadge() {
+      var badge = document.getElementById("apiBadge");
+      if (!badge) return;
+      var unlocked = airVoiceController && typeof airVoiceController.isAudioUnlocked === "function"
+        && airVoiceController.isAudioUnlocked();
+      badge.classList.toggle("activated", unlocked);
+    }
+    document.addEventListener("air-audio-unlocked", updateApiBadge);
+    updateApiBadge();
+
+    var apiBindButton = document.getElementById("apiBindButton");
+    if (apiBindButton) {
+      apiBindButton.addEventListener("click", async function() {
+        if (!sessionId) return;
+        try {
+          var resp = await fetch("/api/voice-command/bind", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: sessionId }),
+          });
+          if (resp.ok) {
+            apiBindButton.textContent = "Bound: " + sessionId.substring(0, 8) + "…";
+            apiBindButton.classList.add("bound");
+          }
+        } catch (e) {
+          console.debug("[api-bind] Failed to bind session:", e);
+        }
+      });
+    }
+
     // ---------- Work Notification Polling ----------
     let _wnPollTimer = null;
     const WN_POLL_INTERVAL = 10000;
@@ -8461,7 +8558,55 @@
 
     function connectSSE() {
       const source = new EventSource("/api/stream");
-      source.addEventListener("update", () => scheduleSSERefresh());
+      source.addEventListener("update", (event) => {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch {
+          scheduleSSERefresh();
+          return;
+        }
+        if (data.type === "voice_reply" && Array.isArray(data.messages)) {
+          if (!sessionId && data.session_id) {
+            sessionId = data.session_id;
+            storeSessionId(sessionId);
+          }
+          if (sessionId && data.session_id === sessionId) {
+            (async () => {
+              try {
+                const msgs = await fetchSessionMessages(sessionId);
+                if (Array.isArray(msgs)) renderChatHistory(msgs);
+              } catch {
+                // fall through — at least play the audio
+              }
+              if (airVoiceController && typeof airVoiceController.ensurePlaybackAudioCtx === "function") {
+                airVoiceController.ensurePlaybackAudioCtx();
+              }
+              for (const [index, msg] of data.messages.entries()) {
+                if (!msg.text) continue;
+                if (index > 0) {
+                  appendMessage("assistant", msg.text, null, { artifacts: [] });
+                }
+                if (airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
+                  await airVoiceController.speakAssistantMessageAndWait(msg.text);
+                }
+                if (msg.delay_ms > 0) await delay(msg.delay_ms);
+              }
+              if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
+                await pollNextConversationMessages(sessionId, {
+                  onAssistantMessage: async (content) => {
+                    if (airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
+                      await airVoiceController.speakAssistantMessageAndWait(content);
+                    }
+                  },
+                });
+              }
+            })();
+          }
+        } else {
+          scheduleSSERefresh();
+        }
+      });
       source.addEventListener("connected", () => console.log("[SSE] connected"));
       source.onerror = () => {
         source.close();

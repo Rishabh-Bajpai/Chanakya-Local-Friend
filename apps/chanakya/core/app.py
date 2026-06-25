@@ -668,6 +668,72 @@ def create_app() -> Flask:
         )
         return jsonify(asdict(reply))
 
+    API_SESSION_FILE = get_data_dir() / "api_session.json"
+
+    def _read_api_session_id() -> str:
+        try:
+            return json.loads(API_SESSION_FILE.read_text()).get("session_id", "")
+        except (FileNotFoundError, json.JSONDecodeError, ValueError):
+            return ""
+
+    def _write_api_session_id(session_id: str) -> None:
+        API_SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+        API_SESSION_FILE.write_text(json.dumps({"session_id": session_id}))
+
+    @app.post("/api/voice-command")
+    def api_voice_command() -> Any:
+        text = request.get_data(as_text=True).strip()
+        if not text:
+            return jsonify({"error": "empty body"}), 400
+
+        runtime_config = get_runtime_config()
+        session_id = request.headers.get("X-Session-Id", "").strip()
+        if not session_id:
+            session_id = _read_api_session_id()
+        if not session_id:
+            sessions = store.list_sessions(limit=1)
+            session_id = sessions[0]["id"] if sessions else make_id("session")
+
+        store.ensure_session(session_id, title=text[:60])
+        backend = normalize_runtime_backend(runtime_config["backend"])
+        a2a_url = runtime_config.get("a2a_url") if backend == "a2a" else None
+        a2a_remote_agent = runtime_config.get("a2a_remote_agent") if backend == "a2a" else None
+        a2a_model_provider = runtime_config.get("a2a_model_provider") if backend == "a2a" else None
+        a2a_model_id = runtime_config.get("a2a_model_id") if backend == "a2a" else None
+
+        reply = chat_service.chat(
+            session_id,
+            text,
+            work_id=None,
+            model_id=runtime_config.get("model_id"),
+            backend=backend,
+            a2a_url=a2a_url,
+            a2a_remote_agent=a2a_remote_agent,
+            a2a_model_provider=a2a_model_provider,
+            a2a_model_id=a2a_model_id,
+            conversation_tone_instruction=runtime_config.get("conversation_tone_instruction"),
+            tts_instruction=runtime_config.get("tts_instruction"),
+            message_metadata={"input_mode": "voice_command"},
+        )
+
+        reply_dict = asdict(reply)
+        event_bus.publish("voice_reply", {
+            "session_id": session_id,
+            "messages": reply_dict.get("messages", []),
+            "metadata": reply_dict.get("metadata", {}),
+            "artifacts": reply_dict.get("artifacts", []),
+        })
+        return jsonify({"status": "ok"}), 200
+
+    @app.post("/api/voice-command/bind")
+    def api_voice_command_bind() -> Any:
+        payload = request.get_json(silent=True) or {}
+        session_id = str(payload.get("session_id") or "").strip()
+        if not session_id:
+            return jsonify({"error": "session_id is required"}), 400
+        _write_api_session_id(session_id)
+        return jsonify({"status": "ok", "session_id": session_id}), 200
+
     @app.get("/api/runtime-config")
     def api_runtime_config() -> Any:
         return jsonify(get_runtime_config())

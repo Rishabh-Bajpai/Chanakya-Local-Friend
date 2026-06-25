@@ -178,6 +178,23 @@ class ChatRepository:
                 chat_session.updated_at = now_iso()
             session.commit()
 
+    def list_sessions(self, limit: int = 100) -> list[dict[str, Any]]:
+        with session_scope(self.Session) as session:
+            rows = session.scalars(
+                select(ChatSessionModel)
+                .order_by(ChatSessionModel.updated_at.desc())
+                .limit(limit)
+            ).all()
+        return [
+            {
+                "id": row.id,
+                "title": row.title,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+            for row in rows
+        ]
+
 
 class EventRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
@@ -1991,6 +2008,9 @@ class ChanakyaStore:
 
     def get_latest_assistant_request_id(self, session_id: str) -> str | None:
         return self.chat.get_latest_assistant_request_id(session_id)
+
+    def list_sessions(self, limit: int = 100) -> list[dict[str, Any]]:
+        return self.chat.list_sessions(limit)
 
     def create_artifact(self, **kwargs: Any) -> dict[str, Any]:
         return self.artifacts.create_artifact(**kwargs)
