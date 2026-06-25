@@ -3,11 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONVERSATION_LAYER_DIR="$ROOT_DIR/apps/chanakya_conversation_layer"
-PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 ROOT_ENV_FILE="${ENV_FILE_PATH:-$ROOT_DIR/.env}"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
-  printf 'Python virtual environment is missing at %s\n' "$PYTHON_BIN" >&2
+  PYTHON_BIN="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
+fi
+if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
+  printf 'No Python binary found (checked PYTHON_BIN, .venv, and PATH)\n' >&2
   exit 1
 fi
 

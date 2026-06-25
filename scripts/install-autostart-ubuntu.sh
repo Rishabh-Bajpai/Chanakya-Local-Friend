@@ -67,8 +67,22 @@ if [[ -z "$APP_HOME" || ! -d "$APP_HOME" ]]; then
 fi
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
-  echo "Python virtual environment not found at: $ROOT_DIR/.venv"
-  echo "Create it and install all required packages before installing the service:"
+  for conda_py in "$APP_HOME/miniconda3/envs/chanakya/bin/python" "$APP_HOME/miniconda3/bin/python" "$APP_HOME/anaconda3/bin/python" "$APP_HOME/miniconda/bin/python"; do
+    if [[ -x "$conda_py" ]]; then
+      PYTHON_BIN="$conda_py"
+      break
+    fi
+  done
+fi
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="$(sudo -u "$APP_USER" -i -- command -v python3 2>/dev/null || sudo -u "$APP_USER" command -v python3 2>/dev/null || true)"
+fi
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
+fi
+if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
+  echo "No Python binary found."
+  echo "Activate a Python environment (conda, venv, etc.) or create .venv:"
   echo "  python3.11 -m venv .venv"
   echo "  source .venv/bin/activate"
   echo "  pip install --upgrade pip"
@@ -78,7 +92,10 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   exit 1
 fi
 
-COMMON_PATH="$ROOT_DIR/.venv/bin:$APP_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+SYSTEMD_PYTHON_BIN="$(systemd_escape_value "$PYTHON_BIN")"
+
+CONDA_BIN_DIR="$(dirname "$(sudo -u "$APP_USER" -i -- command -v python3 2>/dev/null || echo '')" 2>/dev/null || true)"
+COMMON_PATH="$ROOT_DIR/.venv/bin${CONDA_BIN_DIR:+:$CONDA_BIN_DIR}:$APP_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 SYSTEMD_COMMON_PATH="$(systemd_escape_value "$COMMON_PATH")"
 
 cat >"$SYSTEMD_DIR/${SERVICE_PREFIX}-air.service" <<EOF
@@ -93,6 +110,7 @@ Type=simple
 User=$APP_USER
 Environment="PATH=$SYSTEMD_COMMON_PATH"
 Environment=ENV_FILE_PATH="$SYSTEMD_ROOT_DIR/.env"
+Environment=PYTHON_BIN="$SYSTEMD_PYTHON_BIN"
 ExecStart="$SYSTEMD_ROOT_DIR/scripts/run-air-service.sh"
 Restart=always
 RestartSec=2
@@ -113,6 +131,7 @@ Type=simple
 User=$APP_USER
 Environment="PATH=$SYSTEMD_COMMON_PATH"
 Environment=ENV_FILE_PATH="$SYSTEMD_ROOT_DIR/.env"
+Environment=PYTHON_BIN="$SYSTEMD_PYTHON_BIN"
 ExecStart="$SYSTEMD_ROOT_DIR/scripts/run-conversation-layer-service.sh"
 Restart=always
 RestartSec=2
@@ -133,6 +152,7 @@ Type=simple
 User=$APP_USER
 Environment="PATH=$SYSTEMD_COMMON_PATH"
 Environment=ENV_FILE_PATH="$SYSTEMD_ROOT_DIR/.env"
+Environment=PYTHON_BIN="$SYSTEMD_PYTHON_BIN"
 ExecStart="$SYSTEMD_ROOT_DIR/scripts/run-chanakya-service.sh"
 Restart=always
 RestartSec=2
