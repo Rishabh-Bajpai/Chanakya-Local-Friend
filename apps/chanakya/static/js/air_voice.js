@@ -33,6 +33,27 @@
     const interruptionVoiceFrames = 3;
     const activeRecordingSilenceMs = 3000;
     const activeRecordingPollMs = 120;
+
+    // Chrome aggressively suspends AudioContexts that aren't actively
+    // producing sound, and blocks the new Audio() element after the
+    // user gesture expires. The AudioContext-based TTS path is therefore
+    // unreliable in Chrome. We detect Chrome/Edge and route all
+    // speakText() calls through the Web Speech API instead. Firefox and
+    // Safari keep the higher-quality AIR TTS path.
+    var isChromeLike = (function() {
+      try {
+        var ua = navigator.userAgent || "";
+        if (/Edg\//.test(ua)) return true;
+        if (/OPR\//.test(ua)) return true;
+        if (/Chrome\//.test(ua) && !/Firefox\//.test(ua) && !/Safari\//.test(ua)) {
+          return !/Chromium\//.test(ua) || /Chrome\//.test(ua);
+        }
+        return false;
+      } catch (e) { return false; }
+    })();
+    if (isChromeLike) {
+      console.log("[air-voice] Chrome-like browser detected; using Web Speech API for TTS");
+    }
     let isBackgroundTab = false;
     let deferredAudioQueue = [];
     let speechSequenceId = 0;
@@ -1007,13 +1028,14 @@
     }
 
     async function speakText(text) {
+      console.log("[air-voice] speakText() called, isChromeLike=", isChromeLike, "audioCtx=", playbackAudioCtx && playbackAudioCtx.state);
       const model = selectedValue(ttsModelSelect);
       const cleaned = String(text || "").replace(/[*_#`~]/g, "").trim();
       if (!cleaned) {
         setStatus("No assistant reply available for playback.", true);
         return;
       }
-      if (!model) {
+      if (!model && !isChromeLike) {
         setStatus("Select a TTS model first.", true);
         return;
       }
@@ -1022,11 +1044,20 @@
         setStatus("Generating speech...");
       }
 
-      // Chrome: if the AudioContext isn't healthy, fall back to the
-      // Web Speech API. The AIR TTS path requires a running AudioContext
-      // and Chrome aggressively suspends it after the click gesture
-      // ends. Web Speech works after the same user gesture and is
-      // guaranteed to produce audio.
+      // Chrome (and Chrome-based browsers) can't reliably use the
+      // AudioContext TTS path: the context goes suspended and new
+      // Audio() is autoplay-blocked. Use the Web Speech API directly.
+      if (isChromeLike) {
+        console.log("[air-voice] speakText: using Web Speech (Chrome path)");
+        var ok = await speakWithWebSpeech(cleaned);
+        if (!ok) {
+          console.warn("[air-voice] speakWithWebSpeech returned false on Chrome");
+        }
+        setStatus("");
+        return;
+      }
+
+      // Firefox / Safari: AudioContext-based AIR TTS path.
       if (!isAudioCtxHealthy()) {
         var wsOk = await speakWithWebSpeech(cleaned);
         if (wsOk) {
@@ -1039,10 +1070,6 @@
       audioQueue = [placeholder];
       await Promise.allSettled([synthesizeSpeechChunk(cleaned, placeholder)]);
 
-      // Post-fetch Chrome check: if the AudioContext was suspended during
-      // the fetch (Chrome's autoplay policy kills it once the click
-      // gesture expires), the queued audio won't actually play. Drop the
-      // queue and fall back to Web Speech.
       if (placeholder.status === "ready" && !isAudioCtxHealthy()) {
         try { URL.revokeObjectURL(placeholder.url); } catch (e) {}
         placeholder.url = null;
