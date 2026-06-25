@@ -290,6 +290,15 @@ Chanakya, gets answered by the configured LLM, and is spoken aloud
 through the bound browser — without ever needing to focus or
 maximize the Chanakya tab.
 
+### Browser support
+
+The auto-TTS playback is verified on **Firefox 152.0.1**. Chromium-
+based browsers (Chrome, Edge, Brave, Opera) currently render the
+response text but do not always play the spoken audio. The text
+response and the curl/SSE flow itself work on Chromium — only the
+in-browser audio playback of the LLM's reply is affected. See
+`docs/CHROME_TTS_NOTES.md` for diagnosis and what was tried.
+
 ## Repository Layout
 
 This workspace contains a few related codebases. The main ones are:
