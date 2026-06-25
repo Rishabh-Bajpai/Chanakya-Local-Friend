@@ -8713,7 +8713,6 @@
           return;
         }
         if (data.type === "voice_reply" && Array.isArray(data.messages)) {
-          console.log("[voice-cmd-sse] voice_reply received, segments:", data.messages.length, "session:", data.session_id, "current:", sessionId);
           if (!sessionId && data.session_id) {
             sessionId = data.session_id;
             storeSessionId(sessionId);
@@ -8723,8 +8722,8 @@
               try {
                 const msgs = await fetchSessionMessages(sessionId);
                 if (Array.isArray(msgs)) renderChatHistory(msgs);
-              } catch (e) {
-                console.warn("[voice-cmd-sse] fetchSessionMessages failed:", e);
+              } catch {
+                // fall through — at least play the audio
               }
               if (airVoiceController && typeof airVoiceController.ensurePlaybackAudioCtx === "function") {
                 airVoiceController.ensurePlaybackAudioCtx();
@@ -8734,33 +8733,21 @@
                 if (index > 0) {
                   appendMessage("assistant", msg.text, null, { artifacts: [] });
                 }
-                try {
-                  if (airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
-                    await airVoiceController.speakAssistantMessageAndWait(msg.text);
-                  }
-                } catch (e) {
-                  console.warn("[voice-cmd-sse] speakAssistantMessageAndWait failed for segment", index, ":", e);
+                if (airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
+                  await airVoiceController.speakAssistantMessageAndWait(msg.text);
                 }
                 if (msg.delay_ms > 0) await delay(msg.delay_ms);
               }
               if (Number(data.metadata?.pending_delivery_count || 0) > 0) {
-                try {
-                  await pollNextConversationMessages(sessionId, {
-                    onAssistantMessage: async (content) => {
-                      if (airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
-                        await airVoiceController.speakAssistantMessageAndWait(content);
-                      }
-                    },
-                  });
-                } catch (e) {
-                  console.warn("[voice-cmd-sse] pollNextConversationMessages failed:", e);
-                }
+                await pollNextConversationMessages(sessionId, {
+                  onAssistantMessage: async (content) => {
+                    if (airVoiceController && typeof airVoiceController.speakAssistantMessageAndWait === "function") {
+                      await airVoiceController.speakAssistantMessageAndWait(content);
+                    }
+                  },
+                });
               }
-            })().catch(function(e) {
-              console.error("[voice-cmd-sse] outer IIFE error:", e);
-            });
-          } else {
-            console.log("[voice-cmd-sse] session mismatch, dropping event");
+            })();
           }
         } else {
           scheduleSSERefresh();

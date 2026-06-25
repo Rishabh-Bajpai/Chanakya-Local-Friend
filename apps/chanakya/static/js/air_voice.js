@@ -40,20 +40,6 @@
     // unreliable in Chrome. We detect Chrome/Edge and route all
     // speakText() calls through the Web Speech API instead. Firefox and
     // Safari keep the higher-quality AIR TTS path.
-    var isChromeLike = (function() {
-      try {
-        var ua = navigator.userAgent || "";
-        if (/Edg\//.test(ua)) return true;
-        if (/OPR\//.test(ua)) return true;
-        if (/Chrome\//.test(ua) && !/Firefox\//.test(ua) && !/Safari\//.test(ua)) {
-          return !/Chromium\//.test(ua) || /Chrome\//.test(ua);
-        }
-        return false;
-      } catch (e) { return false; }
-    })();
-    if (isChromeLike) {
-      console.log("[air-voice] Chrome-like browser detected; using Web Speech API for TTS");
-    }
     let isBackgroundTab = false;
     let deferredAudioQueue = [];
     let speechSequenceId = 0;
@@ -650,27 +636,6 @@
         }
       });
       playbackAudioCtx.resume().catch(function() {});
-      // Chrome aggressively suspends AudioContexts that aren't actively
-      // producing sound. Play a 1-frame silent buffer immediately so the
-      // context stays in the "running" state for subsequent TTS playback.
-      playSilentKick(playbackAudioCtx);
-    }
-
-    function playSilentKick(context) {
-      if (!context) return;
-      try {
-        if (context.state === "suspended") {
-          context.resume().catch(function() {});
-        }
-        var buffer = context.createBuffer(1, 1, context.sampleRate);
-        var source = context.createBufferSource();
-        source.buffer = buffer;
-        source.connect(context.destination);
-        source.start(0);
-        // The buffer ends in ~1/sampleRate seconds; onended fires on its own.
-      } catch (e) {
-        console.warn("[air-voice] Silent kick failed:", e);
-      }
     }
 
     function cleanupPlaybackAudioCtx() {
@@ -689,7 +654,6 @@
         if (!playbackAudioCtx) initPlaybackAudioCtx();
         if (playbackAudioCtx.state === "suspended") {
           playbackAudioCtx.resume().catch(function() {});
-          playSilentKick(playbackAudioCtx);
         }
         var audioBuffer = await playbackAudioCtx.decodeAudioData(chunk.rawData.slice(0));
         var source = playbackAudioCtx.createBufferSource();
@@ -711,7 +675,7 @@
         playbackSource = null;
         return ended ? "ok" : "timeout";
       } catch (e) {
-        console.warn("[air-voice] AudioContext playback failed:", e);
+        console.debug("[air-voice] AudioContext playback failed:", e);
         return "error";
       }
     }
@@ -805,7 +769,6 @@
         scheduleNext();
       };
       activeAudio.play().catch(function() {
-        console.warn("[air-voice] HTMLAudioElement play() was blocked (likely Chrome autoplay policy)");
         if (isBackgroundTab) {
           deferredAudioQueue.push({ url: chunk.url });
           activeAudio = null;
@@ -997,45 +960,14 @@
       }
     }
 
-    function isAudioCtxHealthy() {
-      return Boolean(
-        playbackAudioCtx &&
-        (playbackAudioCtx.state === "running" || playbackAudioCtx.state === "closed")
-      );
-    }
-
-    function speakWithWebSpeech(text) {
-      if (typeof window === "undefined" || !window.speechSynthesis) {
-        return Promise.resolve(false);
-      }
-      return new Promise(function(resolve) {
-        try {
-          var utterance = new SpeechSynthesisUtterance(String(text || "").trim());
-          utterance.rate = 1.0;
-          utterance.pitch = 1.0;
-          utterance.volume = 1.0;
-          utterance.onend = function() { resolve(true); };
-          utterance.onerror = function(e) {
-            console.warn("[air-voice] Web Speech error:", e);
-            resolve(false);
-          };
-          window.speechSynthesis.speak(utterance);
-        } catch (e) {
-          console.warn("[air-voice] Web Speech threw:", e);
-          resolve(false);
-        }
-      });
-    }
-
     async function speakText(text) {
-      console.log("[air-voice] speakText() called, isChromeLike=", isChromeLike, "audioCtx=", playbackAudioCtx && playbackAudioCtx.state);
       const model = selectedValue(ttsModelSelect);
       const cleaned = String(text || "").replace(/[*_#`~]/g, "").trim();
       if (!cleaned) {
         setStatus("No assistant reply available for playback.", true);
         return;
       }
-      if (!model && !isChromeLike) {
+      if (!model) {
         setStatus("Select a TTS model first.", true);
         return;
       }
@@ -1043,43 +975,9 @@
       if (continuousMode) {
         setStatus("Generating speech...");
       }
-
-      // Chrome (and Chrome-based browsers) can't reliably use the
-      // AudioContext TTS path: the context goes suspended and new
-      // Audio() is autoplay-blocked. Use the Web Speech API directly.
-      if (isChromeLike) {
-        console.log("[air-voice] speakText: using Web Speech (Chrome path)");
-        var ok = await speakWithWebSpeech(cleaned);
-        if (!ok) {
-          console.warn("[air-voice] speakWithWebSpeech returned false on Chrome");
-        }
-        setStatus("");
-        return;
-      }
-
-      // Firefox / Safari: AudioContext-based AIR TTS path.
-      if (!isAudioCtxHealthy()) {
-        var wsOk = await speakWithWebSpeech(cleaned);
-        if (wsOk) {
-          setStatus("");
-          return;
-        }
-      }
-
       const placeholder = { url: null, status: "pending" };
       audioQueue = [placeholder];
       await Promise.allSettled([synthesizeSpeechChunk(cleaned, placeholder)]);
-
-      if (placeholder.status === "ready" && !isAudioCtxHealthy()) {
-        try { URL.revokeObjectURL(placeholder.url); } catch (e) {}
-        placeholder.url = null;
-        placeholder.rawData = null;
-        audioQueue = [];
-        setStatus("");
-        await speakWithWebSpeech(cleaned);
-        return;
-      }
-
       await new Promise((resolve) => {
         const poll = () => {
           if (ttsInFlightCount === 0 && !isPlayingQueue && !activeAudio && audioQueue.length === 0) {

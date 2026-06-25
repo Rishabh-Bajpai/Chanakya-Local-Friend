@@ -80,11 +80,11 @@ cp .env.example .env
 
 Then edit `.env` with your local values. Replace all placeholder values marked with `<...>`:
 
-| Variable            | Description                                         | Example                                            |
-| ------------------- | --------------------------------------------------- | -------------------------------------------------- |
-| `OPENAI_BASE_URL` | Your LM Studio or OpenAI-compatible server endpoint | `http://127.0.0.1:1234/v1`                       |
-| `OPENAI_API_KEY`  | API key for your model server                       | `lm-studio` (or your key)                        |
-| `DATABASE_URL`    | Path to your SQLite database                        | `sqlite:////home/user/chanakya_data/chanakya.db` |
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `OPENAI_BASE_URL` | Your LM Studio or OpenAI-compatible server endpoint | `http://127.0.0.1:1234/v1` |
+| `OPENAI_API_KEY` | API key for your model server | `lm-studio` (or your key) |
+| `DATABASE_URL` | Path to your SQLite database | `sqlite:////home/user/chanakya_data/chanakya.db` |
 
 The defaults in `.env.example` use placeholder values and will not work out of the box.
 
@@ -223,16 +223,16 @@ This is the same protocol used by tools like
 [voice-typing-linux](https://github.com/Rishabh-Bajpai/voice-typing-linux)
 when configured to forward its transcripts to a `Command URL` — point
 it at `http://localhost:5513/api/voice-command` and the transcribed
-sentence will be sent into Chanakya and Chanakya's responses are spoken back.
+sentence will be sent into Chanakya and spoken back.
 
 ### Endpoints
 
-| Method | Path                          | Purpose                                           |
-| ------ | ----------------------------- | ------------------------------------------------- |
-| POST   | `/api/voice-command`        | Submit a text command. Body is raw`text/plain`. |
-| POST   | `/api/voice-command/bind`   | Bind a browser session as the API target.         |
-| POST   | `/api/voice-command/unbind` | Release this browser's binding.                   |
-| GET    | `/api/voice-command/status` | Inspect the current binding.                      |
+| Method | Path                              | Purpose                                       |
+| ------ | --------------------------------- | --------------------------------------------- |
+| POST   | `/api/voice-command`              | Submit a text command. Body is raw `text/plain`. |
+| POST   | `/api/voice-command/bind`         | Bind a browser session as the API target.     |
+| POST   | `/api/voice-command/unbind`       | Release this browser's binding.               |
+| GET    | `/api/voice-command/status`       | Inspect the current binding.                  |
 
 ### Sending a command
 
