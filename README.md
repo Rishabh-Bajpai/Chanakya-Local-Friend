@@ -211,6 +211,85 @@ Uninstall:
 sudo ./scripts/uninstall-autostart-ubuntu.sh
 ```
 
+## External Voice-Command API
+
+Chanakya exposes a small HTTP endpoint so any external application (e.g. a
+global hotkey utility, a desktop launcher, a custom script) can push
+text commands into the active chat session and have them answered out
+loud via TTS, exactly as if you had dictated the command with the
+microphone button in the browser.
+
+This is the same protocol used by tools like
+[voice-typing-linux](https://github.com/Rishabh-Bajpai/voice-typing-linux)
+when configured to forward its transcripts to a `Command URL` — point
+it at `http://localhost:5513/api/voice-command` and the transcribed
+sentence will be sent into Chanakya and spoken back.
+
+### Endpoints
+
+| Method | Path                              | Purpose                                       |
+| ------ | --------------------------------- | --------------------------------------------- |
+| POST   | `/api/voice-command`              | Submit a text command. Body is raw `text/plain`. |
+| POST   | `/api/voice-command/bind`         | Bind a browser session as the API target.     |
+| POST   | `/api/voice-command/unbind`       | Release this browser's binding.               |
+| GET    | `/api/voice-command/status`       | Inspect the current binding.                  |
+
+### Sending a command
+
+```bash
+curl -X POST http://localhost:5513/api/voice-command \
+  -H "Content-Type: text/plain" \
+  -d "tell me two jokes"
+```
+
+The endpoint processes the text through the same classic-chat pipeline
+as a typed message: the configured LLM answers, the conversation
+layer paces the reply into TTS-friendly segments with delays, the
+answer is stored in the bound session, and the response is pushed
+over SSE so the bound browser tab renders it and reads it aloud.
+
+### Binding a browser session
+
+There is one active API target at a time. Each browser auto-binds
+its current session the first time you interact with the page, and
+shows the result in the top bar:
+
+- **`Bound: session_2a3bdfb7…`** — this browser owns the API target
+  and will receive any incoming `curl`/script response.
+- **`Bound elsewhere — Take over`** — another browser has the target.
+  Clicking the button (or sending `force: true` to `/bind`) silently
+  takes over. No confirmation is shown to the other browser because
+  it may not be in front of the user.
+
+Use the **Unbind** button to release this browser's ownership if you
+want the API to go idle.
+
+### Bypassing the binding
+
+If you do not want a browser involved at all, pass the target
+session explicitly:
+
+```bash
+curl -X POST http://localhost:5513/api/voice-command \
+  -H "Content-Type: text/plain" \
+  -H "X-Session-Id: session_your_session_id_here" \
+  -d "summarize my last email"
+```
+
+### Example integration: voice-typing-linux
+
+Configure the upstream voice-typing app to use:
+
+- **Command URL**: `http://localhost:5513/api/voice-command`
+- **HTTP method**: `POST`
+- **Content-Type**: `text/plain`
+- **Body**: the transcribed sentence (no wake word, no wrapper)
+
+When you press the configured hotkey, the transcribed text lands in
+Chanakya, gets answered by the configured LLM, and is spoken aloud
+through the bound browser — without ever needing to focus or
+maximize the Chanakya tab.
+
 ## Repository Layout
 
 This workspace contains a few related codebases. The main ones are:

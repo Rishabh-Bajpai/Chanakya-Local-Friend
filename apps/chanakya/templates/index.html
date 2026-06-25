@@ -562,6 +562,31 @@
       background: rgba(76, 217, 100, 0.1);
       color: #a0f0b0;
     }
+    .api-bind-button.bound-elsewhere {
+      border-color: rgba(243, 156, 18, 0.4);
+      background: rgba(243, 156, 18, 0.1);
+      color: #ffd28a;
+    }
+    .api-unbind-button {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 95, 95, 0.35);
+      background: rgba(255, 95, 95, 0.08);
+      color: rgba(255, 175, 175, 0.8);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: border-color 200ms ease, background 200ms ease, color 200ms ease;
+      font-family: inherit;
+    }
+    .api-unbind-button:hover {
+      background: rgba(255, 95, 95, 0.18);
+      color: #ffffff;
+    }
 
     .chat {
       display: flex;
@@ -3270,7 +3295,8 @@
 
       .debug-badge,
       .api-badge,
-      .api-bind-button {
+      .api-bind-button,
+      .api-unbind-button {
         display: none;
       }
 
@@ -3469,6 +3495,7 @@
             {% endif %}
             <span id="apiBadge" class="api-badge" title="POST /api/voice-command">API</span>
             <button id="apiBindButton" class="api-bind-button" title="Bind current chat session as the API target">Bind API</button>
+            <button id="apiUnbindButton" class="api-unbind-button" title="Unbind this browser as the API target" hidden>Unbind</button>
           </div>
           <div class="top-bar-right">
             <button id="workspacesButton" type="button" class="stage-toggle" title="Open workspaces" aria-label="Open workspaces">
@@ -8427,24 +8454,143 @@
     updateApiBadge();
 
     var apiBindButton = document.getElementById("apiBindButton");
+    var apiUnbindButton = document.getElementById("apiUnbindButton");
+    var BROWSER_TOKEN_KEY = "chanakya_browser_token";
+    var browserToken = null;
+    try {
+      browserToken = window.localStorage.getItem(BROWSER_TOKEN_KEY);
+      if (!browserToken) {
+        browserToken = (window.crypto && window.crypto.randomUUID)
+          ? window.crypto.randomUUID()
+          : ("bt_" + Date.now() + "_" + Math.random().toString(16).slice(2));
+        window.localStorage.setItem(BROWSER_TOKEN_KEY, browserToken);
+      }
+    } catch (e) {
+      browserToken = ("bt_" + Date.now() + "_" + Math.random().toString(16).slice(2));
+    }
+
+    function setBindVisualState(state, label) {
+      if (!apiBindButton) return;
+      apiBindButton.classList.remove("bound", "bound-elsewhere");
+      if (state === "bound") {
+        apiBindButton.classList.add("bound");
+      } else if (state === "bound-elsewhere") {
+        apiBindButton.classList.add("bound-elsewhere");
+      }
+      if (label) apiBindButton.textContent = label;
+    }
+
+    function setUnbindVisible(visible) {
+      if (!apiUnbindButton) return;
+      apiUnbindButton.hidden = !visible;
+    }
+
+    async function fetchBindingStatus() {
+      try {
+        var resp = await fetch("/api/voice-command/status", { cache: "no-store" });
+        if (!resp.ok) return null;
+        return await resp.json();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function refreshBindUi() {
+      if (!sessionId) {
+        setBindVisualState(null, "Bind API");
+        setUnbindVisible(false);
+        return;
+      }
+      var status = await fetchBindingStatus();
+      if (!status) return;
+      if (!status.bound) {
+        setBindVisualState(null, "Bind API");
+        setUnbindVisible(false);
+        return;
+      }
+      if (status.session_id === sessionId) {
+        setBindVisualState("bound", "Bound: " + sessionId.substring(0, 8) + "…");
+        setUnbindVisible(true);
+      } else {
+        setBindVisualState(
+          "bound-elsewhere",
+          "Bound elsewhere — Take over"
+        );
+        setUnbindVisible(false);
+      }
+    }
+
+    async function bindApiSession(force) {
+      if (!sessionId) return false;
+      try {
+        var resp = await fetch("/api/voice-command/bind", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: sessionId,
+            browser_token: browserToken,
+            force: !!force,
+          }),
+        });
+        if (resp.ok) {
+          await refreshBindUi();
+          return true;
+        }
+        if (resp.status === 409) {
+          await refreshBindUi();
+          return false;
+        }
+      } catch (e) {
+        console.debug("[api-bind] Failed to bind session:", e);
+      }
+      return false;
+    }
+
+    async function unbindApiSession() {
+      try {
+        var resp = await fetch("/api/voice-command/unbind", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ browser_token: browserToken }),
+        });
+        if (resp.ok) {
+          setBindVisualState(null, "Bind API");
+          setUnbindVisible(false);
+        }
+      } catch (e) {
+        console.debug("[api-unbind] Failed to unbind:", e);
+      }
+    }
+
     if (apiBindButton) {
-      apiBindButton.addEventListener("click", async function() {
+      apiBindButton.addEventListener("click", function() {
         if (!sessionId) return;
-        try {
-          var resp = await fetch("/api/voice-command/bind", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ session_id: sessionId }),
-          });
-          if (resp.ok) {
-            apiBindButton.textContent = "Bound: " + sessionId.substring(0, 8) + "…";
-            apiBindButton.classList.add("bound");
-          }
-        } catch (e) {
-          console.debug("[api-bind] Failed to bind session:", e);
+        if (apiBindButton.classList.contains("bound-elsewhere")) {
+          bindApiSession(true);
+        } else if (apiBindButton.classList.contains("bound")) {
+          // already bound here — no-op
+        } else {
+          bindApiSession(false);
         }
       });
     }
+    if (apiUnbindButton) {
+      apiUnbindButton.addEventListener("click", unbindApiSession);
+    }
+
+    document.addEventListener("air-audio-unlocked", function() {
+      if (!sessionId) {
+        sessionId = createClientSessionId();
+        storeSessionId(sessionId);
+      }
+      bindApiSession(false);
+    });
+
+    // Poll binding status periodically so this browser notices if another
+    // browser has taken over.
+    setInterval(function() {
+      if (sessionId) refreshBindUi();
+    }, 5000);
 
     // ---------- Work Notification Polling ----------
     let _wnPollTimer = null;

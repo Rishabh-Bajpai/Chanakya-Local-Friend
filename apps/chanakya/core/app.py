@@ -670,15 +670,31 @@ def create_app() -> Flask:
 
     API_SESSION_FILE = get_data_dir() / "api_session.json"
 
-    def _read_api_session_id() -> str:
+    def _read_api_binding() -> dict[str, Any]:
         try:
-            return json.loads(API_SESSION_FILE.read_text()).get("session_id", "")
+            data = json.loads(API_SESSION_FILE.read_text())
+            if isinstance(data, dict):
+                return data
         except (FileNotFoundError, json.JSONDecodeError, ValueError):
-            return ""
+            return {}
+        return {}
 
-    def _write_api_session_id(session_id: str) -> None:
+    def _read_api_session_id() -> str:
+        return str(_read_api_binding().get("session_id") or "").strip()
+
+    def _write_api_binding(session_id: str, browser_token: str) -> None:
         API_SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
-        API_SESSION_FILE.write_text(json.dumps({"session_id": session_id}))
+        API_SESSION_FILE.write_text(json.dumps({
+            "session_id": session_id,
+            "browser_token": browser_token,
+            "bound_at": now_iso(),
+        }))
+
+    def _clear_api_binding() -> None:
+        try:
+            API_SESSION_FILE.unlink()
+        except FileNotFoundError:
+            pass
 
     @app.post("/api/voice-command")
     def api_voice_command() -> Any:
@@ -729,10 +745,52 @@ def create_app() -> Flask:
     def api_voice_command_bind() -> Any:
         payload = request.get_json(silent=True) or {}
         session_id = str(payload.get("session_id") or "").strip()
+        browser_token = str(payload.get("browser_token") or "").strip()
+        force = bool(payload.get("force"))
         if not session_id:
             return jsonify({"error": "session_id is required"}), 400
-        _write_api_session_id(session_id)
-        return jsonify({"status": "ok", "session_id": session_id}), 200
+        if not browser_token:
+            return jsonify({"error": "browser_token is required"}), 400
+        current = _read_api_binding()
+        current_token = str(current.get("browser_token") or "").strip()
+        if current and current.get("session_id") and current_token and current_token != browser_token and not force:
+            return jsonify({
+                "error": "bound_in_other_browser",
+                "bound_session_id": current.get("session_id"),
+                "bound_at": current.get("bound_at"),
+            }), 409
+        _write_api_binding(session_id, browser_token)
+        return jsonify({
+            "status": "ok",
+            "session_id": session_id,
+            "bound_at": now_iso(),
+        }), 200
+
+    @app.post("/api/voice-command/unbind")
+    def api_voice_command_unbind() -> Any:
+        payload = request.get_json(silent=True) or {}
+        browser_token = str(payload.get("browser_token") or "").strip()
+        if not browser_token:
+            return jsonify({"error": "browser_token is required"}), 400
+        current = _read_api_binding()
+        current_token = str(current.get("browser_token") or "").strip()
+        if not current:
+            return jsonify({"status": "ok"}), 200
+        if current_token and current_token != browser_token:
+            return jsonify({"error": "forbidden"}), 403
+        _clear_api_binding()
+        return jsonify({"status": "ok"}), 200
+
+    @app.get("/api/voice-command/status")
+    def api_voice_command_status() -> Any:
+        current = _read_api_binding()
+        if not current:
+            return jsonify({"bound": False}), 200
+        return jsonify({
+            "bound": True,
+            "session_id": current.get("session_id"),
+            "bound_at": current.get("bound_at"),
+        }), 200
 
     @app.get("/api/runtime-config")
     def api_runtime_config() -> Any:
