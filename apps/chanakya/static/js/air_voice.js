@@ -629,6 +629,27 @@
         }
       });
       playbackAudioCtx.resume().catch(function() {});
+      // Chrome aggressively suspends AudioContexts that aren't actively
+      // producing sound. Play a 1-frame silent buffer immediately so the
+      // context stays in the "running" state for subsequent TTS playback.
+      playSilentKick(playbackAudioCtx);
+    }
+
+    function playSilentKick(context) {
+      if (!context) return;
+      try {
+        if (context.state === "suspended") {
+          context.resume().catch(function() {});
+        }
+        var buffer = context.createBuffer(1, 1, context.sampleRate);
+        var source = context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(context.destination);
+        source.start(0);
+        // The buffer ends in ~1/sampleRate seconds; onended fires on its own.
+      } catch (e) {
+        console.warn("[air-voice] Silent kick failed:", e);
+      }
     }
 
     function cleanupPlaybackAudioCtx() {
@@ -647,6 +668,7 @@
         if (!playbackAudioCtx) initPlaybackAudioCtx();
         if (playbackAudioCtx.state === "suspended") {
           playbackAudioCtx.resume().catch(function() {});
+          playSilentKick(playbackAudioCtx);
         }
         var audioBuffer = await playbackAudioCtx.decodeAudioData(chunk.rawData.slice(0));
         var source = playbackAudioCtx.createBufferSource();
@@ -668,7 +690,7 @@
         playbackSource = null;
         return ended ? "ok" : "timeout";
       } catch (e) {
-        console.debug("[air-voice] AudioContext playback failed:", e);
+        console.warn("[air-voice] AudioContext playback failed:", e);
         return "error";
       }
     }
@@ -762,6 +784,7 @@
         scheduleNext();
       };
       activeAudio.play().catch(function() {
+        console.warn("[air-voice] HTMLAudioElement play() was blocked (likely Chrome autoplay policy)");
         if (isBackgroundTab) {
           deferredAudioQueue.push({ url: chunk.url });
           activeAudio = null;
@@ -953,6 +976,36 @@
       }
     }
 
+    function isAudioCtxHealthy() {
+      return Boolean(
+        playbackAudioCtx &&
+        (playbackAudioCtx.state === "running" || playbackAudioCtx.state === "closed")
+      );
+    }
+
+    function speakWithWebSpeech(text) {
+      if (typeof window === "undefined" || !window.speechSynthesis) {
+        return Promise.resolve(false);
+      }
+      return new Promise(function(resolve) {
+        try {
+          var utterance = new SpeechSynthesisUtterance(String(text || "").trim());
+          utterance.rate = 1.0;
+          utterance.pitch = 1.0;
+          utterance.volume = 1.0;
+          utterance.onend = function() { resolve(true); };
+          utterance.onerror = function(e) {
+            console.warn("[air-voice] Web Speech error:", e);
+            resolve(false);
+          };
+          window.speechSynthesis.speak(utterance);
+        } catch (e) {
+          console.warn("[air-voice] Web Speech threw:", e);
+          resolve(false);
+        }
+      });
+    }
+
     async function speakText(text) {
       const model = selectedValue(ttsModelSelect);
       const cleaned = String(text || "").replace(/[*_#`~]/g, "").trim();
@@ -968,9 +1021,38 @@
       if (continuousMode) {
         setStatus("Generating speech...");
       }
+
+      // Chrome: if the AudioContext isn't healthy, fall back to the
+      // Web Speech API. The AIR TTS path requires a running AudioContext
+      // and Chrome aggressively suspends it after the click gesture
+      // ends. Web Speech works after the same user gesture and is
+      // guaranteed to produce audio.
+      if (!isAudioCtxHealthy()) {
+        var wsOk = await speakWithWebSpeech(cleaned);
+        if (wsOk) {
+          setStatus("");
+          return;
+        }
+      }
+
       const placeholder = { url: null, status: "pending" };
       audioQueue = [placeholder];
       await Promise.allSettled([synthesizeSpeechChunk(cleaned, placeholder)]);
+
+      // Post-fetch Chrome check: if the AudioContext was suspended during
+      // the fetch (Chrome's autoplay policy kills it once the click
+      // gesture expires), the queued audio won't actually play. Drop the
+      // queue and fall back to Web Speech.
+      if (placeholder.status === "ready" && !isAudioCtxHealthy()) {
+        try { URL.revokeObjectURL(placeholder.url); } catch (e) {}
+        placeholder.url = null;
+        placeholder.rawData = null;
+        audioQueue = [];
+        setStatus("");
+        await speakWithWebSpeech(cleaned);
+        return;
+      }
+
       await new Promise((resolve) => {
         const poll = () => {
           if (ttsInFlightCount === 0 && !isPlayingQueue && !activeAudio && audioQueue.length === 0) {
