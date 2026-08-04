@@ -39,6 +39,7 @@ jobs:
         run: /home/rishabh/.opencode/bin/opencode github run --print-logs
         env:
           HOME: /home/rishabh
+          GITHUB_TOKEN: ${{ github.token }}
           MODEL: opencode-go/deepseek-v4-flash
           MENTIONS: /chanakya
           USE_GITHUB_TOKEN: "true"
@@ -142,6 +143,7 @@ jobs:
         run: /home/rishabh/.opencode/bin/opencode github run --print-logs
         env:
           HOME: /home/rishabh
+          GITHUB_TOKEN: ${{ github.token }}
           MODEL: opencode-go/deepseek-v4-flash
           MENTIONS: /chanakya
           USE_GITHUB_TOKEN: "true"
@@ -207,6 +209,7 @@ jobs:
         run: /home/rishabh/.opencode/bin/opencode github run --print-logs
         env:
           HOME: /home/rishabh
+          GITHUB_TOKEN: ${{ github.token }}
           MODEL: opencode-go/deepseek-v4-flash
           MENTIONS: /chanakya
           USE_GITHUB_TOKEN: "true"
@@ -246,6 +249,7 @@ jobs:
         run: /home/rishabh/.opencode/bin/opencode github run --print-logs
         env:
           HOME: /home/rishabh
+          GITHUB_TOKEN: ${{ github.token }}
           MODEL: opencode-go/deepseek-v4-flash
           MENTIONS: /chanakya
           USE_GITHUB_TOKEN: "true"
@@ -293,6 +297,7 @@ jobs:
         run: /home/rishabh/.opencode/bin/opencode github run --print-logs
         env:
           HOME: /home/rishabh
+          GITHUB_TOKEN: ${{ github.token }}
           MODEL: opencode-go/deepseek-v4-flash
           MENTIONS: /chanakya
           USE_GITHUB_TOKEN: "true"
