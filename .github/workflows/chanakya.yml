@@ -35,11 +35,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Add local opencode to PATH
-        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
       - name: Chanakya PR review
-        run: opencode github run --print-logs
+        run: /home/rishabh/.opencode/bin/opencode github run --print-logs
         env:
+          HOME: /home/rishabh
           MODEL: opencode-go/deepseek-v4-flash
           MENTIONS: /chanakya
           USE_GITHUB_TOKEN: "true"
@@ -139,11 +138,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Add local opencode to PATH
-        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
       - name: Chanakya issue analysis
-        run: opencode github run --print-logs
+        run: /home/rishabh/.opencode/bin/opencode github run --print-logs
         env:
+          HOME: /home/rishabh
           MODEL: opencode-go/deepseek-v4-flash
           MENTIONS: /chanakya
           USE_GITHUB_TOKEN: "true"
@@ -205,11 +203,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Add local opencode to PATH
-        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
       - name: Chanakya triage
-        run: opencode github run --print-logs
+        run: /home/rishabh/.opencode/bin/opencode github run --print-logs
         env:
+          HOME: /home/rishabh
           MODEL: opencode-go/deepseek-v4-flash
           MENTIONS: /chanakya
           USE_GITHUB_TOKEN: "true"
@@ -245,11 +242,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Add local opencode to PATH
-        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
       - name: Chanakya fix
-        run: opencode github run --print-logs
+        run: /home/rishabh/.opencode/bin/opencode github run --print-logs
         env:
+          HOME: /home/rishabh
           MODEL: opencode-go/deepseek-v4-flash
           MENTIONS: /chanakya
           USE_GITHUB_TOKEN: "true"
@@ -293,11 +289,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Add local opencode to PATH
-        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
       - name: Chanakya
-        run: opencode github run --print-logs
+        run: /home/rishabh/.opencode/bin/opencode github run --print-logs
         env:
+          HOME: /home/rishabh
           MODEL: opencode-go/deepseek-v4-flash
           MENTIONS: /chanakya
           USE_GITHUB_TOKEN: "true"
