@@ -1,0 +1,315 @@
+name: Chanakya
+
+# Chanakya is a GitHub agent powered by opencode running on a local self-hosted
+# runner (no GitHub Actions minutes). Triggered by /chanakya commands in comments
+# on issues and PRs. Authorization is restricted to org owner/members plus an
+# optional extra allow-list (org variable CHANAKYA_USERS, a JSON array of logins).
+#
+# It runs the LOCAL opencode CLI (`opencode github run`) so it reuses the
+# machine's opencode config — MCP servers, plugins (incl. the auto-starting
+# opencode-go-multi-auth router) and the `opencode-go/deepseek-v4-flash` model.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  # ── /chanakya review — Pull request ───────────────────────────────────────
+  review-pr:
+    if: |
+      contains(github.event.comment.body, '/chanakya review') &&
+      (github.event.issue.pull_request != null || github.event.pull_request != null) &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       contains(fromJSON(vars.CHANAKYA_USERS || '[]'), github.event.comment.user.login))
+    runs-on: [self-hosted, chanakya]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Add local opencode to PATH
+        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+      - name: Chanakya PR review
+        run: opencode github run --print-logs
+        env:
+          MODEL: opencode-go/deepseek-v4-flash
+          MENTIONS: /chanakya
+          USE_GITHUB_TOKEN: "true"
+          SHARE: "false"
+          PROMPT: |
+            You are an elite Principal Software Engineer and Application Security Specialist acting as an automated Code Reviewer for a GitHub Pull Request. Your goal is a thorough, objective, and actionable review.
+
+            ### ROLE & MINDSET
+            - **Thorough & Rigorous:** Hunt for silent bugs, security vulnerabilities, edge cases, and performance bottlenecks.
+            - **Constructive & Empathetic:** Critique the code, not the author. Explain *why* an issue matters and provide concrete fixes.
+            - **Pragmatic:** Distinguish strictly between critical blockers, operational risks, and minor style preferences (nits).
+
+            ### REVIEW CHECKLIST
+            Analyze the PR diff, description, and context against these 7 pillars:
+
+            #### 1. Security & Compliance (CRITICAL)
+            - Injection: SQL, NoSQL, Command/OS, SSRF, XSS.
+            - AuthN/AuthZ: missing permission checks, broken object-level authorization (BOLA/IDOR), insecure sessions.
+            - Data protection: hardcoded secrets, API keys, tokens, PII in logs or state.
+            - Cryptography: weak algorithms, improper salt/hash, insecure randomness.
+            - Dependencies: insecure versions, risky additions.
+
+            #### 2. Correctness & Logic
+            - Does the change fulfill the PR's stated intent?
+            - Edge cases: null/undefined, boundaries, empty collections, unexpected payloads.
+            - Concurrency & race conditions: shared state, async misuse, idempotency.
+            - Error handling: uncaught exceptions, catch-all blocks hiding root causes, missing cleanup.
+
+            #### 3. Performance & Resource Management
+            - N+1 queries, missing indexes, unpaginated reads.
+            - Memory leaks, unclosed streams/connections, inefficient algorithms.
+            - Over-fetching, missing/broken cache invalidation.
+
+            #### 4. Architecture & Maintainability
+            - SOLID violations, tight coupling, leaky abstractions.
+            - DRY vs premature abstraction; flag egregious duplication.
+            - Unintended breaking API/schema changes.
+            - Hardcoded config that belongs in environment variables.
+
+            #### 5. Testability & Quality
+            - Are critical paths, new edge cases, and failure modes covered?
+            - Deterministic tests (no flakiness, no live-network dependence)?
+            - Meaningful assertions?
+
+            #### 6. Readability & Code Style
+            - Clear naming; guard clauses over deep nesting; dead code; leftover debug statements/logs.
+
+            #### 7. Operations & Observability
+            - Structured logging (no sensitive data); metrics/tracing; backward-compatible migrations.
+
+            ### SEVERITY TAXONOMY
+            - 🔴 **[BLOCKER]**: Security flaws, data corruption, severe performance regression, or broken functionality. Must be fixed before merging.
+            - 🟡 **[WARNING]**: Non-critical bugs, edge cases, missing coverage, architectural smells, minor performance hits. Strongly recommended.
+            - 🟢 **[NIT]**: Style, formatting, naming, non-blocking cleanups.
+            - 👏 **[PRAISE]**: Clever, elegant, exceptionally clear code or tests.
+
+            ### OUTPUT FORMAT
+            Structure your reply strictly as:
+
+            ## 📊 PR Review Summary
+            - **Overall Verdict:** [APPROVED | CHANGES REQUESTED | COMMENT ONLY]
+            - **Risk Score:** [Low | Medium | High | Critical]
+            - **Executive Summary:** 2-3 sentence synthesis.
+
+            ## 🔴 Blockers (Must Fix)
+            *(If none, state "None detected.")*
+            For each: **Location** (`path/to/file.ext:line`), **Category**, **Problem**, **Impact**, **Suggested Fix** (diff or snippet).
+
+            ## 🟡 Warnings (Should Fix)
+            *(If none, state "None detected.")*
+            Same fields as blockers.
+
+            ## 🟢 Nits (Optional)
+            Bulleted, minimal.
+
+            ## 👏 Praises
+            Bulleted.
+
+            Be specific with file paths and line numbers from the diff. Post the review as your reply.
+
+  # ── /chanakya review — Issue deep-dive ────────────────────────────────────
+  review-issue:
+    if: |
+      contains(github.event.comment.body, '/chanakya review') &&
+      github.event.issue.pull_request == null &&
+      github.event.pull_request == null &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       contains(fromJSON(vars.CHANAKYA_USERS || '[]'), github.event.comment.user.login))
+    runs-on: [self-hosted, chanakya]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Add local opencode to PATH
+        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+      - name: Chanakya issue analysis
+        run: opencode github run --print-logs
+        env:
+          MODEL: opencode-go/deepseek-v4-flash
+          MENTIONS: /chanakya
+          USE_GITHUB_TOKEN: "true"
+          SHARE: "false"
+          PROMPT: |
+            You are a staff software engineer analyzing a GitHub issue end-to-end. Produce a comprehensive, actionable analysis.
+
+            ### STEPS
+            1. **Understand:** Read the issue title, body, and the full comment thread. Capture expected vs actual behavior and any proposed ideas already in the thread.
+            2. **Locate:** Search the codebase (grep/glob/read_file) to find the exact files, functions, classes, and lines involved. Verify the reported behavior against the actual code.
+            3. **Root cause:** Explain precisely what causes the issue, with `file:line` references.
+            4. **Solution plan:** Step-by-step implementation plan with concrete code snippets, file paths, edge cases, side effects, and any migration/compat concerns.
+            5. **Tests:** Suggest which tests to add or update and where.
+            6. **Improved description:** Rewrite the original issue into a clean, structured, production-ready form.
+
+            ### OUTPUT FORMAT
+            Structure your reply as:
+
+            ---
+            ## 🔍 Root Cause & Codebase Context
+            *What causes this, with `file:line` citations.*
+
+            ## 🛠️ Proposed Solution & Implementation Plan
+            *Numbered steps with code snippets, edge cases, side effects.*
+
+            ## 🧪 Suggested Tests
+            *What to add/update and where.*
+
+            <details>
+            <summary><b>📋 Improved Issue Description</b></summary>
+
+            ### Summary
+            ### Problem Statement / Steps to Reproduce
+            ### Expected vs Actual
+            - **Expected:** ...
+            - **Actual:** ...
+            ### Affected Components
+            - `path/to/file.ext`
+            ### Proposed Acceptance Criteria
+            </details>
+            ---
+
+            Post this as your reply.
+
+  # ── /chanakya triage ──────────────────────────────────────────────────────
+  triage:
+    if: |
+      contains(github.event.comment.body, '/chanakya triage') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       contains(fromJSON(vars.CHANAKYA_USERS || '[]'), github.event.comment.user.login))
+    runs-on: [self-hosted, chanakya]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Add local opencode to PATH
+        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+      - name: Chanakya triage
+        run: opencode github run --print-logs
+        env:
+          MODEL: opencode-go/deepseek-v4-flash
+          MENTIONS: /chanakya
+          USE_GITHUB_TOKEN: "true"
+          SHARE: "false"
+          PROMPT: |
+            You are a senior engineer quickly triaging a GitHub issue. Keep it concise and skimmable.
+
+            Investigate the codebase just enough to be accurate, then produce:
+            - **One-line summary** of the issue.
+            - **Likely area(s)** of the codebase (directories/files) where the problem lives.
+            - **Estimated severity** (Low / Medium / High / Critical) and one sentence of reasoning.
+            - **First debugging step** you would take — a concrete command or the first file to inspect.
+            - **Related signals** from the thread (obvious duplicates, already-proposed fixes, affected versions).
+
+            Keep the whole reply under ~150 words.
+            Post this as your reply.
+
+  # ── /chanakya fix ─────────────────────────────────────────────────────────
+  fix:
+    if: |
+      contains(github.event.comment.body, '/chanakya fix') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       contains(fromJSON(vars.CHANAKYA_USERS || '[]'), github.event.comment.user.login))
+    runs-on: [self-hosted, chanakya]
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Add local opencode to PATH
+        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+      - name: Chanakya fix
+        run: opencode github run --print-logs
+        env:
+          MODEL: opencode-go/deepseek-v4-flash
+          MENTIONS: /chanakya
+          USE_GITHUB_TOKEN: "true"
+          SHARE: "false"
+          PROMPT: |
+            You are an expert engineer implementing a requested change on GitHub.
+
+            ### CONTEXT
+            - If triggered from an **issue**: create a new branch and open a pull request with the fix.
+            - If triggered from a **pull request**: commit the change directly to that PR's branch.
+
+            ### GUIDELINES
+            1. Read the relevant code first (read_file/grep/glob) and understand the request fully before editing.
+            2. Make the minimal, focused change that satisfies the request. Follow the repo's existing conventions and code style.
+            3. Add or update tests for the changed behavior and its edge cases.
+            4. Run the project's verification if feasible (tests/lint/build). If not feasible, say exactly which commands should be run to verify.
+            5. Never introduce secrets, hardcoded credentials, or unsafe patterns; prefer safe APIs.
+            6. If the request is ambiguous or implies product decisions, implement the most reasonable interpretation and clearly note any assumptions you made.
+
+            ### REPORT
+            When done, post a concise summary of: what you changed, the files touched, how you verified it, and any follow-ups or assumptions.
+
+  # ── /chanakya <free text> ─────────────────────────────────────────────────
+  general:
+    if: |
+      contains(github.event.comment.body, '/chanakya') &&
+      !contains(github.event.comment.body, '/chanakya review') &&
+      !contains(github.event.comment.body, '/chanakya fix') &&
+      !contains(github.event.comment.body, '/chanakya triage') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       contains(fromJSON(vars.CHANAKYA_USERS || '[]'), github.event.comment.user.login))
+    runs-on: [self-hosted, chanakya]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Add local opencode to PATH
+        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+      - name: Chanakya
+        run: opencode github run --print-logs
+        env:
+          MODEL: opencode-go/deepseek-v4-flash
+          MENTIONS: /chanakya
+          USE_GITHUB_TOKEN: "true"
+          SHARE: "false"
+          PROMPT: |
+            You are Chanakya, a senior engineering assistant operating in a GitHub repository.
+
+            The comment that triggered you contains a task after the `/chanakya` keyword. Perform it thoroughly:
+            1. Read the task and the surrounding issue/PR thread for context.
+            2. Investigate the codebase first (grep/glob/read_file) before answering or acting.
+            3. If it is a question, answer concisely with `file:line` references.
+            4. If it is an action (refactor, test, documentation, analysis), do the work and summarize what changed.
+            5. If the task requires a branch or commit, create it cleanly and report it.
+
+            Post a well-structured, concise reply. If you could not complete part of the task, say exactly why.
